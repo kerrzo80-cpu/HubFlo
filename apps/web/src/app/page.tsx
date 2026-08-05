@@ -78,6 +78,7 @@ import {
   type AuditEvent,
   type ClientRecord,
   type ClientSite,
+  type ClientStatus,
   type VatTreatment,
 } from "@/lib/people-seed-data";
 import {
@@ -1108,7 +1109,25 @@ type Invoice = {
   lastChasedAt?: string;
   lastChasedTo?: string;
   lastChaseMessageId?: string;
+  simproInvoiceId?: string;
 };
+
+/** Promote wrongly-Draft simPRO imports into Sent so Unpaid/Overdue folders work from due date. */
+function normalizeInvoiceFolderStatus<T extends { status: InvoiceStatus; paymentStatus?: InvoicePaymentStatus; simproInvoiceId?: string; notes?: string }>(invoice: T): T {
+  const looksImported =
+    Boolean(invoice.simproInvoiceId) ||
+    /imported from simpro/i.test(String(invoice.notes || ""));
+  if (!looksImported) return invoice;
+  if (invoice.status === "Paid" || invoice.status === "Cancelled" || invoice.status === "Partially paid") return invoice;
+  if (invoice.paymentStatus === "Paid") return { ...invoice, status: "Paid" as InvoiceStatus };
+  if (invoice.paymentStatus === "Part paid") return { ...invoice, status: "Partially paid" as InvoiceStatus };
+  if (invoice.status === "Draft") return { ...invoice, status: "Sent" as InvoiceStatus };
+  return invoice;
+}
+
+function normalizeInvoiceList<T extends { status: InvoiceStatus; paymentStatus?: InvoicePaymentStatus; simproInvoiceId?: string; notes?: string }>(rows: T[]) {
+  return rows.map(normalizeInvoiceFolderStatus);
+}
 
 type InvoiceEmailDraft = {
   to: string;
@@ -1823,6 +1842,55 @@ type ContractorDirectoryRecord = {
 };
 
 type DirectoryManagerEntity = "sites" | "suppliers" | "contacts" | "contractors";
+
+type PeopleDirectoryDraft =
+  | {
+      entity: "client";
+      mode: "create" | "edit";
+      id?: string;
+      values: {
+        name: string;
+        primaryContact: string;
+        email: string;
+        phone: string;
+        billingAddress: string;
+        commercialOwner: string;
+        notes: string;
+        status: ClientStatus;
+      };
+    }
+  | {
+      entity: "site";
+      mode: "create" | "edit";
+      id?: string;
+      values: {
+        clientId: string;
+        name: string;
+        address: string;
+        primaryContact: string;
+        serviceLine: string;
+        accessNotes: string;
+        nextVisit: string;
+      };
+    }
+  | {
+      entity: "supplier";
+      mode: "create" | "edit";
+      id?: string;
+      values: Omit<SupplierDirectoryRecord, "archived">;
+    }
+  | {
+      entity: "contact";
+      mode: "create" | "edit";
+      id?: string;
+      values: Omit<ContactDirectoryRecord, "archived">;
+    }
+  | {
+      entity: "contractor";
+      mode: "create" | "edit";
+      id?: string;
+      values: Omit<ContractorDirectoryRecord, "archived">;
+    };
 
 type EmailIntegrationStatus = {
   configured: boolean;
@@ -7579,6 +7647,7 @@ export default function Dashboard() {
   const [suppliers, setSuppliers] = useState<SupplierDirectoryRecord[]>(defaultSupplierDirectory);
   const [contacts, setContacts] = useState<ContactDirectoryRecord[]>(defaultContactDirectory);
   const [contractors, setContractors] = useState<ContractorDirectoryRecord[]>(defaultContractorDirectory);
+  const [peopleDirectoryDraft, setPeopleDirectoryDraft] = useState<PeopleDirectoryDraft | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [activeEmployeeId, setActiveEmployeeId] = useState(seedEmployees[0]?.id ?? "");
   const [loggedInEmployeeId, setLoggedInEmployeeId] = useState<string | null>(null);
@@ -10198,7 +10267,7 @@ export default function Dashboard() {
     setQuotes(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.quotes, demoQuotes).map((quote) => quoteWithCostCentreValue(quote, storedQuoteCostCentres)));
     setLeads(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.leads, demoLeads));
     setPurchaseRequests(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.purchaseRequests, []));
-    setInvoices(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.invoices, demoInvoices));
+    setInvoices(isLiveWorkspace ? [] : normalizeInvoiceList(safeLoadStoredJson(STORAGE_KEYS.invoices, demoInvoices)));
     setBusinessSettings(safeLoadStoredJson(STORAGE_KEYS.businessSettings, defaultBusinessSettings));
     const storedFormTemplates = normalizeFormTemplates(safeLoadStoredJson(STORAGE_KEYS.formTemplates, defaultFormTemplates));
     setFormTemplates(storedFormTemplates);
@@ -10499,7 +10568,7 @@ export default function Dashboard() {
           if (hubState.contacts) setContacts(hubState.contacts);
           if (hubState.contractors) setContractors(hubState.contractors);
           if (hubState.invoices && !hasRecentLocalInvoiceEdit && !pendingInvoiceSaveRef.current) {
-            setInvoices(hubState.invoices);
+            setInvoices(normalizeInvoiceList(hubState.invoices as Invoice[]));
           }
           if (hubState.simproExports) setSimproExports(hubState.simproExports);
           setHasLoadedHubDetailState(true);
@@ -12451,19 +12520,29 @@ export default function Dashboard() {
     [leadSurveyBookings, scheduledJobs],
   );
 
-  /** Day/week diary lanes — employees with availability ticks + surveyors + anyone already booked. */
+  /** Day/week diary lanes — availability-ticked employees + contractors (not suppliers alone). */
   const schedulerDiaryPeople = useMemo(() => {
     const availableEmployees = employees
-      .filter(employeeHasAnyAvailability)
+      .filter((employee) => !employee.archived && employeeHasAnyAvailability(employee))
       .map((employee) => employee.name.trim())
       .filter(Boolean);
-    const names = new Set<string>([...surveyorOptions, ...availableEmployees]);
+    const contractorNames = contractors
+      .filter((contractor) => !contractor.archived)
+      .map((contractor) => contractor.name.trim())
+      .filter(Boolean);
+    const allowed = new Set<string>([
+      ...surveyorOptions,
+      ...availableEmployees,
+      ...contractorNames,
+    ].map((name) => name.toLowerCase()));
+    const names = new Set<string>([...surveyorOptions, ...availableEmployees, ...contractorNames]);
+    // Keep booked people only when they are still an allowed diary person (not a supplier-only name).
     for (const booking of allScheduleBookings) {
       const person = (booking.surveyor || "").trim();
-      if (person) names.add(person);
+      if (person && allowed.has(person.toLowerCase())) names.add(person);
     }
     return Array.from(names).sort((first, second) => first.localeCompare(second));
-  }, [allScheduleBookings, employees]);
+  }, [allScheduleBookings, contractors, employees]);
 
   // Overview gantt uses the same people set as Schedules (not only the three hardcoded surveyors).
   const dashboardGanttPeople = schedulerDiaryPeople;
@@ -16951,6 +17030,541 @@ export default function Dashboard() {
     markSetupEdited();
     setContractors((current) => current.filter((item) => item.id !== record.id));
     showNotice(`${record.name} deleted.`);
+  }
+
+  async function savePeopleDirectoryDraft() {
+    if (!peopleDirectoryDraft) return;
+    const draft = peopleDirectoryDraft;
+    try {
+      if (draft.entity === "client") {
+        const name = draft.values.name.trim();
+        if (!name) {
+          showNotice("Add a client name.");
+          return;
+        }
+        if (draft.mode === "create") {
+          await createCustomerFromDraft("manual directory", {
+            customer: name,
+            contactName: draft.values.primaryContact.trim() || name,
+            phone: draft.values.phone.trim(),
+            email: draft.values.email.trim(),
+            address: draft.values.billingAddress.trim() || "Address to confirm",
+          });
+          showNotice(`${name} created.`);
+        } else if (draft.id) {
+          const id = draft.id;
+          setClients((current) =>
+            current.map((client) =>
+              client.id === id
+                ? {
+                    ...client,
+                    name,
+                    primaryContact: draft.values.primaryContact.trim() || name,
+                    email: draft.values.email.trim(),
+                    phone: draft.values.phone.trim(),
+                    billingAddress: draft.values.billingAddress.trim(),
+                    commercialOwner: draft.values.commercialOwner.trim() || client.commercialOwner,
+                    notes: draft.values.notes.trim(),
+                    status: draft.values.status,
+                  }
+                : client,
+            ),
+          );
+          const updated = clients.find((client) => client.id === id);
+          if (updated) {
+            syncClientAcrossWorkflowRecords({
+              ...updated,
+              name,
+            });
+          }
+          showNotice(`${name} updated.`);
+        }
+      } else if (draft.entity === "site") {
+        const name = draft.values.name.trim();
+        const address = draft.values.address.trim();
+        if (!draft.values.clientId) {
+          showNotice("Pick a client for this site.");
+          return;
+        }
+        if (!name || !address) {
+          showNotice("Add the site name and address.");
+          return;
+        }
+        if (draft.mode === "create") {
+          await createSiteForClient(draft.values.clientId, {
+            name,
+            address,
+            primaryContact: draft.values.primaryContact.trim(),
+            serviceLine: draft.values.serviceLine.trim(),
+            accessNotes: draft.values.accessNotes.trim(),
+            nextVisit: draft.values.nextVisit.trim(),
+          });
+          showNotice(`${name} created.`);
+        } else if (draft.id) {
+          const id = draft.id;
+          setClientSites((current) =>
+            current.map((site) =>
+              site.id === id
+                ? {
+                    ...site,
+                    clientId: draft.values.clientId,
+                    name,
+                    address,
+                    primaryContact: draft.values.primaryContact.trim(),
+                    serviceLine: draft.values.serviceLine.trim(),
+                    accessNotes: draft.values.accessNotes.trim(),
+                    nextVisit: draft.values.nextVisit.trim(),
+                  }
+                : site,
+            ),
+          );
+          syncSiteAcrossWorkflowRecords({
+            id,
+            clientId: draft.values.clientId,
+            name,
+            address,
+            primaryContact: draft.values.primaryContact.trim(),
+            serviceLine: draft.values.serviceLine.trim(),
+            accessNotes: draft.values.accessNotes.trim(),
+            nextVisit: draft.values.nextVisit.trim(),
+          });
+          showNotice(`${name} updated.`);
+        }
+      } else if (draft.entity === "supplier") {
+        const name = draft.values.name.trim();
+        if (!name) {
+          showNotice("Add a supplier name.");
+          return;
+        }
+        markSetupEdited();
+        if (draft.mode === "create") {
+          const id = `supplier-${crypto.randomUUID()}`;
+          setSuppliers((current) =>
+            [...current, { ...draft.values, id, name, email: draft.values.email.trim(), account: draft.values.account.trim() || name }].sort(
+              (a, b) => a.name.localeCompare(b.name),
+            ),
+          );
+          showNotice(`${name} created.`);
+        } else if (draft.id) {
+          const id = draft.id;
+          setSuppliers((current) =>
+            current.map((item) =>
+              item.id === id
+                ? {
+                    ...item,
+                    ...draft.values,
+                    id,
+                    name,
+                    email: draft.values.email.trim(),
+                    account: draft.values.account.trim() || name,
+                  }
+                : item,
+            ),
+          );
+          showNotice(`${name} updated.`);
+        }
+      } else if (draft.entity === "contact") {
+        const name = draft.values.name.trim();
+        if (!name) {
+          showNotice("Add a contact name.");
+          return;
+        }
+        markSetupEdited();
+        if (draft.mode === "create") {
+          const id = `contact-${crypto.randomUUID()}`;
+          setContacts((current) =>
+            [...current, { ...draft.values, id, name }].sort((a, b) => a.name.localeCompare(b.name)),
+          );
+          showNotice(`${name} created.`);
+        } else if (draft.id) {
+          const id = draft.id;
+          setContacts((current) =>
+            current.map((item) => (item.id === id ? { ...item, ...draft.values, id, name } : item)),
+          );
+          showNotice(`${name} updated.`);
+        }
+      } else if (draft.entity === "contractor") {
+        const name = draft.values.name.trim();
+        if (!name) {
+          showNotice("Add a contractor name.");
+          return;
+        }
+        markSetupEdited();
+        if (draft.mode === "create") {
+          const id = `contractor-${crypto.randomUUID()}`;
+          setContractors((current) =>
+            [...current, { ...draft.values, id, name }].sort((a, b) => a.name.localeCompare(b.name)),
+          );
+          showNotice(`${name} created. They can now appear on the scheduler.`);
+        } else if (draft.id) {
+          const id = draft.id;
+          setContractors((current) =>
+            current.map((item) => (item.id === id ? { ...item, ...draft.values, id, name } : item)),
+          );
+          showNotice(`${name} updated.`);
+        }
+      }
+      setPeopleDirectoryDraft(null);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to save directory record.");
+    }
+  }
+
+  function renderPeopleDirectoryDraftForm() {
+    if (!peopleDirectoryDraft) return null;
+    const draft = peopleDirectoryDraft;
+    const title =
+      draft.mode === "create"
+        ? draft.entity === "client"
+          ? "New client"
+          : draft.entity === "site"
+            ? "New site"
+            : draft.entity === "supplier"
+              ? "New supplier"
+              : draft.entity === "contact"
+                ? "New contact"
+                : "New contractor"
+        : draft.entity === "client"
+          ? "Edit client"
+          : draft.entity === "site"
+            ? "Edit site"
+            : draft.entity === "supplier"
+              ? "Edit supplier"
+              : draft.entity === "contact"
+                ? "Edit contact"
+                : "Edit contractor";
+
+    return (
+      <article className="client-site-card" style={{ marginBottom: 16 }}>
+        <header>
+          <div>
+            <h3>{title}</h3>
+            <small>Saved to the live People directory</small>
+          </div>
+          <button className="link-button" type="button" onClick={() => setPeopleDirectoryDraft(null)}>
+            Cancel
+          </button>
+        </header>
+        <div className="form-body employee-page-form two-column-form">
+          {draft.entity === "client" ? (
+            <>
+              <label>
+                Client name
+                <input
+                  value={draft.values.name}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, name: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Primary contact
+                <input
+                  value={draft.values.primaryContact}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, primaryContact: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Email
+                <input
+                  value={draft.values.email}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, email: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Phone
+                <input
+                  value={draft.values.phone}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, phone: event.target.value } })
+                  }
+                />
+              </label>
+              <label className="full-field">
+                Billing / site address
+                <input
+                  value={draft.values.billingAddress}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, billingAddress: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Commercial owner
+                <input
+                  value={draft.values.commercialOwner}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, commercialOwner: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Status
+                <select
+                  value={draft.values.status}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({
+                      ...draft,
+                      values: { ...draft.values, status: event.target.value as ClientStatus },
+                    })
+                  }
+                >
+                  <option value="Active">Active</option>
+                  <option value="Prospect">Prospect</option>
+                  <option value="On hold">On hold</option>
+                </select>
+              </label>
+              <label className="full-field">
+                Notes
+                <input
+                  value={draft.values.notes}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, notes: event.target.value } })
+                  }
+                />
+              </label>
+            </>
+          ) : null}
+          {draft.entity === "site" ? (
+            <>
+              <label>
+                Client
+                <select
+                  value={draft.values.clientId}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, clientId: event.target.value } })
+                  }
+                >
+                  <option value="">Select client</option>
+                  {clients.filter((client) => !client.archived).map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Site name
+                <input
+                  value={draft.values.name}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, name: event.target.value } })
+                  }
+                />
+              </label>
+              <label className="full-field">
+                Address
+                <input
+                  value={draft.values.address}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, address: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Primary contact
+                <input
+                  value={draft.values.primaryContact}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, primaryContact: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Service line
+                <input
+                  value={draft.values.serviceLine}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, serviceLine: event.target.value } })
+                  }
+                />
+              </label>
+            </>
+          ) : null}
+          {draft.entity === "supplier" ? (
+            <>
+              <label>
+                Supplier name
+                <input
+                  value={draft.values.name}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, name: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Category
+                <input
+                  value={draft.values.category ?? ""}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, category: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Email
+                <input
+                  value={draft.values.email}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, email: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Phone
+                <input
+                  value={draft.values.phone ?? ""}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, phone: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Account
+                <input
+                  value={draft.values.account}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, account: event.target.value } })
+                  }
+                />
+              </label>
+              <label className="full-field">
+                Notes
+                <input
+                  value={draft.values.notes ?? ""}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, notes: event.target.value } })
+                  }
+                />
+              </label>
+            </>
+          ) : null}
+          {draft.entity === "contact" ? (
+            <>
+              <label>
+                Contact name
+                <input
+                  value={draft.values.name}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, name: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Company
+                <input
+                  value={draft.values.company ?? ""}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, company: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Role
+                <input
+                  value={draft.values.role ?? ""}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, role: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Email
+                <input
+                  value={draft.values.email ?? ""}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, email: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Phone
+                <input
+                  value={draft.values.phone ?? ""}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, phone: event.target.value } })
+                  }
+                />
+              </label>
+              <label className="full-field">
+                Notes
+                <input
+                  value={draft.values.notes ?? ""}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, notes: event.target.value } })
+                  }
+                />
+              </label>
+            </>
+          ) : null}
+          {draft.entity === "contractor" ? (
+            <>
+              <label>
+                Contractor name
+                <input
+                  value={draft.values.name}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, name: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Trade
+                <input
+                  value={draft.values.trade ?? ""}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, trade: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Primary contact
+                <input
+                  value={draft.values.primaryContact ?? ""}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, primaryContact: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Email
+                <input
+                  value={draft.values.email ?? ""}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, email: event.target.value } })
+                  }
+                />
+              </label>
+              <label>
+                Phone
+                <input
+                  value={draft.values.phone ?? ""}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, phone: event.target.value } })
+                  }
+                />
+              </label>
+              <label className="full-field">
+                Notes
+                <input
+                  value={draft.values.notes ?? ""}
+                  onChange={(event) =>
+                    setPeopleDirectoryDraft({ ...draft, values: { ...draft.values, notes: event.target.value } })
+                  }
+                />
+              </label>
+            </>
+          ) : null}
+        </div>
+        <button className="primary-button" type="button" onClick={() => void savePeopleDirectoryDraft()}>
+          Save
+        </button>
+      </article>
+    );
   }
 
   function renderDirectoryActionMenu(
@@ -30495,7 +31109,7 @@ export default function Dashboard() {
                               action: "reviewed",
                               recordType: "client",
                               recordId: activeClient.id,
-                              summary: `Client record reviewed for ${activeClient.name}.`,
+                              summary: `Client history note added for ${activeClient.name}.`,
                               source: "web",
                               importance: "normal",
                             });
@@ -30507,15 +31121,99 @@ export default function Dashboard() {
                     Add history note
                   </button>
                 </>
-              ) : (
+              ) : homeView === "clients" ? (
                 <>
-                  <button className="secondary-button" onClick={resetWorkflowForEndToEndTest}>
-                    Reset workflow
+                  <button className="secondary-button" onClick={returnToDashboard}>
+                    Back to dashboard
                   </button>
-                  <button className="primary-button" onClick={createLead}>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={() => {
+                      setPeopleDirectoryDraft({
+                        entity: "client",
+                        mode: "create",
+                        values: {
+                          name: "",
+                          primaryContact: "",
+                          email: "",
+                          phone: "",
+                          billingAddress: "",
+                          commercialOwner: activeEmployee?.name ?? "",
+                          notes: "",
+                          status: "Active",
+                        },
+                      });
+                      scrollWorkspaceToTop();
+                    }}
+                  >
                     <Plus size={16} />
-                    New lead
+                    New client
                   </button>
+                </>
+              ) : homeView === "directory-manager" ? (
+                <>
+                  <button className="secondary-button" onClick={returnToDashboard}>
+                    Back to dashboard
+                  </button>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={() => {
+                      if (activeDirectoryManager === "sites") {
+                        setPeopleDirectoryDraft({
+                          entity: "site",
+                          mode: "create",
+                          values: {
+                            clientId: clients[0]?.id ?? "",
+                            name: "",
+                            address: "",
+                            primaryContact: "",
+                            serviceLine: "",
+                            accessNotes: "",
+                            nextVisit: "",
+                          },
+                        });
+                      } else if (activeDirectoryManager === "suppliers") {
+                        setPeopleDirectoryDraft({
+                          entity: "supplier",
+                          mode: "create",
+                          values: { id: "", name: "", email: "", phone: "", account: "", category: "", notes: "" },
+                        });
+                      } else if (activeDirectoryManager === "contacts") {
+                        setPeopleDirectoryDraft({
+                          entity: "contact",
+                          mode: "create",
+                          values: { id: "", name: "", company: "", role: "", email: "", phone: "", notes: "" },
+                        });
+                      } else {
+                        setPeopleDirectoryDraft({
+                          entity: "contractor",
+                          mode: "create",
+                          values: { id: "", name: "", trade: "", primaryContact: "", email: "", phone: "", notes: "" },
+                        });
+                      }
+                      scrollWorkspaceToTop();
+                    }}
+                  >
+                    <Plus size={16} />
+                    {activeDirectoryManager === "sites"
+                      ? "New site"
+                      : activeDirectoryManager === "suppliers"
+                        ? "New supplier"
+                        : activeDirectoryManager === "contacts"
+                          ? "New contact"
+                          : "New contractor"}
+                  </button>
+                </>
+              ) : homeView === "employees" ? (
+                <>
+                  <button className="secondary-button" onClick={returnToDashboard}>
+                    Back to dashboard
+                  </button>
+                </>
+              ) : homeView === "dashboard" ? (
+                <>
                   <button
                     className={isDashboardCustomising ? "primary-button" : "secondary-button"}
                     onClick={() => {
@@ -30529,6 +31227,12 @@ export default function Dashboard() {
                   >
                     <SlidersHorizontal size={16} />
                     {isDashboardCustomising ? "Done" : "Customise"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button className="secondary-button" onClick={returnToDashboard}>
+                    Back to dashboard
                   </button>
                 </>
               )}
@@ -42450,6 +43154,24 @@ export default function Dashboard() {
                       matches: [site.name, site.address, site.primaryContact, site.serviceLine, clientNameById.get(site.clientId) ?? ""],
                       actions: [
                         {
+                          label: "Edit site",
+                          onClick: () =>
+                            setPeopleDirectoryDraft({
+                              entity: "site",
+                              mode: "edit",
+                              id: site.id,
+                              values: {
+                                clientId: site.clientId,
+                                name: site.name,
+                                address: site.address,
+                                primaryContact: site.primaryContact,
+                                serviceLine: site.serviceLine,
+                                accessNotes: site.accessNotes,
+                                nextVisit: site.nextVisit,
+                              },
+                            }),
+                        },
+                        {
                           label: site.archived ? "Restore site" : "Archive site",
                           onClick: () => updateSiteArchive(site, !site.archived),
                         },
@@ -42473,6 +43195,24 @@ export default function Dashboard() {
                         archived: Boolean(supplier.archived),
                         matches: [supplier.name, supplier.category ?? "", supplier.email, supplier.phone ?? "", supplier.account, supplier.notes ?? ""],
                         actions: [
+                          {
+                            label: "Edit supplier",
+                            onClick: () =>
+                              setPeopleDirectoryDraft({
+                                entity: "supplier",
+                                mode: "edit",
+                                id: supplier.id,
+                                values: {
+                                  id: supplier.id,
+                                  name: supplier.name,
+                                  email: supplier.email,
+                                  phone: supplier.phone ?? "",
+                                  account: supplier.account,
+                                  category: supplier.category ?? "",
+                                  notes: supplier.notes ?? "",
+                                },
+                              }),
+                          },
                           {
                             label: supplier.archived ? "Restore supplier" : "Archive supplier",
                             onClick: () => updateSupplierArchive(supplier, !supplier.archived),
@@ -42498,6 +43238,24 @@ export default function Dashboard() {
                           matches: [contact.name, contact.company ?? "", contact.role ?? "", contact.email ?? "", contact.phone ?? "", contact.notes ?? ""],
                           actions: [
                             {
+                              label: "Edit contact",
+                              onClick: () =>
+                                setPeopleDirectoryDraft({
+                                  entity: "contact",
+                                  mode: "edit",
+                                  id: contact.id,
+                                  values: {
+                                    id: contact.id,
+                                    name: contact.name,
+                                    company: contact.company ?? "",
+                                    role: contact.role ?? "",
+                                    email: contact.email ?? "",
+                                    phone: contact.phone ?? "",
+                                    notes: contact.notes ?? "",
+                                  },
+                                }),
+                            },
+                            {
                               label: contact.archived ? "Restore contact" : "Archive contact",
                               onClick: () => updateContactArchive(contact, !contact.archived),
                             },
@@ -42520,6 +43278,24 @@ export default function Dashboard() {
                           archived: Boolean(contractor.archived),
                           matches: [contractor.name, contractor.trade ?? "", contractor.primaryContact ?? "", contractor.email ?? "", contractor.phone ?? "", contractor.notes ?? ""],
                           actions: [
+                            {
+                              label: "Edit contractor",
+                              onClick: () =>
+                                setPeopleDirectoryDraft({
+                                  entity: "contractor",
+                                  mode: "edit",
+                                  id: contractor.id,
+                                  values: {
+                                    id: contractor.id,
+                                    name: contractor.name,
+                                    trade: contractor.trade ?? "",
+                                    primaryContact: contractor.primaryContact ?? "",
+                                    email: contractor.email ?? "",
+                                    phone: contractor.phone ?? "",
+                                    notes: contractor.notes ?? "",
+                                  },
+                                }),
+                            },
                             {
                               label: contractor.archived ? "Restore contractor" : "Archive contractor",
                               onClick: () => updateContractorArchive(contractor, !contractor.archived),
@@ -42568,6 +43344,8 @@ export default function Dashboard() {
                     totalCount: config.records.length,
                   })}
 
+                  {renderPeopleDirectoryDraftForm()}
+
                   {filteredRecords.length ? (
                     <div className="client-directory-grid">
                       {filteredRecords.map((record) => (
@@ -42595,7 +43373,7 @@ export default function Dashboard() {
                   ) : (
                     <div className="employee-empty-panel">
                       <strong>{config.empty}</strong>
-                      <span>Try another letter or search, or use Setup imports to populate this directory.</span>
+                      <span>Use New {config.title.slice(0, -1).toLowerCase()} above, or Setup imports to populate this directory.</span>
                     </div>
                   )}
                 </section>
@@ -42618,6 +43396,8 @@ export default function Dashboard() {
                 resultCount: filteredClients.length,
                 totalCount: clients.length,
               })}
+
+              {renderPeopleDirectoryDraftForm()}
 
               {filteredClients.length ? (
                 <div className="client-directory-grid">
@@ -42648,6 +43428,25 @@ export default function Dashboard() {
                             </span>
                             {renderDirectoryActionMenu("client", client.id, [
                               { label: "Open client", onClick: () => openClientRecordView(client.id) },
+                              {
+                                label: "Edit client",
+                                onClick: () =>
+                                  setPeopleDirectoryDraft({
+                                    entity: "client",
+                                    mode: "edit",
+                                    id: client.id,
+                                    values: {
+                                      name: client.name,
+                                      primaryContact: client.primaryContact,
+                                      email: client.email,
+                                      phone: client.phone,
+                                      billingAddress: client.billingAddress,
+                                      commercialOwner: client.commercialOwner,
+                                      notes: client.notes,
+                                      status: client.status,
+                                    },
+                                  }),
+                              },
                               {
                                 label: client.archived ? "Restore client" : "Archive client",
                                 onClick: () => updateClientArchive(client, !client.archived),

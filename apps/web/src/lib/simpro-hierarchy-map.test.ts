@@ -446,4 +446,21 @@ describe("simpro hierarchy map", () => {
     assert.equal(mapped?.lines[1]?.category, "Labour");
     assert.equal(mapped?.chargeTotal, 590);
   });
+
+  it("maps simPRO Created/unpaid invoices to Sent so folders can use due date", () => {
+    const mapped = mapSimproInvoice({
+      ID: 99,
+      InvoiceNo: "INV-9901",
+      Status: { Name: "Invoices : Created" },
+      Stage: "Approved",
+      IsPaid: false,
+      Customer: { CompanyName: "Aberbuild" },
+      DateIssued: "2026-06-01",
+      DateDue: "2026-06-15",
+      Total: { ExTax: 1200 },
+      Items: [],
+    });
+    assert.ok(mapped);
+    assert.equal(mapped?.status, "Sent");
+  });
 });

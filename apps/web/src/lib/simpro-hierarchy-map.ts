@@ -824,12 +824,40 @@ export function mapSimproJobSchedules(
   return assignments;
 }
 
-function mapInvoiceStatus(value: string): MappedInvoice["status"] {
-  const status = value.toLowerCase();
-  if (status.includes("cancel") || status.includes("void")) return "Cancelled";
-  if (status.includes("paid") && status.includes("part")) return "Partially paid";
-  if (status.includes("paid")) return "Paid";
-  if (status.includes("sent") || status.includes("issue") || status.includes("approv")) return "Sent";
+function mapInvoiceStatus(record: UnknownRecord, rawStatus = ""): MappedInvoice["status"] {
+  if (record.IsVoided === true) return "Cancelled";
+  const paid = money(record, ["Total.Paid", "AmountPaid", "Paid"], Number.NaN);
+  const total = money(record, ["Total.IncTax", "Total.ExTax", "Amount.IncTax", "Amount", "Total"], Number.NaN);
+  if (record.IsPaid === true || (Number.isFinite(total) && total > 0 && Number.isFinite(paid) && paid >= total)) {
+    return "Paid";
+  }
+  if (Number.isFinite(paid) && paid > 0 && Number.isFinite(total) && paid < total) {
+    return "Partially paid";
+  }
+
+  const status = rawStatus.toLowerCase();
+  const stage = firstString(record, ["Stage.Name", "Stage"]).toLowerCase();
+  const combined = `${status} ${stage}`.trim();
+  if (combined.includes("cancel") || combined.includes("void")) return "Cancelled";
+  if (combined.includes("paid") && combined.includes("part")) return "Partially paid";
+  if (/\bpaid\b/.test(combined) && !combined.includes("unpaid")) return "Paid";
+
+  // Unpaid / issued invoices from simPRO (often "Invoices : Created") belong in Unpaid/Overdue, not Draft.
+  const issued = firstString(record, ["DateIssued", "IssuedDate", "Date"]);
+  if (
+    combined.includes("sent") ||
+    combined.includes("issue") ||
+    combined.includes("approv") ||
+    combined.includes("created") ||
+    combined.includes("open") ||
+    combined.includes("await") ||
+    combined.includes("unpaid") ||
+    stage === "approved" ||
+    Boolean(issued) ||
+    record.IsPaid === false
+  ) {
+    return "Sent";
+  }
   return "Draft";
 }
 
@@ -906,7 +934,7 @@ export function mapSimproInvoice(record: UnknownRecord): MappedInvoice | null {
   return {
     externalId,
     externalNumber: number,
-    status: mapInvoiceStatus(firstString(record, ["Status.Name", "Status", "Stage.Name", "Stage"])),
+    status: mapInvoiceStatus(record, firstString(record, ["Status.Name", "Status", "Stage.Name", "Stage"])),
     customer,
     issuedDate: firstString(record, ["DateIssued", "IssuedDate", "Date", "CreatedDate"]).slice(0, 10) || new Date().toISOString().slice(0, 10),
     dueDate: firstString(record, ["DateDue", "DueDate", "PaymentDue"]).slice(0, 10) || new Date().toISOString().slice(0, 10),
