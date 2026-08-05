@@ -239,6 +239,12 @@ describe("simpro sync preview quality", () => {
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "simpro-sync.ts"), "utf8");
     assert.match(source, /hydrateQuoteOrJobRecordForImport/);
     assert.match(source, /fetchSimproEntityDetail/);
+    assert.match(source, /simproGetFirstOk/);
+    assert.match(source, /never poison the Apply run with a cached null/i);
+    assert.doesNotMatch(
+      source.slice(source.indexOf("async function fetchSimproEntityDetail"), source.indexOf("function mergeEntityDetailOntoRecord")),
+      /entityDetailCache\.set\(cacheKey, null\)/,
+    );
   });
 
   it("keeps richer server quote cost centres when the browser sends an empty map", () => {

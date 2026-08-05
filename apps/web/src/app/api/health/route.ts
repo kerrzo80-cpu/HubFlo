@@ -54,7 +54,7 @@ export async function GET() {
       simproPreviewQuality: "conflicts-v1",
       simproSchedulePush: "managers-diary-v1",
       schedulesDiaryOpen: "click-timeline-v1",
-      simproImportQuality: "quote-detail-hydrate-cc-v1",
+      simproImportQuality: "quote-detail-hydrate-cc-v2",
       simproCustomerNames: "quote-detail-then-customer-v1",
       simproImportOrphanLinks: "prune-reimport-v1",
       simproClientsFullFetch: "newest-80-v1",

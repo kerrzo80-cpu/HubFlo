@@ -14350,7 +14350,11 @@ export default function Dashboard() {
       showNotice(
         mode === "preview"
           ? `simPRO preview complete for ${result.run.entities.join(", ")}: ${result.run.totals.fetched} fetched · ${result.run.totals.created} create, ${result.run.totals.linked} link, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`
-          : `simPRO safe import complete for ${result.run.entities.join(", ")}: ${result.run.totals.fetched} fetched · ${result.run.totals.created} created, ${result.run.totals.linked} linked, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`,
+          : `simPRO safe import complete for ${result.run.entities.join(", ")}: ${result.run.totals.fetched} fetched · ${result.run.totals.created} created, ${result.run.totals.linked} linked, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.${
+              result.run.totals.errors
+                ? " Open Setup → simPRO sync log for hierarchy/detail failures (these used to look like a clean Apply)."
+                : ""
+            }`,
       );
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to run simPRO sync.");
