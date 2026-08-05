@@ -19,6 +19,7 @@ import {
 import type { SurveyAnswer, SurveyJobLink, SurveyLinkType, SurveyPhoto, SurveyPhotoCategory, SurveyRecord } from "@hubflo/domain";
 import type { QuickCostCentre } from "@/lib/survey-quick-pack";
 import { BuddyCharacter } from "@/lib/BuddyCharacter";
+import { useBrand } from "@/components/BrandProvider";
 import { prepareSurveyEvidenceFile } from "@/lib/survey-evidence-prepare";
 
 const requestHeaders: HeadersInit = {
@@ -578,13 +579,16 @@ export default function SimpleSurveyWorkspacePage() {
     queuePatch({ answers: nextAnswers });
   }
 
+  const brand = useBrand();
+
   return (
     <main className="survey-simple-app">
       <header className="survey-simple-topbar">
         <div className="survey-simple-brand">
-          <img src="/app-icons/nexa-estimator-apple-touch-icon.png" alt="NeXa" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={brand.appIconUrl || brand.logoUrl || "/ewg-logo.png"} alt={brand.companyName} />
           <span>
-            <strong>NeXa Surveyor</strong>
+            <strong>{brand.surveyAppName}</strong>
             <small>{survey.reference}</small>
           </span>
         </div>

@@ -31,6 +31,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { useBrand } from "@/components/BrandProvider";
 import { roleHeaderName } from "@/lib/access";
 import { BuddyCharacter } from "@/lib/BuddyCharacter";
 import type { BlakeBoqReviewDraft } from "@/lib/blake-boq-review";
@@ -2186,6 +2187,7 @@ function mergeImportedRooms(existingRooms: TakeoffRoom[], importedRooms: Takeoff
 }
 
 export default function TakeoffPage() {
+  const brand = useBrand();
   const [projects, setProjects] = useState<TakeoffProject[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [clientSites, setClientSites] = useState<ClientSite[]>([]);
@@ -6754,8 +6756,9 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     >
       <header className="takeoff-header">
         <div className="takeoff-brand">
-          <img src="/app-icons/nexa-takeoffs-apple-touch-icon.png" alt="NeXa Takeoffs" />
-          <span>Plumbing route design</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={brand.appIconUrl || brand.logoUrl || "/ewg-logo.png"} alt={brand.takeoffsAppName} />
+          <span>{brand.takeoffsAppName}</span>
         </div>
         <div className="takeoff-header-actions">
           <a className="takeoff-ghost-button" href="/">

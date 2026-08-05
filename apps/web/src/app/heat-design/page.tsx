@@ -37,6 +37,7 @@ import {
   type HeatingEmitterMode,
   type HeatingSystemLayout,
 } from "@/lib/heat-design";
+import { useBrand } from "@/components/BrandProvider";
 import { FloorPlanCanvas } from "./FloorPlanCanvas";
 import { MaterialsWizard } from "./MaterialsWizard";
 import { DesignReport } from "./DesignReport";
@@ -68,6 +69,7 @@ function loadProject(): HeatDesignProject {
 }
 
 export default function HeatDesignLabPage() {
+  const brand = useBrand();
   const [tab, setTab] = useState<LabTab>("plan");
   const [project, setProject] = useState<HeatDesignProject | null>(null);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
@@ -499,7 +501,7 @@ export default function HeatDesignLabPage() {
         <header className="hd-topbar">
           <div className="hd-brand">
             <div className="hd-brand-kicker">Live · links to Core quotes & jobs</div>
-            <h1>Heat Design</h1>
+            <h1>{brand.heatDesignAppName}</h1>
             {tab !== "plan" ? (
               <p>
                 Draw the house, size the system, then push materials into a Core quote or job — or create a new one.

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Figtree } from "next/font/google";
 
 const figtree = Figtree({
@@ -9,8 +9,25 @@ const figtree = Figtree({
 });
 
 export const metadata: Metadata = {
-  title: "Heat Design · NeXa",
+  title: "Heat Design",
   description: "Live heat design — floor plans, system sizing, and materials into Core quotes or jobs.",
+  applicationName: "Heat Design",
+  manifest: "/api/manifest/heat-design",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Heat Design",
+  },
+  icons: {
+    icon: [{ url: "/api/branding/assets/icon", sizes: "512x512", type: "image/png" }],
+    apple: [{ url: "/api/branding/assets/icon", sizes: "180x180", type: "image/png" }],
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#157fa8",
 };
 
 export default function HeatDesignLayout({ children }: { children: React.ReactNode }) {

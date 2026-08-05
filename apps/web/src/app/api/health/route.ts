@@ -63,6 +63,7 @@ export async function GET() {
       simproLeadsImport: "latest-10-open-stage-status-v2",
       simproEodRefresh: "weekday-1800-utc-cron-v1",
       actionAlertsRouting: "folders-and-daywork-signoff-v1",
+      personalisingBranding: "owner-white-label-v1",
       descriptionRichText: "toolbar-scripts-v1",
       quoteCatalogueOnQuote: "all-groups-on-quote-v1",
       quoteCostCentrePartsScope: "active-centre-only-v1",

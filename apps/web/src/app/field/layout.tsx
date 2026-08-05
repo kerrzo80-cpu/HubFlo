@@ -4,23 +4,23 @@ import { NexaClientProvider } from "@/lib/field/nexa";
 import "./field.css";
 
 export const metadata: Metadata = {
-  title: "EWG Field",
-  description: "Errol Watson Group field app for plumbers and joiners — schedule, job packs, and Blake hours.",
-  applicationName: "EWG Field",
-  manifest: "/manifest-field.json",
+  title: "Field",
+  description: "Field app for plumbers and joiners — schedule, job packs, and hours.",
+  applicationName: "Field",
+  manifest: "/api/manifest/field",
   appleWebApp: {
     capable: true,
-    title: "EWG Field",
+    title: "Field",
     statusBarStyle: "default",
   },
   icons: {
-    icon: "/ewg-logo.png",
-    apple: "/ewg-logo.png",
+    icon: "/api/branding/assets/icon",
+    apple: "/api/branding/assets/icon",
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#2E8C7D",
+  themeColor: "#157fa8",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,

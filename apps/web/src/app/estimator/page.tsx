@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import type { EstimateLabourLine, EstimateMaterialLine, EstimateRecord, SurveyRecord } from "@hubflo/domain";
+import { useBrand } from "@/components/BrandProvider";
 
 const requestHeaders: HeadersInit = {
   "x-hubflo-role": "Office",
@@ -290,12 +291,15 @@ export default function EstimatorPage() {
     }
   }
 
+  const brand = useBrand();
+
   return (
     <main className="estimator-app">
       <header className="estimator-header">
         <div>
-          <img src="/app-icons/nexa-estimator-apple-touch-icon.png" alt="NeXa Estimator" />
-          <span><strong>NeXa Estimator</strong><small>Survey to priced work package</small></span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={brand.appIconUrl || brand.logoUrl || "/ewg-logo.png"} alt={brand.companyName} />
+          <span><strong>{brand.surveyAppName}</strong><small>Survey to priced work package</small></span>
         </div>
         <nav><a href="/"><ArrowLeft size={17} /> Core</a><a href="/survey"><ClipboardList size={17} /> Surveys</a></nav>
       </header>

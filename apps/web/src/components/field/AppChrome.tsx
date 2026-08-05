@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CalendarDays, Clock3, MessageCircle } from "lucide-react";
+import { useBrand } from "@/components/BrandProvider";
 import { FIELD_BASE, fieldPath } from "@/lib/field/routes";
 
 const links = [
@@ -13,15 +14,24 @@ const links = [
 
 export function AppChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const brand = useBrand();
 
   return (
-    <div className="field-app">
+    <div
+      className="field-app"
+      style={
+        {
+          ["--teal" as string]: brand.brandPrimaryColor,
+          ["--teal-soft" as string]: "color-mix(in srgb, var(--teal) 12%, white)",
+        } as React.CSSProperties
+      }
+    >
       <header className="field-topbar">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/ewg-logo.png" alt="Errol Watson Group" />
+        <img src={brand.logoUrl || "/ewg-logo.png"} alt={brand.companyName} />
         <div>
-          <strong>EWG Field</strong>
-          <span>Errol Watson Group</span>
+          <strong>{brand.fieldAppName}</strong>
+          <span>{brand.companyName}</span>
         </div>
       </header>
       {children}

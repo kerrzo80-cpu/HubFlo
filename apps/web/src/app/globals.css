@@ -12390,6 +12390,161 @@ h1 {
   margin: 0;
 }
 
+.personalising-panel .setup-panel-lead {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 6px 0 0;
+  max-width: 62ch;
+}
+
+.personalising-section-head {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+  margin: 18px 0 10px;
+}
+
+.personalising-section-head strong {
+  display: block;
+}
+
+.personalising-section-head small {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.personalising-color-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.personalising-color-row input[type="color"] {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  height: 38px;
+  padding: 2px;
+  width: 48px;
+}
+
+.personalising-toggle {
+  align-items: flex-start;
+  display: flex !important;
+  flex-direction: row !important;
+  gap: 10px;
+}
+
+.personalising-toggle input[type="checkbox"] {
+  margin-top: 4px;
+}
+
+.personalising-toggle strong,
+.personalising-toggle small {
+  display: block;
+}
+
+.personalising-toggle small {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.personalising-upload-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 8px 0 4px;
+}
+
+.personalising-upload-card {
+  align-items: start;
+  background: #f8fbfc;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 96px 1fr;
+  padding: 14px;
+}
+
+.personalising-upload-card p {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 4px 0 10px;
+}
+
+.personalising-upload-preview {
+  align-items: center;
+  background: #fff;
+  border: 2px solid var(--nexa-cyan);
+  border-radius: 12px;
+  display: grid;
+  height: 88px;
+  justify-items: center;
+  overflow: hidden;
+  width: 88px;
+}
+
+.personalising-upload-preview img {
+  max-height: 76px;
+  max-width: 76px;
+  object-fit: contain;
+}
+
+.personalising-upload-preview-icon {
+  border-radius: 22px;
+}
+
+.personalising-upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.personalising-preview-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 8px 0 16px;
+}
+
+.personalising-home-preview {
+  align-items: center;
+  color: inherit;
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  text-decoration: none;
+  width: 76px;
+}
+
+.personalising-home-preview img {
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 18px;
+  height: 56px;
+  object-fit: contain;
+  padding: 6px;
+  width: 56px;
+}
+
+.personalising-home-preview span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.25;
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .personalising-upload-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .setup-form-preview ul {
   margin: 0;
   padding-left: 18px;

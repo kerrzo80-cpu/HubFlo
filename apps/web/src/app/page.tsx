@@ -121,6 +121,15 @@ import {
 import { makeTimelineEntry, sortTimelineEntries, type TimelineEntry, type TimelineStage } from "@/lib/record-timeline";
 import { RecurringOpsPanel, SiteAssetsPanel, StockOpsPanel } from "@/lib/OpsPanels";
 import { SetupConfigPanel, SetupStockLocationsPanel, SetupPrebuildsPanel } from "@/lib/SetupExtraPanels";
+import {
+  applyBrandCssVariables,
+  defaultBusinessBrandingSettings,
+  normalizeBusinessBranding,
+  operationsLabel,
+  platformLabel,
+  type BusinessBrandingSettings,
+} from "@/lib/branding";
+import { SetupPersonalisingPanel } from "@/components/SetupPersonalisingPanel";
 import { OpenAiKeyCard } from "./OpenAiKeyCard";
 import { DashboardOverview } from "./DashboardOverview";
 import { DashboardWeeklyGantt, computeDashboardGanttNowMarker } from "./DashboardWeeklyGantt";
@@ -1731,23 +1740,7 @@ type QuoteReviewQuestion = {
 
 type QuoteDocumentLayout = "quote" | "job-sheet" | "application-payment" | "invoice" | "purchase-order";
 
-type BusinessSettings = {
-  companyName: string;
-  tradingName: string;
-  workspaceName: string;
-  contactEmail: string;
-  phone: string;
-  address: string;
-  vatNumber: string;
-  companyNumber: string;
-  defaultFromEmail: string;
-  clientPortalBrandLine: string;
-  brandPrimaryColor: string;
-  brandAccentColor: string;
-  logoUrl: string;
-  portalWelcomeText: string;
-  portalAcceptanceText: string;
-};
+type BusinessSettings = BusinessBrandingSettings;
 
 type FormTemplate = {
   id: string;
@@ -2538,23 +2531,7 @@ const documentLayouts: Array<{ key: QuoteDocumentLayout; label: string; detail: 
   { key: "purchase-order", label: "Purchase order", detail: "Supplier-facing order, delivery reference, line items and totals." },
 ];
 
-const defaultBusinessSettings: BusinessSettings = {
-  companyName: "Errol Watson Group",
-  tradingName: "Errol Watson Group Ltd",
-  workspaceName: "NeXa workspace",
-  contactEmail: "office@errolwatsongroup.co.uk",
-  phone: "01224 000000",
-  address: "Aberdeen, Scotland",
-  vatNumber: "GB000000000",
-  companyNumber: "SC000000",
-  defaultFromEmail: "office@errolwatsongroup.co.uk",
-  clientPortalBrandLine: "Control every moving part.",
-  brandPrimaryColor: "#157fa8",
-  brandAccentColor: "#0f5f7d",
-  logoUrl: "/ewg-logo.png",
-  portalWelcomeText: "Welcome to your Errol Watson Group workspace. Review quotes, jobs and invoices in one place.",
-  portalAcceptanceText: "By accepting this quotation online you confirm the scope, price and terms shown.",
-};
+const defaultBusinessSettings: BusinessSettings = defaultBusinessBrandingSettings;
 
 const defaultFormTemplates: FormTemplate[] = [
   {
@@ -2693,7 +2670,7 @@ function PdfDocumentPreview({
     <div className="pdf-proof-frame">
       <article className={`pdf-document-page pdf-layout-${template.layout}`}>
         <header className="pdf-document-masthead">
-          <img src="/ewg-logo.png" alt={business.tradingName} />
+          <img src={business.logoUrl || "/ewg-logo.png"} alt={business.tradingName} />
           <div>
             <strong>{business.tradingName}</strong>
             <span>{business.address}</span>
@@ -2859,7 +2836,7 @@ function ApplicationPaymentPreview({
     <div className="pdf-proof-frame application-payment-proof-frame">
       <article className="application-payment-page">
         <header className="application-payment-masthead">
-          <img src="/ewg-logo.png" alt={business.tradingName} />
+          <img src={business.logoUrl || "/ewg-logo.png"} alt={business.tradingName} />
           <div>
             <strong>{business.tradingName}</strong>
             <span>{business.address}</span>
@@ -3099,7 +3076,7 @@ const costCentreTemplates = [
 
 const setupCategories: Array<{ key: SetupCategory; label: string; detail: string; subItems?: string[] }> = [
   { key: "overview", label: "Overview", detail: "System readiness and live setup position" },
-  { key: "business", label: "Business profile", detail: "Company details, workspace name and default sender details", subItems: ["Company", "Branding", "Portal"] },
+  { key: "business", label: "Business profile", detail: "Company details, personalising, logos and colours across all apps", subItems: ["Company", "Personalising", "Portal"] },
   { key: "forms", label: "Forms & templates", detail: "Quote, job, payment, invoice and purchase order layouts", subItems: ["Quote", "Job sheet", "Application for payment", "Invoice", "Purchase order"] },
   { key: "documents", label: "Documents", detail: "Default folders, visibility and record scopes", subItems: ["Folders", "Visibility", "Engineer pack"] },
   { key: "cost-centres", label: "Cost centre types", detail: "Default categories and assigned engineer checklists", subItems: ["Boiler", "Bathroom", "Reactive"] },
@@ -3128,9 +3105,9 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       focus: ["Company and trading names", "VAT and company numbers", "Default sender and contact details"],
       status: "Editable now",
     },
-    Branding: {
-      summary: "Set logo URL, brand colours and preview how headers appear on quotes and the client portal.",
-      focus: ["Company logo URL", "Brand colours", "Preview quote and portal headers"],
+    Personalising: {
+      summary: "Upload logos, set colours, hide NeXa branding, and name Core / Field / Survey / Takeoffs / Heat Design for home screens.",
+      focus: ["Company logo and app icon", "Brand colours", "Hide NeXa / owner app names", "Home-screen titles"],
       status: "Editable now",
     },
     Portal: {
@@ -10249,7 +10226,7 @@ export default function Dashboard() {
     setLeads(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.leads, demoLeads));
     setPurchaseRequests(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.purchaseRequests, []));
     setInvoices(isLiveWorkspace ? [] : normalizeInvoiceList(safeLoadStoredJson(STORAGE_KEYS.invoices, demoInvoices)));
-    setBusinessSettings(safeLoadStoredJson(STORAGE_KEYS.businessSettings, defaultBusinessSettings));
+    setBusinessSettings(normalizeBusinessBranding(safeLoadStoredJson(STORAGE_KEYS.businessSettings, defaultBusinessSettings)));
     const storedFormTemplates = normalizeFormTemplates(safeLoadStoredJson(STORAGE_KEYS.formTemplates, defaultFormTemplates));
     setFormTemplates(storedFormTemplates);
     setActiveFormTemplateId(
@@ -10402,7 +10379,7 @@ export default function Dashboard() {
             );
           }
           if (!hasAppliedHubSetupState.current && !hasRecentLocalSetupEdit && !pendingSetupSaveRef.current) {
-            if (hubState.businessSettings) setBusinessSettings({ ...defaultBusinessSettings, ...hubState.businessSettings });
+            if (hubState.businessSettings) setBusinessSettings(normalizeBusinessBranding(hubState.businessSettings));
             if (hubState.formTemplates?.length) setFormTemplates(normalizeFormTemplates(hubState.formTemplates));
             if (hubState.activeFormTemplateId) setActiveFormTemplateId(hubState.activeFormTemplateId);
             if (hubState.workflowRules) setWorkflowRules({ ...defaultWorkflowRules, ...hubState.workflowRules });
@@ -14700,8 +14677,12 @@ export default function Dashboard() {
 
   function updateBusinessSettings(patch: Partial<BusinessSettings>) {
     markSetupEdited();
-    setBusinessSettings((current) => ({ ...current, ...patch }));
+    setBusinessSettings((current) => normalizeBusinessBranding({ ...current, ...patch }));
   }
+
+  useEffect(() => {
+    applyBrandCssVariables(businessSettings);
+  }, [businessSettings]);
 
   function updateWorkflowRules(patch: Partial<WorkflowRulesSettings>) {
     markSetupEdited();
@@ -30068,8 +30049,8 @@ export default function Dashboard() {
     return (
       <div className="employee-login-shell">
         <section className="employee-login-card loading">
-          <img src="/ewg-logo.png" alt="Errol Watson Group" />
-          <strong>Loading NeXa workspace...</strong>
+          <img src={businessSettings.logoUrl || "/ewg-logo.png"} alt={businessSettings.companyName} />
+          <strong>Loading {businessSettings.workspaceName || "workspace"}...</strong>
         </section>
       </div>
     );
@@ -30084,16 +30065,16 @@ export default function Dashboard() {
       <div className="employee-login-shell">
         <section className="employee-login-card">
           <div className="employee-login-brand">
-            <img src="/ewg-logo.png" alt="Errol Watson Group" />
+            <img src={businessSettings.logoUrl || "/ewg-logo.png"} alt={businessSettings.companyName} />
             <span>
-              <strong>NeXa</strong>
-              <small>Service command center</small>
+              <strong>{platformLabel(businessSettings)}</strong>
+              <small>{businessSettings.clientPortalBrandLine || "Service command center"}</small>
             </span>
           </div>
           <div>
             <span className="permission-heading">Employee login</span>
             <h1>Sign in to continue</h1>
-            <p>Actions inside NeXa will be logged against the employee card you use here. This device stays trusted for 60 days unless you sign out.</p>
+            <p>Actions will be logged against the employee card you use here. This device stays trusted for 60 days unless you sign out.</p>
           </div>
           <form className="employee-login-form" onSubmit={handleEmployeeLogin}>
             <label>
@@ -30188,14 +30169,14 @@ export default function Dashboard() {
       ) : null}
       <header className="global-header">
         <div className="brand-lockup">
-          <img className="company-logo" src="/ewg-logo.png" alt="Errol Watson Group" />
+          <img className="company-logo" src={businessSettings.logoUrl || "/ewg-logo.png"} alt={businessSettings.companyName} />
         </div>
 
         <label className="global-search">
           <Search size={17} />
           <input
             id="nexa-global-search-input"
-            aria-label="Search NeXa"
+            aria-label={`Search ${platformLabel(businessSettings)}`}
             placeholder="Search customers, jobs, quotes, assets..."
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -30659,14 +30640,23 @@ export default function Dashboard() {
             <Flame size={17} />
             <span>Heat Design</span>
           </a>
-          <a href="/field" className="context-link" aria-label="NeXa Field" data-tooltip="NeXa Field">
+          <a href="/field" className="context-link" aria-label={businessSettings.fieldAppName} data-tooltip={businessSettings.fieldAppName}>
             <HardHat size={17} />
-            <span>NeXa Field</span>
+            <span>Field</span>
           </a>
 
           <div className="support-panel">
-            <img src="/brand/nexa-command-lockup-rail.svg" alt="NeXa - Bound into one command center" />
-            <small>Service command center</small>
+            {businessSettings.hidePlatformName ? (
+              <>
+                <img src={businessSettings.logoUrl || "/ewg-logo.png"} alt={businessSettings.companyName} />
+                <small>{businessSettings.productName || businessSettings.companyName}</small>
+              </>
+            ) : (
+              <>
+                <img src="/brand/nexa-command-lockup-rail.svg" alt="NeXa - Bound into one command center" />
+                <small>Service command center</small>
+              </>
+            )}
           </div>
         </aside>
 
@@ -30674,7 +30664,7 @@ export default function Dashboard() {
           <div className="workspace-header">
             <div>
               <div className="breadcrumb">
-                <span>NeXa Operations</span>
+                <span>{operationsLabel(businessSettings)}</span>
                 <ChevronRight size={13} />
                 <strong>
                   {homeView === "employee-card"
@@ -33040,7 +33030,7 @@ export default function Dashboard() {
                 <a className="addon-product-card" href="/survey">
                   <span className="addon-icon"><ClipboardCheck size={20} /></span>
                   <div>
-                    <strong>NeXa Surveyor</strong>
+                    <strong>{businessSettings.surveyAppName}</strong>
                     <p>Guided site capture with Blake, photos, measurements and AI estimate packs.</p>
                     <small>Outputs survey evidence, assumptions, materials, labour and Estimator handoff.</small>
                   </div>
@@ -33049,7 +33039,7 @@ export default function Dashboard() {
                 <a className="addon-product-card" href="/takeoff">
                   <span className="addon-icon"><Sparkles size={20} /></span>
                   <div>
-                    <strong>NeXa Takeoff</strong>
+                    <strong>{businessSettings.takeoffsAppName}</strong>
                     <p>Drawings, specifications, BOQs and supplier lists.</p>
                     <small>Outputs quote cost centres, BOQ lines, supplier requests and documents.</small>
                   </div>
@@ -33058,7 +33048,7 @@ export default function Dashboard() {
                 <a className="addon-product-card" href="/estimator">
                   <span className="addon-icon"><FileText size={20} /></span>
                   <div>
-                    <strong>NeXa Estimator</strong>
+                    <strong>{businessSettings.surveyAppName}</strong>
                     <p>Review AI-built materials and labour, then push a Core quote.</p>
                     <small>Outputs editable estimates, RFQs and simPRO-ready quote lines.</small>
                   </div>
@@ -33067,7 +33057,7 @@ export default function Dashboard() {
                 <a className="addon-product-card" href="/field">
                   <span className="addon-icon"><HardHat size={20} /></span>
                   <div>
-                    <strong>NeXa Field</strong>
+                    <strong>{businessSettings.fieldAppName}</strong>
                     <p>Engineer packs, Ask Blake, photos, hours and job evidence from site.</p>
                     <small>Outputs job events, evidence, timesheets, variations and completion checks.</small>
                   </div>
@@ -33076,7 +33066,7 @@ export default function Dashboard() {
                 <a className="addon-product-card" href="/office/whatsapp-pilot">
                   <span className="addon-icon"><Inbox size={20} /></span>
                   <div>
-                    <strong>NeXa Connect</strong>
+                    <strong>{businessSettings.hidePlatformName ? `${businessSettings.productName} Connect` : "NeXa Connect"}</strong>
                     <p>Outlook, WhatsApp, suppliers, Checkatrade, accounting and API intake.</p>
                     <small>Outputs communications, approvals, supplier costs and audit events.</small>
                   </div>
@@ -41263,86 +41253,19 @@ export default function Dashboard() {
                   ) : null}
 
                   {activeSetupCategory === "business" ? (
-                    <section className="setup-panel">
-                      <div className="documents-toolbar">
-                        <div>
-                          <span className="permission-heading">Business profile</span>
-                          <h2>Company and workspace details</h2>
-                        </div>
-                        <span className="setup-status-label">{businessSettings.workspaceName}</span>
-                      </div>
-
-                      <div className="setup-form-grid">
-                        <label>
-                          Company name
-                          <input value={businessSettings.companyName} onChange={(event) => updateBusinessSettings({ companyName: event.target.value })} />
-                        </label>
-                        <label>
-                          Trading name
-                          <input value={businessSettings.tradingName} onChange={(event) => updateBusinessSettings({ tradingName: event.target.value })} />
-                        </label>
-                        <label>
-                          Workspace name
-                          <input value={businessSettings.workspaceName} onChange={(event) => updateBusinessSettings({ workspaceName: event.target.value })} />
-                        </label>
-                        <label>
-                          Default sender email
-                          <input value={businessSettings.defaultFromEmail} onChange={(event) => updateBusinessSettings({ defaultFromEmail: event.target.value })} />
-                        </label>
-                        <label>
-                          Contact email
-                          <input value={businessSettings.contactEmail} onChange={(event) => updateBusinessSettings({ contactEmail: event.target.value })} />
-                        </label>
-                        <label>
-                          Phone
-                          <input value={businessSettings.phone} onChange={(event) => updateBusinessSettings({ phone: event.target.value })} />
-                        </label>
-                        <label className="span-2">
-                          Address
-                          <input value={businessSettings.address} onChange={(event) => updateBusinessSettings({ address: event.target.value })} />
-                        </label>
-                        <label>
-                          VAT number
-                          <input value={businessSettings.vatNumber} onChange={(event) => updateBusinessSettings({ vatNumber: event.target.value })} />
-                        </label>
-                        <label>
-                          Company number
-                          <input value={businessSettings.companyNumber} onChange={(event) => updateBusinessSettings({ companyNumber: event.target.value })} />
-                        </label>
-                        <label className="span-2">
-                          Client portal brand line
-                          <input value={businessSettings.clientPortalBrandLine} onChange={(event) => updateBusinessSettings({ clientPortalBrandLine: event.target.value })} />
-                        </label>
-                        <label>
-                          Brand primary colour
-                          <input value={businessSettings.brandPrimaryColor} onChange={(event) => updateBusinessSettings({ brandPrimaryColor: event.target.value })} placeholder="#157fa8" />
-                        </label>
-                        <label>
-                          Brand accent colour
-                          <input value={businessSettings.brandAccentColor} onChange={(event) => updateBusinessSettings({ brandAccentColor: event.target.value })} placeholder="#0f5f7d" />
-                        </label>
-                        <label className="span-2">
-                          Logo URL
-                          <input value={businessSettings.logoUrl} onChange={(event) => updateBusinessSettings({ logoUrl: event.target.value })} placeholder="/ewg-logo.png" />
-                        </label>
-                        <label className="span-2">
-                          Portal welcome text
-                          <textarea value={businessSettings.portalWelcomeText} onChange={(event) => updateBusinessSettings({ portalWelcomeText: event.target.value })} rows={3} />
-                        </label>
-                        <label className="span-2">
-                          Portal acceptance wording
-                          <textarea value={businessSettings.portalAcceptanceText} onChange={(event) => updateBusinessSettings({ portalAcceptanceText: event.target.value })} rows={3} />
-                        </label>
-                      </div>
-
-                      <div className="setup-preview-card" style={{ borderTop: `4px solid ${businessSettings.brandPrimaryColor || "#157fa8"}` }}>
-                        <span>Form / portal preview</span>
-                        <strong>{businessSettings.companyName}</strong>
-                        <p>{businessSettings.clientPortalBrandLine}</p>
-                        <small>{businessSettings.portalWelcomeText}</small>
-                        <small>{businessSettings.address} · {businessSettings.contactEmail} · VAT {businessSettings.vatNumber}</small>
-                      </div>
-                    </section>
+                    <SetupPersonalisingPanel
+                      businessSettings={businessSettings}
+                      requestHeaders={requestHeaders}
+                      onChange={updateBusinessSettings}
+                      onNotice={showNotice}
+                      focus={
+                        activeSetupSubItem === "Company" ||
+                        activeSetupSubItem === "Personalising" ||
+                        activeSetupSubItem === "Portal"
+                          ? activeSetupSubItem
+                          : null
+                      }
+                    />
                   ) : null}
 
                   {activeSetupCategory === "forms" ? (
