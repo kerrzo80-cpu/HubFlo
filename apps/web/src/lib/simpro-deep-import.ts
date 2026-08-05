@@ -157,31 +157,30 @@ function moneyHint(record: UnknownRecord, keys: string[]): number {
   return 0;
 }
 
-/** True when a catalog/labour row already carries a usable cost (BasePrice etc.). */
+/** True when a catalog/labour row already carries a usable cost distinct from sell. */
 function lineRecordHasCost(record: UnknownRecord): boolean {
-  return (
-    moneyHint(record, [
-      "CostPrice.ExTax",
-      "CostPrice",
-      "BasePrice.ExTax",
-      "BasePrice",
-      "EstimatedCost.ExTax",
-      "EstimatedCost",
-      "BuyPrice.ExTax",
-      "BuyPrice",
-      "LaborCost",
-      "LabourCost",
-      "CostRate",
-      "LaborType.CostRate",
-      "LabourType.CostRate",
-      "Catalogue.BasePrice.ExTax",
-      "Catalogue.BasePrice",
-      "Catalog.BasePrice.ExTax",
-      "Catalog.BasePrice",
-      "Markup",
-      "MarkupPercent",
-    ]) > 0
-  );
+  const sell = moneyHint(record, ["SellPrice.ExTax", "SellPrice", "UnitPrice.ExTax", "UnitPrice"]);
+  const cost = moneyHint(record, [
+    "BasePrice.ExTax",
+    "BasePrice",
+    "CostPrice.ExTax",
+    "CostPrice",
+    "EstimatedCost.ExTax",
+    "EstimatedCost",
+    "BuyPrice.ExTax",
+    "BuyPrice",
+    "LaborCost",
+    "LabourCost",
+    "CostRate",
+    "LaborType.CostRate",
+    "LabourType.CostRate",
+    "Catalogue.BasePrice.ExTax",
+    "Catalogue.BasePrice",
+    "Catalog.BasePrice.ExTax",
+    "Catalog.BasePrice",
+  ]);
+  // Mirrored sell-as-cost must still be enriched from /catalogs/{id}.
+  return cost > 0 && !(sell > 0 && Math.abs(cost - sell) < 0.005);
 }
 
 async function fetchCostCentreItemBags(

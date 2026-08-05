@@ -301,7 +301,80 @@ describe("simpro hierarchy map", () => {
     assert.equal(labour?.unitSell, 55);
   });
 
-  it("falls back to simPRO sell only when no cost can be derived", () => {
+  it("rejects mirrored CostPrice===SellPrice and backs out cost via NeXa markup", () => {
+    const { centres } = mapSimproQuoteCostCentres(
+      {
+        ID: 1,
+        Sections: [
+          {
+            ID: 2,
+            Name: "Works",
+            CostCenters: [
+              {
+                ID: 3,
+                Name: "Materials",
+                Items: {
+                  Catalogs: [
+                    {
+                      ID: 50,
+                      Catalogue: { Name: "Bath panel" },
+                      // Tenant mirrored sell into CostPrice — must not become unitCost.
+                      CostPrice: { ExTax: 120 },
+                      SellPrice: { ExTax: 120 },
+                      Total: { Qty: 1, Amount: { ExTax: 120 } },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      },
+      "quote-mirrored-cost",
+      { materialMarkupPercent: 30, labourMarkupPercent: 30 },
+    );
+    const line = centres[0]?.lines[0];
+    assert.equal(line?.unitSell, 120);
+    assert.equal(line?.unitCost, Math.round((120 / 1.3) * 100) / 100);
+    assert.notEqual(line?.unitCost, line?.unitSell);
+  });
+
+  it("prefers Catalogue.BasePrice over CostPrice that mirrors sell", () => {
+    const { centres } = mapSimproQuoteCostCentres(
+      {
+        ID: 1,
+        Sections: [
+          {
+            ID: 2,
+            Name: "Works",
+            CostCenters: [
+              {
+                ID: 3,
+                Name: "Materials",
+                Items: {
+                  Catalogs: [
+                    {
+                      ID: 51,
+                      Catalogue: { Name: "Shower screen", BasePrice: { ExTax: 80 } },
+                      CostPrice: { ExTax: 160 },
+                      SellPrice: { ExTax: 160 },
+                      Total: { Qty: 1, Amount: { ExTax: 160 } },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      },
+      "quote-base-over-cost",
+    );
+    const line = centres[0]?.lines[0];
+    assert.equal(line?.unitCost, 80);
+    assert.equal(line?.unitSell, 160);
+  });
+
+  it("backs out cost from sell via NeXa markup when BasePrice is missing", () => {
     const { centres } = mapSimproQuoteCostCentres(
       {
         ID: 1,
