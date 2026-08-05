@@ -15,6 +15,7 @@ import {
   isUnpaidSimproInvoice,
   isUsableEmailForMatch,
   jobStatusFromSimpro,
+  leadStatusFromSimpro,
   preferNexaJobWorkflowStatus,
   processClient,
   processSite,
@@ -137,6 +138,13 @@ describe("simpro sync preview quality", () => {
       ]).map((row) => row.ID).join(","),
       "3,1",
     );
+
+    // Open stage must not become Lost because a custom Status.Name mentions archive/lost.
+    assert.equal(leadStatusFromSimpro({ Stage: "Open", Status: { Name: "Archive review" } }, false), "Needs scheduling");
+    assert.equal(leadStatusFromSimpro({ Stage: "Open", Status: { Name: "Customer lost interest" } }, true), "Survey booked");
+    assert.equal(leadStatusFromSimpro({ Stage: "Closed" }, true), "Lost");
+    assert.equal(leadStatusFromSimpro({ Stage: "Open" }, true), "Survey booked");
+    assert.equal(leadStatusFromSimpro({ Stage: "Open" }, false), "Needs scheduling");
 
     assert.equal(isUnpaidSimproInvoice({ IsPaid: false, Status: { Name: "Sent" } }), true);
     assert.equal(isUnpaidSimproInvoice({ IsPaid: true }), false);

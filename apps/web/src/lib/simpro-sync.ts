@@ -2224,17 +2224,24 @@ async function fetchLeadScheduleHint(config: ResolvedSimproDirectConfig, leadId:
   return null;
 }
 
+function leadStageToken(record: UnknownRecord) {
+  // Only trust Stage (Open/Closed). Custom Status.Name labels false-positive "lost"/"archiv"
+  // and were marking open simPRO leads as Lost in NeXa.
+  return normaliseText(firstString(record, ["Stage", "Stage.Name"]));
+}
+
+export function leadStatusFromSimpro(record: UnknownRecord, hasSchedule: boolean): LeadStatus {
+  const stage = leadStageToken(record);
+  if (stage === "closed") return "Lost";
+  if (hasSchedule) return "Survey booked";
+  if (!stage || stage === "open") return "Needs scheduling";
+  return "Needs scheduling";
+}
+
 function descriptionFromSimproLead(record: UnknownRecord) {
   const title = firstString(record, ["LeadName", "Name", "Title", "Subject"]);
   const body = firstString(record, ["Description", "Notes", "LongDescription"]);
   return simproPlainDescription({ title, body }, "Imported simPRO lead", { maxLength: 120, preferTitle: true });
-}
-
-function leadStatusFromSimpro(stage: string, hasSchedule: boolean): LeadStatus {
-  const normalized = normaliseText(stage);
-  if (normalized === "closed" || normalized.includes("lost") || normalized.includes("archiv")) return "Lost";
-  if (hasSchedule) return "Survey booked";
-  return "Needs scheduling";
 }
 
 function buildLeadInput(
@@ -2254,7 +2261,7 @@ function buildLeadInput(
     "Address to confirm";
   const followUp = firstString(record, ["FollowUpDate"]);
   const hasSchedule = Boolean(schedule?.surveyDate && schedule.surveyTime);
-  const status = leadStatusFromSimpro(firstString(record, ["Stage", "Stage.Name", "Status.Name", "Status"]), hasSchedule);
+  const status = leadStatusFromSimpro(record, hasSchedule);
   const surveyor =
     schedule?.surveyor ||
     firstString(record, ["Salesperson.Name", "ProjectManager.Name", "Owner.Name"]) ||
@@ -2312,24 +2319,29 @@ async function processLead(record: UnknownRecord, mode: SimproSyncMode): Promise
 
   const link = pruneOrphanLink("leads", simproId);
   if (link) {
-    if (mode === "apply" && schedule) {
+    if (mode === "apply") {
       updateLead(
         link.nexaId,
         {
-          status: "Survey booked",
-          surveyor: schedule.surveyor || undefined,
-          surveyDate: schedule.surveyDate,
-          surveyTime: schedule.surveyTime,
+          status: mapped.status,
           next: mapped.next,
+          ...(mapped.status !== "Lost" ? { lostReason: undefined } : {}),
+          ...(schedule
+            ? {
+                surveyor: mapped.surveyor || undefined,
+                surveyDate: mapped.surveyDate,
+                surveyTime: mapped.surveyTime,
+              }
+            : {}),
         },
         "simPRO sync",
       );
     }
     return operation(
       "leads",
-      mode === "apply" && schedule ? "link" : "skip",
-      mode === "apply" && schedule
-        ? `Refreshing ${link.nexaRef ?? link.nexaName} schedule from simPRO lead ${simproId}.${scheduleNote}`
+      mode === "apply" ? "link" : "skip",
+      mode === "apply"
+        ? `Refreshing ${link.nexaRef ?? link.nexaName} from simPRO lead ${simproId} → ${mapped.status}.${scheduleNote}`
         : `${mapped.customerName}: ${mapped.description} is already linked to ${link.nexaRef ?? link.nexaName}.`,
       { simproId, simproName: mapped.description, nexaId: link.nexaId, nexaRef: link.nexaRef },
     );
@@ -2352,21 +2364,24 @@ async function processLead(record: UnknownRecord, mode: SimproSyncMode): Promise
         simproName: mapped.description,
         lastDirection: "simpro-to-nexa",
       });
-      if (schedule) {
-        updateLead(
-          existing.id,
-          {
-            status: "Survey booked",
-            surveyor: schedule.surveyor || existing.surveyor,
-            surveyDate: schedule.surveyDate,
-            surveyTime: schedule.surveyTime,
-            next: mapped.next,
-          },
-          "simPRO sync",
-        );
-      }
+      updateLead(
+        existing.id,
+        {
+          status: mapped.status,
+          next: mapped.next,
+          ...(mapped.status !== "Lost" ? { lostReason: undefined } : {}),
+          ...(schedule
+            ? {
+                surveyor: mapped.surveyor || existing.surveyor,
+                surveyDate: mapped.surveyDate,
+                surveyTime: mapped.surveyTime,
+              }
+            : {}),
+        },
+        "simPRO sync",
+      );
     }
-    return operation("leads", "link", `Link simPRO lead ${simproId} to ${existing.ref}.${scheduleNote}`, {
+    return operation("leads", "link", `Link simPRO lead ${simproId} to ${existing.ref} → ${mapped.status}.${scheduleNote}`, {
       simproId,
       simproName: mapped.description,
       nexaId: existing.id,

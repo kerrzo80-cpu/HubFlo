@@ -30744,7 +30744,7 @@ export default function Dashboard() {
                   : homeView === "invoice-record"
                     ? `${selectedInvoice?.sourceName ?? "Source not linked"} · due ${selectedInvoice?.dueDate ?? "TBC"}`
                   : homeView === "leads"
-                  ? `${leads.filter((lead) => !["Quoted", "Lost"].includes(lead.status)).length} open enquiries · ${leads.filter((lead) => lead.status === "Survey booked").length} surveys booked`
+                  ? `${leads.length} leads · ${leads.filter((lead) => !["Quoted", "Lost"].includes(lead.status)).length} open · ${leads.filter((lead) => lead.status === "Survey booked").length} surveys booked`
                   : homeView === "lead-create"
                     ? "Capture customer, site, contacts, work description and survey booking"
                   : homeView === "lead-record"
