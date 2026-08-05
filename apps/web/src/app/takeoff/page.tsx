@@ -2795,13 +2795,12 @@ const filteredMarkupPlantTools = useMemo(() => {
   const markupViewBox = `${markupViewport.x} ${markupViewport.y} ${markupViewport.width} ${markupViewport.height}`;
   const markupZoomLabel = `${Math.round(markupViewport.zoom * 100)}%`;
   const markupSyncLabel = (() => {
-    if (!markupOfflineDraftSavedAt) return "";
-    if (markupSyncStatus === "saving") return "Saving markup...";
-    if (markupSyncStatus === "saved") return "Saved to NeXa";
-    if (markupSyncStatus === "offline") return "Saved offline";
+    // Always show a status so users have a persistent "is my work saved?" signal.
+    if (markupSyncStatus === "saving") return "Saving...";
     if (markupSyncStatus === "queued") return "Offline draft waiting to sync";
-    if (markupSyncStatus === "error") return "Markup sync needs retry";
-    return "Local draft ready";
+    if (markupSyncStatus === "error") return "Sync needs retry";
+    if (markupSyncStatus === "offline") return "Saved offline";
+    return "All changes saved";
   })();
   const markupCalibrationPointOne = markupCalibrationPoints[0] ?? null;
   const markupCalibrationPointTwo = markupCalibrationPoints[1] ?? null;
@@ -6923,12 +6922,12 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
               ) : null}
 
               <section className="estimate-flow-strip" aria-label="Estimate workflow">
-                <a href="/survey">
+                <button className={activeTab === "intake" ? "active" : ""} type="button" onClick={() => setActiveTab("intake")}>
                   <span>1</span>
-                  <strong>Survey</strong>
-                  <small>Upload evidence and describe the works</small>
-                </a>
-                <button className={activeTab === "markup" || activeTab === "intake" ? "active" : ""} type="button" onClick={() => setActiveTab("markup")}>
+                  <strong>Documents</strong>
+                  <small>Upload drawings and survey evidence</small>
+                </button>
+                <button className={activeTab === "markup" ? "active" : ""} type="button" onClick={() => setActiveTab("markup")}>
                   <span>2</span>
                   <strong>Markup</strong>
                   <small>Mark up drawings and measured routes</small>
@@ -7168,7 +7167,15 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                     <span>{isMarkupMaterialsCollapsed ? `Tools · ${servicesMarkupSummary.pipeRows.length + servicesMarkupSummary.symbolRows.length}` : "Hide"}</span>
                   </button>
                   <article className="takeoff-panel services-markup-toolbar">
-                    <PanelTitle icon={Wrench} title="Markup tools" action={servicesMarkup.calibration.status}>
+                    <PanelTitle
+                      icon={Wrench}
+                      title="Markup tools"
+                      action={
+                        servicesMarkup.calibration.status === "Calibrated"
+                          ? `Scale set${servicesMarkup.calibration.scaleLabel ? ` · ${servicesMarkup.calibration.scaleLabel}` : ""}`
+                          : "Scale not set"
+                      }
+                    >
                       <button className="takeoff-small-button" type="button" onClick={() => setIsMarkupExpanded((current) => !current)}>
                         <Maximize2 size={14} />
                         {isMarkupExpanded ? "Exit focus" : "Focus board"}
@@ -7188,10 +7195,10 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         <span>Pipe routes are drawn but not calibrated — stock lengths will be 0m until you set a known length on the drawing.</span>
                         <div className="takeoff-markup-cal-banner-actions">
                           <button className="takeoff-primary-button" type="button" onClick={startMarkupCalibration}>
-                            Calibrate now
+                            Set scale now
                           </button>
                           <button className="takeoff-small-button" type="button" onClick={() => pushMarkupToBoq({ force: true })}>
-                            Send anyway
+                            Send without lengths
                           </button>
                         </div>
                       </div>
@@ -7875,7 +7882,9 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           {markupSelectedDrawing ? `Locked plan: ${markupSelectedDrawing.fileName}` : "Locked PDF background placeholder"}
                         </text>
                         <text className="markup-plan-scale" x="32" y="68">
-                          {servicesMarkup.calibration.status} {servicesMarkup.calibration.scaleLabel ? `- ${servicesMarkup.calibration.scaleLabel}` : ""}
+                          {servicesMarkup.calibration.status === "Calibrated"
+                            ? `Scale set${servicesMarkup.calibration.scaleLabel ? ` · ${servicesMarkup.calibration.scaleLabel}` : ""}`
+                            : "Scale not set — lengths show 0 m"}
                         </text>
 
                         {markupCalibrationPickedCount ? (
