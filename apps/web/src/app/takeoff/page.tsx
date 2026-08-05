@@ -7309,16 +7309,6 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         />
                       </label>
                       <label>
-                        Known distance m
-                        <input
-                          min="0.01"
-                          step="0.01"
-                          type="number"
-                          value={markupCalibrationDistance}
-                          onChange={(event) => setMarkupCalibrationDistance(event.target.value)}
-                        />
-                      </label>
-                      <label>
                         Wastage %
                         <input
                           min="0"
@@ -7345,63 +7335,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       </label>
                     </div>
 
-                    <div className="services-markup-layer-strip" aria-label="Drawing layers">
-                      <span>View / save layer</span>
-                      <div>
-                        {markupLayerOptions.map((layer) => (
-                          <button
-                            className={activeMarkupLayerId === layer.id ? "active" : ""}
-                            type="button"
-                            key={layer.id}
-                            onClick={() => selectMarkupLayer(layer.id)}
-                          >
-                            {layer.label}
-                          </button>
-                        ))}
-                      </div>
-                      <small>
-                        {activeMarkupLayerId === "all"
-                          ? "Master view shows every layer on this plan."
-                          : `${activeMarkupLayerLabel} saves as a clean drawing layer.`}
-                      </small>
-                    </div>
-
                     <div className="services-markup-scale-actions">
-                      <button
-                        className="takeoff-small-button"
-                        type="button"
-                        onClick={() => updateServicesMarkup((current) => ({
-                          ...current,
-                          calibration: { ...current.calibration, status: "Calibrated", pixelsPerMetre: 100, scaleLabel: "1:50" },
-                        }), "Markup scale set to 1:50.")}
-                      >
-                        1:50
-                      </button>
-                      <button
-                        className="takeoff-small-button"
-                        type="button"
-                        onClick={() => updateServicesMarkup((current) => ({
-                          ...current,
-                          calibration: { ...current.calibration, status: "Calibrated", pixelsPerMetre: 70, scaleLabel: "1:100" },
-                        }), "Markup scale set to 1:100.")}
-                      >
-                        1:100
-                      </button>
-                      <button
-                        className={markupToolMode === "calibrate" ? "takeoff-small-button active" : "takeoff-small-button"}
-                        type="button"
-                        onClick={startMarkupCalibration}
-                      >
-                        Calibrate from drawing
-                      </button>
-                      <button
-                        className="takeoff-small-button"
-                        disabled={!hasCompleteMarkupCalibration}
-                        type="button"
-                        onClick={applyMarkupCalibration}
-                      >
-                        Apply calibration
-                      </button>
                       <label className="services-markup-check">
                         <input
                           type="checkbox"
@@ -7416,9 +7350,11 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       <span>
                         {markupToolMode === "calibrate"
                           ? `Draw a reference line over a known dimension. ${markupCalibrationPickedCount}/2 endpoints selected.`
-                          : markupSelectedDrawing
-                            ? `${markupSelectedDrawing.fileName} is locked behind the editable NeXa markup.`
-                            : "Upload a drawing to use as the locked background."}
+                          : servicesMarkup.calibration.status === "Calibrated"
+                            ? `Scale set${servicesMarkup.calibration.scaleLabel ? ` · ${servicesMarkup.calibration.scaleLabel}` : ""} — use Calibrate on the board to remeasure.`
+                            : markupSelectedDrawing
+                              ? "Scale not set — use the banner presets or Calibrate on the board."
+                              : "Upload a drawing to use as the locked background."}
                       </span>
                     </div>
 
@@ -7456,19 +7392,25 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           }}
                           placeholder="Search bath, basin, boiler, radiator, elbow, valve..."
                         />
-                        <strong>Filter</strong>
-                        <div className="services-markup-group-grid">
-                          {markupToolGroups.map((group) => (
+                        <strong>Layer</strong>
+                        <div className="services-markup-group-grid" aria-label="Drawing layers">
+                          {markupLayerOptions.map((layer) => (
                             <button
-                              className={activeMarkupToolGroup.id === group.id ? "active" : ""}
+                              className={activeMarkupLayerId === layer.id ? "active" : ""}
                               type="button"
-                              key={group.id}
-                              onClick={() => selectMarkupLayer(group.id)}
+                              key={layer.id}
+                              onClick={() => selectMarkupLayer(layer.id)}
                             >
-                              {group.label}
+                              {layer.label}
+                              <b className="services-markup-layer-count">{markupLayerCounts[layer.id] ?? 0}</b>
                             </button>
                           ))}
                         </div>
+                        <small className="services-markup-layer-hint">
+                          {activeMarkupLayerId === "all"
+                            ? "Master view shows every layer. Pick a layer to filter tools and save a clean drawing."
+                            : `${activeMarkupLayerLabel} tools only — saves as its own drawing layer.`}
+                        </small>
                       </section>
                       <section className="services-markup-tool-section services-markup-pipe-section" style={{ order: 1 }}>
                         <strong>Pipe</strong>
@@ -7875,21 +7817,24 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           </span>
                         </div>
 
-                        <div className="takeoff-markup-floating-layers" aria-label="Drawing layer selector">
-                          <span>Layer</span>
-                          {markupLayerOptions.map((layer) => (
-                            <button
-                              aria-pressed={activeMarkupLayerId === layer.id}
-                              className={activeMarkupLayerId === layer.id ? "active" : ""}
-                              type="button"
-                              key={`canvas-layer-${layer.id}`}
-                              onClick={() => selectMarkupLayer(layer.id)}
-                            >
-                              <strong>{layer.label}</strong>
-                              <b>{markupLayerCounts[layer.id] ?? 0}</b>
-                            </button>
-                          ))}
-                        </div>
+                        {/* Shown when tools drawer is collapsed — layer picks also live in the drawer Layer grid. */}
+                        {isMarkupMaterialsCollapsed ? (
+                          <div className="takeoff-markup-floating-layers" aria-label="Drawing layer selector">
+                            <span>Layer</span>
+                            {markupLayerOptions.map((layer) => (
+                              <button
+                                aria-pressed={activeMarkupLayerId === layer.id}
+                                className={activeMarkupLayerId === layer.id ? "active" : ""}
+                                type="button"
+                                key={`canvas-layer-${layer.id}`}
+                                onClick={() => selectMarkupLayer(layer.id)}
+                              >
+                                <strong>{layer.label}</strong>
+                                <b>{markupLayerCounts[layer.id] ?? 0}</b>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
 
                         <svg
                           ref={markupCanvasRef}
