@@ -2285,7 +2285,10 @@ export default function TakeoffPage() {
 
   useEffect(() => {
     if (activeTab !== "markup") return;
-    setIsMarkupMaterialsCollapsed(false);
+    // On tablet/phone the floating tool panels cover the drawing, so keep them
+    // collapsed there (the drawer tab reopens them); open by default on desktop.
+    const wideScreen = typeof window === "undefined" || window.innerWidth >= 1024;
+    setIsMarkupMaterialsCollapsed(!wideScreen);
   }, [activeTab, selectedProject?.id]);
 
   const takeoffDrawingMode = activeTab === "markup";
@@ -2598,6 +2601,8 @@ const filteredMarkupPlantTools = useMemo(() => {
 
   useEffect(() => {
     if (!promptMarkupPackages.length) return;
+    // Don't auto-open the tool drawer over the canvas on tablet/phone widths.
+    if (typeof window !== "undefined" && window.innerWidth < 1024) return;
     if (promptMarkupPackages.some((pack) => pack.status === "suggested")) {
       setIsMarkupMaterialsCollapsed(false);
     }
@@ -2795,13 +2800,12 @@ const filteredMarkupPlantTools = useMemo(() => {
   const markupViewBox = `${markupViewport.x} ${markupViewport.y} ${markupViewport.width} ${markupViewport.height}`;
   const markupZoomLabel = `${Math.round(markupViewport.zoom * 100)}%`;
   const markupSyncLabel = (() => {
-    if (!markupOfflineDraftSavedAt) return "";
-    if (markupSyncStatus === "saving") return "Saving markup...";
-    if (markupSyncStatus === "saved") return "Saved to NeXa";
-    if (markupSyncStatus === "offline") return "Saved offline";
+    // Always show a status so users have a persistent "is my work saved?" signal.
+    if (markupSyncStatus === "saving") return "Saving...";
     if (markupSyncStatus === "queued") return "Offline draft waiting to sync";
-    if (markupSyncStatus === "error") return "Markup sync needs retry";
-    return "Local draft ready";
+    if (markupSyncStatus === "error") return "Sync needs retry";
+    if (markupSyncStatus === "offline") return "Saved offline";
+    return "All changes saved";
   })();
   const markupCalibrationPointOne = markupCalibrationPoints[0] ?? null;
   const markupCalibrationPointTwo = markupCalibrationPoints[1] ?? null;
@@ -3146,32 +3150,49 @@ const filteredMarkupPlantTools = useMemo(() => {
 
   useEffect(() => {
     if (!selectedProject || (!workingServicesMarkup.pipes.length && !workingServicesMarkup.symbols.length)) return;
-    const quantityPatch = buildMarkupQuantityPatch(workingServicesMarkup, {
-      ...selectedProject,
-      servicesMarkup: workingServicesMarkup,
+    const projectId = selectedProject.id;
+    const project = selectedProject;
+    const markupSnapshot = workingServicesMarkup;
+
+    // Persist a local draft immediately (cheap, synchronous) so a fast edit is
+    // never lost while we debounce the heavier compute + network save below.
+    const savedAt = writeMarkupOfflineDraft(projectId, markupSnapshot, {
+      pendingSync: true,
+      reason: "Markup edit waiting for server sync",
     });
-    const currentMaterials = selectedProject.materialAllowances.filter((line) => (
-      line.id.startsWith("markup-material")
-      || line.id.startsWith("markup-symbol-material")
-      || line.id.startsWith("markup-package-material")
-    ));
-    const nextMaterials = quantityPatch.materialAllowances.filter((line) => (
-      line.id.startsWith("markup-material")
-      || line.id.startsWith("markup-symbol-material")
-      || line.id.startsWith("markup-package-material")
-    ));
-    const currentRequests = selectedProject.supplierRequests.filter((line) => (
-      line.notes === "From Services Markup" || line.notes === "From Markup package"
-    ));
-    const nextRequests = quantityPatch.supplierRequests.filter((line) => (
-      line.notes === "From Services Markup" || line.notes === "From Markup package"
-    ));
-    if (JSON.stringify(currentMaterials) === JSON.stringify(nextMaterials) && JSON.stringify(currentRequests) === JSON.stringify(nextRequests)) return;
-    patchProject(selectedProject.id, {
-      servicesMarkup: workingServicesMarkup,
-      materialAllowances: quantityPatch.materialAllowances,
-      supplierRequests: quantityPatch.supplierRequests,
-    }).catch(() => {});
+    if (savedAt) setMarkupOfflineDraftSavedAt(savedAt);
+
+    // Debounce the quantity rebuild + PATCH so drawing stays smooth and we don't
+    // storm the API with a save on every pipe point / drag.
+    const timer = window.setTimeout(() => {
+      const quantityPatch = buildMarkupQuantityPatch(markupSnapshot, {
+        ...project,
+        servicesMarkup: markupSnapshot,
+      });
+      const isMarkupMaterial = (line: { id: string }) =>
+        line.id.startsWith("markup-material")
+        || line.id.startsWith("markup-symbol-material")
+        || line.id.startsWith("markup-package-material");
+      const isMarkupRequest = (line: { notes?: string }) =>
+        line.notes === "From Services Markup" || line.notes === "From Markup package";
+      const currentMaterials = project.materialAllowances.filter(isMarkupMaterial);
+      const nextMaterials = quantityPatch.materialAllowances.filter(isMarkupMaterial);
+      const currentRequests = project.supplierRequests.filter(isMarkupRequest);
+      const nextRequests = quantityPatch.supplierRequests.filter(isMarkupRequest);
+      if (
+        JSON.stringify(currentMaterials) === JSON.stringify(nextMaterials)
+        && JSON.stringify(currentRequests) === JSON.stringify(nextRequests)
+      ) {
+        return;
+      }
+      patchProject(projectId, {
+        servicesMarkup: markupSnapshot,
+        materialAllowances: quantityPatch.materialAllowances,
+        supplierRequests: quantityPatch.supplierRequests,
+      }).catch(() => {});
+    }, 700);
+
+    return () => window.clearTimeout(timer);
   }, [selectedProject, workingServicesMarkup]);
 
   function replaceProject(project: TakeoffProject) {
@@ -6923,12 +6944,12 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
               ) : null}
 
               <section className="estimate-flow-strip" aria-label="Estimate workflow">
-                <a href="/survey">
+                <button className={activeTab === "intake" ? "active" : ""} type="button" onClick={() => setActiveTab("intake")}>
                   <span>1</span>
-                  <strong>Survey</strong>
-                  <small>Upload evidence and describe the works</small>
-                </a>
-                <button className={activeTab === "markup" || activeTab === "intake" ? "active" : ""} type="button" onClick={() => setActiveTab("markup")}>
+                  <strong>Documents</strong>
+                  <small>Upload drawings and survey evidence</small>
+                </button>
+                <button className={activeTab === "markup" ? "active" : ""} type="button" onClick={() => setActiveTab("markup")}>
                   <span>2</span>
                   <strong>Markup</strong>
                   <small>Mark up drawings and measured routes</small>
@@ -7168,7 +7189,15 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                     <span>{isMarkupMaterialsCollapsed ? `Tools · ${servicesMarkupSummary.pipeRows.length + servicesMarkupSummary.symbolRows.length}` : "Hide"}</span>
                   </button>
                   <article className="takeoff-panel services-markup-toolbar">
-                    <PanelTitle icon={Wrench} title="Markup tools" action={servicesMarkup.calibration.status}>
+                    <PanelTitle
+                      icon={Wrench}
+                      title="Markup tools"
+                      action={
+                        servicesMarkup.calibration.status === "Calibrated"
+                          ? `Scale set${servicesMarkup.calibration.scaleLabel ? ` · ${servicesMarkup.calibration.scaleLabel}` : ""}`
+                          : "Scale not set"
+                      }
+                    >
                       <button className="takeoff-small-button" type="button" onClick={() => setIsMarkupExpanded((current) => !current)}>
                         <Maximize2 size={14} />
                         {isMarkupExpanded ? "Exit focus" : "Focus board"}
@@ -7188,10 +7217,32 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         <span>Pipe routes are drawn but not calibrated — stock lengths will be 0m until you set a known length on the drawing.</span>
                         <div className="takeoff-markup-cal-banner-actions">
                           <button className="takeoff-primary-button" type="button" onClick={startMarkupCalibration}>
-                            Calibrate now
+                            Set scale from drawing
+                          </button>
+                          <button
+                            className="takeoff-small-button"
+                            type="button"
+                            title="Quick scale for a 1:50 drawing"
+                            onClick={() => updateServicesMarkup((current) => ({
+                              ...current,
+                              calibration: { ...current.calibration, status: "Calibrated", pixelsPerMetre: 100, scaleLabel: "1:50" },
+                            }), "Markup scale set to 1:50.")}
+                          >
+                            Use 1:50
+                          </button>
+                          <button
+                            className="takeoff-small-button"
+                            type="button"
+                            title="Quick scale for a 1:100 drawing"
+                            onClick={() => updateServicesMarkup((current) => ({
+                              ...current,
+                              calibration: { ...current.calibration, status: "Calibrated", pixelsPerMetre: 70, scaleLabel: "1:100" },
+                            }), "Markup scale set to 1:100.")}
+                          >
+                            Use 1:100
                           </button>
                           <button className="takeoff-small-button" type="button" onClick={() => pushMarkupToBoq({ force: true })}>
-                            Send anyway
+                            Send without lengths
                           </button>
                         </div>
                       </div>
@@ -7258,16 +7309,6 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         />
                       </label>
                       <label>
-                        Known distance m
-                        <input
-                          min="0.01"
-                          step="0.01"
-                          type="number"
-                          value={markupCalibrationDistance}
-                          onChange={(event) => setMarkupCalibrationDistance(event.target.value)}
-                        />
-                      </label>
-                      <label>
                         Wastage %
                         <input
                           min="0"
@@ -7294,63 +7335,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       </label>
                     </div>
 
-                    <div className="services-markup-layer-strip" aria-label="Drawing layers">
-                      <span>View / save layer</span>
-                      <div>
-                        {markupLayerOptions.map((layer) => (
-                          <button
-                            className={activeMarkupLayerId === layer.id ? "active" : ""}
-                            type="button"
-                            key={layer.id}
-                            onClick={() => selectMarkupLayer(layer.id)}
-                          >
-                            {layer.label}
-                          </button>
-                        ))}
-                      </div>
-                      <small>
-                        {activeMarkupLayerId === "all"
-                          ? "Master view shows every layer on this plan."
-                          : `${activeMarkupLayerLabel} saves as a clean drawing layer.`}
-                      </small>
-                    </div>
-
                     <div className="services-markup-scale-actions">
-                      <button
-                        className="takeoff-small-button"
-                        type="button"
-                        onClick={() => updateServicesMarkup((current) => ({
-                          ...current,
-                          calibration: { ...current.calibration, status: "Calibrated", pixelsPerMetre: 100, scaleLabel: "1:50" },
-                        }), "Markup scale set to 1:50.")}
-                      >
-                        1:50
-                      </button>
-                      <button
-                        className="takeoff-small-button"
-                        type="button"
-                        onClick={() => updateServicesMarkup((current) => ({
-                          ...current,
-                          calibration: { ...current.calibration, status: "Calibrated", pixelsPerMetre: 70, scaleLabel: "1:100" },
-                        }), "Markup scale set to 1:100.")}
-                      >
-                        1:100
-                      </button>
-                      <button
-                        className={markupToolMode === "calibrate" ? "takeoff-small-button active" : "takeoff-small-button"}
-                        type="button"
-                        onClick={startMarkupCalibration}
-                      >
-                        Calibrate from drawing
-                      </button>
-                      <button
-                        className="takeoff-small-button"
-                        disabled={!hasCompleteMarkupCalibration}
-                        type="button"
-                        onClick={applyMarkupCalibration}
-                      >
-                        Apply calibration
-                      </button>
                       <label className="services-markup-check">
                         <input
                           type="checkbox"
@@ -7365,9 +7350,11 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       <span>
                         {markupToolMode === "calibrate"
                           ? `Draw a reference line over a known dimension. ${markupCalibrationPickedCount}/2 endpoints selected.`
-                          : markupSelectedDrawing
-                            ? `${markupSelectedDrawing.fileName} is locked behind the editable NeXa markup.`
-                            : "Upload a drawing to use as the locked background."}
+                          : servicesMarkup.calibration.status === "Calibrated"
+                            ? `Scale set${servicesMarkup.calibration.scaleLabel ? ` · ${servicesMarkup.calibration.scaleLabel}` : ""} — use Calibrate on the board to remeasure.`
+                            : markupSelectedDrawing
+                              ? "Scale not set — use the banner presets or Calibrate on the board."
+                              : "Upload a drawing to use as the locked background."}
                       </span>
                     </div>
 
@@ -7405,19 +7392,25 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           }}
                           placeholder="Search bath, basin, boiler, radiator, elbow, valve..."
                         />
-                        <strong>Filter</strong>
-                        <div className="services-markup-group-grid">
-                          {markupToolGroups.map((group) => (
+                        <strong>Layer</strong>
+                        <div className="services-markup-group-grid" aria-label="Drawing layers">
+                          {markupLayerOptions.map((layer) => (
                             <button
-                              className={activeMarkupToolGroup.id === group.id ? "active" : ""}
+                              className={activeMarkupLayerId === layer.id ? "active" : ""}
                               type="button"
-                              key={group.id}
-                              onClick={() => selectMarkupLayer(group.id)}
+                              key={layer.id}
+                              onClick={() => selectMarkupLayer(layer.id)}
                             >
-                              {group.label}
+                              {layer.label}
+                              <b className="services-markup-layer-count">{markupLayerCounts[layer.id] ?? 0}</b>
                             </button>
                           ))}
                         </div>
+                        <small className="services-markup-layer-hint">
+                          {activeMarkupLayerId === "all"
+                            ? "Master view shows every layer. Pick a layer to filter tools and save a clean drawing."
+                            : `${activeMarkupLayerLabel} tools only — saves as its own drawing layer.`}
+                        </small>
                       </section>
                       <section className="services-markup-tool-section services-markup-pipe-section" style={{ order: 1 }}>
                         <strong>Pipe</strong>
@@ -7824,21 +7817,24 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           </span>
                         </div>
 
-                        <div className="takeoff-markup-floating-layers" aria-label="Drawing layer selector">
-                          <span>Layer</span>
-                          {markupLayerOptions.map((layer) => (
-                            <button
-                              aria-pressed={activeMarkupLayerId === layer.id}
-                              className={activeMarkupLayerId === layer.id ? "active" : ""}
-                              type="button"
-                              key={`canvas-layer-${layer.id}`}
-                              onClick={() => selectMarkupLayer(layer.id)}
-                            >
-                              <strong>{layer.label}</strong>
-                              <b>{markupLayerCounts[layer.id] ?? 0}</b>
-                            </button>
-                          ))}
-                        </div>
+                        {/* Shown when tools drawer is collapsed — layer picks also live in the drawer Layer grid. */}
+                        {isMarkupMaterialsCollapsed ? (
+                          <div className="takeoff-markup-floating-layers" aria-label="Drawing layer selector">
+                            <span>Layer</span>
+                            {markupLayerOptions.map((layer) => (
+                              <button
+                                aria-pressed={activeMarkupLayerId === layer.id}
+                                className={activeMarkupLayerId === layer.id ? "active" : ""}
+                                type="button"
+                                key={`canvas-layer-${layer.id}`}
+                                onClick={() => selectMarkupLayer(layer.id)}
+                              >
+                                <strong>{layer.label}</strong>
+                                <b>{markupLayerCounts[layer.id] ?? 0}</b>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
 
                         <svg
                           ref={markupCanvasRef}
@@ -7875,7 +7871,9 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           {markupSelectedDrawing ? `Locked plan: ${markupSelectedDrawing.fileName}` : "Locked PDF background placeholder"}
                         </text>
                         <text className="markup-plan-scale" x="32" y="68">
-                          {servicesMarkup.calibration.status} {servicesMarkup.calibration.scaleLabel ? `- ${servicesMarkup.calibration.scaleLabel}` : ""}
+                          {servicesMarkup.calibration.status === "Calibrated"
+                            ? `Scale set${servicesMarkup.calibration.scaleLabel ? ` · ${servicesMarkup.calibration.scaleLabel}` : ""}`
+                            : "Scale not set — lengths show 0 m"}
                         </text>
 
                         {markupCalibrationPickedCount ? (

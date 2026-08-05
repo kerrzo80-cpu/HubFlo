@@ -1,0 +1,59 @@
+/*
+ * Takeoff drawing-mode polish (loaded after globals.css).
+ * The tool panels float over the fullscreen canvas. On tablet/phone they cover
+ * the drawing, so page.tsx keeps them collapsed there by default; these rules
+ * make the drawer tab a clearer touch target and widen the open sheet on phones.
+ * Kept in a dedicated file to avoid churn in the large globals.css.
+ */
+
+/* Clearer, larger drawer toggle. */
+.takeoff-materials-drawer-tab {
+  height: 92px;
+  gap: 6px;
+}
+
+/* Layer counts inside the drawer Layer grid. */
+.services-markup-group-grid button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.services-markup-layer-count {
+  min-width: 1.4em;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 0.72em;
+  font-weight: 700;
+  opacity: 0.72;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.services-markup-group-grid button.active .services-markup-layer-count {
+  opacity: 1;
+}
+
+.services-markup-layer-hint {
+  display: block;
+  margin-top: 6px;
+  opacity: 0.72;
+  line-height: 1.35;
+}
+
+/* Compact scale row after removing duplicate calibrate presets. */
+.services-markup-scale-actions {
+  align-items: center;
+}
+
+/* On phones, present the open tools drawer as a near-full-width sheet so the
+   controls are usable rather than crammed into a sliver. */
+@media (max-width: 560px) {
+  .takeoff-drawing-mode .services-markup-toolbar,
+  .takeoff-drawing-mode .services-markup-properties,
+  .takeoff-drawing-mode .services-markup-summary {
+    right: 0 !important;
+    left: auto !important;
+    width: min(420px, 94vw) !important;
+  }
+}

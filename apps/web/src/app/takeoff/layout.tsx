@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { TakeoffScrollUnlock } from "./takeoff-scroll-unlock";
+import "./takeoff-improve.css";
 
 export const metadata: Metadata = {
   title: "NeXa Takeoffs",
