@@ -55,6 +55,7 @@ export async function GET() {
       simproSchedulePush: "managers-diary-v1",
       schedulesDiaryOpen: "click-timeline-v1",
       simproImportQuality: "quote-header-cc-hydrate-v2",
+      simproCustomerNames: "fetch-by-customer-id-v1",
       simproImportOrphanLinks: "prune-reimport-v1",
       simproClientsFullFetch: "orderby-id-pagesize-250-v1",
       simproEntityFullFetch: "scoped-open-quotes-live-jobs-30-unpaid-v1",

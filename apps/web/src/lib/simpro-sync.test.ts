@@ -91,6 +91,30 @@ describe("simpro sync preview quality", () => {
     assert.equal(invoices[0]?.ID, 3);
   });
 
+  it("never labels quotes/jobs as literal simPRO customer when a real name or id exists", () => {
+    const named = buildQuoteInput({
+      ID: 1,
+      Description: "Bathroom",
+      Customer: { ID: 55, CompanyName: "Morrison Co" },
+      Total: { ExTax: 100 },
+    });
+    assert.equal(named.customer, "Morrison Co");
+
+    const idOnly = buildQuoteInput({
+      ID: 2,
+      Description: "Boiler",
+      Customer: { ID: 88 },
+      Total: { ExTax: 50 },
+    });
+    assert.equal(idOnly.customer, "Customer 88");
+    assert.notEqual(idOnly.customer.toLowerCase(), "simpro customer");
+
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "simpro-sync.ts"), "utf8");
+    assert.match(source, /hydrateCustomersForRecords/);
+    assert.match(source, /fetchSimproCustomerDetail/);
+    assert.match(source, /fallbackCustomerLabel/);
+  });
+
   it("keeps richer server quote cost centres when the browser sends an empty map", () => {
     const merged = mergeHubDetailState(
       {
