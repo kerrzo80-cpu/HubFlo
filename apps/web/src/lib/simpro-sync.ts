@@ -1777,7 +1777,15 @@ async function processQuote(record: UnknownRecord, mode: SimproSyncMode): Promis
     nexaId: quote.id,
     nexaRef: quote.ref,
   });
-  return withQuoteHierarchy(base, quote.id, simproId, mode);
+  const result = await withQuoteHierarchy(base, quote.id, simproId, mode);
+  if (mode === "apply" && isBlankImportedCustomerName(mapped.customer) && !simproCustomerId(working)) {
+    return {
+      ...result,
+      action: "error",
+      summary: `${result.summary} Quote detail had no Customer — re-Apply after checking simPRO access / rate limits.`,
+    };
+  }
+  return result;
 }
 
 async function processJob(record: UnknownRecord, mode: SimproSyncMode): Promise<SimproSyncOperation> {
