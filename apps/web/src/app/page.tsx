@@ -31246,6 +31246,10 @@ export default function Dashboard() {
                   <button className="secondary-button" onClick={returnToDashboard}>
                     Back to dashboard
                   </button>
+                  <button className="primary-button" type="button" onClick={createEmployeeCard}>
+                    <Plus size={16} />
+                    Add employee
+                  </button>
                 </>
               ) : homeView === "dashboard" ? (
                 <>
@@ -43908,15 +43912,6 @@ export default function Dashboard() {
                 <div>
                   <h2>Employee cards</h2>
                   <p>Select an employee to open their full employee card.</p>
-                </div>
-                <div className="panel-header-actions">
-                  <button className="secondary-button" type="button" onClick={returnToDashboard}>
-                    Back to dashboard
-                  </button>
-                  <button className="primary-button" type="button" onClick={createEmployeeCard}>
-                    <Plus size={16} />
-                    Add employee
-                  </button>
                 </div>
               </div>
 

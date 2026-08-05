@@ -27,12 +27,18 @@ export type RecurringPlan = {
 
 type RecurringStore = {
   plans: RecurringPlan[];
+  /** Prevents asset sync from recreating plans the user removed. */
+  deletedIds: string[];
 };
 
 const STORE = "nexa-recurring-v1";
 
 function readStore(): RecurringStore {
-  return loadServerStore<RecurringStore>(STORE, { plans: [] });
+  const stored = loadServerStore<Partial<RecurringStore>>(STORE, { plans: [], deletedIds: [] });
+  return {
+    plans: Array.isArray(stored.plans) ? stored.plans : [],
+    deletedIds: Array.isArray(stored.deletedIds) ? stored.deletedIds : [],
+  };
 }
 
 function writeStore(store: RecurringStore) {
@@ -67,6 +73,7 @@ export function upsertRecurringPlan(input: Omit<RecurringPlan, "id" | "createdAt
   if (!input.nextDueDate) throw new Error("Next due date is required.");
 
   if (input.id) {
+    store.deletedIds = store.deletedIds.filter((id) => id !== input.id);
     const existing = store.plans.find((plan) => plan.id === input.id);
     if (existing) {
       store.plans = store.plans.map((plan) =>
@@ -119,6 +126,10 @@ export function upsertAnnualServiceRecurringPlan(input: {
   }
   const assetPart = input.assetId ? `-${input.assetId}` : "";
   const id = `recur-boiler-${input.siteId}${assetPart}`;
+  if (readStore().deletedIds.includes(id)) {
+    return null;
+  }
+  const existing = readStore().plans.find((plan) => plan.id === id);
   const appliance = input.assetName?.trim() || "boiler";
   const name = `Annual ${appliance} service`;
   const description = [
@@ -147,7 +158,8 @@ export function upsertAnnualServiceRecurringPlan(input: {
     ]
       .filter(Boolean)
       .join(" "),
-    active: true,
+    // Don't force paused plans back on every sync refresh.
+    active: existing ? existing.active : true,
   });
   return listRecurringPlans().find((plan) => plan.id === id) ?? null;
 }
@@ -223,6 +235,20 @@ export function markRecurringGenerated(id: string, generatedRef: string) {
 export function setRecurringActive(id: string, active: boolean) {
   const store = readStore();
   store.plans = store.plans.map((plan) => (plan.id === id ? { ...plan, active } : plan));
+  writeStore(store);
+  return listRecurringPlans(true);
+}
+
+export function deleteRecurringPlan(id: string) {
+  const store = readStore();
+  const existed = store.plans.some((plan) => plan.id === id);
+  if (!existed) {
+    throw new Error("Recurring plan not found.");
+  }
+  store.plans = store.plans.filter((plan) => plan.id !== id);
+  if (!store.deletedIds.includes(id)) {
+    store.deletedIds.push(id);
+  }
   writeStore(store);
   return listRecurringPlans(true);
 }

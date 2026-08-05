@@ -304,6 +304,15 @@ export function receivePurchaseIntoStock(input: {
   return getStockSnapshot();
 }
 
+export function archiveStockItem(id: string) {
+  const store = readStore();
+  const item = store.items.find((row) => row.id === id);
+  if (!item) throw new Error("Stock item not found.");
+  item.archived = true;
+  writeStore(store);
+  return getStockSnapshot();
+}
+
 export function upsertStockLocation(input: {
   id?: string;
   name: string;

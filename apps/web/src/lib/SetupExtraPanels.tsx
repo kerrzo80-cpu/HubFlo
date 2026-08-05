@@ -22,11 +22,11 @@ export function SetupStockLocationsPanel({
   requestHeaders,
   onNotice,
 }: {
-  requestHeaders: RequestHeaders;
+  requestHeaders: HeadersInit;
   onNotice: (message: string) => void;
 }) {
   const [locations, setLocations] = useState<StockSnapshot["locations"]>([]);
-  const [draft, setDraft] = useState({ name: "", kind: "Van", engineerName: "" });
+  const [draft, setDraft] = useState({ id: "", name: "", kind: "Van", engineerName: "" });
   const [error, setError] = useState("");
 
   async function load() {
@@ -57,6 +57,7 @@ export function SetupStockLocationsPanel({
       body: JSON.stringify({
         action: "upsert-location",
         location: {
+          id: draft.id || undefined,
           name: draft.name,
           kind: draft.kind,
           engineerName: draft.engineerName || undefined,
@@ -69,8 +70,25 @@ export function SetupStockLocationsPanel({
       return;
     }
     setLocations(body.locations || []);
-    setDraft({ name: "", kind: "Van", engineerName: "" });
-    onNotice("Stock location saved.");
+    setDraft({ id: "", name: "", kind: "Van", engineerName: "" });
+    onNotice(draft.id ? "Stock location updated." : "Stock location saved.");
+  }
+
+  async function removeLocation(location: StockSnapshot["locations"][number]) {
+    if (!window.confirm(`Remove location “${location.name}”?`)) return;
+    const response = await fetch("/api/stock", {
+      method: "POST",
+      headers: { ...requestHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "archive-location", locationId: location.id }),
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      setError(body.error || "Unable to remove location");
+      return;
+    }
+    setLocations(body.locations || []);
+    if (draft.id === location.id) setDraft({ id: "", name: "", kind: "Van", engineerName: "" });
+    onNotice(`${location.name} removed.`);
   }
 
   return (
@@ -95,16 +113,42 @@ export function SetupStockLocationsPanel({
         </label>
         <label>Engineer (vans)<input value={draft.engineerName} onChange={(e) => setDraft((c) => ({ ...c, engineerName: e.target.value }))} /></label>
       </div>
-      <button className="primary-button" type="button" onClick={() => void save()}><Plus size={15} /> Add location</button>
+      <div className="setup-template-actions">
+        <button className="primary-button" type="button" onClick={() => void save()}>
+          <Plus size={15} /> {draft.id ? "Update location" : "Add location"}
+        </button>
+        {draft.id ? (
+          <button className="secondary-button" type="button" onClick={() => setDraft({ id: "", name: "", kind: "Van", engineerName: "" })}>
+            Cancel edit
+          </button>
+        ) : null}
+      </div>
       <div className="ops-table">
-        <div className="ops-table-head"><span>Name</span><span>Kind</span><span>Engineer</span><span /><span /></div>
+        <div className="ops-table-head"><span>Name</span><span>Kind</span><span>Engineer</span><span>Actions</span></div>
         {locations.map((location) => (
           <div className="ops-table-row" key={location.id}>
             <strong>{location.name}</strong>
             <span>{location.kind}</span>
             <span>{location.engineerName || "—"}</span>
-            <span />
-            <span />
+            <div className="ops-row-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() =>
+                  setDraft({
+                    id: location.id,
+                    name: location.name,
+                    kind: location.kind,
+                    engineerName: location.engineerName || "",
+                  })
+                }
+              >
+                Edit
+              </button>
+              <button className="secondary-button" type="button" onClick={() => void removeLocation(location)}>
+                Remove
+              </button>
+            </div>
           </div>
         ))}
       </div>

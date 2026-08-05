@@ -4,6 +4,7 @@ import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import {
   dueRecurringPlans,
+  deleteRecurringPlan,
   listRecurringPlans,
   markRecurringGenerated,
   setRecurringActive,
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await parseJsonRequestBody<{
-    action?: "upsert" | "activate" | "deactivate" | "mark-generated";
+    action?: "upsert" | "activate" | "deactivate" | "mark-generated" | "delete";
     id?: string;
     kind?: RecurringKind;
     name?: string;
@@ -65,6 +66,14 @@ export async function POST(request: NextRequest) {
   }>(request);
 
   try {
+    if (body?.action === "delete") {
+      if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      return NextResponse.json({
+        plans: deleteRecurringPlan(body.id),
+        due: dueRecurringPlans(),
+        upcoming: upcomingRecurringPlans(),
+      });
+    }
     if (body?.action === "activate" || body?.action === "deactivate") {
       if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
       return NextResponse.json({
