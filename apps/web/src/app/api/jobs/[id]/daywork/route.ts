@@ -20,6 +20,7 @@ import { getHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
 import { type DayworkSheetSnapshot } from "@/lib/daywork-account-form";
 import { findDayworkSheetForJob, getDayworkSheetFromStore, listDayworkSheetsFromStore } from "@/lib/daywork-sheets-store";
 import { recordDayworkWriteAttempt } from "@/lib/daywork-write-log";
+import { summarizeDayworkApiPayload } from "@/lib/daywork-poll-strip";
 import { toUkDateDisplay } from "@/lib/uk-date";
 import { getJobs } from "@/lib/workflow-data";
 
@@ -57,6 +58,7 @@ export async function GET(request: Request, { params }: Params) {
   const url = new URL(request.url);
   const costCentreId =
     url.searchParams.get("costCentreId")?.trim() || ensureDayworkVariationCostCentre(jobId);
+  const includeSignatures = url.searchParams.get("includeSignatures") === "1";
   const hubState = getHubDetailState() as HubDetailState & {
     dayworkSheets?: Record<string, DayworkSheetSnapshot>;
     flowStepEvidence?: Record<string, unknown>;
@@ -69,7 +71,7 @@ export async function GET(request: Request, { params }: Params) {
     null;
   const record = sheet || buildDayworkAccountRecordFromEvidence(jobId, costCentreId);
 
-  return NextResponse.json({
+  const payload = {
     ok: true,
     jobId,
     jobRef: job.ref,
@@ -79,6 +81,23 @@ export async function GET(request: Request, { params }: Params) {
     dayworkSheets: hubState.dayworkSheets ?? {},
     flowStepEvidence: hubState.flowStepEvidence ?? {},
     jobDeliveryEvents: hubState.jobDeliveryEvents ?? [],
+  };
+
+  if (includeSignatures) {
+    return NextResponse.json(payload);
+  }
+
+  const light = summarizeDayworkApiPayload({
+    record: record as DayworkAccountRecord | null,
+    sheet: sheet as DayworkAccountRecord | null,
+    dayworkSheets: hubState.dayworkSheets as Record<string, DayworkAccountRecord> | undefined,
+    flowStepEvidence: hubState.flowStepEvidence,
+    jobDeliveryEvents: hubState.jobDeliveryEvents,
+  });
+
+  return NextResponse.json({
+    ...payload,
+    ...light,
   });
 }
 

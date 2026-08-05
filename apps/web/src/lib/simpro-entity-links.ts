@@ -131,6 +131,41 @@ export function upsertSimproEntityLink(
   return next;
 }
 
+export function removeSimproEntityLinksByNexa(input: {
+  tenantKey?: string;
+  entityTypes?: SimproLinkEntityType[];
+  nexaId: string;
+}) {
+  const tenantKey = input.tenantKey?.trim() || DEFAULT_TENANT;
+  const nexaId = input.nexaId.trim();
+  if (!nexaId) return 0;
+  const before = store.links.length;
+  store.links = store.links.filter((link) => {
+    if (link.tenantKey !== tenantKey || link.nexaId !== nexaId) return true;
+    if (input.entityTypes?.length && !input.entityTypes.includes(link.entityType)) return true;
+    return false;
+  });
+  const removed = before - store.links.length;
+  if (removed > 0) persist();
+  return removed;
+}
+
+export function removeSimproEntityLinksByTypes(input: {
+  tenantKey?: string;
+  entityTypes: SimproLinkEntityType[];
+}) {
+  const tenantKey = input.tenantKey?.trim() || DEFAULT_TENANT;
+  if (!input.entityTypes.length) return 0;
+  const typeSet = new Set(input.entityTypes);
+  const before = store.links.length;
+  store.links = store.links.filter(
+    (link) => !(link.tenantKey === tenantKey && typeSet.has(link.entityType)),
+  );
+  const removed = before - store.links.length;
+  if (removed > 0) persist();
+  return removed;
+}
+
 export function simproEntityLinkStats(tenantKey = DEFAULT_TENANT) {
   const links = listSimproEntityLinks({ tenantKey });
   const byType: Partial<Record<SimproLinkEntityType, number>> = {};

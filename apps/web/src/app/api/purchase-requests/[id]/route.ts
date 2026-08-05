@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import {
+  removePurchaseRequest,
   updatePurchaseRequest,
   updatePurchaseRequestStatus,
   type PurchaseRequest,
@@ -9,6 +10,33 @@ import {
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import { appendAuditEvent } from "@/lib/people-data";
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  const access = getAccessProfileFromHeaders(request.headers);
+  if (!access.canApprovePurchase) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const removed = removePurchaseRequest(id);
+  if (!removed) {
+    return NextResponse.json({ error: "Purchase request not found" }, { status: 404 });
+  }
+
+  appendAuditEvent({
+    actor: "HubFlo user",
+    action: "deleted",
+    recordType: "purchase order",
+    recordId: id,
+    summary: `Purchase request ${id} deleted.`,
+    source: "purchase orders",
+    importance: "high",
+  });
+  return NextResponse.json({ success: true });
+}
 
 export async function PATCH(
   request: NextRequest,

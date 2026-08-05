@@ -1,6 +1,6 @@
 /**
  * Phase C — map Simpro job/quote headers into NeXa workflow shapes.
- * Hierarchy (sections/CCs/lines) lands in a follow-up tick; headers first.
+ * Hierarchy (sections/CCs/lines) is applied by simpro-deep-import / simpro-hierarchy-map on Apply.
  */
 
 import type { UnknownRecord } from "@/lib/simpro-client";

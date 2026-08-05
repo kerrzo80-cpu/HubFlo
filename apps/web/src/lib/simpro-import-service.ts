@@ -25,6 +25,7 @@ import {
   mapSimproQuoteHeader,
   simproCustomerExternalId,
 } from "@/lib/simpro-import-map";
+import { enrichNexaJobFromSimpro, enrichNexaQuoteFromSimpro } from "@/lib/simpro-deep-import";
 import { createJob, createQuote, getJobs, getQuotes } from "@/lib/workflow-data";
 
 const PAGE_SIZE = 50;
@@ -82,11 +83,16 @@ async function fetchStagePage(stage: "quotes" | "jobs", page: number) {
 
 function importQuoteRecord(companyId: string, record: UnknownRecord, preview: boolean) {
   const externalId = simproRecordId(record);
-  if (!externalId) return { action: "conflict" as const, message: "Quote missing Simpro ID" };
+  if (!externalId) return { action: "conflict" as const, message: "Quote missing Simpro ID", nexaId: undefined as string | undefined, externalId: undefined as string | undefined };
 
   const existingLink = findSimproEntityLink({ companyId, entityType: "quote", externalId });
   if (existingLink) {
-    return { action: "skipped" as const, message: `Already linked to ${existingLink.nexaRef || existingLink.nexaId}` };
+    return {
+      action: "skipped" as const,
+      message: `Already linked to ${existingLink.nexaRef || existingLink.nexaId}`,
+      nexaId: existingLink.nexaId,
+      externalId,
+    };
   }
 
   const existing = getQuotes().find((quote) => quote.simproQuoteId === externalId);
@@ -103,15 +109,15 @@ function importQuoteRecord(companyId: string, record: UnknownRecord, preview: bo
         importedReadOnly: true,
       });
     }
-    return { action: "linked" as const, message: `Linked to existing ${existing.ref}` };
+    return { action: "linked" as const, message: `Linked to existing ${existing.ref}`, nexaId: existing.id, externalId };
   }
 
   const customer = resolveCustomerLink(companyId, record);
   const mapped = mapSimproQuoteHeader(record, customer);
-  if (!mapped) return { action: "conflict" as const, message: "Unable to map quote" };
+  if (!mapped) return { action: "conflict" as const, message: "Unable to map quote", nexaId: undefined, externalId };
 
   if (preview) {
-    return { action: "created" as const, message: `Would create quote for ${mapped.customer}` };
+    return { action: "created" as const, message: `Would create quote for ${mapped.customer}`, nexaId: undefined, externalId };
   }
 
   const { externalId: _e, externalNumber, sourceModifiedAt: _s, ...payload } = mapped;
@@ -136,16 +142,21 @@ function importQuoteRecord(companyId: string, record: UnknownRecord, preview: bo
     source: "Simpro import",
     importance: "normal",
   });
-  return { action: "created" as const, message: `Created ${quote.ref}` };
+  return { action: "created" as const, message: `Created ${quote.ref}`, nexaId: quote.id, externalId };
 }
 
 function importJobRecord(companyId: string, record: UnknownRecord, preview: boolean) {
   const externalId = simproRecordId(record);
-  if (!externalId) return { action: "conflict" as const, message: "Job missing Simpro ID" };
+  if (!externalId) return { action: "conflict" as const, message: "Job missing Simpro ID", nexaId: undefined as string | undefined, externalId: undefined as string | undefined };
 
   const existingLink = findSimproEntityLink({ companyId, entityType: "job", externalId });
   if (existingLink) {
-    return { action: "skipped" as const, message: `Already linked to ${existingLink.nexaRef || existingLink.nexaId}` };
+    return {
+      action: "skipped" as const,
+      message: `Already linked to ${existingLink.nexaRef || existingLink.nexaId}`,
+      nexaId: existingLink.nexaId,
+      externalId,
+    };
   }
 
   const existing = getJobs().find((job) => job.simproJobId === externalId);
@@ -162,15 +173,15 @@ function importJobRecord(companyId: string, record: UnknownRecord, preview: bool
         importedReadOnly: true,
       });
     }
-    return { action: "linked" as const, message: `Linked to existing ${existing.ref}` };
+    return { action: "linked" as const, message: `Linked to existing ${existing.ref}`, nexaId: existing.id, externalId };
   }
 
   const customer = resolveCustomerLink(companyId, record);
   const mapped = mapSimproJobHeader(record, customer);
-  if (!mapped) return { action: "conflict" as const, message: "Unable to map job" };
+  if (!mapped) return { action: "conflict" as const, message: "Unable to map job", nexaId: undefined, externalId };
 
   if (preview) {
-    return { action: "created" as const, message: `Would create job for ${mapped.customer}` };
+    return { action: "created" as const, message: `Would create job for ${mapped.customer}`, nexaId: undefined, externalId };
   }
 
   const { externalId: _e, externalNumber, sourceModifiedAt: _s, ...payload } = mapped;
@@ -195,7 +206,7 @@ function importJobRecord(companyId: string, record: UnknownRecord, preview: bool
     source: "Simpro import",
     importance: "normal",
   });
-  return { action: "created" as const, message: `Created ${job.ref}` };
+  return { action: "created" as const, message: `Created ${job.ref}`, nexaId: job.id, externalId };
 }
 
 export async function tickSimproImport(runId?: string) {
@@ -245,7 +256,25 @@ export async function tickSimproImport(runId?: string) {
         else if (outcome.action === "linked") counts = bumpCounts(counts, { linked: 1 });
         else if (outcome.action === "skipped") counts = bumpCounts(counts, { skipped: 1 });
         else counts = bumpCounts(counts, { conflicts: 1 });
-        operations.push(outcome.message);
+
+        let message = outcome.message;
+        if (!preview && outcome.nexaId && outcome.externalId && (outcome.action === "created" || outcome.action === "linked" || outcome.action === "skipped")) {
+          const deep =
+            stage === "quotes"
+              ? await enrichNexaQuoteFromSimpro({
+                  nexaQuoteId: outcome.nexaId,
+                  simproQuoteId: outcome.externalId,
+                  companyId: config.companyId,
+                })
+              : await enrichNexaJobFromSimpro({
+                  nexaJobId: outcome.nexaId,
+                  simproJobId: outcome.externalId,
+                  companyId: config.companyId,
+                  includeSchedules: true,
+                });
+          message = deep.ok ? `${message} · ${deep.summary}` : `${message} · hierarchy: ${deep.detail || deep.summary}`;
+        }
+        operations.push(message);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Record import failed";
         counts = bumpCounts(counts, { errors: 1 });

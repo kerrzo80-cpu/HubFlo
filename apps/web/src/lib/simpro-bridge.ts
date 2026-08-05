@@ -2,6 +2,7 @@ import { appendAuditEvent, getClientSites, getClients, type AuditEvent } from "@
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { getSimproDirectConfigStatus, resolveSimproDirectConfig, type ResolvedSimproDirectConfig } from "@/lib/simpro-auth";
 import { findSimproLinkForNexa, upsertSimproLink } from "@/lib/simpro-sync";
+import { getSimproSchedulePushStatus } from "@/lib/simpro-schedule-push";
 import { getJobs, getQuotes, updateJob, updateQuote, type Job, type Quote } from "@/lib/workflow-data";
 
 type UnknownRecord = Record<string, unknown>;
@@ -187,6 +188,8 @@ export type SimproBridgeStatus = {
   guidance: string;
   quotePushReady: boolean;
   jobPushReady: boolean;
+  /** NeXa Schedules → simPRO diary write (managers app). Requires direct API + schedule rate. */
+  schedulePushReady: boolean;
   detectedEnvKeys: string[];
   sourceNames?: {
     webhookUrl?: string;
@@ -359,6 +362,7 @@ export function getSimproBridgeStatus(): SimproBridgeStatus {
   const schedulerQuote = getSchedulerConfig("quote");
   const schedulerJob = getSchedulerConfig("job");
   const direct = getSimproDirectConfigStatus();
+  const schedulePush = getSimproSchedulePushStatus();
 
   if (endpoint) {
     return {
@@ -366,9 +370,10 @@ export function getSimproBridgeStatus(): SimproBridgeStatus {
       mode: "webhook",
       missing: [],
       endpoint,
-      guidance: "Quotes and jobs will POST to the configured webhook bridge.",
+      guidance: "Quotes and jobs will POST to the configured webhook bridge. Schedule diary write needs direct simPRO API + SIMPRO_DEFAULT_SCHEDULE_RATE_ID.",
       quotePushReady: true,
       jobPushReady: true,
+      schedulePushReady: schedulePush.configured,
       detectedEnvKeys,
       sourceNames: {
         webhookUrl: "SIMPRO_QUOTE_PUSH_URL",
@@ -383,10 +388,13 @@ export function getSimproBridgeStatus(): SimproBridgeStatus {
       missing: schedulerJob.configured ? [] : schedulerJob.missing,
       endpoint: schedulerQuote.endpoint,
       guidance: schedulerJob.configured
-        ? "Quotes and jobs will push through the HUB scheduler bridge into simPRO."
+        ? schedulePush.configured
+          ? "Quotes/jobs push through the HUB scheduler bridge; NeXa Schedules can also write visits directly into simPRO."
+          : `Quotes and jobs push through the HUB scheduler bridge. ${schedulePush.guidance}`
         : `Quotes can push through the scheduler. Jobs still need ${schedulerJob.missing.join(", ")}.`,
       quotePushReady: true,
       jobPushReady: schedulerJob.configured,
+      schedulePushReady: schedulePush.configured,
       detectedEnvKeys,
       sourceNames: {
         schedulerUrl: schedulerQuote.sourceNames.schedulerUrl,
@@ -399,11 +407,14 @@ export function getSimproBridgeStatus(): SimproBridgeStatus {
     return {
       configured: true,
       mode: "direct",
-      missing: [],
+      missing: schedulePush.configured ? [] : schedulePush.missing,
       endpoint: `${direct.baseUrl}/companies/${direct.companyId}/quotes/`,
-      guidance: "NeXa will create quotes and jobs directly in simPRO using the OAuth connection. Keep Setup on One-way push while simPRO remains the downstream system.",
+      guidance: schedulePush.configured
+        ? "NeXa creates quotes/jobs in simPRO and managers diary visits write into simPRO schedules. Keep ewg-hub-scheduler only until schedule write is proven day-to-day."
+        : `NeXa creates quotes and jobs directly in simPRO. ${schedulePush.guidance}`,
       quotePushReady: true,
       jobPushReady: true,
+      schedulePushReady: schedulePush.configured,
       detectedEnvKeys,
       sourceNames: {
         directBaseUrl: direct.sourceNames.baseUrl,
@@ -433,6 +444,7 @@ export function getSimproBridgeStatus(): SimproBridgeStatus {
     guidance: "Add the simPRO OAuth variables in Render (preferred), or the scheduler bridge password and base URL, then use Test connection.",
     quotePushReady: false,
     jobPushReady: false,
+    schedulePushReady: false,
     detectedEnvKeys,
     sourceNames: {
       schedulerUrl: schedulerQuote.sourceNames.schedulerUrl,

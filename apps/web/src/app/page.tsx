@@ -110,6 +110,11 @@ import {
   weekDays,
 } from "@/lib/access";
 import { numberedReference } from "@/lib/numbering";
+import {
+  DIRECTORY_ALPHABET_LETTERS,
+  filterDirectoryList,
+  type DirectoryAlphabetLetter,
+} from "@/lib/directory-list-filter";
 import { makeTimelineEntry, sortTimelineEntries, type TimelineEntry, type TimelineStage } from "@/lib/record-timeline";
 import { RecurringOpsPanel, SiteAssetsPanel, StockOpsPanel } from "@/lib/OpsPanels";
 import { SetupConfigPanel, SetupStockLocationsPanel, SetupPrebuildsPanel } from "@/lib/SetupExtraPanels";
@@ -122,7 +127,14 @@ import { DayworkAccountForm } from "@/components/DayworkAccountForm";
 import { DayworkSheetForm } from "@/components/field/DayworkSheetForm";
 import { SignatureImage } from "@/components/SignaturePad";
 import type { GasServiceRecord } from "@/lib/engineer-flow";
-import { dayworkAccountTotals, totalDayworkLabourHours, type DayworkAccountRecord } from "@/lib/daywork-account-form";
+import {
+  dayworkAccountTotals,
+  dayworkSheetListLabel,
+  isDayworkSubmittedToCore,
+  sortDayworkSheetsByNumber,
+  totalDayworkLabourHours,
+  type DayworkAccountRecord,
+} from "@/lib/daywork-account-form";
 
 const invoiceReadiness = checkInvoiceReadiness({
   requiredTasks: { complete: 7, total: 8 },
@@ -842,6 +854,8 @@ type JobScheduleAssignment = {
   endTime: string;
   plannedHours: number;
   notes: string;
+  /** Set when the visit has been written to (or pulled from) simPRO schedules. */
+  simproScheduleId?: string;
 };
 
 type JobScheduleDraft = {
@@ -2023,6 +2037,9 @@ type EstimateCostCentre = {
   materials: EstimateMaterialLine[];
   labour: EstimateLabourLine[];
   surveyAssets?: SurveyAsset[];
+  /** Linked simPRO job section / cost centre ids from deep import (needed for schedule push). */
+  simproSectionId?: string;
+  simproCostCentreId?: string;
 };
 
 type JobSection = {
@@ -2126,7 +2143,7 @@ type SimproExportRecord = {
 
 type SimproSyncOperation = {
   id: string;
-  entity: "clients" | "sites" | "quotes" | "jobs" | "invoices";
+  entity: "clients" | "sites" | "quotes" | "jobs" | "invoices" | "schedules";
   action: "create" | "link" | "skip" | "conflict" | "error" | "preview";
   simproId?: string;
   simproName?: string;
@@ -2175,6 +2192,7 @@ const simproImportEntityOptions: Array<{ key: SimproSyncEntity; label: string }>
   { key: "sites", label: "Sites" },
   { key: "quotes", label: "Quotes" },
   { key: "jobs", label: "Jobs" },
+  { key: "schedules", label: "Schedules" },
   { key: "invoices", label: "Invoices" },
 ];
 
@@ -2194,6 +2212,7 @@ type SimproBridgeStatus = {
   guidance?: string;
   quotePushReady?: boolean;
   jobPushReady?: boolean;
+  schedulePushReady?: boolean;
   checkedAt?: string;
   detectedEnvKeys?: string[];
   sync?: SimproSyncStatus;
@@ -3169,7 +3188,7 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Working import",
     },
     Quotes: {
-      summary: "Import quote headers and values. Detailed cost centres can then be built in NeXa or migrated during the Simpro reconciliation stage.",
+      summary: "Import quote/job headers plus cost centres, materials, labour and schedules. Invoices import with lines and link to NeXa jobs where possible.",
       focus: ["Quote reference", "Customer and scope", "Status, value and next action"],
       status: "Working import",
     },
@@ -6897,7 +6916,11 @@ function weekdayFromDate(date: string): Weekday {
 function availabilityForDate(surveyor: string, date: string) {
   if (!date) return { active: false, from: "00:00", to: "00:00" };
   const day = weekdayFromDate(date);
-  return surveyorAvailability[surveyor]?.[day] ?? { active: false, from: "00:00", to: "00:00" };
+  const configured = surveyorAvailability[surveyor]?.[day];
+  if (configured) return configured;
+  // Imported / unlisted engineers still need a usable diary column.
+  if (day === "Sat" || day === "Sun") return { active: false, from: "00:00", to: "00:00" };
+  return { active: true, from: "08:00", to: "17:00" };
 }
 
 function availabilityLabel(surveyor: string, date: string) {
@@ -7554,13 +7577,23 @@ export default function Dashboard() {
   const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>(demoInvoices);
   const [search, setSearch] = useState("");
+  const [peopleDirectorySearch, setPeopleDirectorySearch] = useState("");
+  const [peopleDirectoryLetter, setPeopleDirectoryLetter] = useState<DirectoryAlphabetLetter>("All");
   const [statusFilter, setStatusFilter] = useState("All statuses");
   const [quoteStatusFilter, setQuoteStatusFilter] = useState("All quotes");
   const [leadStatusFilter, setLeadStatusFilter] = useState("All leads");
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("All invoices");
   const [purchaseOrderStatusFilter, setPurchaseOrderStatusFilter] = useState("All POs");
+  type DirectoryBulkScope = "quotes" | "leads" | "jobs" | "invoices" | "purchase-orders";
+  const [directorySelectedIds, setDirectorySelectedIds] = useState<Record<DirectoryBulkScope, string[]>>({
+    quotes: [],
+    leads: [],
+    jobs: [],
+    invoices: [],
+    "purchase-orders": [],
+  });
   const [activeQuoteFolderKey, setActiveQuoteFolderKey] = useState("incomplete");
-  const [activeJobFolderKey, setActiveJobFolderKey] = useState("pending");
+  const [activeJobFolderKey, setActiveJobFolderKey] = useState("all");
   const [activeInvoiceFolderKey, setActiveInvoiceFolderKey] = useState("overdue");
   const [reportDateRange, setReportDateRange] = useState<ReportDateRange>("All time");
   const [reportCustomStartDate, setReportCustomStartDate] = useState(startOfScheduleWeek(currentOperatingDate));
@@ -7672,6 +7705,27 @@ export default function Dashboard() {
     const valid = new Set(quoteBuildTabs.map((tab) => tab.key));
     if (!valid.has(activeQuoteBuildTab)) setActiveQuoteBuildTab("summary");
   }, [activeQuoteBuildTab]);
+
+  useEffect(() => {
+    setDirectorySelectedIds({
+      quotes: [],
+      leads: [],
+      jobs: [],
+      invoices: [],
+      "purchase-orders": [],
+    });
+  }, [
+    homeView,
+    activeQuoteFolderKey,
+    activeJobFolderKey,
+    activeInvoiceFolderKey,
+    quoteStatusFilter,
+    leadStatusFilter,
+    invoiceStatusFilter,
+    purchaseOrderStatusFilter,
+    statusFilter,
+    search,
+  ]);
   const [activeCatalogueFolder, setActiveCatalogueFolder] = useState(quoteCatalogFolders[0] ?? "General materials");
   const [catalogueSearch, setCatalogueSearch] = useState("");
   const [catalogueFolderModalCentreId, setCatalogueFolderModalCentreId] = useState<string | null>(null);
@@ -8400,8 +8454,7 @@ export default function Dashboard() {
     }
   }, [activeRecordFingerprint, hasHydratedLocalData, hasLoadedHubDetailState]);
 
-  // Always pull the latest Field Daywork sheet when opening a Daywork cost centre.
-  // Keep polling briefly so a Field Save and finish appears in Core without a manual refresh.
+  // Pull Daywork while unsigned only — completed sheets are locked and listed without signature blobs.
   useEffect(() => {
     if (!hasLoadedHubDetailState) return;
     if (homeView !== "cost-centre-record") return;
@@ -8410,12 +8463,16 @@ export default function Dashboard() {
       const centre = (jobEstimateCostCentres[selectedJobId] ?? []).find((item) => item.id === selectedCostCentreId);
       if (!centre || !/daywork/i.test(`${centre.name} ${centre.templateName || ""}`)) return;
     }
+    const key = `${selectedJobId}:${selectedCostCentreId}`;
+    if (isDayworkSubmittedToCore(dayworkSheets[key])) {
+      return;
+    }
     void refreshDayworkSheetFromServer(selectedJobId, selectedCostCentreId);
     const timer = window.setInterval(() => {
       void refreshDayworkSheetFromServer(selectedJobId, selectedCostCentreId);
-    }, 4000);
+    }, 15_000);
     return () => window.clearInterval(timer);
-  }, [hasLoadedHubDetailState, homeView, selectedJobId, selectedCostCentreId, jobEstimateCostCentres]);
+  }, [hasLoadedHubDetailState, homeView, selectedJobId, selectedCostCentreId, jobEstimateCostCentres, dayworkSheets]);
 
   const selectedPurchaseOrderJob = useMemo(
     () =>
@@ -10335,6 +10392,7 @@ export default function Dashboard() {
           if (hubState.jobDeliveryEvents) setJobDeliveryEvents(hubState.jobDeliveryEvents);
           if (hubState.dayworkSheets) {
             // Prefer the richer sheet (Field signatures/materials) when merging poll updates.
+            // Poll payloads may omit base64 signatures (hasSignatures flag only) — never wipe local sigs.
             setDayworkSheets((current) => {
               const incoming = hubState.dayworkSheets || {};
               const keys = new Set([...Object.keys(current), ...Object.keys(incoming)]);
@@ -10347,10 +10405,19 @@ export default function Dashboard() {
                   merged[key] = remote;
                   continue;
                 }
-                const remoteSigned = Boolean(remote.plumberSignature?.trim() && remote.clientSignature?.trim());
-                const localSigned = Boolean(local.plumberSignature?.trim() && local.clientSignature?.trim());
+                const remoteSigned = isDayworkSubmittedToCore(remote);
+                const localSigned = isDayworkSubmittedToCore(local);
+                const remoteSig =
+                  String(remote.plumberSignature || "").trim() || String(remote.clientSignature || "").trim();
+                const localSig =
+                  String(local.plumberSignature || "").trim() || String(local.clientSignature || "").trim();
                 if (remoteSigned && !localSigned) {
-                  merged[key] = { ...local, ...remote };
+                  merged[key] = {
+                    ...local,
+                    ...remote,
+                    plumberSignature: remoteSig ? remote.plumberSignature : local.plumberSignature,
+                    clientSignature: remoteSig ? remote.clientSignature : local.clientSignature,
+                  };
                   continue;
                 }
                 merged[key] = {
@@ -10358,8 +10425,8 @@ export default function Dashboard() {
                   ...remote,
                   materialsJson: remote.materialsJson || local.materialsJson,
                   plantJson: remote.plantJson || local.plantJson,
-                  plumberSignature: remote.plumberSignature || local.plumberSignature,
-                  clientSignature: remote.clientSignature || local.clientSignature,
+                  plumberSignature: remoteSig ? remote.plumberSignature : local.plumberSignature,
+                  clientSignature: remoteSig ? remote.clientSignature : local.clientSignature,
                   plumberSignerName: remote.plumberSignerName || local.plumberSignerName,
                   clientSignerName: remote.clientSignerName || local.clientSignerName,
                   description: remote.description || local.description,
@@ -10442,7 +10509,7 @@ export default function Dashboard() {
       if (!stopped) {
         loadLiveData().catch(() => {});
       }
-    }, 20000);
+    }, 60_000);
 
     return () => {
       stopped = true;
@@ -11197,8 +11264,15 @@ export default function Dashboard() {
 
   function getQuoteAddress(quote: Quote, linkedJob: Job | null) {
     const quoteSite = quote.siteId ? clientSites.find((site) => site.id === quote.siteId) : undefined;
-    if (quoteSite?.address) return quoteSite.address;
-    if (linkedJob?.site) return linkedJob.site;
+    if (quoteSite?.address && quoteSite.address.trim() && quoteSite.address !== "Address to confirm") {
+      return quoteSite.address;
+    }
+    if (quoteSite?.name && quoteSite.name.trim() && quoteSite.name !== "simPRO site" && quoteSite.name !== "Address to confirm") {
+      return quoteSite.name;
+    }
+    if (linkedJob?.site && linkedJob.site !== "Site to confirm" && linkedJob.site !== "Address to confirm") {
+      return linkedJob.site;
+    }
 
     const sourceLead = quote.sourceLeadId
       ? leads.find((lead) => lead.id === quote.sourceLeadId)
@@ -11459,53 +11533,80 @@ export default function Dashboard() {
   );
 
   const jobDirectoryGroups = useMemo(
-    () => [
-      {
-        key: "pending",
-        label: "Pending jobs",
-        detail: "Accepted work needing schedule or final start checks",
-        tone: "amber",
-        items: filteredJobs.filter((job) => ["Accepted", "Pending"].includes(job.status)),
-      },
-      {
-        key: "progress",
-        label: "Jobs in progress",
-        detail: "Live work, blocked work and active site control",
-        tone: "blue",
-        items: filteredJobs.filter((job) =>
-          ["Scheduled", "In progress", "Waiting on parts", "Waiting on customer", "Approval required"].includes(job.status),
-        ),
-      },
-      {
-        key: "uninvoiced",
-        label: "Ready to invoice",
-        detail: "Completed work waiting for an invoice",
-        tone: "red",
-        items: filteredJobs.filter((job) => ["Completed", "Ready to invoice"].includes(job.status)),
-      },
-      {
-        key: "review",
-        label: "Complete",
-        detail: "Completed, reviewed or moved into finance",
-        tone: "green",
-        items: filteredJobs.filter((job) => ["Completed", "Ready to invoice", "Invoiced"].includes(job.status)),
-      },
-      {
-        key: "archived",
-        label: "Archived",
-        detail: "Closed jobs kept for history",
-        tone: "green",
-        items: filteredJobs.filter((job) => job.status === "Closed"),
-      },
-    ],
+    () => {
+      const pending = filteredJobs.filter((job) => ["Accepted", "Pending", "Enquiry", "Quoted"].includes(job.status));
+      const progress = filteredJobs.filter((job) =>
+        ["Scheduled", "In progress", "Waiting on parts", "Waiting on customer", "Approval required"].includes(job.status),
+      );
+      const uninvoiced = filteredJobs.filter((job) => ["Completed", "Ready to invoice"].includes(job.status));
+      const review = filteredJobs.filter((job) => ["Completed", "Ready to invoice", "Invoiced"].includes(job.status));
+      const archived = filteredJobs.filter((job) => job.status === "Closed");
+      const groupedIds = new Set([...pending, ...progress, ...uninvoiced, ...review, ...archived].map((job) => job.id));
+      const other = filteredJobs.filter((job) => !groupedIds.has(job.id));
+      return [
+        {
+          key: "pending",
+          label: "Pending jobs",
+          detail: "Accepted work needing schedule or final start checks",
+          tone: "amber",
+          items: pending,
+        },
+        {
+          key: "progress",
+          label: "Jobs in progress",
+          detail: "Live work, blocked work and active site control",
+          tone: "blue",
+          items: progress,
+        },
+        {
+          key: "uninvoiced",
+          label: "Ready to invoice",
+          detail: "Completed work waiting for an invoice",
+          tone: "red",
+          items: uninvoiced,
+        },
+        {
+          key: "review",
+          label: "Complete",
+          detail: "Completed, reviewed or moved into finance",
+          tone: "green",
+          items: review,
+        },
+        {
+          key: "archived",
+          label: "Archived",
+          detail: "Closed jobs kept for history",
+          tone: "green",
+          items: archived,
+        },
+        ...(other.length
+          ? [{
+              key: "other",
+              label: "Other statuses",
+              detail: "Imported or custom statuses outside the standard folders",
+              tone: "amber",
+              items: other,
+            }]
+          : []),
+      ];
+    },
     [filteredJobs],
   );
 
   const visibleJobDirectoryGroups = useMemo(
-    () => activeJobFolderKey === "all"
-      ? jobDirectoryGroups
-      : jobDirectoryGroups.filter((group) => group.key === activeJobFolderKey),
-    [activeJobFolderKey, jobDirectoryGroups],
+    () =>
+      activeJobFolderKey === "all"
+        ? [
+            {
+              key: "all",
+              label: "All jobs",
+              detail: "Every job matching the current search and status filter",
+              tone: "blue",
+              items: filteredJobs,
+            },
+          ]
+        : jobDirectoryGroups.filter((group) => group.key === activeJobFolderKey),
+    [activeJobFolderKey, filteredJobs, jobDirectoryGroups],
   );
 
   const invoiceDirectoryGroups = useMemo(() => {
@@ -11601,21 +11702,41 @@ export default function Dashboard() {
     [activeInvoiceFolderKey, invoiceDirectoryGroups],
   );
 
-  const filteredClients = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return clients.filter((client) => {
-      if (!query) return true;
-      return [
-        client.name,
-        client.accountReference,
-        client.primaryContact,
-        client.email,
-        client.phone,
-        client.status,
-        client.commercialOwner,
-      ].some((value) => value.toLowerCase().includes(query));
-    });
-  }, [clients, search]);
+  const filteredClients = useMemo(
+    () =>
+      filterDirectoryList(clients, {
+        getName: (client) => client.name,
+        getSearchValues: (client) => [
+          client.name,
+          client.accountReference,
+          client.primaryContact,
+          client.email,
+          client.phone,
+          client.status,
+          client.commercialOwner,
+        ],
+        query: peopleDirectorySearch,
+        letter: peopleDirectoryLetter,
+      }),
+    [clients, peopleDirectoryLetter, peopleDirectorySearch],
+  );
+
+  const filteredEmployees = useMemo(
+    () =>
+      filterDirectoryList(employees, {
+        getName: (employee) => employee.name,
+        getSearchValues: (employee) => [
+          employee.name,
+          employee.role,
+          employee.profile?.email,
+          employee.profile?.phone,
+          employee.profile?.roleLabel,
+        ],
+        query: peopleDirectorySearch,
+        letter: peopleDirectoryLetter,
+      }),
+    [employees, peopleDirectoryLetter, peopleDirectorySearch],
+  );
 
   const visibleModules = useMemo(() => {
     return modules.filter((module) => {
@@ -12295,6 +12416,19 @@ export default function Dashboard() {
     return Array.from(names).sort((first, second) => first.localeCompare(second));
   }, [allScheduleBookings]);
 
+  /** Day/week diary lanes — employees + anyone already booked (imported simPRO staff included). */
+  const schedulerDiaryPeople = useMemo(() => {
+    const names = new Set<string>([
+      ...surveyorOptions,
+      ...employees.map((employee) => employee.name.trim()).filter(Boolean),
+    ]);
+    for (const booking of allScheduleBookings) {
+      const person = (booking.surveyor || "").trim();
+      if (person) names.add(person);
+    }
+    return Array.from(names).sort((first, second) => first.localeCompare(second));
+  }, [allScheduleBookings, employees]);
+
   const schedulerSelectedJob = useMemo(
     () => jobs.find((job) => job.id === schedulerSelectedJobId) ?? null,
     [jobs, schedulerSelectedJobId],
@@ -12927,6 +13061,9 @@ export default function Dashboard() {
   }
 
   function beginSchedulerDrag(event: ReactPointerEvent<HTMLDivElement>, employeeName: string, date: string) {
+    if ((event.target as HTMLElement | null)?.closest?.(".scheduler-drag-existing")) {
+      return;
+    }
     if (!schedulerSelectedJob || !schedulerSelectedCostCentreId) {
       showNotice("Search for a job and choose its cost centre before dragging a time.");
       setSchedulerJobSearchOpen(true);
@@ -13076,6 +13213,11 @@ export default function Dashboard() {
         costCentres: schedulerSelectedJobCostCentres,
         schedule: nextAssignments,
         silentSuccess: true,
+        silentIfUnconfigured: true,
+      });
+      await pushScheduleAssignmentsToSimpro(updated, {
+        assignments: nextAssignments,
+        upsertIds: [assignment.id],
         silentIfUnconfigured: true,
       });
     } catch (error) {
@@ -13618,13 +13760,29 @@ export default function Dashboard() {
   }
 
   async function refreshCoreWorkflowRecords() {
-    const [clientsResponse, clientSitesResponse, jobsResponse, quotesResponse, auditResponse] = await Promise.all([
+    const [clientsResponse, clientSitesResponse, jobsResponse, quotesResponse, auditResponse, hubStateResponse] = await Promise.all([
       fetch("/api/clients", { headers: requestHeaders }),
       fetch("/api/client-sites", { headers: requestHeaders }),
       fetch("/api/jobs", { headers: requestHeaders }),
       fetch("/api/quotes", { headers: requestHeaders }),
       fetch("/api/audit", { headers: requestHeaders }),
+      fetch("/api/hub-state", { headers: requestHeaders }),
     ]);
+
+    // Apply hub hierarchy BEFORE jobs/quotes so autosave cannot wipe a fresh import with empty client maps.
+    if (hubStateResponse.ok) {
+      const hubState = (await hubStateResponse.json()) as HubDetailStatePayload;
+      if (hubState.quoteCostCentres) {
+        setQuoteCostCentres(hubState.quoteCostCentres);
+        quoteCostCentresRef.current = hubState.quoteCostCentres;
+      }
+      if (hubState.quoteSections) setQuoteSections(hubState.quoteSections);
+      if (hubState.quoteSchedulePlans) setQuoteSchedulePlans(hubState.quoteSchedulePlans);
+      if (hubState.jobCostCentres) setJobEstimateCostCentres(hubState.jobCostCentres);
+      if (hubState.jobSections) setJobSections(hubState.jobSections);
+      if (hubState.jobSchedulePlans) setJobSchedulePlans(hubState.jobSchedulePlans);
+      if (hubState.jobVariationSections) setJobVariationSections(hubState.jobVariationSections);
+    }
 
     if (clientsResponse.ok) setClients((await clientsResponse.json()) as ClientRecord[]);
     if (clientSitesResponse.ok) setClientSites((await clientSitesResponse.json()) as ClientSite[]);
@@ -14162,6 +14320,9 @@ export default function Dashboard() {
       setIsRunningSimproPreview(true);
     } else {
       setIsApplyingSimproImport(true);
+      // Hold hub autosave so an empty browser map cannot wipe cost centres just pulled from simPRO.
+      lastLocalCostCentreEditAt.current = Date.now();
+      pendingCostCentreSaveRef.current = true;
     }
 
     try {
@@ -14177,23 +14338,94 @@ export default function Dashboard() {
           actor: activeEmployee?.name ?? "NeXa user",
         }),
       });
-      const result = (await response.json().catch(() => null)) as { run?: SimproSyncRun; status?: SimproSyncStatus; error?: string } | null;
+      const rawText = await response.text();
+      let result: { run?: SimproSyncRun; status?: SimproSyncStatus; error?: string } | null = null;
+      try {
+        result = rawText ? (JSON.parse(rawText) as { run?: SimproSyncRun; status?: SimproSyncStatus; error?: string }) : null;
+      } catch {
+        result = null;
+      }
       if (!response.ok || !result?.run) {
-        throw new Error(result?.error || `simPRO sync returned HTTP ${response.status}`);
+        const timedOut = response.status === 502 || response.status === 503 || response.status === 504 || response.status === 524;
+        throw new Error(
+          result?.error ||
+            (timedOut
+              ? "Import timed out before finishing. Apply Quotes only (not Clients+Sites+Quotes together) and try again."
+              : rawText?.trim()?.slice(0, 180) || `simPRO sync returned HTTP ${response.status}`),
+        );
       }
 
       if (result.status) setSimproSyncStatus(result.status);
-      if (mode === "apply") await refreshCoreWorkflowRecords();
+      if (mode === "apply") {
+        await refreshCoreWorkflowRecords();
+        setActiveJobFolderKey("all");
+        pendingCostCentreSaveRef.current = false;
+      }
 
       showNotice(
         mode === "preview"
-          ? `simPRO preview complete for ${result.run.entities.join(", ")}: ${result.run.totals.created} create, ${result.run.totals.linked} link, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`
-          : `simPRO safe import complete for ${result.run.entities.join(", ")}: ${result.run.totals.created} created, ${result.run.totals.linked} linked, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`,
+          ? `simPRO preview complete for ${result.run.entities.join(", ")}: ${result.run.totals.fetched} fetched · ${result.run.totals.created} create, ${result.run.totals.linked} link, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`
+          : `simPRO safe import complete for ${result.run.entities.join(", ")}: ${result.run.totals.fetched} fetched · ${result.run.totals.created} created, ${result.run.totals.linked} linked, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.${
+              result.run.totals.errors
+                ? " Open Setup → simPRO sync log for hierarchy/detail failures (these used to look like a clean Apply)."
+                : ""
+            }`,
       );
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : "Unable to run simPRO sync.");
+      const message = error instanceof Error ? error.message : "Unable to run simPRO sync.";
+      const lower = message.toLowerCase();
+      showNotice(
+        lower.includes("failed to fetch") || lower.includes("networkerror") || lower.includes("load failed")
+          ? "Import connection dropped (often a timeout). Soft-refresh, then Apply Quotes only and leave the screen open until it finishes."
+          : message,
+      );
+      pendingCostCentreSaveRef.current = false;
     } finally {
       setIsRunningSimproPreview(false);
+      setIsApplyingSimproImport(false);
+    }
+  }
+
+  async function cleanupImportedSimproRecords() {
+    if (
+      !window.confirm(
+        "Delete all NeXa jobs and quotes that were imported from simPRO (including their cost centres and schedules)? Customers and sites stay. You can Apply import again afterwards.",
+      )
+    ) {
+      return;
+    }
+    setIsApplyingSimproImport(true);
+    try {
+      const response = await fetch("/api/integrations/simpro/cleanup-imports", {
+        method: "POST",
+        headers: {
+          ...requestHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          actor: activeEmployee?.name ?? "NeXa user",
+          entities: ["jobs", "quotes"],
+        }),
+      });
+      const result = (await response.json().catch(() => null)) as {
+        deletedJobs?: number;
+        deletedQuotes?: number;
+        clearedSyncLinks?: number;
+        clearedEntityLinks?: number;
+        status?: SimproSyncStatus;
+        error?: string;
+      } | null;
+      if (!response.ok) {
+        throw new Error(result?.error || `Cleanup returned HTTP ${response.status}`);
+      }
+      if (result?.status) setSimproSyncStatus(result.status);
+      await refreshCoreWorkflowRecords();
+      showNotice(
+        `Removed ${result?.deletedJobs ?? 0} imported job(s) and ${result?.deletedQuotes ?? 0} imported quote(s); cleared ${result?.clearedSyncLinks ?? 0} sync link(s). Re-run Apply safe imports when ready.`,
+      );
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to clean up imported simPRO records.");
+    } finally {
       setIsApplyingSimproImport(false);
     }
   }
@@ -15672,6 +15904,540 @@ export default function Dashboard() {
     return window.confirm(`Delete ${label} from the pilot data? This cannot be undone from the screen.`);
   }
 
+  function toggleDirectorySelection(scope: DirectoryBulkScope, id: string) {
+    setDirectorySelectedIds((current) => {
+      const selected = current[scope];
+      const next = selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id];
+      return { ...current, [scope]: next };
+    });
+  }
+
+  function selectAllDirectory(scope: DirectoryBulkScope, ids: string[]) {
+    setDirectorySelectedIds((current) => ({ ...current, [scope]: [...ids] }));
+  }
+
+  function clearDirectorySelection(scope: DirectoryBulkScope) {
+    setDirectorySelectedIds((current) => ({ ...current, [scope]: [] }));
+  }
+
+  function renderSimproSyncLog(limit = 80) {
+    const run = simproSyncStatus?.lastRun;
+    if (!run?.operations.length) return null;
+
+    const byEntity = new Map<string, number>();
+    for (const item of run.operations) {
+      byEntity.set(item.entity, (byEntity.get(item.entity) || 0) + 1);
+    }
+    const entitySummary = [...byEntity.entries()]
+      .map(([entity, count]) => `${entity}: ${count}`)
+      .join(" · ");
+
+    const conflicts = run.operations.filter((item) => item.action === "conflict");
+    const others = run.operations.filter((item) => item.action !== "conflict");
+    const displayOps = [...conflicts, ...others].slice(0, limit);
+
+    return (
+      <div className="setup-rate-table setup-sync-log">
+        <p style={{ margin: "0 0 0.75rem", fontSize: "0.9rem", opacity: 0.85 }}>
+          Fetched {run.totals.fetched} record{run.totals.fetched === 1 ? "" : "s"}
+          {entitySummary ? ` (${entitySummary})` : ""}. Showing {displayOps.length} of {run.operations.length}
+          {run.operations.length > displayOps.length
+            ? " — Apply still processes every fetched record (A–Z), not only this sample."
+            : "."}
+        </p>
+        <div className="setup-rate-row table-head">
+          <span>Action</span>
+          <span>Record</span>
+          <span>Result</span>
+          <span>Resolve</span>
+        </div>
+        {displayOps.map((item) => (
+          <div className="setup-rate-row" key={item.id}>
+            <strong>{item.action}</strong>
+            <span>
+              {item.entity}
+              {item.simproId ? ` · ${item.simproId}` : ""}
+              {item.simproName ? ` · ${item.simproName}` : ""}
+            </span>
+            <span>
+              {item.summary}
+              {item.detail ? <small style={{ display: "block", marginTop: "0.25rem" }}>{item.detail}</small> : null}
+            </span>
+            <span>
+              {item.action === "conflict" ? (
+                <div className="ops-queue-actions" style={{ flexWrap: "wrap", gap: "0.35rem" }}>
+                  {item.candidates?.length ? (
+                    <select
+                      value={simproConflictLinkChoices[item.id] || item.candidates[0]?.nexaId || ""}
+                      onChange={(event) =>
+                        setSimproConflictLinkChoices((current) => ({ ...current, [item.id]: event.target.value }))
+                      }
+                    >
+                      {item.candidates.map((candidate) => (
+                        <option key={candidate.nexaId} value={candidate.nexaId}>
+                          {candidate.nexaName}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                  {item.candidates?.length || item.simproId ? (
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void resolveSimproConflict(item, "link")}
+                      disabled={!item.candidates?.length}
+                    >
+                      Link
+                    </button>
+                  ) : null}
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => void resolveSimproConflict(item, "create")}
+                    disabled={!item.simproId || item.summary.includes("customer is linked")}
+                  >
+                    Create
+                  </button>
+                  <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "skip")}>
+                    Skip
+                  </button>
+                </div>
+              ) : (
+                "—"
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function isDirectorySelected(scope: DirectoryBulkScope, id: string) {
+    return directorySelectedIds[scope].includes(id);
+  }
+
+  function renderDirectorySelectCell(scope: DirectoryBulkScope, id: string, label: string) {
+    return (
+      <span className="directory-select-cell" onClick={(event) => event.stopPropagation()}>
+        <input
+          aria-label={`Select ${label}`}
+          checked={isDirectorySelected(scope, id)}
+          onChange={() => toggleDirectorySelection(scope, id)}
+          type="checkbox"
+        />
+      </span>
+    );
+  }
+
+  function renderDirectoryBulkBar(
+    scope: DirectoryBulkScope,
+    visibleIds: string[],
+    options?: { mergeLabel?: string },
+  ) {
+    const selectedCount = directorySelectedIds[scope].length;
+    if (selectedCount === 0 && visibleIds.length === 0) return null;
+    return (
+      <div className="directory-bulk-action-bar quote-bulk-action-bar">
+        <span>{selectedCount} selected</span>
+        <button
+          className="simpro-options-button"
+          type="button"
+          onClick={() => selectAllDirectory(scope, visibleIds)}
+          disabled={visibleIds.length === 0}
+        >
+          Select all
+        </button>
+        <button
+          className="simpro-options-button"
+          type="button"
+          onClick={() => clearDirectorySelection(scope)}
+          disabled={selectedCount === 0}
+        >
+          Deselect all
+        </button>
+        <button
+          className="simpro-options-button"
+          type="button"
+          disabled={selectedCount < 2}
+          onClick={() => void mergeDirectorySelection(scope)}
+        >
+          {options?.mergeLabel ?? "Merge"}
+        </button>
+        <button
+          className="simpro-options-button"
+          type="button"
+          disabled={selectedCount === 0}
+          onClick={() => void bulkArchiveDirectory(scope)}
+        >
+          Archive selected
+        </button>
+        <button
+          className="simpro-options-button"
+          type="button"
+          disabled={selectedCount === 0}
+          onClick={() => void bulkDeleteDirectory(scope)}
+        >
+          Delete selected
+        </button>
+      </div>
+    );
+  }
+
+  async function bulkArchiveDirectory(scope: DirectoryBulkScope) {
+    const selectedIds = directorySelectedIds[scope];
+    if (selectedIds.length === 0) return;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(`Archive ${selectedIds.length} selected records?`)
+    ) {
+      return;
+    }
+
+    if (scope === "quotes") {
+      for (const id of selectedIds) {
+        const quote = quotes.find((item) => item.id === id);
+        if (quote && quote.status !== "Lost") {
+          await updateQuoteFromDirectory(
+            quote,
+            { status: "Lost", next: "Archived as lost." },
+            `${quote.ref} archived as lost.`,
+          );
+        }
+      }
+    } else if (scope === "jobs") {
+      for (const id of selectedIds) {
+        const job = jobs.find((item) => item.id === id);
+        if (job && job.status !== "Closed") {
+          await updateJobFromDirectory(
+            job,
+            { status: "Closed", next: "Archived in complete folder.", due: "Complete", health: "green" },
+            `${job.ref} closed.`,
+          );
+        }
+      }
+    } else if (scope === "leads") {
+      const items = selectedIds
+        .map((id) => leads.find((item) => item.id === id))
+        .filter((lead): lead is Lead => Boolean(lead && lead.status !== "Lost"));
+      if (items.length === 0) {
+        clearDirectorySelection(scope);
+        showNotice("Selected leads are already archived.");
+        return;
+      }
+      let lostReason = "Unspecified";
+      try {
+        const response = await fetch("/api/setup-config", { headers: requestHeaders });
+        const body = (await response.json().catch(() => null)) as { lostReasons?: Array<{ label: string }> } | null;
+        const reasons = (body?.lostReasons || []).map((row) => row.label).filter(Boolean);
+        const promptText = reasons.length
+          ? `Lost reason for ${items.length} leads:\n${reasons.map((reason, index) => `${index + 1}. ${reason}`).join("\n")}\n\nType the reason (or number):`
+          : `Lost reason for ${items.length} leads:`;
+        const typed = window.prompt(promptText, reasons[0] || "Price");
+        if (typed === null) return;
+        const asNumber = Number(typed.trim());
+        if (Number.isFinite(asNumber) && asNumber >= 1 && asNumber <= reasons.length) {
+          lostReason = reasons[asNumber - 1];
+        } else {
+          lostReason = typed.trim() || reasons[0] || "Unspecified";
+        }
+      } catch {
+        const typed = window.prompt(`Lost reason for ${items.length} leads:`, "Price");
+        if (typed === null) return;
+        lostReason = typed.trim() || "Unspecified";
+      }
+      for (const lead of items) {
+        const next = `Archived as lost · ${lostReason}.`;
+        const previous = lead;
+        setLeads((current) =>
+          current.map((item) =>
+            item.id === lead.id ? { ...item, status: "Lost" as LeadStatus, lostReason, next } : item,
+          ),
+        );
+        const result = await syncLead(lead.id, { status: "Lost", next, lostReason });
+        if (!result.ok) {
+          setLeads((current) => current.map((item) => (item.id === lead.id ? previous : item)));
+        } else {
+          setLeads((current) => current.map((item) => (item.id === result.lead.id ? result.lead : item)));
+        }
+      }
+    } else if (scope === "invoices") {
+      for (const id of selectedIds) {
+        const invoice = invoices.find((item) => item.id === id);
+        if (invoice && invoice.status !== "Cancelled") {
+          updateInvoiceStatus(invoice, "Cancelled");
+        }
+      }
+    } else if (scope === "purchase-orders") {
+      for (const id of selectedIds) {
+        const request = purchaseRequests.find((item) => item.id === id);
+        if (request && request.status !== "Rejected") {
+          await markPurchaseRequestStatus(request.id, "Rejected");
+        }
+      }
+    }
+    clearDirectorySelection(scope);
+    showNotice(`Archived ${selectedIds.length} selected record${selectedIds.length === 1 ? "" : "s"}.`);
+  }
+
+  async function bulkDeleteDirectory(scope: DirectoryBulkScope) {
+    const selectedIds = directorySelectedIds[scope];
+    if (selectedIds.length === 0) return;
+    if (typeof window !== "undefined" && !window.confirm(`Delete ${selectedIds.length} selected records?`)) {
+      return;
+    }
+
+    if (scope === "quotes") {
+      for (const id of selectedIds) {
+        const quote = quotes.find((item) => item.id === id);
+        if (quote) await deleteQuoteFromDirectory(quote, { skipConfirm: true });
+      }
+    } else if (scope === "jobs") {
+      for (const id of selectedIds) {
+        const job = jobs.find((item) => item.id === id);
+        if (job) await deleteJobFromDirectory(job, { skipConfirm: true });
+      }
+    } else if (scope === "leads") {
+      for (const id of selectedIds) {
+        const lead = leads.find((item) => item.id === id);
+        if (lead) await deleteLeadFromDirectory(lead, { skipConfirm: true });
+      }
+    } else if (scope === "invoices") {
+      for (const id of selectedIds) {
+        const invoice = invoices.find((item) => item.id === id);
+        if (invoice) deleteInvoiceFromDirectory(invoice, { skipConfirm: true });
+      }
+    } else if (scope === "purchase-orders") {
+      for (const id of selectedIds) {
+        const request = purchaseRequests.find((item) => item.id === id);
+        if (request) await deletePurchaseFromDirectory(request, { skipConfirm: true });
+      }
+    }
+    clearDirectorySelection(scope);
+  }
+
+  async function mergeDirectorySelection(scope: DirectoryBulkScope) {
+    const selectedIds = directorySelectedIds[scope];
+    if (selectedIds.length < 2) {
+      showNotice("Select at least two records to merge.");
+      return;
+    }
+
+    const partyKey = (value: string | undefined) => (value || "").trim().toLowerCase();
+
+    if (scope === "quotes") {
+      const items = selectedIds.map((id) => quotes.find((item) => item.id === id)).filter(Boolean) as Quote[];
+      if (items.length < 2) return;
+      const parties = new Set(items.map((item) => partyKey(item.customer)));
+      if (parties.size > 1 && typeof window !== "undefined"
+        && !window.confirm("Selected quotes have different customers. Merge into the first selected anyway?")) {
+        return;
+      }
+      const [primary, ...others] = items;
+      const mergedDescription = [primary.description, ...others.map((item) => item.description).filter(Boolean)]
+        .filter(Boolean)
+        .join(" · ");
+      const mergedNext = [primary.next, ...others.map((item) => `${item.ref}: ${item.description || item.next}`)]
+        .filter(Boolean)
+        .join(" | ");
+      const mergedValue = items.reduce((total, item) => total + (Number(item.value) || 0), 0);
+      await updateQuoteFromDirectory(
+        primary,
+        { description: mergedDescription, next: mergedNext, value: mergedValue },
+        `${primary.ref} merged with ${others.map((item) => item.ref).join(", ")}.`,
+      );
+      for (const other of others) {
+        await deleteQuoteFromDirectory(other, { skipConfirm: true });
+      }
+    } else if (scope === "jobs") {
+      const items = selectedIds.map((id) => jobs.find((item) => item.id === id)).filter(Boolean) as Job[];
+      if (items.length < 2) return;
+      const parties = new Set(items.map((item) => partyKey(item.customer)));
+      if (parties.size > 1 && typeof window !== "undefined"
+        && !window.confirm("Selected jobs have different customers. Merge into the first selected anyway?")) {
+        return;
+      }
+      const [primary, ...others] = items;
+      const mergedDescription = [primary.description, ...others.map((item) => item.description).filter(Boolean)]
+        .filter(Boolean)
+        .join(" · ");
+      const mergedNext = [primary.next, ...others.map((item) => `${item.ref}: ${item.description || item.next}`)]
+        .filter(Boolean)
+        .join(" | ");
+      const mergedValue = items.reduce((total, item) => total + (Number(item.value) || 0), 0);
+      await updateJobFromDirectory(
+        primary,
+        { description: mergedDescription, next: mergedNext, value: mergedValue },
+        `${primary.ref} merged with ${others.map((item) => item.ref).join(", ")}.`,
+      );
+      for (const other of others) {
+        await deleteJobFromDirectory(other, { skipConfirm: true });
+      }
+    } else if (scope === "leads") {
+      const items = selectedIds.map((id) => leads.find((item) => item.id === id)).filter(Boolean) as Lead[];
+      if (items.length < 2) return;
+      const parties = new Set(items.map((item) => partyKey(item.customerName)));
+      if (parties.size > 1 && typeof window !== "undefined"
+        && !window.confirm("Selected leads have different customers. Merge into the first selected anyway?")) {
+        return;
+      }
+      const [primary, ...others] = items;
+      const mergedDescription = [primary.description, ...others.map((item) => item.description).filter(Boolean)]
+        .filter(Boolean)
+        .join(" · ");
+      const mergedNext = [
+        primary.next,
+        ...others.map((item) => `${item.ref}: ${item.description || item.next}`),
+      ]
+        .filter(Boolean)
+        .join(" | ");
+      setLeads((current) =>
+        current.map((item) =>
+          item.id === primary.id ? { ...item, description: mergedDescription, next: mergedNext } : item,
+        ),
+      );
+      const result = await syncLead(primary.id, { next: mergedNext });
+      if (!result.ok) {
+        showNotice(result.error || `Unable to merge into ${primary.ref}.`);
+        return;
+      }
+      setLeads((current) =>
+        current.map((item) =>
+          item.id === result.lead.id
+            ? { ...result.lead, description: mergedDescription }
+            : item,
+        ),
+      );
+      for (const other of others) {
+        await deleteLeadFromDirectory(other, { skipConfirm: true });
+      }
+      showNotice(`${primary.ref} merged with ${others.map((item) => item.ref).join(", ")}.`);
+    } else if (scope === "invoices") {
+      const items = selectedIds.map((id) => invoices.find((item) => item.id === id)).filter(Boolean) as Invoice[];
+      if (items.length < 2) return;
+      const parties = new Set(items.map((item) => partyKey(item.customer)));
+      if (parties.size > 1 && typeof window !== "undefined"
+        && !window.confirm("Selected invoices have different customers. Merge into the first selected anyway?")) {
+        return;
+      }
+      const [primary, ...others] = items;
+      const mergedTitle = [primary.title, ...others.map((item) => item.title).filter(Boolean)]
+        .filter(Boolean)
+        .join(" · ");
+      const mergedNotes = [primary.notes, ...others.map((item) => `${item.ref}: ${item.title || item.notes}`)]
+        .filter(Boolean)
+        .join(" | ");
+      const mergedCharge = items.reduce((total, item) => total + (Number(item.chargeTotal) || 0), 0);
+      const mergedCost = items.reduce((total, item) => total + (Number(item.costTotal) || 0), 0);
+      markInvoiceEdited();
+      setInvoices((current) =>
+        current.map((item) =>
+          item.id === primary.id
+            ? {
+                ...item,
+                title: mergedTitle,
+                notes: mergedNotes,
+                chargeTotal: mergedCharge,
+                costTotal: mergedCost,
+              }
+            : item,
+        ),
+      );
+      for (const other of others) {
+        deleteInvoiceFromDirectory(other, { skipConfirm: true });
+      }
+      showNotice(`${primary.ref} merged with ${others.map((item) => item.ref).join(", ")}.`);
+    } else if (scope === "purchase-orders") {
+      const items = selectedIds
+        .map((id) => purchaseRequests.find((item) => item.id === id))
+        .filter(Boolean) as PurchaseRequest[];
+      if (items.length < 2) return;
+      const parties = new Set(items.map((item) => partyKey(item.supplier)));
+      if (parties.size > 1 && typeof window !== "undefined"
+        && !window.confirm("Selected purchase orders have different suppliers. Merge into the first selected anyway?")) {
+        return;
+      }
+      const [primary, ...others] = items;
+      const mergedItem = [primary.item, ...others.map((item) => item.item).filter(Boolean)]
+        .filter(Boolean)
+        .join(" · ");
+      const mergedReason = [primary.reason, ...others.map((item) => `${item.poNumber || item.id}: ${item.item || item.reason}`)]
+        .filter(Boolean)
+        .join(" | ");
+      const mergedEstimated = items.reduce((total, item) => total + (Number(item.estimatedCost) || 0), 0);
+      const previous = purchaseRequests;
+      const optimistic = {
+        ...primary,
+        item: mergedItem,
+        reason: mergedReason,
+        estimatedCost: mergedEstimated,
+      };
+      setPurchaseRequests((current) =>
+        current.map((item) => (item.id === primary.id ? optimistic : item)),
+      );
+      try {
+        const response = await fetch(`/api/purchase-requests/${primary.id}`, {
+          method: "PATCH",
+          headers: { ...requestHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            item: mergedItem,
+            reason: mergedReason,
+            estimatedCost: mergedEstimated,
+          }),
+        });
+        if (!response.ok) throw new Error("Unable to merge purchase orders");
+        const updated = (await response.json()) as PurchaseRequest;
+        setPurchaseRequests((current) =>
+          current.map((item) => (item.id === updated.id ? updated : item)),
+        );
+        for (const other of others) {
+          await deletePurchaseFromDirectory(other, { skipConfirm: true });
+        }
+        showNotice(`${primary.poNumber || primary.id} merged with ${others.map((item) => item.poNumber || item.id).join(", ")}.`);
+      } catch {
+        setPurchaseRequests(previous);
+        showNotice(`Unable to merge ${primary.poNumber || primary.id}.`);
+        return;
+      }
+    }
+
+    clearDirectorySelection(scope);
+  }
+
+  async function deletePurchaseFromDirectory(
+    request: PurchaseRequest,
+    options?: { skipConfirm?: boolean },
+  ) {
+    closeDirectoryActionMenu();
+    const label = request.poNumber || request.item || request.id;
+    if (!options?.skipConfirm && !confirmPilotDelete(label)) return;
+    const previous = purchaseRequests;
+    setPurchaseRequests((current) => current.filter((item) => item.id !== request.id));
+    try {
+      const response = await fetch(`/api/purchase-requests/${request.id}`, {
+        method: "DELETE",
+        headers: requestHeaders,
+      });
+      if (!response.ok) throw new Error("Unable to delete purchase request");
+      if (selectedPurchaseRequestId === request.id) {
+        setSelectedPurchaseRequestId(null);
+        setHomeView("purchase-orders");
+      }
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "deleted",
+        recordType: "purchase order",
+        recordId: request.id,
+        summary: `${label} deleted from the pilot purchase order list.`,
+        source: "directory actions",
+        importance: "high",
+      });
+      showNotice(`${label} deleted from pilot data.`);
+    } catch {
+      setPurchaseRequests(previous);
+      showNotice(`Unable to delete ${label}.`);
+    }
+  }
+
   function updateInvoiceStatus(invoice: Invoice, status: InvoiceStatus) {
     closeDirectoryActionMenu();
     if (invoice.status === status) return;
@@ -15691,9 +16457,9 @@ export default function Dashboard() {
     showNotice(`${invoice.ref} moved to ${status}.`);
   }
 
-  function deleteInvoiceFromDirectory(invoice: Invoice) {
+  function deleteInvoiceFromDirectory(invoice: Invoice, options?: { skipConfirm?: boolean }) {
     closeDirectoryActionMenu();
-    if (!confirmPilotDelete(invoice.ref)) return;
+    if (!options?.skipConfirm && !confirmPilotDelete(invoice.ref)) return;
     markInvoiceEdited();
     setInvoices((current) => current.filter((item) => item.id !== invoice.id));
     if (selectedInvoiceId === invoice.id) {
@@ -15765,9 +16531,9 @@ export default function Dashboard() {
     showNotice(`${lead.ref} moved to ${status}${status === "Lost" && lostReason ? ` · ${lostReason}` : ""}.`);
   }
 
-  async function deleteLeadFromDirectory(lead: Lead) {
+  async function deleteLeadFromDirectory(lead: Lead, options?: { skipConfirm?: boolean }) {
     closeDirectoryActionMenu();
-    if (!confirmPilotDelete(lead.ref)) return;
+    if (!options?.skipConfirm && !confirmPilotDelete(lead.ref)) return;
     const previous = leads;
     setLeads((current) => current.filter((item) => item.id !== lead.id));
 
@@ -15832,9 +16598,9 @@ export default function Dashboard() {
     }
   }
 
-  async function deleteQuoteFromDirectory(quote: Quote) {
+  async function deleteQuoteFromDirectory(quote: Quote, options?: { skipConfirm?: boolean }) {
     closeDirectoryActionMenu();
-    if (!confirmPilotDelete(quote.ref)) return;
+    if (!options?.skipConfirm && !confirmPilotDelete(quote.ref)) return;
     const previousQuotes = quotes;
     const previousCentres = quoteCostCentres;
     setQuotes((current) => current.filter((item) => item.id !== quote.id));
@@ -15902,9 +16668,9 @@ export default function Dashboard() {
     }
   }
 
-  async function deleteJobFromDirectory(job: Job) {
+  async function deleteJobFromDirectory(job: Job, options?: { skipConfirm?: boolean }) {
     closeDirectoryActionMenu();
-    if (!confirmPilotDelete(job.ref)) return;
+    if (!options?.skipConfirm && !confirmPilotDelete(job.ref)) return;
     const previousJobs = jobs;
     const previousCentres = jobEstimateCostCentres;
     const previousSections = jobSections;
@@ -16707,8 +17473,51 @@ export default function Dashboard() {
     }
   }
 
+  function resetPeopleDirectoryFilters() {
+    setPeopleDirectorySearch("");
+    setPeopleDirectoryLetter("All");
+  }
+
+  function renderPeopleDirectoryFilters(options?: { placeholder?: string; resultCount?: number; totalCount?: number }) {
+    return (
+      <div className="people-directory-filters">
+        <input
+          aria-label="Search directory"
+          className="people-directory-search"
+          onChange={(event) => setPeopleDirectorySearch(event.target.value)}
+          placeholder={options?.placeholder ?? "Search by name..."}
+          type="search"
+          value={peopleDirectorySearch}
+        />
+        <div aria-label="Filter by first name letter" className="people-directory-alphabet" role="tablist">
+          {DIRECTORY_ALPHABET_LETTERS.map((letter) => (
+            <button
+              aria-selected={peopleDirectoryLetter === letter}
+              className={peopleDirectoryLetter === letter ? "active" : ""}
+              key={letter}
+              onClick={() => setPeopleDirectoryLetter(letter)}
+              role="tab"
+              type="button"
+            >
+              {letter}
+            </button>
+          ))}
+        </div>
+        {typeof options?.resultCount === "number" && typeof options?.totalCount === "number" ? (
+          <p className="people-directory-filter-meta">
+            Showing {options.resultCount} of {options.totalCount}
+            {peopleDirectoryLetter !== "All" ? ` · ${peopleDirectoryLetter}` : ""}
+            {peopleDirectorySearch.trim() ? ` · “${peopleDirectorySearch.trim()}”` : ""}
+            {" · sorted A–Z by first name"}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
   function goToPeopleSection(item: string) {
     setOpenModuleMenu(null);
+    resetPeopleDirectoryFilters();
     if (item === "Employees") {
       clearEmployeeEditingState();
       setHomeView("employees");
@@ -20386,6 +21195,81 @@ export default function Dashboard() {
     return result;
   }
 
+  /**
+   * Write managers-diary visits into simPRO schedules (not the legacy scheduler app).
+   * Silent when the job is unlinked or schedule-rate env is missing.
+   */
+  async function pushScheduleAssignmentsToSimpro(
+    job: Job,
+    options: {
+      assignments: JobScheduleAssignment[];
+      upsertIds?: string[];
+      deleteIds?: string[];
+      silentIfUnconfigured?: boolean;
+    },
+  ) {
+    if (!String(job.simproJobId || "").trim()) {
+      return null;
+    }
+    if (integrationSettings.simproMode === "Not connected" || integrationSettings.simproMode === "Queued handoff") {
+      if (!options.silentIfUnconfigured) {
+        showNotice("simPRO is turned off in Setup, so schedule visits stay in NeXa only.");
+      }
+      return null;
+    }
+
+    try {
+      const response = await fetch(`/api/jobs/${job.id}/simpro-schedule-push`, {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assignments: options.assignments,
+          upsertIds: options.upsertIds,
+          deleteIds: options.deleteIds,
+        }),
+      });
+      const result = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        skipped?: boolean;
+        reason?: string;
+        assignments?: JobScheduleAssignment[];
+        results?: Array<{ ok: boolean; error?: string; summary?: string }>;
+        error?: string;
+      } | null;
+
+      if (!result) {
+        showNotice("Could not reach the simPRO schedule push endpoint.");
+        return null;
+      }
+
+      if (Array.isArray(result.assignments)) {
+        setJobSchedulePlans((current) => ({ ...current, [job.id]: result.assignments as JobScheduleAssignment[] }));
+      }
+
+      if (result.skipped) {
+        if (!options.silentIfUnconfigured && result.reason) {
+          showNotice(result.reason);
+        }
+        return result;
+      }
+
+      if (!result.ok) {
+        const detail =
+          result.reason ||
+          result.results?.filter((item) => !item.ok).map((item) => item.error || item.summary).join(" · ") ||
+          result.error ||
+          "simPRO schedule push failed.";
+        showNotice(`${job.ref} saved in NeXa, but simPRO diary sync failed: ${detail}`);
+      }
+
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to push schedules to simPRO.";
+      showNotice(`${job.ref} saved in NeXa, but simPRO diary sync failed: ${message}`);
+      return null;
+    }
+  }
+
   async function sendSelectedJobToSimpro(overrides?: { schedule?: JobScheduleAssignment[]; costCentres?: EstimateCostCentre[]; silentSuccess?: boolean; silentIfUnconfigured?: boolean }) {
     if (!selectedJob) return null;
     setIsSendingJobToSimpro(true);
@@ -21453,6 +22337,11 @@ export default function Dashboard() {
         silentSuccess: true,
         silentIfUnconfigured: true,
       });
+      await pushScheduleAssignmentsToSimpro(updated, {
+        assignments: nextAssignments,
+        upsertIds: [assignment.id],
+        silentIfUnconfigured: true,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to schedule job.";
       setSectionError(message);
@@ -21538,6 +22427,11 @@ export default function Dashboard() {
         costCentres: selectedJobEstimateCostCentres,
         schedule: nextAssignments,
         silentSuccess: true,
+        silentIfUnconfigured: true,
+      });
+      await pushScheduleAssignmentsToSimpro(updated, {
+        assignments: selectedJobPlannerAssignments,
+        deleteIds: [assignmentId],
         silentIfUnconfigured: true,
       });
     } catch (error) {
@@ -27435,6 +28329,18 @@ export default function Dashboard() {
         })()
       : null;
     const dayworkTotals = dayworkAccountTotals(dayworkRecord);
+    const dayworkSigned = isDayworkSubmittedToCore(dayworkRecord);
+    const completedDayworkSheets = isDayworkFlow
+      ? sortDayworkSheetsByNumber(
+          job.id,
+          Object.values(dayworkSheets).filter(
+            (sheet) =>
+              sheet
+              && sheet.jobId === job.id
+              && isDayworkSubmittedToCore(sheet),
+          ),
+        )
+      : [];
     const gasFields = gasRecord
       ? [
           { label: "Location", value: gasRecord.location },
@@ -27509,12 +28415,80 @@ export default function Dashboard() {
           <div className="flow-progress-panel" style={{ marginBottom: 16 }}>
             <strong>Daywork Account</strong>
             <span>
-              {dayworkRecord?.plumberSignature && dayworkRecord?.clientSignature
-                ? `${dayworkTotals.labourHours || 0} hrs${dayworkTotals.total ? ` · ${dayworkTotals.total.toLocaleString("en-GB", { style: "currency", currency: "GBP" })}` : " · awaiting office prices"}`
+              {dayworkSigned
+                ? `${dayworkTotals.labourHours || 0} hrs${dayworkTotals.total ? ` · ${dayworkTotals.total.toLocaleString("en-GB", { style: "currency", currency: "GBP" })}` : " · awaiting office prices"} · signed on Field (locked)`
                 : "No signed sheet on the server yet — on Field tap Add Daywork Account (not the boiler checklist), fill materials + both signatures, then Save and finish. Or enter the sheet below in Core."}
             </span>
+            {completedDayworkSheets.length ? (
+              <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+                <small style={{ color: "var(--muted, #667085)" }}>
+                  Completed dayworks — open the client PDF for signatures; sheets stay locked in Core
+                </small>
+                {completedDayworkSheets.map((sheet) => {
+                  const label = dayworkSheetListLabel(job.id, sheet.costCentreId);
+                  return (
+                    <div
+                      key={`${sheet.jobId}:${sheet.costCentreId}`}
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 8,
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "8px 10px",
+                        border: "1px solid var(--line, #eaecf0)",
+                        borderRadius: 10,
+                        background: "var(--canvas, #f7f8fa)",
+                      }}
+                    >
+                      <div>
+                        <strong>{label}</strong>
+                        <small style={{ display: "block", color: "var(--muted, #667085)" }}>
+                          {[sheet.weekEnding ? `Week ending ${sheet.weekEnding}` : null, sheet.plumberSignerName || sheet.labourName]
+                            .filter(Boolean)
+                            .join(" · ") || "Signed on Field"}
+                        </small>
+                      </div>
+                      <button
+                        className="simpro-grey-button"
+                        type="button"
+                        disabled={previewingDayworkPdf}
+                        onClick={() => {
+                          void (async () => {
+                            setPreviewingDayworkPdf(true);
+                            try {
+                              const response = await fetch(
+                                `/api/jobs/${encodeURIComponent(job.id)}/daywork/pdf?costCentreId=${encodeURIComponent(sheet.costCentreId)}&format=pdf`,
+                                { credentials: "include", headers: requestHeaders },
+                              );
+                              if (!response.ok) {
+                                const body = (await response.json().catch(() => null)) as { error?: string } | null;
+                                throw new Error(body?.error || "Could not open Daywork PDF.");
+                              }
+                              const blob = await response.blob();
+                              if (!blob.size) throw new Error("PDF response was empty.");
+                              const url = URL.createObjectURL(blob);
+                              const opened = window.open(url, "_blank", "noopener,noreferrer");
+                              if (!opened) window.location.assign(url);
+                              window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                              showNotice(`Opened ${label} PDF (signatures included).`);
+                            } catch (error) {
+                              showNotice(error instanceof Error ? error.message : "Could not open Daywork PDF.");
+                            } finally {
+                              setPreviewingDayworkPdf(false);
+                            }
+                          })();
+                        }}
+                      >
+                        {previewingDayworkPdf ? "Opening…" : "Client PDF"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
-              {centre ? (
+              {centre && !dayworkSigned ? (
                 <button
                   className="simpro-grey-button"
                   type="button"
@@ -27553,13 +28527,11 @@ export default function Dashboard() {
                         }
                         const blob = await response.blob();
                         if (!blob.size || !/pdf/i.test(blob.type) && blob.type !== "application/octet-stream") {
-                          // Some browsers report empty type for application/pdf — still open if bytes exist.
                           if (!blob.size) throw new Error("PDF response was empty.");
                         }
                         const url = URL.createObjectURL(blob);
                         const opened = window.open(url, "_blank", "noopener,noreferrer");
                         if (!opened) {
-                          // Popup blocked — fall back to same-tab navigation.
                           window.location.assign(url);
                         }
                         window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
@@ -27578,29 +28550,11 @@ export default function Dashboard() {
                   {previewingDayworkPdf ? "Opening PDF…" : "Preview valuation PDF"}
                 </button>
               ) : null}
-              {dayworkRecord?.plumberSignature && dayworkRecord?.clientSignature && !editingDayworkInCore ? (
-                <button
-                  className="simpro-blue-button"
-                  type="button"
-                  onClick={() => setEditingDayworkInCore(true)}
-                >
-                  Edit sheet in Core
-                </button>
-              ) : null}
-              {editingDayworkInCore && dayworkRecord?.plumberSignature ? (
-                <button
-                  className="simpro-grey-button"
-                  type="button"
-                  onClick={() => setEditingDayworkInCore(false)}
-                >
-                  Cancel edit
-                </button>
-              ) : null}
             </div>
           </div>
         ) : null}
 
-        {isDayworkFlow && centre && (editingDayworkInCore || !dayworkRecord?.plumberSignature || !dayworkRecord?.clientSignature) ? (
+        {isDayworkFlow && centre && !dayworkSigned ? (
           <div style={{ marginBottom: 16 }}>
             <DayworkSheetForm
               key={`core-daywork-${job.id}-${centre.id}-${dayworkRecord?.completedAt || "new"}`}
@@ -27609,11 +28563,7 @@ export default function Dashboard() {
               engineerName={activeEmployee?.name || job.manager || "Office"}
               initialRecord={dayworkRecord}
               requestHeaders={requestHeaders}
-              onCancel={
-                dayworkRecord?.plumberSignature
-                  ? () => setEditingDayworkInCore(false)
-                  : undefined
-              }
+              onCancel={undefined}
               onSaved={(record) => {
                 const snapshot = {
                   ...record,
@@ -27635,7 +28585,7 @@ export default function Dashboard() {
           </div>
         ) : null}
 
-        {isDayworkFlow && dayworkRecord?.plumberSignature && dayworkRecord?.clientSignature && !editingDayworkInCore ? (
+        {isDayworkFlow && dayworkSigned ? (
           <div style={{ marginBottom: 16 }}>
             <DayworkAccountForm
               context={{
@@ -28409,8 +29359,34 @@ export default function Dashboard() {
     );
   }
 
+  const showTopBusyBar =
+    isApplyingSimproImport ||
+    isRunningSimproPreview ||
+    isTestingSimproConnection ||
+    isSubmittingSimproReconnect ||
+    isSendingQuoteToSimpro ||
+    isSendingJobToSimpro ||
+    isConnectingXero ||
+    isExportingInvoiceToXero ||
+    isPullingXeroPayments ||
+    isSendingLiveEmail;
+
   return (
     <div className="platform">
+      {showTopBusyBar ? (
+        <>
+          <div className="nexa-top-busy" role="progressbar" aria-busy="true" aria-label="Working">
+            <span className="nexa-top-busy-bar" />
+          </div>
+          <div className="nexa-top-busy-label" aria-live="polite">
+            {isApplyingSimproImport
+              ? "Applying simPRO import…"
+              : isRunningSimproPreview
+                ? "Previewing simPRO import…"
+                : "Working…"}
+          </div>
+        </>
+      ) : null}
       <header className="global-header">
         <div className="brand-lockup">
           <img className="company-logo" src="/ewg-logo.png" alt="Errol Watson Group" />
@@ -29699,6 +30675,7 @@ export default function Dashboard() {
                     ) : (
                       <>
                         <div className="quote-row table-header">
+                          <span className="directory-select-cell">Select</span>
                           <span>Quote / description</span>
                           <span>Client / address</span>
                           <span>Status</span>
@@ -29724,6 +30701,7 @@ export default function Dashboard() {
                                 }
                               }}
                             >
+                              {renderDirectorySelectCell("quotes", quote.id, quote.ref)}
                               <div className="job-identity">
                                 <div>
                                   <StatusDot tone={quote.status === "Accepted" || quote.status === "Converted" ? "green" : quote.status === "Sent" ? "blue" : quote.status === "Declined" || quote.status === "Lost" ? "red" : "amber"} />
@@ -29733,6 +30711,11 @@ export default function Dashboard() {
                                   {linkedJob ? <span>{linkedJob.ref}</span> : quote.sourceLeadRef ? <span>{quote.sourceLeadRef}</span> : null}
                                 </div>
                                 <strong>{quote.description}</strong>
+                                <small className="quote-cc-count">
+                                  {(quoteCostCentres[quote.id] ?? []).length
+                                    ? `${(quoteCostCentres[quote.id] ?? []).length} cost centre${(quoteCostCentres[quote.id] ?? []).length === 1 ? "" : "s"}`
+                                    : "No cost centres yet"}
+                                </small>
                               </div>
                               <span className="record-address-cell">
                                 <strong>{quote.customer}</strong>
@@ -29801,6 +30784,10 @@ export default function Dashboard() {
                   </section>
                 ))}
               </div>
+              {renderDirectoryBulkBar(
+                "quotes",
+                visibleQuoteDirectoryGroups.flatMap((group) => group.items.map((item) => item.id)),
+              )}
             </section>
           ) : homeView === "jobs" ? (
             <section className="quote-panel record-directory workflow-directory job-directory">
@@ -29854,6 +30841,7 @@ export default function Dashboard() {
                     ) : (
                       <>
                         <div className="quote-row table-header">
+                          <span className="directory-select-cell">Select</span>
                           <span>Job / description</span>
                           <span>Client / address</span>
                           <span>Status</span>
@@ -29875,6 +30863,7 @@ export default function Dashboard() {
                               }
                             }}
                           >
+                            {renderDirectorySelectCell("jobs", job.id, job.ref)}
                             <div className="job-identity">
                               <div>
                                 <StatusDot tone={job.health} />
@@ -29946,6 +30935,10 @@ export default function Dashboard() {
                   </section>
                 ))}
               </div>
+              {renderDirectoryBulkBar(
+                "jobs",
+                visibleJobDirectoryGroups.flatMap((group) => group.items.map((item) => item.id)),
+              )}
             </section>
           ) : homeView === "reports" ? (
             <section className="reports-shell">
@@ -30461,7 +31454,7 @@ export default function Dashboard() {
                 ) : (
                   <>
                     <div className="quote-row table-header">
-                      <span></span>
+                      <span className="directory-select-cell">Select</span>
                       <span>Order no.</span>
                       <span>Status</span>
                       <span>Created by</span>
@@ -30487,9 +31480,7 @@ export default function Dashboard() {
                           }
                         }}
                       >
-                        <span className="po-select-cell" onClick={(event) => event.stopPropagation()}>
-                          <input aria-label={`Select ${row.orderNo}`} type="checkbox" />
-                        </span>
+                        {renderDirectorySelectCell("purchase-orders", row.request.id, row.orderNo)}
                         <div className="job-identity">
                           <div>
                             <a href="#" onClick={(event) => { event.preventDefault(); event.stopPropagation(); openPurchaseOrderRegisterRow(row.request); }}>
@@ -30532,6 +31523,10 @@ export default function Dashboard() {
                   </>
                 )}
               </section>
+              {renderDirectoryBulkBar(
+                "purchase-orders",
+                purchaseOrderRows.map((row) => row.request.id),
+              )}
             </section>
           ) : homeView === "purchase-order-record" ? (
             selectedPurchaseOrder ? (() => {
@@ -31245,8 +32240,8 @@ export default function Dashboard() {
                           </label>
                         ) : null}
                         <dl>
-                          <div><dt>Site</dt><dd>{selectedQuoteSite?.name ?? (selectedQuoteClient?.billingAddress ? "Customer address" : "Site to confirm")}</dd></div>
-                          <div><dt>Address</dt><dd>{selectedQuoteSite?.address ?? selectedQuoteClient?.billingAddress ?? "Address to confirm"}</dd></div>
+                          <div><dt>Site</dt><dd>{selectedQuoteSite?.name ?? "Site to confirm"}</dd></div>
+                          <div><dt>Address</dt><dd>{selectedQuoteSite?.address ?? "Address to confirm"}</dd></div>
                         </dl>
                       </section>
                       <section className="simpro-summary-block">
@@ -34157,8 +35152,8 @@ export default function Dashboard() {
                           </label>
                         ) : null}
                         <dl>
-                          <div><dt>Site</dt><dd>{selectedJobSite?.name ?? (selectedJobClient?.billingAddress ? "Customer address" : selectedJob.site)}</dd></div>
-                          <div><dt>Address</dt><dd>{selectedJobSite?.address ?? selectedJob.site ?? selectedJobClient?.billingAddress ?? "Address to confirm"}</dd></div>
+                          <div><dt>Site</dt><dd>{selectedJobSite?.name ?? selectedJob.site ?? "Site to confirm"}</dd></div>
+                          <div><dt>Address</dt><dd>{selectedJobSite?.address ?? selectedJob.site ?? "Address to confirm"}</dd></div>
                         </dl>
                       </section>
                       <section className="simpro-summary-block">
@@ -37397,6 +38392,7 @@ export default function Dashboard() {
                     ) : (
                       <>
                         <div className="quote-row table-header">
+                          <span className="directory-select-cell">Select</span>
                           <span>Invoice / description</span>
                           <span>Client / address</span>
                           <span>Source</span>
@@ -37425,6 +38421,7 @@ export default function Dashboard() {
                                 }
                               }}
                             >
+                              {renderDirectorySelectCell("invoices", invoice.id, invoice.ref)}
                               <div className="job-identity">
                                 <div>
                                   <StatusDot tone={invoice.status === "Paid" ? "green" : invoice.status === "Partially paid" ? "amber" : invoice.status === "Cancelled" ? "red" : "blue"} />
@@ -37504,6 +38501,10 @@ export default function Dashboard() {
                   </section>
                 ))}
               </div>
+              {renderDirectoryBulkBar(
+                "invoices",
+                visibleInvoiceDirectoryGroups.flatMap((group) => group.items.map((item) => item.id)),
+              )}
             </section>
           ) : homeView === "invoice-create" ? (
             jobInvoiceDraft && jobInvoiceDraftJob ? (
@@ -38867,7 +39868,7 @@ export default function Dashboard() {
 
               {scheduleView === "day" ? (
                 <div className="scheduler-grid">
-                  {surveyorOptions.map((surveyor) => {
+                  {schedulerDiaryPeople.map((surveyor) => {
                     const availability = availabilityForDate(surveyor, scheduleDate);
                     const bookings = bookingsForSelectedDate
                       .filter((booking) => booking.surveyor === surveyor)
@@ -38916,17 +39917,20 @@ export default function Dashboard() {
                               {bookings.map((booking) => {
                                 const range = schedulerBookingSlotRange(booking, scheduleDate);
                                 return (
-                                  <span
+                                  <button
+                                    type="button"
                                     className="scheduler-drag-existing"
                                     key={`timeline-${booking.id}`}
                                     style={{
                                       left: `${(range.startSlot / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
                                       width: `${((range.endSlot - range.startSlot) / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
                                     }}
-                                    title={`${booking.ref} · ${booking.time}`}
+                                    title={`Open ${booking.ref} · ${booking.time}`}
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onClick={() => openScheduleBooking(booking)}
                                   >
                                     {booking.ref}
-                                  </span>
+                                  </button>
                                 );
                               })}
                               {schedulerDragDraft?.employeeName === surveyor && schedulerDragDraft.date === scheduleDate ? (
@@ -38942,7 +39946,7 @@ export default function Dashboard() {
                                 </span>
                               ) : null}
                             </div>
-                            <small>{schedulerSelectedJob ? "Drag to book this engineer" : "Select a job above to enable drag booking"}</small>
+                            <small>{schedulerSelectedJob ? "Click a visit to open · drag empty time to book" : "Click a visit to open · select a job above to drag-book"}</small>
                           </div>
 
                           {bookings.map((booking) => (
@@ -38979,7 +39983,7 @@ export default function Dashboard() {
                     <span>Engineer</span>
                     {scheduleVisibleDays.map((day) => <time key={day}>{formatScheduleDate(day, { weekday: "short", day: "numeric", month: "short" })}</time>)}
                   </div>
-                  {surveyorOptions.map((surveyor) => (
+                  {schedulerDiaryPeople.map((surveyor) => (
                     <div className="scheduler-week-row" key={surveyor}>
                       <header><strong>{surveyor}</strong><span>Team diary</span></header>
                       {scheduleVisibleDays.map((day) => {
@@ -39010,17 +40014,20 @@ export default function Dashboard() {
                                 {bookings.map((booking) => {
                                   const range = schedulerBookingSlotRange(booking, day);
                                   return (
-                                    <span
+                                    <button
+                                      type="button"
                                       className="scheduler-drag-existing"
                                       key={`week-timeline-${booking.id}`}
                                       style={{
                                         left: `${(range.startSlot / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
                                         width: `${((range.endSlot - range.startSlot) / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
                                       }}
-                                      title={`${booking.ref} · ${booking.time}`}
+                                      title={`Open ${booking.ref} · ${booking.time}`}
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onClick={() => openScheduleBooking(booking)}
                                     >
                                       {booking.ref}
-                                    </span>
+                                    </button>
                                   );
                                 })}
                                 {schedulerDragDraft?.employeeName === surveyor && schedulerDragDraft.date === day ? (
@@ -40404,6 +41411,14 @@ export default function Dashboard() {
 	                              >
 	                                {isApplyingSimproImport ? "Applying..." : "Apply safe imports"}
 	                              </button>
+	                              <button
+	                                className="secondary-button"
+	                                type="button"
+	                                disabled={isRunningSimproPreview || isApplyingSimproImport}
+	                                onClick={() => void cleanupImportedSimproRecords()}
+	                              >
+	                                Delete imported jobs/quotes
+	                              </button>
 	                            </div>
 	                          </header>
 	                          <div className="setup-form-grid">
@@ -40438,7 +41453,7 @@ export default function Dashboard() {
 	                          <small>
 	                            {simproBridgeStatus.configured
 	                              ? integrationSettings.simproMode === "Two-way sync"
-	                                ? `Outbound and inbound are available via ${simproBridgeStatus.mode}${simproBridgeStatus.endpoint ? ` at ${simproBridgeStatus.endpoint}` : ""}. Preview imports before applying anything live.`
+	                                ? `Outbound and inbound are available via ${simproBridgeStatus.mode}${simproBridgeStatus.endpoint ? ` at ${simproBridgeStatus.endpoint}` : ""}. Apply pulls cost centres, materials, labour, schedules and invoices.`
 	                                : `${simproBridgeStatus.guidance || `Outbound push is ready via ${simproBridgeStatus.mode}.`} Open a quote and use Send to Simpro.`
 	                              : `Missing ${simproBridgeStatus.missing.join(", ") || "SIMPRO_BASE_URL, SIMPRO_COMPANY_ID, SIMPRO_CLIENT_ID, SIMPRO_CLIENT_SECRET and SIMPRO_REFRESH_TOKEN"}. ${simproBridgeStatus.guidance || ""}`}
 	                          </small>
@@ -40447,7 +41462,7 @@ export default function Dashboard() {
 	                            <div className="setup-sync-entity-copy">
 	                              <span>Import selection</span>
 	                              <strong>Choose exactly what NeXa should pull in</strong>
-	                              <small>Default is Clients + Sites to stop dual typing. Tick quotes/jobs/invoices only when you need them.</small>
+	                              <small>Default is Clients + Sites first. Preview should mostly show create/link — not piles of conflicts. Tick Quotes/Jobs/Schedules/Invoices after customers are linked.</small>
 	                              <div className="setup-sync-entity-shortcuts">
 	                                <button className="secondary-button" type="button" onClick={() => setSelectedSimproImportEntities(["clients", "sites"])}>
 	                                  Customers &amp; sites
@@ -40493,7 +41508,7 @@ export default function Dashboard() {
 	                                <strong>{simproBridgeStatus.configured ? `Ready via ${simproBridgeStatus.mode}` : "Needs completing"}</strong>
 	                                <small>
 	                                  {simproBridgeStatus.configured
-	                                    ? `Quotes ${simproBridgeStatus.quotePushReady === false ? "blocked" : "ready"} · Jobs ${simproBridgeStatus.jobPushReady === false ? "blocked" : "ready"}. ${simproBridgeStatus.guidance || ""}`
+	                                    ? `Quotes ${simproBridgeStatus.quotePushReady === false ? "blocked" : "ready"} · Jobs ${simproBridgeStatus.jobPushReady === false ? "blocked" : "ready"} · Schedules ${simproBridgeStatus.schedulePushReady === false ? "blocked" : "ready"}. ${simproBridgeStatus.guidance || ""}`
 	                                    : `Missing ${simproBridgeStatus.missing.join(", ") || "simPRO bridge settings"}.`}
 	                                </small>
 	                              </article>
@@ -40554,54 +41569,7 @@ export default function Dashboard() {
 	                            </article>
 	                          </div>
 	                          {simproSyncStatus?.lastRun?.operations.length ? (
-	                            <div className="setup-rate-table setup-sync-log">
-	                              <div className="setup-rate-row table-head">
-	                                <span>Action</span>
-	                                <span>Record</span>
-	                                <span>Result</span>
-	                                <span>Resolve</span>
-	                              </div>
-	                              {simproSyncStatus.lastRun.operations.slice(0, 12).map((item) => (
-	                                <div className="setup-rate-row" key={item.id}>
-	                                  <strong>{item.action}</strong>
-	                                  <span>{item.entity}{item.simproId ? ` · ${item.simproId}` : ""}</span>
-	                                  <span>{item.summary}</span>
-	                                  <span>
-	                                    {item.action === "conflict" ? (
-	                                      <div className="ops-queue-actions" style={{ flexWrap: "wrap", gap: "0.35rem" }}>
-	                                        {item.candidates?.length ? (
-	                                          <select
-	                                            value={simproConflictLinkChoices[item.id] || item.candidates[0]?.nexaId || ""}
-	                                            onChange={(event) =>
-	                                              setSimproConflictLinkChoices((current) => ({ ...current, [item.id]: event.target.value }))
-	                                            }
-	                                          >
-	                                            {item.candidates.map((candidate) => (
-	                                              <option key={candidate.nexaId} value={candidate.nexaId}>
-	                                                {candidate.nexaName}
-	                                              </option>
-	                                            ))}
-	                                          </select>
-	                                        ) : null}
-	                                        {item.candidates?.length || item.simproId ? (
-	                                          <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "link")} disabled={!item.candidates?.length}>
-	                                            Link
-	                                          </button>
-	                                        ) : null}
-	                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "create")} disabled={!item.simproId || item.summary.includes("customer is linked")}>
-	                                          Create
-	                                        </button>
-	                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "skip")}>
-	                                          Skip
-	                                        </button>
-	                                      </div>
-	                                    ) : (
-	                                      "—"
-	                                    )}
-	                                  </span>
-	                                </div>
-	                              ))}
-	                            </div>
+	                            renderSimproSyncLog(80)
 	                          ) : null}
 	                        </article>
 
@@ -41046,6 +42014,14 @@ export default function Dashboard() {
                               >
                                 {isApplyingSimproImport ? "Applying..." : "Apply safe imports"}
                               </button>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={isRunningSimproPreview || isApplyingSimproImport}
+                                onClick={() => void cleanupImportedSimproRecords()}
+                              >
+                                Delete imported jobs/quotes
+                              </button>
                             </div>
                           </header>
                           <div className="setup-form-grid">
@@ -41088,7 +42064,7 @@ export default function Dashboard() {
                           <small>
                             {simproSyncStatus?.configured
                               ? integrationSettings.simproMode === "Two-way sync"
-                                ? `Direct API ready at ${simproSyncStatus.endpoint}. Preview imports before applying anything live.`
+                                ? `Direct API ready at ${simproSyncStatus.endpoint}. Import scope: open quotes; pending/progress/complete jobs (with cost centres + schedules); latest 30 unpaid invoices only. Apply Quotes/Jobs resolves real customer names from simPRO Customer IDs (no more “simPRO customer”).`
                                 : `Direct API ready at ${simproSyncStatus.endpoint}. Inbound imports are paused while NeXa stays the live front end.`
                               : `Direct API not ready: ${simproSyncStatus?.missing.join(", ") || simproBridgeStatus.missing.join(", ") || "SIMPRO_ credentials missing"}.`}
                           </small>
@@ -41134,52 +42110,7 @@ export default function Dashboard() {
                             </div>
                           )}
                           {simproSyncStatus?.lastRun?.operations.length ? (
-                            <div className="setup-rate-table setup-sync-log">
-                              <div className="setup-rate-row table-head">
-                                <span>Action</span>
-                                <span>Record</span>
-                                <span>Result</span>
-                                <span>Resolve</span>
-                              </div>
-                              {simproSyncStatus.lastRun.operations.slice(0, 10).map((item) => (
-                                <div className="setup-rate-row" key={item.id}>
-                                  <strong>{item.action}</strong>
-                                  <span>{item.entity}{item.simproId ? ` · ${item.simproId}` : ""}</span>
-                                  <span>{item.summary}</span>
-                                  <span>
-                                    {item.action === "conflict" ? (
-                                      <div className="ops-queue-actions" style={{ flexWrap: "wrap", gap: "0.35rem" }}>
-                                        {item.candidates?.length ? (
-                                          <select
-                                            value={simproConflictLinkChoices[item.id] || item.candidates[0]?.nexaId || ""}
-                                            onChange={(event) =>
-                                              setSimproConflictLinkChoices((current) => ({ ...current, [item.id]: event.target.value }))
-                                            }
-                                          >
-                                            {item.candidates.map((candidate) => (
-                                              <option key={candidate.nexaId} value={candidate.nexaId}>
-                                                {candidate.nexaName}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        ) : null}
-                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "link")} disabled={!item.candidates?.length}>
-                                          Link
-                                        </button>
-                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "create")} disabled={!item.simproId || item.summary.includes("customer is linked")}>
-                                          Create
-                                        </button>
-                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "skip")}>
-                                          Skip
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      "—"
-                                    )}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
+                            renderSimproSyncLog(80)
                           ) : integrationSettings.simproMode === "Two-way sync" ? null : (
                             <div className="setup-rate-table setup-sync-log">
                               <div className="setup-rate-row table-head">
@@ -41349,6 +42280,7 @@ export default function Dashboard() {
               <div className="lead-layout">
                 <section className="lead-list-panel">
                   <div className="lead-row table-header">
+                    <span className="directory-select-cell">Select</span>
                     <span>Lead / description</span>
                     <span>Address</span>
                     <span>Client</span>
@@ -41374,6 +42306,7 @@ export default function Dashboard() {
                         }
                       }}
                     >
+                      {renderDirectorySelectCell("leads", lead.id, lead.ref)}
                       <div className="job-identity">
                         <div>
                           <StatusDot tone={lead.status === "Lost" ? "red" : lead.status === "Survey booked" ? "green" : "amber"} />
@@ -41434,12 +42367,15 @@ export default function Dashboard() {
                     </article>
                     );
                   })}
+                  {renderDirectoryBulkBar(
+                    "leads",
+                    filteredLeads.map((lead) => lead.id),
+                  )}
                   </section>
               </div>
             </section>
           ) : homeView === "directory-manager" ? (
             (() => {
-              const query = search.trim().toLowerCase();
               const clientNameById = new Map(clients.map((client) => [client.id, client.name]));
               const config = activeDirectoryManager === "sites"
                 ? {
@@ -41448,6 +42384,7 @@ export default function Dashboard() {
                     importType: "Sites",
                     empty: "No site records yet.",
                     scope: "site" as const,
+                    searchPlaceholder: "Search sites by name, address or contact...",
                     records: clientSites.map((site) => ({
                       id: site.id,
                       title: site.name,
@@ -41471,6 +42408,7 @@ export default function Dashboard() {
                       importType: "Suppliers",
                       empty: "No supplier records yet.",
                       scope: "supplier" as const,
+                      searchPlaceholder: "Search suppliers by name, email or account...",
                       records: suppliers.map((supplier) => ({
                         id: supplier.id,
                         title: supplier.name,
@@ -41494,6 +42432,7 @@ export default function Dashboard() {
                         importType: "Contacts",
                         empty: "No contact records yet.",
                         scope: "contact" as const,
+                        searchPlaceholder: "Search contacts by name, company or email...",
                         records: contacts.map((contact) => ({
                           id: contact.id,
                           title: contact.name,
@@ -41516,6 +42455,7 @@ export default function Dashboard() {
                         importType: "Contractors",
                         empty: "No contractor records yet.",
                         scope: "contractor" as const,
+                        searchPlaceholder: "Search contractors by name, trade or contact...",
                         records: contractors.map((contractor) => ({
                           id: contractor.id,
                           title: contractor.name,
@@ -41533,9 +42473,12 @@ export default function Dashboard() {
                         })),
                       };
 
-              const filteredRecords = config.records.filter((record) =>
-                !query || record.matches.some((value) => value.toLowerCase().includes(query)),
-              );
+              const filteredRecords = filterDirectoryList(config.records, {
+                getName: (record) => record.title,
+                getSearchValues: (record) => record.matches,
+                query: peopleDirectorySearch,
+                letter: peopleDirectoryLetter,
+              });
 
               return (
                 <section className="client-directory-panel">
@@ -41562,6 +42505,12 @@ export default function Dashboard() {
                       </button>
                     </div>
                   </div>
+
+                  {renderPeopleDirectoryFilters({
+                    placeholder: config.searchPlaceholder,
+                    resultCount: filteredRecords.length,
+                    totalCount: config.records.length,
+                  })}
 
                   {filteredRecords.length ? (
                     <div className="client-directory-grid">
@@ -41590,7 +42539,7 @@ export default function Dashboard() {
                   ) : (
                     <div className="employee-empty-panel">
                       <strong>{config.empty}</strong>
-                      <span>Use Setup imports or day-to-day record creation to populate this directory.</span>
+                      <span>Try another letter or search, or use Setup imports to populate this directory.</span>
                     </div>
                   )}
                 </section>
@@ -41608,62 +42557,75 @@ export default function Dashboard() {
                 </button>
               </div>
 
-              <div className="client-directory-grid">
-                {filteredClients.map((client) => {
-                  const siteCount = clientSites.filter((site) => site.clientId === client.id).length;
-                  return (
-                    <article
-                      className="client-directory-card"
-                      key={client.id}
-                      onClick={() => openClientRecordView(client.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openClientRecordView(client.id);
-                        }
-                      }}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      <header>
-                        <div>
-                          <h3>{client.name}</h3>
-                          <small>{client.accountReference}</small>
-                        </div>
-                        <div className="directory-card-head-actions">
-                          <span className={`status-pill ${client.archived ? "amber" : client.status === "Active" ? "green" : client.status === "Prospect" ? "blue" : "amber"}`}>
-                            {client.archived ? "Archived" : client.status}
-                          </span>
-                          {renderDirectoryActionMenu("client", client.id, [
-                            { label: "Open client", onClick: () => openClientRecordView(client.id) },
-                            {
-                              label: client.archived ? "Restore client" : "Archive client",
-                              onClick: () => updateClientArchive(client, !client.archived),
-                            },
-                            { label: "Delete", onClick: () => void deleteClientFromDirectory(client), danger: true },
-                          ])}
-                        </div>
-                      </header>
-                      <p>{client.primaryContact}</p>
-                      <p className="client-directory-meta">{client.email}</p>
-                      <p className="client-directory-meta">{client.phone}</p>
-                      <div className="client-directory-stats">
-                        <span>{siteCount} sites</span>
-                        <span>{client.commercialOwner}</span>
-                      </div>
-                      <button
-                        className="primary-button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openClientRecordView(client.id);
+              {renderPeopleDirectoryFilters({
+                placeholder: "Search clients by name, account or contact...",
+                resultCount: filteredClients.length,
+                totalCount: clients.length,
+              })}
+
+              {filteredClients.length ? (
+                <div className="client-directory-grid">
+                  {filteredClients.map((client) => {
+                    const siteCount = clientSites.filter((site) => site.clientId === client.id).length;
+                    return (
+                      <article
+                        className="client-directory-card"
+                        key={client.id}
+                        onClick={() => openClientRecordView(client.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            openClientRecordView(client.id);
+                          }
                         }}
+                        role="button"
+                        tabIndex={0}
                       >
-                        Open client record
-                      </button>
-                    </article>
-                  );
-                })}
-              </div>
+                        <header>
+                          <div>
+                            <h3>{client.name}</h3>
+                            <small>{client.accountReference}</small>
+                          </div>
+                          <div className="directory-card-head-actions">
+                            <span className={`status-pill ${client.archived ? "amber" : client.status === "Active" ? "green" : client.status === "Prospect" ? "blue" : "amber"}`}>
+                              {client.archived ? "Archived" : client.status}
+                            </span>
+                            {renderDirectoryActionMenu("client", client.id, [
+                              { label: "Open client", onClick: () => openClientRecordView(client.id) },
+                              {
+                                label: client.archived ? "Restore client" : "Archive client",
+                                onClick: () => updateClientArchive(client, !client.archived),
+                              },
+                              { label: "Delete", onClick: () => void deleteClientFromDirectory(client), danger: true },
+                            ])}
+                          </div>
+                        </header>
+                        <p>{client.primaryContact}</p>
+                        <p className="client-directory-meta">{client.email}</p>
+                        <p className="client-directory-meta">{client.phone}</p>
+                        <div className="client-directory-stats">
+                          <span>{siteCount} sites</span>
+                          <span>{client.commercialOwner}</span>
+                        </div>
+                        <button
+                          className="primary-button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openClientRecordView(client.id);
+                          }}
+                        >
+                          Open client record
+                        </button>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="employee-empty-panel">
+                  <strong>No clients match this filter</strong>
+                  <span>Try another letter or clear the search.</span>
+                </div>
+              )}
             </section>
           ) : homeView === "client-record" ? (
             activeClient ? (
@@ -42058,8 +43020,14 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              {renderPeopleDirectoryFilters({
+                placeholder: "Search employees by name, role or email...",
+                resultCount: filteredEmployees.length,
+                totalCount: employees.length,
+              })}
+
               <div className="employee-directory-grid">
-                {employees.map((employee) => (
+                {filteredEmployees.length ? filteredEmployees.map((employee) => (
                   <article
                     className="employee-directory-card"
                     key={employee.id}
@@ -42116,7 +43084,12 @@ export default function Dashboard() {
                       Open employee card
                     </button>
                   </article>
-                ))}
+                )) : (
+                  <div className="employee-empty-panel">
+                    <strong>No employees match this filter</strong>
+                    <span>Try another letter or clear the search.</span>
+                  </div>
+                )}
               </div>
             </section>
           ) : homeView === "employee-card" ? (

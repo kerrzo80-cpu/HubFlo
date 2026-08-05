@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import { removeQuote, updateQuote, type Quote } from "@/lib/workflow-data";
+import { clearSimproLinksForNexaRecord } from "@/lib/simpro-sync";
 
 export async function PATCH(
   request: NextRequest,
@@ -41,6 +42,7 @@ export async function DELETE(
   if (!removed) {
     return NextResponse.json({ error: "Quote not found" }, { status: 404 });
   }
+  clearSimproLinksForNexaRecord("quotes", id);
 
   return NextResponse.json({ success: true });
 }
