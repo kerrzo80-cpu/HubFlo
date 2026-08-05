@@ -45,7 +45,7 @@ export async function GET() {
       blakeAccent: "picker-v1",
       blakePeerEngineer: "v1",
       blakeTrainer: "/train",
-      blakeTrainerBuild: "core-sidebar-v1",
+      blakeTrainerBuild: "core-sidebar-v3-module-bar",
       fieldHoursBuild: "time-check-v1",
       checklistUi: "tidy-v1",
       fieldCoreLive: "people-directory-az-v1",

@@ -2386,6 +2386,7 @@ const TRUSTED_EMPLOYEE_SESSION_DAYS = 60;
 
 const modules: ModuleItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, active: true },
+  { label: "Blake Trainer", icon: MessageCircle, href: "/train" },
   { label: "Leads", icon: Mail },
   { label: "Quotes", icon: FileText },
   { label: "Jobs", icon: Wrench },
@@ -7835,7 +7836,7 @@ export default function Dashboard() {
   const [createMenuPosition, setCreateMenuPosition] = useState({ left: 0, top: 0 });
   const [openModuleMenu, setOpenModuleMenu] = useState<string | null>(null);
   const [openDirectoryActionMenu, setOpenDirectoryActionMenu] = useState<{ scope: DirectoryRecordScope; id: string } | null>(null);
-  const [contextSidebarCollapsed, setContextSidebarCollapsed] = useState(true);
+  const [contextSidebarCollapsed, setContextSidebarCollapsed] = useState(false);
   const [homeView, setHomeView] = useState<HomeView>("dashboard");
   const [activeEmployeeTab, setActiveEmployeeTab] = useState<EmployeeTab>("details");
   const [activeClientTab, setActiveClientTab] = useState<ClientTab>("overview");
@@ -30858,6 +30859,10 @@ export default function Dashboard() {
 
           <div className="sidebar-divider" />
           <p className="sidebar-label">Addons</p>
+          <a href="/train" className="context-link" aria-label="Blake Trainer" data-tooltip="Blake Trainer">
+            <MessageCircle size={17} />
+            <span>Blake Trainer</span>
+          </a>
           <a href="/survey" className="context-link" aria-label="Surveyor" data-tooltip="Surveyor">
             <Sparkles size={17} />
             <span>Surveyor</span>
