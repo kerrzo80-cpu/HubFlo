@@ -27,6 +27,7 @@ import {
   formatFieldDayworkEvidenceSummary,
   isDayworkRequirement,
   isDayworkSubmittedToCore,
+  isValidDayworkClientEmail,
   sortDayworkSheetsByNumber,
   type DayworkAccountRecord,
 } from "@/lib/daywork-account-form";
@@ -695,6 +696,51 @@ export default function JobDetailPage() {
     }
   }
 
+  async function emailDayworkClientCopy(costCentreId: string, presetEmail?: string) {
+    if (!job || !costCentreId) return;
+    const label = dayworkSheetListLabel(job.jobId, costCentreId);
+    const sheet = orderedDayworkSheets.find((item) => item.costCentreId === costCentreId);
+    const suggested = String(presetEmail || sheet?.clientEmail || "").trim();
+    const entered =
+      typeof window !== "undefined"
+        ? window.prompt(`Email ${label} client copy (hours & materials only) to:`, suggested)
+        : suggested;
+    if (entered === null) return;
+    const email = entered.trim();
+    if (!isValidDayworkClientEmail(email)) {
+      setError("Enter a valid client email address to send the Daywork copy.");
+      return;
+    }
+    setDayworkBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/field/jobs/${encodeURIComponent(job.scheduleId)}/daywork`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "send_copy",
+          costCentreId,
+          clientEmail: email,
+          createdBy: job.engineerName,
+        }),
+      });
+      const body = (await response.json()) as {
+        error?: string;
+        clientEmail?: string;
+        sheets?: FieldDayworkSheet[];
+      };
+      if (!response.ok) throw new Error(body.error || "Could not email Daywork copy.");
+      if (Array.isArray(body.sheets)) setDayworkSheets(body.sheets);
+      setNotice(`${label} client copy emailed to ${body.clientEmail || email} (no costs).`);
+    } catch (emailError) {
+      setError(emailError instanceof Error ? emailError.message : "Could not email Daywork copy.");
+    } finally {
+      setDayworkBusy(false);
+    }
+  }
+
   async function setOutcome(status: FieldWorkflowOutcome["status"]) {
     if (status === "Complete") {
       // Leave a mistaken open Daywork first so we evaluate the real job checklist.
@@ -1014,14 +1060,23 @@ export default function JobDetailPage() {
                 // Submitted sheets are labels only — don’t reopen (saves bandwidth; office edits in Core).
                 if (locked) {
                   return (
-                    <span
-                      key={costCentreId}
-                      className="field-daywork-sheet-chip is-locked"
-                      title="Submitted to Core — not reopened on Field"
-                    >
-                      <span>{label}</span>
-                      <small>Submitted</small>
-                    </span>
+                    <div key={costCentreId} className="field-daywork-sheet-chip-row">
+                      <span
+                        className="field-daywork-sheet-chip is-locked"
+                        title="Submitted to Core — not reopened on Field"
+                      >
+                        <span>{label}</span>
+                        <small>Submitted</small>
+                      </span>
+                      <button
+                        type="button"
+                        className="field-daywork-email-btn"
+                        disabled={dayworkBusy}
+                        onClick={() => void emailDayworkClientCopy(costCentreId, sheet.clientEmail)}
+                      >
+                        Email copy
+                      </button>
+                    </div>
                   );
                 }
                 return (

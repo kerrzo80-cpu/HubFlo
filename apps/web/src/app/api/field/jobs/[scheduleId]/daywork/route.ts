@@ -4,6 +4,7 @@ import {
   dayworkDraftFromRecord,
   dayworkRecordFromDraft,
   isDayworkSubmittedToCore,
+  isValidDayworkClientEmail,
   parseDayworkLineItems,
   stripDayworkOfficePricing,
   validateDayworkSheetDraft,
@@ -25,6 +26,8 @@ import {
 } from "@/lib/engineer-flow";
 import { activateDayworkWorkflow, clearDayworkWorkflowMode } from "@/lib/engineer-workflow-store";
 import { getDayworkSheetFromStore, listDayworkSheetsFromStore } from "@/lib/daywork-sheets-store";
+import { createDayworkAccountPdf, dayworkPdfFilename } from "@/lib/daywork-pdf";
+import { sendEmailMessage } from "@/lib/email-integration-store";
 import { recordDayworkWriteAttempt } from "@/lib/daywork-write-log";
 import { getJobs } from "@/lib/workflow-data";
 import { toUkDateDisplay } from "@/lib/uk-date";
@@ -37,6 +40,7 @@ type DayworkBody = {
   action?: string;
   createdBy?: string;
   costCentreId?: string;
+  clientEmail?: string;
   record?: DayworkAccountRecord;
   draft?: DayworkSheetDraft;
 };
@@ -127,6 +131,119 @@ export async function POST(request: Request, { params }: Params) {
       requirements: workflow.requirements ?? [],
       sheets: fieldSafeSheets(listDayworkSheetsForJob(schedule.jobId)),
     });
+  }
+
+  if (body.action === "send_copy") {
+    const costCentreId =
+      body.costCentreId?.trim() || ensureDayworkVariationCostCentre(schedule.jobId);
+    const coreJob = getJobs().find((job) => job.id === schedule.jobId);
+    const existing =
+      resolveDayworkRecord(schedule.jobId, costCentreId) ||
+      getDayworkSheetFromStore(schedule.jobId, costCentreId);
+    if (!existing || !isDayworkSubmittedToCore(existing)) {
+      return NextResponse.json(
+        { error: "Save and finish the Daywork (both signatures) before emailing a client copy." },
+        { status: 400 },
+      );
+    }
+    const clientEmail = String(body.clientEmail || existing.clientEmail || "").trim();
+    if (!isValidDayworkClientEmail(clientEmail)) {
+      return NextResponse.json(
+        { error: "Enter a valid client email address to send the Daywork copy." },
+        { status: 400 },
+      );
+    }
+
+    // Persist email on the sheet so Field can resend later.
+    if (clientEmail !== String(existing.clientEmail || "").trim()) {
+      try {
+        saveDayworkSheetToHub({
+          jobId: schedule.jobId,
+          jobRef: coreJob?.ref || schedule.jobRef,
+          costCentreId,
+          engineerName: body.createdBy || schedule.engineerName,
+          record: { ...existing, clientEmail, populatedFrom: existing.populatedFrom || "engineer-app" },
+        });
+      } catch {
+        // Still attempt send even if email persistence fails.
+      }
+    }
+
+    const jobRef = coreJob?.ref || schedule.jobRef || schedule.jobId;
+    try {
+      const pdfBytes = await createDayworkAccountPdf({
+        customer: coreJob?.customer || existing.clientSignerName || "Client",
+        site: coreJob?.site || schedule.address || "",
+        engineer: existing.labourName || existing.plumberSignerName || schedule.engineerName || "Field",
+        jobRef,
+        contract: coreJob?.site || schedule.address || "",
+        record: existing,
+        variant: "client",
+      });
+      const filename = dayworkPdfFilename(existing, jobRef, "client");
+      const hours = String(existing.labourHours || "").trim() || "as recorded";
+      const delivery = await sendEmailMessage({
+        to: clientEmail,
+        subject: `Daywork Account copy — ${jobRef}`,
+        text: [
+          `Hello${existing.clientSignerName ? ` ${existing.clientSignerName}` : ""},`,
+          "",
+          `Please find attached a copy of the Daywork Account for job ${jobRef}.`,
+          "",
+          "This copy shows the hours and materials recorded on site (no pricing).",
+          `Operative: ${existing.labourName || existing.plumberSignerName || schedule.engineerName || "Field"}`,
+          `Week ending: ${existing.weekEnding || "—"}`,
+          `Total hours: ${hours}`,
+          "",
+          "Kind regards,",
+          "Errol Watson Group",
+        ].join("\n"),
+        attachments: [
+          {
+            filename,
+            content: pdfBytes,
+            contentType: "application/pdf",
+          },
+        ],
+      });
+      recordDayworkWriteAttempt({
+        at: new Date().toISOString(),
+        source: "field-daywork",
+        scheduleId,
+        jobId: schedule.jobId,
+        costCentreId,
+        ok: true,
+        error: `client-copy-emailed:${clientEmail}`,
+      });
+      return NextResponse.json({
+        scheduleId,
+        jobId: schedule.jobId,
+        costCentreId,
+        emailed: true,
+        clientEmail,
+        delivery,
+        record: fieldSafeRecord({
+          ...existing,
+          clientEmail,
+        }),
+        sheets: fieldSafeSheets(listDayworkSheetsForJob(schedule.jobId)),
+      });
+    } catch (sendError) {
+      const message =
+        sendError instanceof Error
+          ? sendError.message
+          : "Could not email Daywork copy — check Core email / SMTP settings.";
+      recordDayworkWriteAttempt({
+        at: new Date().toISOString(),
+        source: "field-daywork",
+        scheduleId,
+        jobId: schedule.jobId,
+        costCentreId,
+        ok: false,
+        error: message,
+      });
+      return NextResponse.json({ error: message }, { status: 502 });
+    }
   }
 
   const costCentreId =

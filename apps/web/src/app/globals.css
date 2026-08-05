@@ -12897,6 +12897,24 @@ h1 {
   opacity: 0.55;
 }
 
+.field-daywork-email-btn {
+  background: #e7f3f8;
+  border: 1px solid #b7d5e2;
+  border-radius: 10px;
+  color: #0f5f7a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+
+.field-daywork-email-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .field-daywork-sheet-chip {
   align-items: flex-start;
   background: #eef4f7;
