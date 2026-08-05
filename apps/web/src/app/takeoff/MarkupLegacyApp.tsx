@@ -6755,7 +6755,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       <header className="takeoff-header">
         <div className="takeoff-brand">
           <img src="/app-icons/nexa-takeoffs-apple-touch-icon.png" alt="NeXa Takeoffs" />
-          <span>Plumbing route design</span>
+          <span>NeXa Takeoffs</span>
         </div>
         <div className="takeoff-header-actions">
           <a className="takeoff-ghost-button" href="/">

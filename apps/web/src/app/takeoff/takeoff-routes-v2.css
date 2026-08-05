@@ -1,0 +1,185 @@
+/*
+ * Plumbing route design (/takeoff/routes) chrome — aligns MarkupLegacyApp
+ * with the NeXa Takeoffs skill visual language so both modes feel like one product.
+ */
+
+.takeoff-font-root {
+  font-family: var(--font-takeoff-sans), "Source Sans 3", "Segoe UI", sans-serif;
+}
+
+.takeoff-app .takeoff-header {
+  background:
+    linear-gradient(135deg, rgba(21, 127, 168, 0.16), transparent 55%),
+    linear-gradient(180deg, #1a1718 0%, #262122 100%);
+  border-bottom: 1px solid rgba(184, 160, 106, 0.35);
+  height: 72px;
+  padding: 0 24px;
+}
+
+.takeoff-app .takeoff-brand img {
+  height: 42px;
+  width: 42px;
+  border-radius: 12px;
+  box-shadow: 0 0 0 2px rgba(184, 160, 106, 0.45);
+}
+
+.takeoff-app .takeoff-brand span {
+  border-left: 1px solid rgba(184, 160, 106, 0.45);
+  color: #f3f6f7;
+  font-family: var(--font-takeoff-display), Fraunces, Georgia, serif;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  padding-left: 16px;
+}
+
+.takeoff-app .takeoff-brand span::after {
+  content: " · Route design";
+  color: #b8a06a;
+  font-family: var(--font-takeoff-sans), sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin-left: 8px;
+  text-transform: uppercase;
+}
+
+.takeoff-app .takeoff-ghost-button {
+  border-radius: 999px;
+  border-color: rgba(184, 160, 106, 0.4);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.takeoff-app.takeoff-page-scroll,
+.takeoff-app[data-takeoff-mode="page"] {
+  background:
+    radial-gradient(circle at 8% -10%, rgba(21, 127, 168, 0.16), transparent 28rem),
+    radial-gradient(circle at 96% 0%, rgba(142, 116, 62, 0.12), transparent 22rem),
+    #f3f6f7;
+}
+
+.takeoff-app .takeoff-shell {
+  padding: 20px 22px 28px;
+}
+
+.takeoff-app .takeoff-sidebar,
+.takeoff-app .takeoff-panel,
+.takeoff-app .takeoff-project-hero {
+  border-radius: 18px;
+  border-color: #d9dee5;
+  box-shadow: 0 14px 36px rgba(15, 95, 125, 0.08);
+}
+
+.takeoff-app .takeoff-project-hero {
+  background:
+    linear-gradient(135deg, rgba(21, 127, 168, 0.1), transparent 48%),
+    linear-gradient(180deg, #ffffff 0%, #f7fbfc 100%);
+  border-left: 4px solid #8e743e;
+  padding: 22px 24px;
+}
+
+.takeoff-app .takeoff-project-hero h1 {
+  font-family: var(--font-takeoff-display), Fraunces, Georgia, serif;
+  font-size: clamp(1.6rem, 2.4vw, 2.1rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.takeoff-app .takeoff-kicker span {
+  color: #0f5f7d;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.takeoff-app .estimate-flow-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+  padding: 12px;
+  border-radius: 18px;
+  background: #ffffff;
+  border: 1px solid #d9dee5;
+  box-shadow: 0 10px 28px rgba(15, 95, 125, 0.06);
+}
+
+.takeoff-app .estimate-flow-strip button {
+  border-radius: 14px;
+  border: 1px solid #edf1f4;
+  background: #f3f6f7;
+  padding: 12px 14px;
+  text-align: left;
+}
+
+.takeoff-app .estimate-flow-strip button.active {
+  background: linear-gradient(135deg, #0f5f7d, #157fa8);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(15, 95, 125, 0.28);
+}
+
+.takeoff-app .estimate-flow-strip button.active small {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.takeoff-app .estimate-flow-strip button span {
+  background: rgba(142, 116, 62, 0.16);
+  color: #5e4a24;
+  border-radius: 999px;
+}
+
+.takeoff-app .estimate-flow-strip button.active span {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.takeoff-app .takeoff-tabs.takeoff-tabs-simple {
+  display: none;
+}
+
+.takeoff-app .takeoff-simple-banner {
+  border-radius: 16px;
+  border: 1px solid rgba(21, 127, 168, 0.22);
+  background: linear-gradient(90deg, #e5f4fa, #ffffff 55%);
+}
+
+.takeoff-app .takeoff-project-button.active {
+  border-color: rgba(21, 127, 168, 0.45);
+  background: #e5f4fa;
+  box-shadow: inset 3px 0 0 #8e743e;
+}
+
+.takeoff-app .takeoff-primary-button {
+  border-radius: 999px;
+  background: linear-gradient(135deg, #0f5f7d, #157fa8);
+  border: 0;
+  box-shadow: 0 10px 22px rgba(15, 95, 125, 0.22);
+}
+
+.takeoff-app .takeoff-empty-state {
+  border-radius: 22px;
+  border: 1px dashed rgba(21, 127, 168, 0.35);
+  background:
+    radial-gradient(circle at 20% 0%, rgba(21, 127, 168, 0.12), transparent 40%),
+    #ffffff;
+  padding: 48px 32px;
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .takeoff-app .estimate-flow-strip {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .takeoff-app .estimate-flow-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .takeoff-app .takeoff-brand span::after {
+    display: none;
+  }
+}
