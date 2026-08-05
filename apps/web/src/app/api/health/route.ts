@@ -63,6 +63,7 @@ export async function GET() {
       simproLeadsImport: "latest-10-open-stage-status-v2",
       descriptionRichText: "toolbar-scripts-v1",
       quoteCatalogueOnQuote: "all-groups-on-quote-v1",
+      quoteCostCentrePartsScope: "active-centre-only-v1",
       surveySendToQuote: "unpriced-rfq-allowed-v1",
       simproSiteHydrate: "fetch-by-site-id-v1",
       nexaTopBusyBar: "expand-contract-side-v3",

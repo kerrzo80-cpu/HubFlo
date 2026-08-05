@@ -34616,10 +34616,13 @@ export default function Dashboard() {
                     {activeQuoteBuildTab === "summary" ? (
                       <div className="quote-scope-summary">
                         {(() => {
-                          const quoteMaterialEntries = allQuoteMaterialLines();
-                          const selectedQuoteLineCount = quoteMaterialEntries.filter((entry) => isQuoteSupplierEntrySelected(entry)).length;
-                          const allQuoteMaterialsSelected = allQuoteMaterialLinesSelected();
                           const totals = quoteCostCentreTotals(selectedQuoteCostCentre);
+                          const materialLines = totals.materialLines;
+                          const selectedIds = new Set(selectedQuoteMaterialLineIds[selectedQuoteCostCentre.id] ?? []);
+                          const selectedCount = materialLines.filter((line) => selectedIds.has(line.id)).length;
+                          const allSelected = materialLines.length > 0 && selectedCount === materialLines.length;
+                          const quoteWideCount = allQuoteMaterialLines().length;
+                          const otherCentreCount = Math.max(0, quoteWideCount - materialLines.length);
                           const supplierDraft = supplierQuoteDrafts[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY];
                           const supplierRequestEntries = consolidatedQuoteSupplierRequestDraftLines();
                           const supplierRequestLines = supplierRequestEntries.map((entry) => entry.line);
@@ -34631,24 +34634,25 @@ export default function Dashboard() {
                             <>
                               <div className="simpro-parts-header">
                                 <div>
-                                  <h2>Scope summary</h2>
-                                  <h3>Pull-through from catalogue, one-off items, labour and Takeoff handoff</h3>
+                                  <h2>Scope summary · {selectedQuoteCostCentre.name}</h2>
+                                  <h3>Parts and labour for this cost centre only</h3>
                                   <span>
+                                    {otherCentreCount > 0
+                                      ? `${otherCentreCount} more material line(s) live on other cost centres — open those centres to edit them. `
+                                      : ""}
                                     Heating design / heat loss lives in{" "}
                                     <a href="/heat-design" target="_blank" rel="noreferrer">
                                       Heat Design
-                                    </a>{" "}
-                                    — push materials into this quote or a job from Kit &amp; link.
+                                    </a>
+                                    .
                                   </span>
                                 </div>
                               </div>
                               <div className="quote-build-summary-grid">
                                 <div>
                                   <span>Materials</span>
-                                  <strong>
-                                    {currency(quoteMaterialEntries.reduce((sum, entry) => sum + quoteLineSell(entry.line), 0))}
-                                  </strong>
-                                  <small>{quoteMaterialEntries.length} item(s) across quote</small>
+                                  <strong>{currency(totals.materialSell)}</strong>
+                                  <small>{materialLines.length} item(s) on this cost centre</small>
                                 </div>
                                 <div>
                                   <span>Labour</span>
@@ -34668,52 +34672,57 @@ export default function Dashboard() {
                                 <div className={totals.profit >= 0 ? "profit-positive" : "profit-negative"}>
                                   <span>Potential profit</span>
                                   <strong>{currency(totals.profit)}</strong>
-                                  <small>{totals.margin}% margin · active cost centre</small>
+                                  <small>{totals.margin}% margin · {selectedQuoteCostCentre.name}</small>
                                 </div>
                               </div>
-                              <div className="simpro-billable-table quote-scope-material-selector">
+                              <div className="simpro-billable-table">
                                 <div className="simpro-billable-row table-head parts">
                                   <span>Select</span>
                                   <span>Description</span>
-                                  <span>Cost centre</span>
                                   <span>Time (hrs)</span>
                                   <span>Price</span>
                                   <span>Markup</span>
                                   <span>Sell Price</span>
                                   <span>Qty</span>
+                                  <span>Total</span>
                                   <span />
                                 </div>
-                                {quoteMaterialEntries.map((entry) => {
-                                  const isSelected = isQuoteSupplierEntrySelected(entry);
+                                {materialLines.map((line) => {
+                                  const isSelected = selectedIds.has(line.id);
                                   return (
-                                    <div className="simpro-billable-row parts" key={`${entry.centreId}:${entry.line.id}`}>
+                                    <div className="simpro-billable-row parts" key={line.id}>
                                       <input
                                         checked={isSelected}
                                         type="checkbox"
-                                        aria-label={`Select ${entry.line.description} for supplier request`}
-                                        onChange={(event) => toggleQuoteMaterialEntrySelection(entry, event.target.checked)}
+                                        aria-label={`Select ${line.description} for supplier request`}
+                                        onChange={(event) => toggleQuoteMaterialLineSelection(selectedQuoteCostCentre.id, line.id, event.target.checked)}
                                       />
-                                      <div className="quote-line-meta-cell">
-                                        <textarea
-                                          className="quote-line-description"
-                                          value={entry.line.description}
-                                          onChange={(event) => updateQuoteSupplierEntryLine(entry, { description: event.target.value })}
-                                        />
-                                      </div>
-                                      <strong>{entry.centreName}</strong>
+                                      <textarea
+                                        className="quote-line-description"
+                                        value={line.description}
+                                        onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { description: event.target.value })}
+                                      />
                                       <input value={0} readOnly />
                                       <input
                                         inputMode="decimal"
                                         placeholder="TBC"
-                                        value={costCentreNumberInputValue(`quote:${entry.centreId}:${entry.line.id}:unitCost`, entry.line.unitCost, true)}
+                                        value={costCentreNumberInputValue(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitCost`, line.unitCost, true)}
                                         onChange={(event) => {
-                                          updateCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:unitCost`, event.target.value, (unitCost) => {
-                                            updateQuoteSupplierEntryCost(entry, unitCost);
+                                          updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitCost`, event.target.value, (unitCost) => {
+                                            const markupPercent = quoteLineMarkupPercent(line) || defaultMaterialMarkupPercent;
+                                            updateQuoteLine(selectedQuoteCostCentre.id, line.id, {
+                                              unitCost,
+                                              unitSell: lineSellFromMarkup(unitCost, markupPercent),
+                                            });
                                           });
                                         }}
                                         onBlur={(event) => {
-                                          commitCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:unitCost`, event.currentTarget.value, (unitCost) => {
-                                            updateQuoteSupplierEntryCost(entry, unitCost);
+                                          commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitCost`, event.currentTarget.value, (unitCost) => {
+                                            const markupPercent = quoteLineMarkupPercent(line) || defaultMaterialMarkupPercent;
+                                            updateQuoteLine(selectedQuoteCostCentre.id, line.id, {
+                                              unitCost,
+                                              unitSell: lineSellFromMarkup(unitCost, markupPercent),
+                                            });
                                           });
                                         }}
                                       />
@@ -34721,61 +34730,67 @@ export default function Dashboard() {
                                         inputMode="decimal"
                                         placeholder="TBC"
                                         value={costCentreNumberInputValue(
-                                          `quote:${entry.centreId}:${entry.line.id}:markup`,
-                                          entry.line.unitCost > 0 ? quoteLineMarkupPercent(entry.line) : 0,
-                                          entry.line.unitCost <= 0,
+                                          `quote:${selectedQuoteCostCentre.id}:${line.id}:markup`,
+                                          line.unitCost > 0 ? quoteLineMarkupPercent(line) : 0,
+                                          line.unitCost <= 0,
                                         )}
                                         onChange={(event) => {
-                                          updateCostCentreNumberInput(
-                                            `quote:${entry.centreId}:${entry.line.id}:markup`,
-                                            event.target.value,
-                                            (markupPercent) => {
-                                              updateQuoteSupplierEntryMarkup(entry, markupPercent);
-                                            },
-                                          );
+                                          updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:markup`, event.target.value, (markupPercent) => {
+                                            updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell: line.unitCost * (1 + markupPercent / 100) });
+                                          });
                                         }}
                                         onBlur={(event) => {
-                                          commitCostCentreNumberInput(
-                                            `quote:${entry.centreId}:${entry.line.id}:markup`,
-                                            event.currentTarget.value,
-                                            (markupPercent) => {
-                                              updateQuoteSupplierEntryMarkup(entry, markupPercent);
-                                            },
-                                          );
+                                          commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:markup`, event.currentTarget.value, (markupPercent) => {
+                                            updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell: line.unitCost * (1 + markupPercent / 100) });
+                                          });
                                         }}
                                       />
                                       <input
                                         inputMode="decimal"
                                         placeholder="TBC"
-                                        value={costCentreNumberInputValue(`quote:${entry.centreId}:${entry.line.id}:unitSell`, entry.line.unitSell, true)}
+                                        value={costCentreNumberInputValue(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitSell`, line.unitSell, true)}
                                         onChange={(event) => {
-                                          updateCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:unitSell`, event.target.value, (unitSell) => {
-                                            updateQuoteSupplierEntryLine(entry, { unitSell });
+                                          updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitSell`, event.target.value, (unitSell) => {
+                                            updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell });
                                           });
                                         }}
                                         onBlur={(event) => {
-                                          commitCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:unitSell`, event.currentTarget.value, (unitSell) => {
-                                            updateQuoteSupplierEntryLine(entry, { unitSell });
+                                          commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitSell`, event.currentTarget.value, (unitSell) => {
+                                            updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell });
                                           });
                                         }}
                                       />
-                                      <strong>{entry.line.unitSell > 0 ? currency(quoteLineSell(entry.line)) : "Awaiting price"}</strong>
+                                      <input
+                                        inputMode="decimal"
+                                        value={costCentreNumberInputValue(`quote:${selectedQuoteCostCentre.id}:${line.id}:quantity`, line.quantity)}
+                                        onChange={(event) => {
+                                          updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:quantity`, event.target.value, (quantity) => {
+                                            updateQuoteLine(selectedQuoteCostCentre.id, line.id, { quantity });
+                                          });
+                                        }}
+                                        onBlur={(event) => {
+                                          commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:quantity`, event.currentTarget.value, (quantity) => {
+                                            updateQuoteLine(selectedQuoteCostCentre.id, line.id, { quantity });
+                                          });
+                                        }}
+                                      />
+                                      <strong>{line.unitSell > 0 ? currency(quoteLineSell(line)) : "Awaiting price"}</strong>
                                       <div className="quote-line-actions">
                                         <button
                                           className="simpro-options-button"
                                           type="button"
-                                          onClick={() => updateQuoteSupplierEntryLine(entry, { supplierRequired: !entry.line.supplierRequired })}
+                                          onClick={() => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { supplierRequired: !line.supplierRequired })}
                                         >
-                                          {entry.line.supplierRequired ? "Marked for supplier" : "Mark supplier"}
+                                          {line.supplierRequired ? "Marked for supplier" : "Mark supplier"}
                                         </button>
                                       </div>
                                     </div>
                                   );
                                 })}
-                                {quoteMaterialEntries.length === 0 ? (
+                                {materialLines.length === 0 ? (
                                   <div className="simpro-billable-row parts empty">
                                     <span />
-                                    <strong>No material lines yet. Add materials first from the catalogue, one-off items, or a radiator schedule.</strong>
+                                    <strong>No material lines on {selectedQuoteCostCentre.name} yet. Add them from Catalogue or One-off.</strong>
                                     <span />
                                     <span />
                                     <span />
@@ -34786,23 +34801,33 @@ export default function Dashboard() {
                                   </div>
                                 ) : (
                                   <div className="quote-bulk-action-bar">
-                                    <span>{selectedQuoteLineCount} selected</span>
-                                    <button className="simpro-options-button" type="button" onClick={toggleAllQuoteMaterialLineSelectionAcrossQuote}>
-                                      {allQuoteMaterialsSelected ? "Clear all" : "Select all"}
+                                    <span>{selectedCount} selected</span>
+                                    <button className="simpro-options-button" type="button" onClick={() => toggleAllQuoteMaterialLineSelection(selectedQuoteCostCentre)}>
+                                      {allSelected ? "Clear selection" : "Select all"}
                                     </button>
                                     <button
                                       className="simpro-options-button"
                                       type="button"
-                                      disabled={!selectedQuoteLineCount}
-                                      onClick={stageSelectedSupplierRequestLinesFromQuote}
+                                      disabled={!selectedCount}
+                                      onClick={() => {
+                                        stageSelectedSupplierRequestLinesFromEntries(
+                                          materialLines
+                                            .filter((line) => selectedIds.has(line.id))
+                                            .map((line) => ({
+                                              centreId: selectedQuoteCostCentre.id,
+                                              centreName: selectedQuoteCostCentre.name,
+                                              line: supplierFacingMaterialLine(line),
+                                            })),
+                                        );
+                                      }}
                                     >
                                       Send to supplier request form
                                     </button>
                                     <button
                                       className="simpro-options-button"
                                       type="button"
-                                      disabled={!selectedQuoteLineCount}
-                                      onClick={() => openSelectedQuoteLinesCatalogFolderModal()}
+                                      disabled={!selectedCount}
+                                      onClick={() => openSelectedQuoteLinesCatalogFolderModal(selectedQuoteCostCentre)}
                                     >
                                       Add items to catalog
                                     </button>
@@ -35359,8 +35384,8 @@ export default function Dashboard() {
                               <div>
                                 <h2>Catalogue</h2>
                                 <span>
-                                  Library for adding reusable items. This quote currently has {onQuoteItems.length} material line(s) — open{" "}
-                                  <strong>{CATALOGUE_FOLDER_ON_QUOTE}</strong> or the table below to see them all.
+                                  ADD items into <strong>{selectedQuoteCostCentre.name}</strong>. The table below shows this cost centre only.
+                                  Quote-wide materials ({onQuoteItems.length}) are under <strong>{CATALOGUE_FOLDER_ON_QUOTE}</strong>.
                                 </span>
                               </div>
                               <label className="quote-catalogue-search">
@@ -35514,27 +35539,29 @@ export default function Dashboard() {
 
                     {["catalogue", "one-off"].includes(activeQuoteBuildTab) ? (
                       (() => {
-                        const quoteMaterialEntries = allQuoteMaterialLines();
-                        const selectedQuoteLineCount = quoteMaterialEntries.filter((entry) => isQuoteSupplierEntrySelected(entry)).length;
-                        const allQuoteMaterialsSelected = allQuoteMaterialLinesSelected();
+                        const materialLines = quoteCostCentreTotals(selectedQuoteCostCentre).materialLines;
+                        const selectedIds = new Set(selectedQuoteMaterialLineIds[selectedQuoteCostCentre.id] ?? []);
+                        const selectedCount = materialLines.filter((line) => selectedIds.has(line.id)).length;
+                        const allSelected = materialLines.length > 0 && selectedCount === materialLines.length;
+                        const quoteWideCount = allQuoteMaterialLines().length;
+                        const otherCentreCount = Math.max(0, quoteWideCount - materialLines.length);
 
                         return (
-                          <div className="simpro-billable-table quote-scope-material-selector quote-catalogue-materials">
+                          <div className="simpro-billable-table">
                             <div className="simpro-parts-header" style={{ marginBottom: "0.75rem" }}>
                               <div>
-                                <h3>Materials on this quote</h3>
+                                <h3>Materials · {selectedQuoteCostCentre.name}</h3>
                                 <span>
-                                  {quoteMaterialEntries.length} item(s) across all cost centres
-                                  {activeQuoteBuildTab === "catalogue"
-                                    ? " — matches Scope summary. Use groups above to browse the reusable library."
-                                    : "."}
+                                  {materialLines.length} item(s) on this cost centre
+                                  {otherCentreCount > 0
+                                    ? ` · ${otherCentreCount} more on other centres (open those centres, or Catalogue → On this quote, to see them)`
+                                    : ""}
                                 </span>
                               </div>
                             </div>
                             <div className="simpro-billable-row table-head parts">
                               <span>Select</span>
                               <span>Description</span>
-                              <span>Cost centre</span>
                               <span>Time (hrs)</span>
                               <span>Price</span>
                               <span>Markup</span>
@@ -35543,101 +35570,103 @@ export default function Dashboard() {
                               <span>Total</span>
                               <span />
                             </div>
-                            {quoteMaterialEntries.map((entry) => {
-                              const { centreId, centreName, line } = entry;
-                              const isSelected = isQuoteSupplierEntrySelected(entry);
-                              return (
-                                <div className="simpro-billable-row parts" key={`${centreId}:${line.id}`}>
-                                  <input
-                                    checked={isSelected}
-                                    type="checkbox"
-                                    aria-label={`Select ${line.description}`}
-                                    onChange={(event) => toggleQuoteMaterialEntrySelection(entry, event.target.checked)}
-                                  />
-                                  <textarea
-                                    className="quote-line-description"
-                                    value={line.description}
-                                    onChange={(event) => updateQuoteSupplierEntryLine(entry, { description: event.target.value })}
-                                  />
-                                  <strong>{centreName}</strong>
-                                  <input value={0} readOnly />
-                                  <input
-                                    inputMode="decimal"
-                                    placeholder="TBC"
-                                    value={costCentreNumberInputValue(`quote:${centreId}:${line.id}:unitCost`, line.unitCost, true)}
-                                    onChange={(event) => {
-                                      updateCostCentreNumberInput(`quote:${centreId}:${line.id}:unitCost`, event.target.value, (unitCost) => {
-                                        updateQuoteSupplierEntryCost(entry, unitCost);
+                            {materialLines.map((line) => (
+                              <div className="simpro-billable-row parts" key={line.id}>
+                                <input
+                                  checked={selectedIds.has(line.id)}
+                                  type="checkbox"
+                                  aria-label={`Select ${line.description}`}
+                                  onChange={(event) => toggleQuoteMaterialLineSelection(selectedQuoteCostCentre.id, line.id, event.target.checked)}
+                                />
+                                <textarea
+                                  className="quote-line-description"
+                                  value={line.description}
+                                  onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { description: event.target.value })}
+                                />
+                                <input value={0} readOnly />
+                                <input
+                                  inputMode="decimal"
+                                  placeholder="TBC"
+                                  value={costCentreNumberInputValue(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitCost`, line.unitCost, true)}
+                                  onChange={(event) => {
+                                    updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitCost`, event.target.value, (unitCost) => {
+                                      const markupPercent = quoteLineMarkupPercent(line) || defaultMaterialMarkupPercent;
+                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, {
+                                        unitCost,
+                                        unitSell: lineSellFromMarkup(unitCost, markupPercent),
                                       });
-                                    }}
-                                    onBlur={(event) => {
-                                      commitCostCentreNumberInput(`quote:${centreId}:${line.id}:unitCost`, event.currentTarget.value, (unitCost) => {
-                                        updateQuoteSupplierEntryCost(entry, unitCost);
+                                    });
+                                  }}
+                                  onBlur={(event) => {
+                                    commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitCost`, event.currentTarget.value, (unitCost) => {
+                                      const markupPercent = quoteLineMarkupPercent(line) || defaultMaterialMarkupPercent;
+                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, {
+                                        unitCost,
+                                        unitSell: lineSellFromMarkup(unitCost, markupPercent),
                                       });
-                                    }}
-                                  />
-                                  <input
-                                    inputMode="decimal"
-                                    placeholder="TBC"
-                                    value={costCentreNumberInputValue(
-                                      `quote:${centreId}:${line.id}:markup`,
-                                      line.unitCost > 0 ? quoteLineMarkupPercent(line) : 0,
-                                      line.unitCost <= 0,
-                                    )}
-                                    onChange={(event) => {
-                                      updateCostCentreNumberInput(`quote:${centreId}:${line.id}:markup`, event.target.value, (markupPercent) => {
-                                        updateQuoteSupplierEntryMarkup(entry, markupPercent);
-                                      });
-                                    }}
-                                    onBlur={(event) => {
-                                      commitCostCentreNumberInput(`quote:${centreId}:${line.id}:markup`, event.currentTarget.value, (markupPercent) => {
-                                        updateQuoteSupplierEntryMarkup(entry, markupPercent);
-                                      });
-                                    }}
-                                  />
-                                  <input
-                                    inputMode="decimal"
-                                    placeholder="TBC"
-                                    value={costCentreNumberInputValue(`quote:${centreId}:${line.id}:unitSell`, line.unitSell, true)}
-                                    onChange={(event) => {
-                                      updateCostCentreNumberInput(`quote:${centreId}:${line.id}:unitSell`, event.target.value, (unitSell) => {
-                                        updateQuoteSupplierEntryLine(entry, { unitSell });
-                                      });
-                                    }}
-                                    onBlur={(event) => {
-                                      commitCostCentreNumberInput(`quote:${centreId}:${line.id}:unitSell`, event.currentTarget.value, (unitSell) => {
-                                        updateQuoteSupplierEntryLine(entry, { unitSell });
-                                      });
-                                    }}
-                                  />
-                                  <input
-                                    inputMode="decimal"
-                                    value={costCentreNumberInputValue(`quote:${centreId}:${line.id}:quantity`, line.quantity)}
-                                    onChange={(event) => {
-                                      updateCostCentreNumberInput(`quote:${centreId}:${line.id}:quantity`, event.target.value, (quantity) => {
-                                        updateQuoteSupplierEntryLine(entry, { quantity });
-                                      });
-                                    }}
-                                    onBlur={(event) => {
-                                      commitCostCentreNumberInput(`quote:${centreId}:${line.id}:quantity`, event.currentTarget.value, (quantity) => {
-                                        updateQuoteSupplierEntryLine(entry, { quantity });
-                                      });
-                                    }}
-                                  />
-                                  <strong>{line.unitSell > 0 ? currency(quoteLineSell(line)) : "Awaiting price"}</strong>
-                                  <div className="quote-line-actions">
-                                    <button className="simpro-options-button" type="button" onClick={() => removeQuoteLine(centreId, line.id)}>
-                                      Remove <ChevronDown size={13} />
-                                    </button>
-                                  </div>
+                                    });
+                                  }}
+                                />
+                                <input
+                                  inputMode="decimal"
+                                  placeholder="TBC"
+                                  value={costCentreNumberInputValue(
+                                    `quote:${selectedQuoteCostCentre.id}:${line.id}:markup`,
+                                    line.unitCost > 0 ? quoteLineMarkupPercent(line) : 0,
+                                    line.unitCost <= 0,
+                                  )}
+                                  onChange={(event) => {
+                                    updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:markup`, event.target.value, (markupPercent) => {
+                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell: line.unitCost * (1 + markupPercent / 100) });
+                                    });
+                                  }}
+                                  onBlur={(event) => {
+                                    commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:markup`, event.currentTarget.value, (markupPercent) => {
+                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell: line.unitCost * (1 + markupPercent / 100) });
+                                    });
+                                  }}
+                                />
+                                <input
+                                  inputMode="decimal"
+                                  placeholder="TBC"
+                                  value={costCentreNumberInputValue(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitSell`, line.unitSell, true)}
+                                  onChange={(event) => {
+                                    updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitSell`, event.target.value, (unitSell) => {
+                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell });
+                                    });
+                                  }}
+                                  onBlur={(event) => {
+                                    commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitSell`, event.currentTarget.value, (unitSell) => {
+                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell });
+                                    });
+                                  }}
+                                />
+                                <input
+                                  inputMode="decimal"
+                                  value={costCentreNumberInputValue(`quote:${selectedQuoteCostCentre.id}:${line.id}:quantity`, line.quantity)}
+                                  onChange={(event) => {
+                                    updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:quantity`, event.target.value, (quantity) => {
+                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, { quantity });
+                                    });
+                                  }}
+                                  onBlur={(event) => {
+                                    commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:quantity`, event.currentTarget.value, (quantity) => {
+                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, { quantity });
+                                    });
+                                  }}
+                                />
+                                <strong>{line.unitSell > 0 ? currency(quoteLineSell(line)) : "Awaiting price"}</strong>
+                                <div className="quote-line-actions">
+                                  <button className="simpro-options-button" type="button" onClick={() => removeQuoteLine(selectedQuoteCostCentre.id, line.id)}>
+                                    Remove <ChevronDown size={13} />
+                                  </button>
                                 </div>
-                              );
-                            })}
-                            {quoteMaterialEntries.length === 0 ? (
+                              </div>
+                            ))}
+                            {materialLines.length === 0 ? (
                               <div className="simpro-billable-row parts empty">
                                 <span />
-                                <strong>No material lines yet. Add a catalogue item, one-off material, or apply the radiator schedule above.</strong>
-                                <span />
+                                <strong>No material lines on {selectedQuoteCostCentre.name} yet. Add a catalogue item or one-off material.</strong>
                                 <span />
                                 <span />
                                 <span />
@@ -35648,15 +35677,15 @@ export default function Dashboard() {
                               </div>
                             ) : (
                               <div className="quote-bulk-action-bar">
-                                <span>{selectedQuoteLineCount} selected</span>
-                                <button className="simpro-options-button" type="button" onClick={toggleAllQuoteMaterialLineSelectionAcrossQuote}>
-                                  {allQuoteMaterialsSelected ? "Clear selection" : "Select all"}
+                                <span>{selectedCount} selected</span>
+                                <button className="simpro-options-button" type="button" onClick={() => toggleAllQuoteMaterialLineSelection(selectedQuoteCostCentre)}>
+                                  {allSelected ? "Clear selection" : "Select all"}
                                 </button>
                                 <button
                                   className="simpro-options-button"
                                   type="button"
-                                  disabled={selectedQuoteLineCount === 0}
-                                  onClick={() => openSelectedQuoteLinesCatalogFolderModal()}
+                                  disabled={selectedCount === 0}
+                                  onClick={() => openSelectedQuoteLinesCatalogFolderModal(selectedQuoteCostCentre)}
                                 >
                                   Add items to catalog
                                 </button>
@@ -35683,8 +35712,8 @@ export default function Dashboard() {
                     <>
                     <div className="simpro-labour-heading">
                       <div>
-                        <h3>Labour</h3>
-                        <span>Net rates before VAT</span>
+                        <h3>Labour · {selectedQuoteCostCentre.name}</h3>
+                        <span>Net rates before VAT — this cost centre only</span>
                       </div>
                       <div>
                         <strong>Estimated Time: 0.00 hrs</strong>
