@@ -3738,7 +3738,6 @@ const seedEmployees: EmployeeCard[] = [
       phone: "+44 7481 123456",
       address: "27 Westhill Road, Aberdeen, AB15 6RH",
       startDate: "2019-03-11",
-      // Fri left off — Errol does not work Fridays (card ticks are source of truth).
       payroll: {
         hourlyRate: 0,
         overtimeRate: 0,
@@ -3784,7 +3783,8 @@ const seedEmployees: EmployeeCard[] = [
         Tue: { active: true, from: "07:30", to: "16:30" },
         Wed: { active: true, from: "07:30", to: "16:30" },
         Thu: { active: true, from: "07:30", to: "16:30" },
-        Fri: { active: true, from: "07:30", to: "16:30" },
+        // Errol does not work Fridays — scheduler must follow this card tick.
+        Fri: { active: false, from: "00:00", to: "00:00" },
       },
       employmentCostNote: "Manager overhead included in allocation.",
     },
