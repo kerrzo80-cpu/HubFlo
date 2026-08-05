@@ -253,7 +253,9 @@ export async function fetchFullEntity(
     const detailedCenters: UnknownRecord[] = [];
     for (const centre of costCenters) {
       const ccId = simproRecordId(centre);
-      if (!centreHasLineItems(centre) && sectionId && ccId && ccDetailFetches < MAX_CC_DETAIL_FETCHES_PER_ENTITY) {
+      const missingBrief = !String(centre.Description || centre.Notes || centre.LongDescription || "").trim();
+      const needsDetail = !centreHasLineItems(centre) || missingBrief;
+      if (needsDetail && sectionId && ccId && ccDetailFetches < MAX_CC_DETAIL_FETCHES_PER_ENTITY) {
         ccDetailFetches += 1;
         const detail = await simproGetFirstOk(config, [
           `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}?display=all`,

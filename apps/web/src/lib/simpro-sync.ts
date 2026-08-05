@@ -1547,10 +1547,20 @@ async function withQuoteHierarchy(
   nexaQuoteId: string,
   simproId: string,
   mode: SimproSyncMode,
+  listRecord?: UnknownRecord | null,
 ): Promise<SimproSyncOperation> {
   if (mode !== "apply" || !nexaQuoteId) return op;
 
   const cachedFull = entityDetailCache.get(`quotes:${simproId}`) ?? null;
+  // Prefer a prior full pull; otherwise pass the Apply list/hydrate row so section fan-out
+  // still runs when /quotes/{id} 404s (thin rows without Customer/Site are ignored inside fetchFullEntity).
+  const prefetch =
+    cachedFull &&
+    ((Array.isArray(cachedFull.Sections) && cachedFull.Sections.length > 0) ||
+      (Array.isArray(cachedFull.CostCenters) && cachedFull.CostCenters.length > 0) ||
+      (Array.isArray(cachedFull.CostCentres) && cachedFull.CostCentres.length > 0))
+      ? cachedFull
+      : listRecord ?? cachedFull ?? null;
 
   // Job/scheduler pattern: always refresh header from full entity; pull CCs unless already present.
   if (quoteAlreadyHasCostCentres(nexaQuoteId)) {
@@ -1558,7 +1568,7 @@ async function withQuoteHierarchy(
       const config = await resolveSimproDirectConfig();
       const record =
         (await fetchSimproEntityDetail(config, "quotes", simproId)) ||
-        (await resolveQuoteFullRecord(simproId, cachedFull));
+        (await resolveQuoteFullRecord(simproId, prefetch));
       const mapped = await patchQuoteHeaderFromDeepRecord(config, nexaQuoteId, record);
       return {
         ...op,
@@ -1580,7 +1590,7 @@ async function withQuoteHierarchy(
       // Header only — do not burn a full section/CC fan-out when mapping is deferred.
       const detail =
         (await fetchSimproEntityDetail(config, "quotes", simproId)) ||
-        (await resolveQuoteFullRecord(simproId, cachedFull));
+        (await resolveQuoteFullRecord(simproId, prefetch));
       const mapped = await patchQuoteHeaderFromDeepRecord(config, nexaQuoteId, detail);
       return {
         ...op,
@@ -1600,9 +1610,9 @@ async function withQuoteHierarchy(
   const deep = await enrichNexaQuoteFromSimpro({
     nexaQuoteId,
     simproQuoteId: simproId,
-    // Never pass thin hydrate cache — force the same fetchFullEntity path jobs/scheduler use.
-    // (fetchFullEntity also ignores prefetch with no Customer/Site as a safety net.)
-    prefetchedRecord: null,
+    // Pass list/hydrate row so section fan-out still runs if detail GET 404s.
+    // Thin rows without Customer/Site are ignored inside fetchFullEntity.
+    prefetchedRecord: prefetch,
   });
   if (deep.ok && deep.record) {
     entityDetailCache.set(`quotes:${simproId}`, deep.record);
@@ -1819,7 +1829,7 @@ async function processQuote(record: UnknownRecord, mode: SimproSyncMode): Promis
         : `Would refresh ${link.nexaRef ?? link.nexaName} from simPRO quote ${simproId}.`,
       { simproId, simproName: link.simproName, nexaId: link.nexaId, nexaRef: link.nexaRef },
     );
-    return withQuoteHierarchy(base, link.nexaId, simproId, mode);
+    return withQuoteHierarchy(base, link.nexaId, simproId, mode, working);
   }
 
   const existing = getQuotes().find((quote) => quote.simproQuoteId === simproId);
@@ -1843,7 +1853,7 @@ async function processQuote(record: UnknownRecord, mode: SimproSyncMode): Promis
       nexaId: existing.id,
       nexaRef: existing.ref,
     });
-    return withQuoteHierarchy(base, existing.id, simproId, mode);
+    return withQuoteHierarchy(base, existing.id, simproId, mode, working);
   }
 
   const { client } = resolveClientForRecord(working, mode);
@@ -1884,7 +1894,7 @@ async function processQuote(record: UnknownRecord, mode: SimproSyncMode): Promis
     nexaId: quote.id,
     nexaRef: quote.ref,
   });
-  const result = await withQuoteHierarchy(base, quote.id, simproId, mode);
+  const result = await withQuoteHierarchy(base, quote.id, simproId, mode, working);
   if (mode === "apply" && isBlankImportedCustomerName(mapped.customer) && !simproCustomerId(working)) {
     return {
       ...result,
