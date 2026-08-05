@@ -272,12 +272,33 @@ function lineUnitCost(record: UnknownRecord, qty: number, sell: number) {
     "Total.BasePrice.ExTax",
     "Total.EstimatedCost.ExTax",
     "Total.CostPrice.ExTax",
+    // Nested catalogue master prices (line often only carries SellPrice).
+    "Catalogue.BasePrice.ExTax",
+    "Catalogue.BasePrice",
+    "Catalogue.CostPrice.ExTax",
+    "Catalogue.CostPrice",
+    "Catalogue.EstimatedCost.ExTax",
+    "Catalogue.EstimatedCost",
+    "Catalog.BasePrice.ExTax",
+    "Catalog.BasePrice",
+    "Catalog.CostPrice.ExTax",
+    "Catalog.CostPrice",
+    "LaborType.CostRate",
+    "LabourType.CostRate",
+    "LaborType.BaseRate",
+    "LabourType.BaseRate",
   ], Number.NaN);
   if (Number.isFinite(direct) && direct > 0) return direct;
-  // LaborRate is often the charge rate on quote labour lines — only treat as cost when no sell was found.
+
+  // Reverse from Markup when Simpro only sends sell + markup %.
+  const markup = money(record, ["Markup", "MarkupPercent", "MarkUp"], Number.NaN);
+  if (Number.isFinite(markup) && markup > 0 && sell > 0) {
+    return Math.round((sell / (1 + markup / 100)) * 100) / 100;
+  }
+
+  // LaborRate is often the charge rate on quote labour lines — only treat as cost when sell is separate.
   const labourRate = money(record, ["LaborRate", "LabourRate"], Number.NaN);
   if (Number.isFinite(labourRate) && labourRate > 0 && !(sell > 0 && labourRate === sell)) {
-    // If SellPrice exists separately, LaborRate is typically the cost/base rate on some builds.
     const hasExplicitSell = Number.isFinite(
       money(record, ["SellPrice.ExTax", "SellPrice", "UnitPrice.ExTax", "UnitPrice"], Number.NaN),
     );
@@ -395,13 +416,37 @@ export function splitCostCentreDescriptions(
   sectionDescription = "",
 ): { clientDescription: string; engineerDescription: string } {
   const dedicatedClient = stripHtml(
-    firstString(costCenter, ["ClientDescription", "CustomerDescription", "ClientNotes"]),
+    firstString(costCenter, [
+      "ClientDescription",
+      "CustomerDescription",
+      "ClientNotes",
+      "PublicDescription",
+      "CustomerNotes",
+      "ScopeOfWorks",
+      "WorksDescription",
+      "Brief",
+      "Scope",
+    ]),
   );
   const dedicatedEngineer = stripHtml(
-    firstString(costCenter, ["EngineerDescription", "TechnicianNotes", "InternalNotes"]),
+    firstString(costCenter, [
+      "EngineerDescription",
+      "TechnicianNotes",
+      "InternalNotes",
+      "PrivateNotes",
+      "StaffNotes",
+      "OfficeNotes",
+    ]),
   );
-  const raw = stripHtml(firstString(costCenter, ["Description", "Notes", "LongDescription"]));
+  let raw = stripHtml(firstString(costCenter, ["Description", "Notes", "LongDescription", "Details"]));
+  // Native Simpro often repeats the centre Name in Description — that is not a works brief.
+  if (raw && normaliseBrief(raw) === normaliseBrief(centreName)) {
+    raw = "";
+  }
   const sectionBrief = stripHtml(sectionDescription);
+  if (sectionBrief && normaliseBrief(sectionBrief) === normaliseBrief(centreName)) {
+    // ignore name-only section briefs
+  }
 
   if (dedicatedClient || dedicatedEngineer) {
     return {
@@ -412,8 +457,8 @@ export function splitCostCentreDescriptions(
 
   if (!raw) {
     return {
-      clientDescription: sectionBrief,
-      engineerDescription: sectionBrief,
+      clientDescription: sectionBrief && normaliseBrief(sectionBrief) !== normaliseBrief(centreName) ? sectionBrief : "",
+      engineerDescription: sectionBrief && normaliseBrief(sectionBrief) !== normaliseBrief(centreName) ? sectionBrief : "",
     };
   }
 

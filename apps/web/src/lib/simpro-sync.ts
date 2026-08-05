@@ -1520,6 +1520,28 @@ function quoteAlreadyHasCostCentres(nexaQuoteId: string) {
   return Array.isArray(centres) && centres.length > 0;
 }
 
+/** True when centres exist but Info briefs or cost prices are still missing — re-pull them. */
+function quoteCostCentresNeedRefresh(nexaQuoteId: string) {
+  const centres = getHubDetailState().quoteCostCentres?.[nexaQuoteId];
+  if (!Array.isArray(centres) || centres.length === 0) return true;
+  return centres.some((centre) => {
+    const row = centre as {
+      clientDescription?: string;
+      engineerDescription?: string;
+      lines?: Array<{ unitCost?: number; unitSell?: number }>;
+    };
+    const missingBrief =
+      !String(row.clientDescription || "").trim() && !String(row.engineerDescription || "").trim();
+    const lines = Array.isArray(row.lines) ? row.lines : [];
+    const missingCost = lines.some((line) => {
+      const sell = Number(line.unitSell) || 0;
+      const cost = Number(line.unitCost) || 0;
+      return sell > 0 && !(cost > 0 && cost !== sell);
+    });
+    return missingBrief || missingCost;
+  });
+}
+
 function jobAlreadyHasCostCentres(nexaJobId: string) {
   const centres = getHubDetailState().jobCostCentres?.[nexaJobId];
   return Array.isArray(centres) && centres.length > 0;
@@ -1562,8 +1584,8 @@ async function withQuoteHierarchy(
       ? cachedFull
       : listRecord ?? cachedFull ?? null;
 
-  // Job/scheduler pattern: always refresh header from full entity; pull CCs unless already present.
-  if (quoteAlreadyHasCostCentres(nexaQuoteId)) {
+  // Job/scheduler pattern: refresh header; only skip CC pull when centres are complete.
+  if (quoteAlreadyHasCostCentres(nexaQuoteId) && !quoteCostCentresNeedRefresh(nexaQuoteId)) {
     try {
       const config = await resolveSimproDirectConfig();
       const record =
