@@ -3150,32 +3150,49 @@ const filteredMarkupPlantTools = useMemo(() => {
 
   useEffect(() => {
     if (!selectedProject || (!workingServicesMarkup.pipes.length && !workingServicesMarkup.symbols.length)) return;
-    const quantityPatch = buildMarkupQuantityPatch(workingServicesMarkup, {
-      ...selectedProject,
-      servicesMarkup: workingServicesMarkup,
+    const projectId = selectedProject.id;
+    const project = selectedProject;
+    const markupSnapshot = workingServicesMarkup;
+
+    // Persist a local draft immediately (cheap, synchronous) so a fast edit is
+    // never lost while we debounce the heavier compute + network save below.
+    const savedAt = writeMarkupOfflineDraft(projectId, markupSnapshot, {
+      pendingSync: true,
+      reason: "Markup edit waiting for server sync",
     });
-    const currentMaterials = selectedProject.materialAllowances.filter((line) => (
-      line.id.startsWith("markup-material")
-      || line.id.startsWith("markup-symbol-material")
-      || line.id.startsWith("markup-package-material")
-    ));
-    const nextMaterials = quantityPatch.materialAllowances.filter((line) => (
-      line.id.startsWith("markup-material")
-      || line.id.startsWith("markup-symbol-material")
-      || line.id.startsWith("markup-package-material")
-    ));
-    const currentRequests = selectedProject.supplierRequests.filter((line) => (
-      line.notes === "From Services Markup" || line.notes === "From Markup package"
-    ));
-    const nextRequests = quantityPatch.supplierRequests.filter((line) => (
-      line.notes === "From Services Markup" || line.notes === "From Markup package"
-    ));
-    if (JSON.stringify(currentMaterials) === JSON.stringify(nextMaterials) && JSON.stringify(currentRequests) === JSON.stringify(nextRequests)) return;
-    patchProject(selectedProject.id, {
-      servicesMarkup: workingServicesMarkup,
-      materialAllowances: quantityPatch.materialAllowances,
-      supplierRequests: quantityPatch.supplierRequests,
-    }).catch(() => {});
+    if (savedAt) setMarkupOfflineDraftSavedAt(savedAt);
+
+    // Debounce the quantity rebuild + PATCH so drawing stays smooth and we don't
+    // storm the API with a save on every pipe point / drag.
+    const timer = window.setTimeout(() => {
+      const quantityPatch = buildMarkupQuantityPatch(markupSnapshot, {
+        ...project,
+        servicesMarkup: markupSnapshot,
+      });
+      const isMarkupMaterial = (line: { id: string }) =>
+        line.id.startsWith("markup-material")
+        || line.id.startsWith("markup-symbol-material")
+        || line.id.startsWith("markup-package-material");
+      const isMarkupRequest = (line: { notes?: string }) =>
+        line.notes === "From Services Markup" || line.notes === "From Markup package";
+      const currentMaterials = project.materialAllowances.filter(isMarkupMaterial);
+      const nextMaterials = quantityPatch.materialAllowances.filter(isMarkupMaterial);
+      const currentRequests = project.supplierRequests.filter(isMarkupRequest);
+      const nextRequests = quantityPatch.supplierRequests.filter(isMarkupRequest);
+      if (
+        JSON.stringify(currentMaterials) === JSON.stringify(nextMaterials)
+        && JSON.stringify(currentRequests) === JSON.stringify(nextRequests)
+      ) {
+        return;
+      }
+      patchProject(projectId, {
+        servicesMarkup: markupSnapshot,
+        materialAllowances: quantityPatch.materialAllowances,
+        supplierRequests: quantityPatch.supplierRequests,
+      }).catch(() => {});
+    }, 700);
+
+    return () => window.clearTimeout(timer);
   }, [selectedProject, workingServicesMarkup]);
 
   function replaceProject(project: TakeoffProject) {
