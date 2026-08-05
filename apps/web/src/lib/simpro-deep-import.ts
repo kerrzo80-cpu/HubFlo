@@ -120,11 +120,14 @@ async function fetchSectionCostCenters(
     `/${entity}/${externalId}/sections/${sectionId}/costCentres/`,
   ];
   for (const path of paths) {
-    const listed = await fetchPagedSimproList(config, path, { pageSize: 100, maxPages: 20 });
+    const listed = await fetchPagedSimproList(config, path, { pageSize: 100, maxPages: 5 });
     if (listed.length) return listed;
   }
   return [];
 }
+
+const MAX_SECTIONS_PER_ENTITY = 25;
+const MAX_CC_DETAIL_FETCHES_PER_ENTITY = 40;
 
 async function fetchFullEntity(entity: "quotes" | "jobs", externalId: string) {
   const config = await getSimproReadConfig();
@@ -145,10 +148,14 @@ async function fetchFullEntity(entity: "quotes" | "jobs", externalId: string) {
   if (!sections.length) {
     sections = await fetchPagedSimproList(config, `/${entity}/${externalId}/sections/`, {
       pageSize: 100,
-      maxPages: 20,
+      maxPages: 5,
     });
   }
 
+  // Cap hierarchy fan-out so one huge quote cannot OOM the sync route.
+  sections = sections.slice(0, MAX_SECTIONS_PER_ENTITY);
+
+  let ccDetailFetches = 0;
   const hydrated: UnknownRecord[] = [];
   for (const section of sections) {
     const sectionId = simproRecordId(section);
@@ -168,7 +175,8 @@ async function fetchFullEntity(entity: "quotes" | "jobs", externalId: string) {
     const detailedCenters: UnknownRecord[] = [];
     for (const centre of costCenters) {
       const ccId = simproRecordId(centre);
-      if (!centreHasLineItems(centre) && sectionId && ccId) {
+      if (!centreHasLineItems(centre) && sectionId && ccId && ccDetailFetches < MAX_CC_DETAIL_FETCHES_PER_ENTITY) {
+        ccDetailFetches += 1;
         const detail = await simproGetFirstOk(config, [
           `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/?display=all`,
           `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/`,
