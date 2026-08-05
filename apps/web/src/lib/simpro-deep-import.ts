@@ -133,8 +133,8 @@ const MAX_SECTIONS_PER_ENTITY = 25;
 /** Prefer listing CCs over per-CC detail storms — detail is only for the first few empty ones. */
 const MAX_CC_DETAIL_FETCHES_PER_ENTITY = 8;
 /** Nested catalog/labour lists carry BasePrice — display=all on the CC often omits it. */
-const MAX_CC_ITEM_BAG_FETCHES_PER_ENTITY = 20;
-const MAX_CATALOG_DETAIL_FETCHES_PER_ENTITY = 40;
+const MAX_CC_ITEM_BAG_FETCHES_PER_ENTITY = 40;
+const MAX_CATALOG_DETAIL_FETCHES_PER_ENTITY = 80;
 
 function moneyHint(record: UnknownRecord, keys: string[]): number {
   for (const key of keys) {
@@ -296,7 +296,17 @@ export async function fetchFullEntity(
 ) {
   const baseConfig = await getSimproReadConfig();
   let config = baseConfig;
-  let record = prefetchedRecord ? asRecord(prefetchedRecord) : null;
+  const originalPrefetch = prefetchedRecord ? asRecord(prefetchedRecord) : null;
+  let record = originalPrefetch;
+
+  // Keep list Total/Name even when we discard a thin prefetch for Customer/Site — otherwise
+  // sections-only fallback stamps a blank Total and the quote value collapses.
+  const listHeaderHints: UnknownRecord = {};
+  if (originalPrefetch) {
+    for (const key of ["Total", "Totals", "Name", "Description", "Customer", "Site", "Status", "Stage", "DateIssued", "DueDate"]) {
+      if (originalPrefetch[key] != null) listHeaderHints[key] = originalPrefetch[key];
+    }
+  }
 
   // Ignore thin/incomplete prefetch — same trap as quote Apply caching a detail
   // without Customer/Site and then skipping the real display=all pull jobs/schedules use.
@@ -340,7 +350,11 @@ export async function fetchFullEntity(
           maxPages: 5,
         });
         if (listedSections.length) {
-          record = { ID: Number(externalId) || externalId, Sections: listedSections };
+          record = {
+            ...listHeaderHints,
+            ID: Number(externalId) || externalId,
+            Sections: listedSections,
+          };
           config = scoped;
           break;
         }
@@ -357,6 +371,12 @@ export async function fetchFullEntity(
     }
   }
   if (!record) throw new Error(`Simpro ${entity.slice(0, -1)} ${externalId} returned an empty body.`);
+
+  // If detail/sections path omitted Total, restore from list hydrate.
+  if (listHeaderHints.Total != null && record.Total == null) record.Total = listHeaderHints.Total;
+  if (listHeaderHints.Totals != null && record.Totals == null) record.Totals = listHeaderHints.Totals;
+  if (listHeaderHints.Name != null && record.Name == null) record.Name = listHeaderHints.Name;
+  if (listHeaderHints.Description != null && !record.Description) record.Description = listHeaderHints.Description;
 
   let sections = Array.isArray(record.Sections)
     ? record.Sections.map(asRecord).filter((item): item is UnknownRecord => Boolean(item))

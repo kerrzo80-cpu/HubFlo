@@ -6693,6 +6693,9 @@ function quoteValueFromCostCentres(centres: QuoteCostCentre[] | undefined) {
 }
 
 function quoteWithCostCentreValue(quote: Quote, centresByQuote: Record<string, QuoteCostCentre[]>) {
+  // Imported simPRO quotes keep the API Total on the header. Recomputing from remapped
+  // line sells (e.g. cost × NeXa markup, or a partial CC pull) was wiping £4.5k quotes down to ~£1.5k.
+  if (quote.simproQuoteId) return quote;
   const nextValue = quoteValueFromCostCentres(centresByQuote[quote.id]);
   if (nextValue === null || Math.abs((quote.value ?? 0) - nextValue) < 0.01) return quote;
   return { ...quote, value: nextValue };

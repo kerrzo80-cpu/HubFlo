@@ -230,7 +230,7 @@ describe("simpro hierarchy map", () => {
     assert.match(centres[0]?.engineerDescription || "", /Engineer: isolate/);
   });
 
-  it("maps cost from simPRO BasePrice and builds sell from NeXa default markup", () => {
+  it("keeps simPRO sell when present and applies NeXa markup only when sell is missing", () => {
     const { centres } = mapSimproQuoteCostCentres(
       {
         ID: 1,
@@ -259,6 +259,12 @@ describe("simpro hierarchy map", () => {
                       SellPrice: { ExTax: 10 },
                       Total: { Qty: 1, Amount: { ExTax: 10 } },
                     },
+                    {
+                      ID: 13,
+                      Catalogue: { Name: "Valve" },
+                      BasePrice: 20,
+                      Total: { Qty: 1 },
+                    },
                   ],
                   Labors: [
                     {
@@ -283,13 +289,16 @@ describe("simpro hierarchy map", () => {
     );
     const copper = centres[0]?.lines.find((line) => line.description === "Copper");
     const fitting = centres[0]?.lines.find((line) => line.description === "Fitting");
+    const valve = centres[0]?.lines.find((line) => line.description === "Valve");
     const labour = centres[0]?.lines.find((line) => line.description === "Plumber");
     assert.equal(copper?.unitCost, 2);
-    assert.equal(copper?.unitSell, 2.6); // 2 * 1.30 — NeXa markup, not simPRO SellPrice 3
+    assert.equal(copper?.unitSell, 3); // keep simPRO charge
     assert.equal(fitting?.unitCost, 8); // reverse from simPRO sell/markup when BasePrice missing
-    assert.equal(fitting?.unitSell, 10.4); // 8 * 1.30
+    assert.equal(fitting?.unitSell, 10);
+    assert.equal(valve?.unitCost, 20);
+    assert.equal(valve?.unitSell, 26); // no sell → NeXa 30% markup
     assert.equal(labour?.unitCost, 35);
-    assert.equal(labour?.unitSell, 45.5); // 35 * 1.30 — not simPRO charge 55
+    assert.equal(labour?.unitSell, 55);
   });
 
   it("falls back to simPRO sell only when no cost can be derived", () => {

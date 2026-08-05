@@ -366,11 +366,16 @@ function mapQuoteLine(
 ): MappedQuoteCostLine {
   const labour = isLabourItem(record);
   const quantity = lineQuantity(record);
-  // Prefer simPRO cost (BasePrice); build charge from NeXa default markup — not simPRO SellPrice.
+  // Cost from simPRO BasePrice. Keep simPRO SellPrice as charge when present so the
+  // quoted total stays intact; only apply NeXa default markup when sell is missing.
   const simproSell = lineUnitSell(record, quantity);
   const unitCost = lineUnitCost(record, quantity, simproSell);
   const unitSell =
-    unitCost > 0 ? lineSellFromCostMarkup(unitCost, resolveLineMarkup(labour, options)) : simproSell;
+    simproSell > 0
+      ? simproSell
+      : unitCost > 0
+        ? lineSellFromCostMarkup(unitCost, resolveLineMarkup(labour, options))
+        : 0;
   const id = simproRecordId(record) || `${centreId}-line-${index + 1}`;
   return {
     id: `simpro-${id}`,
