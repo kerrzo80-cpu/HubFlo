@@ -12480,7 +12480,12 @@ h1 {
 .personalising-color-row {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.personalising-color-row .secondary-button {
+  white-space: nowrap;
 }
 
 .personalising-color-row input[type="color"] {
