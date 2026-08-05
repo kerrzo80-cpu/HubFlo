@@ -37914,7 +37914,8 @@ button.nexa-kpi-card,
   }
 }
 
-/* Indeterminate top busy bar — expands/contracts while shuttling side to side. */
+/* Indeterminate top busy bar:
+   expand fully toward one side → contract into that side → reverse. */
 .nexa-top-busy {
   height: 3px;
   left: 0;
@@ -37928,53 +37929,41 @@ button.nexa-kpi-card,
 }
 
 .nexa-top-busy-bar {
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    var(--nexa-accent) 20%,
-    var(--nexa-accent-2) 50%,
-    var(--nexa-accent) 80%,
-    transparent 100%
-  );
-  border-radius: 999px;
+  background: linear-gradient(90deg, var(--nexa-accent) 0%, var(--nexa-accent-2) 100%);
   display: block;
   height: 100%;
   left: 0;
   position: absolute;
   top: 0;
-  transform-origin: center;
-  width: 12%;
-  animation: nexa-top-busy-shuttle 1.55s ease-in-out infinite;
+  width: 0%;
+  /* linear = no mid-cycle pause from ease-in-out */
+  animation: nexa-top-busy-expand-contract 1.7s linear infinite;
 }
 
-@keyframes nexa-top-busy-shuttle {
+@keyframes nexa-top-busy-expand-contract {
+  /* Grow from left across the track */
   0% {
     left: 0%;
-    width: 10%;
+    width: 0%;
   }
-  18% {
-    left: 10%;
-    width: 48%;
+  40% {
+    left: 0%;
+    width: 100%;
   }
-  36% {
-    left: 55%;
-    width: 14%;
-  }
+  /* Collapse into the right edge */
   50% {
-    left: 88%;
-    width: 12%;
+    left: 100%;
+    width: 0%;
   }
-  68% {
-    left: 42%;
-    width: 46%;
+  /* Grow from right back across the track */
+  90% {
+    left: 0%;
+    width: 100%;
   }
-  86% {
-    left: 8%;
-    width: 16%;
-  }
+  /* Collapse into the left edge */
   100% {
     left: 0%;
-    width: 10%;
+    width: 0%;
   }
 }
 
