@@ -42944,7 +42944,7 @@ export default function Dashboard() {
                           <small>
                             {simproSyncStatus?.configured
                               ? integrationSettings.simproMode === "Two-way sync"
-                                ? `Direct API ready at ${simproSyncStatus.endpoint}. Import scope: open quotes; pending/progress/complete jobs (with cost centres + schedules); latest 30 unpaid invoices only. Apply Quotes/Jobs resolves real customer names from simPRO Customer IDs (no more “simPRO customer”).`
+                                ? `Direct API ready at ${simproSyncStatus.endpoint}. Manual Apply uses your selected ticks; weekday end-of-day cron also refreshes leads, quotes, jobs, schedules, invoices, clients and sites after UK close (needs NEXA_IMPORT_TICK_SECRET on Render). NeXa Schedules is your day-to-day diary — visits can push to simPRO managers diary, and EOD/Apply can pull simPRO schedules back in.`
                                 : `Direct API ready at ${simproSyncStatus.endpoint}. Inbound imports are paused while NeXa stays the live front end.`
                               : `Direct API not ready: ${simproSyncStatus?.missing.join(", ") || simproBridgeStatus.missing.join(", ") || "SIMPRO_ credentials missing"}.`}
                           </small>
