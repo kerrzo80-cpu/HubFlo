@@ -12619,17 +12619,20 @@ h1 {
   height: 88px;
   justify-items: center;
   overflow: hidden;
+  padding: 4px;
   width: 88px;
 }
 
 .personalising-upload-preview img {
-  max-height: 76px;
-  max-width: 76px;
+  display: block;
+  height: 100%;
   object-fit: contain;
+  width: 100%;
 }
 
 .personalising-upload-preview-icon {
   border-radius: 22px;
+  padding: 2px;
 }
 
 .personalising-upload-actions {
@@ -12662,7 +12665,7 @@ h1 {
   border-radius: 18px;
   height: 56px;
   object-fit: contain;
-  padding: 6px;
+  padding: 2px;
   width: 56px;
 }
 
