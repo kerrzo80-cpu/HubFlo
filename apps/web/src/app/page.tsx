@@ -29330,8 +29330,25 @@ export default function Dashboard() {
     );
   }
 
+  const showTopBusyBar =
+    isApplyingSimproImport ||
+    isRunningSimproPreview ||
+    isTestingSimproConnection ||
+    isSubmittingSimproReconnect ||
+    isSendingQuoteToSimpro ||
+    isSendingJobToSimpro ||
+    isConnectingXero ||
+    isExportingInvoiceToXero ||
+    isPullingXeroPayments ||
+    isSendingLiveEmail;
+
   return (
     <div className="platform">
+      {showTopBusyBar ? (
+        <div className="nexa-top-busy" role="progressbar" aria-busy="true" aria-label="Working">
+          <span className="nexa-top-busy-bar" />
+        </div>
+      ) : null}
       <header className="global-header">
         <div className="brand-lockup">
           <img className="company-logo" src="/ewg-logo.png" alt="Errol Watson Group" />
@@ -32180,8 +32197,8 @@ export default function Dashboard() {
                           </label>
                         ) : null}
                         <dl>
-                          <div><dt>Site</dt><dd>{selectedQuoteSite?.name ?? (selectedQuoteClient?.billingAddress ? "Customer address" : "Site to confirm")}</dd></div>
-                          <div><dt>Address</dt><dd>{selectedQuoteSite?.address ?? selectedQuoteClient?.billingAddress ?? "Address to confirm"}</dd></div>
+                          <div><dt>Site</dt><dd>{selectedQuoteSite?.name ?? "Site to confirm"}</dd></div>
+                          <div><dt>Address</dt><dd>{selectedQuoteSite?.address ?? "Address to confirm"}</dd></div>
                         </dl>
                       </section>
                       <section className="simpro-summary-block">
@@ -35092,8 +35109,8 @@ export default function Dashboard() {
                           </label>
                         ) : null}
                         <dl>
-                          <div><dt>Site</dt><dd>{selectedJobSite?.name ?? (selectedJobClient?.billingAddress ? "Customer address" : selectedJob.site)}</dd></div>
-                          <div><dt>Address</dt><dd>{selectedJobSite?.address ?? selectedJob.site ?? selectedJobClient?.billingAddress ?? "Address to confirm"}</dd></div>
+                          <div><dt>Site</dt><dd>{selectedJobSite?.name ?? selectedJob.site ?? "Site to confirm"}</dd></div>
+                          <div><dt>Address</dt><dd>{selectedJobSite?.address ?? selectedJob.site ?? "Address to confirm"}</dd></div>
                         </dl>
                       </section>
                       <section className="simpro-summary-block">

@@ -37892,3 +37892,35 @@ button.nexa-kpi-card,
   }
 }
 
+/* Indeterminate top busy bar — visible while Preview/Apply/sync actions run. */
+.nexa-top-busy {
+  height: 3px;
+  left: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: fixed;
+  right: 0;
+  top: 0;
+  z-index: 100000;
+  background: rgba(0, 110, 184, 0.12);
+}
+
+.nexa-top-busy-bar {
+  background: linear-gradient(90deg, var(--nexa-accent) 0%, var(--nexa-accent-2) 100%);
+  display: block;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  width: 28%;
+  animation: nexa-top-busy-bounce 1.15s ease-in-out infinite alternate;
+}
+
+@keyframes nexa-top-busy-bounce {
+  from {
+    left: 0;
+  }
+  to {
+    left: 72%;
+  }
+}
+

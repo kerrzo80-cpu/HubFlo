@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  billingAddressFromRecord,
   buildJobInput,
   buildQuoteInput,
   isImportableSimproJob,
@@ -16,6 +17,7 @@ import {
   processClient,
   processSite,
   scopeSimproRecords,
+  siteAddressFromRecord,
   SIMPRO_DEEP_HIERARCHY_LIMIT,
   SIMPRO_JOB_IMPORT_LIMIT,
   SIMPRO_QUOTE_IMPORT_LIMIT,
@@ -142,8 +144,57 @@ describe("simpro sync preview quality", () => {
 
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "simpro-sync.ts"), "utf8");
     assert.match(source, /hydrateCustomersForRecords/);
+    assert.match(source, /hydrateSitesForRecords/);
     assert.match(source, /fetchSimproCustomerDetail/);
+    assert.match(source, /fetchSimproSiteDetail/);
     assert.match(source, /fallbackCustomerLabel/);
+    assert.match(source, /siteAddressFromRecord/);
+  });
+
+  it("does not reuse customer billing as the site address for every quote", () => {
+    const billing = {
+      Address: "4 Forvie Terrace",
+      City: "Bridge Of Don",
+      State: "Aberdeenshire",
+      PostalCode: "AB22 8TH",
+    };
+    const quoteA = {
+      ID: 2022,
+      Name: "Baxi boiler amendment",
+      Description:
+        '<div style="font-size: 10pt;">Hi Lesley&nbsp;</div><div>We have amended the quote below; this is now based on the Baxi boiler</div>',
+      Customer: { ID: 12, CompanyName: "Lesley Customer", BillingAddress: billing },
+      BillingAddress: billing,
+      Site: { ID: 401 },
+      Total: { ExTax: 28503 },
+      Status: { Name: "Draft" },
+    };
+    const quoteB = {
+      ID: 2033,
+      Name: "Kitchen extract fan",
+      Description: "Imported notes",
+      Customer: { ID: 12, CompanyName: "Lesley Customer", BillingAddress: billing },
+      BillingAddress: billing,
+      Site: {
+        ID: 402,
+        Name: "Other site",
+        Address: { Address: "18 King Street", City: "Aberdeen", PostalCode: "AB24 5AA" },
+      },
+      Total: { ExTax: 4537 },
+      Status: { Name: "Draft" },
+    };
+
+    assert.equal(siteAddressFromRecord(quoteA), "");
+    assert.equal(billingAddressFromRecord(quoteA), "4 Forvie Terrace, Bridge Of Don, Aberdeenshire, AB22 8TH");
+    assert.equal(siteAddressFromRecord(quoteB), "18 King Street, Aberdeen, AB24 5AA");
+    assert.notEqual(siteAddressFromRecord(quoteB), billingAddressFromRecord(quoteA));
+
+    const mappedA = buildQuoteInput(quoteA);
+    const mappedB = buildQuoteInput(quoteB);
+    assert.equal(mappedA.description, "Baxi boiler amendment");
+    assert.doesNotMatch(mappedA.description, /<div|font-size|&nbsp;/i);
+    assert.equal(mappedB.description, "Imported notes");
+    assert.equal(mappedA.next, "Review imported quote");
   });
 
   it("keeps richer server quote cost centres when the browser sends an empty map", () => {

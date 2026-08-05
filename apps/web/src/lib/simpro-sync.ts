@@ -4,9 +4,11 @@ import {
   appendAuditEvent,
   getClientSites,
   getClients,
+  updateClientSiteRecord,
   type ClientRecord,
   type ClientSite,
 } from "@/lib/people-data";
+import { simproPlainDescription } from "@/lib/simpro-text";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import {
   createJob,
@@ -255,21 +257,39 @@ function joinAddress(value: unknown) {
     .join(", ");
 }
 
-function addressFromRecord(record: UnknownRecord) {
+/** Site / works address only — never customer Billing/Postal (that caused every quote to show the same address). */
+export function siteAddressFromRecord(record: UnknownRecord) {
   const site = asRecord(record.Site);
-  return (
-    joinAddress(record.Address) ||
+  if (site) {
+    const nested =
+      joinAddress(site.Address) ||
+      joinAddress(site.SiteAddress) ||
+      joinAddress(site) ||
+      firstString(site, ["Address", "SiteAddress", "Location"]);
+    if (nested && !isPlaceholderSimproValue(nested)) return nested;
+  }
+  const direct =
     joinAddress(record.SiteAddress) ||
+    firstString(record, ["SiteAddress", "Site.Address", "Location"]) ||
+    // Only use top-level Address when this record IS a site (has no nested Site id pointing elsewhere).
+    (!simproSiteId(record) ? joinAddress(record.Address) || firstString(record, ["Address"]) : "");
+  return direct && !isPlaceholderSimproValue(direct) ? direct : "";
+}
+
+/** Customer billing / postal — for client records only. */
+export function billingAddressFromRecord(record: UnknownRecord) {
+  return (
     joinAddress(record.BillingAddress) ||
     joinAddress(record.PostalAddress) ||
-    (site
-      ? joinAddress(site.Address) ||
-        joinAddress(site.SiteAddress) ||
-        joinAddress(site) ||
-        firstString(site, ["Address", "SiteAddress", "BillingAddress"])
-      : "") ||
-    firstString(record, ["Address", "SiteAddress", "BillingAddress", "PostalAddress", "Site.Address"])
+    joinAddress(record.Address) ||
+    firstString(record, ["BillingAddress", "PostalAddress", "Address"]) ||
+    ""
   );
+}
+
+/** @deprecated Prefer siteAddressFromRecord / billingAddressFromRecord — kept for call sites that want either. */
+function addressFromRecord(record: UnknownRecord) {
+  return siteAddressFromRecord(record) || billingAddressFromRecord(record);
 }
 
 function simproSiteId(record: UnknownRecord) {
@@ -421,26 +441,40 @@ function matchingSiteForRecord(record: UnknownRecord, clientId: string | undefin
       const linked = getClientSites().find((item) => item.id === link.nexaId);
       if (linked) return linked;
     }
+    // Prefer the deterministic simPRO site id so two quotes never collapse onto one wrong site.
+    const byId = getClientSites().find((item) => item.id === `site-simpro-${externalId.replace(/[^a-zA-Z0-9_-]/g, "-")}`);
+    if (byId) return byId;
   }
 
-  const address = addressFromRecord(record);
-  const siteName = simproSiteName(record);
+  const address = siteAddressFromRecord(record);
+  // Only address match — name-only match was linking every quote for a customer to one site.
+  if (!address || isPlaceholderSimproValue(address)) return undefined;
   const candidates = getClientSites().filter((item) => {
     if (clientId && item.clientId !== clientId) return false;
-    if (address && !isPlaceholderSimproValue(address) && normaliseText(item.address) === normaliseText(address)) {
-      return true;
-    }
-    if (siteName && !isPlaceholderSimproValue(siteName) && normaliseText(item.name) === normaliseText(siteName)) {
-      return true;
-    }
-    return false;
+    return normaliseText(item.address) === normaliseText(address);
   });
   return candidates.length === 1 ? candidates[0] : undefined;
 }
 
+function refreshSiteFromRecord(existing: ClientSite, record: UnknownRecord) {
+  const address = siteAddressFromRecord(record);
+  const name = simproSiteName(record) || firstString(asRecord(record.Site) ?? record, ["Name", "SiteName", "DisplayName"]);
+  const patch: Partial<ClientSite> = {};
+  if (address && !isPlaceholderSimproValue(address) && (isPlaceholderSimproValue(existing.address) || existing.address !== address)) {
+    patch.address = address;
+  }
+  if (name && !isPlaceholderSimproValue(name) && (isPlaceholderSimproValue(existing.name) || existing.name === "simPRO site")) {
+    patch.name = name;
+  }
+  if (!Object.keys(patch).length) return existing;
+  return updateClientSiteRecord(existing.id, patch) || existing;
+}
+
 function ensureSiteForRecord(record: UnknownRecord, clientId: string | undefined, mode: SimproSyncMode) {
   const existing = matchingSiteForRecord(record, clientId);
-  if (existing) return existing;
+  if (existing) {
+    return mode === "apply" ? refreshSiteFromRecord(existing, record) : existing;
+  }
   if (mode !== "apply" || !clientId) return undefined;
 
   const externalId = simproSiteId(record);
@@ -450,16 +484,13 @@ function ensureSiteForRecord(record: UnknownRecord, clientId: string | undefined
       ...nested,
       ID: externalId || nested.ID,
       Name: simproSiteName(record) || nested.Name,
-      Address: nested.Address || record.Address || record.SiteAddress,
+      Address: nested.Address || record.SiteAddress,
       Customer: asRecord(record.Customer) ?? { ID: simproCustomerId(record) },
     },
     clientId,
   );
 
-  if (isPlaceholderSimproValue(mapped.address) && simproSiteName(record)) {
-    mapped.address = simproSiteName(record);
-  }
-
+  // Never invent an address from site name / billing — leave placeholder until site hydrate fills it.
   const site = addClientSiteRecord({
     ...mapped,
     id: externalId
@@ -590,10 +621,11 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
     if (reportedPages > 0 && page >= reportedPages) break;
   }
 
-  // Scope first, then hydrate customers only for the capped working set.
+  // Scope first, then hydrate customers + sites only for the capped working set.
   const scoped = scopeSimproRecords(entity, collected);
   if (entity === "quotes" || entity === "jobs") {
-    return hydrateCustomersForRecords(config, scoped);
+    const withCustomers = await hydrateCustomersForRecords(config, scoped);
+    return hydrateSitesForRecords(config, withCustomers);
   }
   return scoped;
 }
@@ -712,21 +744,26 @@ function clientFromSimpro(record: UnknownRecord): Omit<ClientRecord, "id" | "acc
     primaryContact: firstString(record, ["PrimaryContact.Name", "Contact.Name", "Contact", "Attention"]) || name,
     email: firstString(record, ["Email", "EmailAddress", "PrimaryContact.Email", "Contact.Email"]) || "To confirm",
     phone: firstString(record, ["Phone", "PhoneNumber", "Mobile", "PrimaryContact.Phone", "Contact.Phone"]) || "To confirm",
-    billingAddress: addressFromRecord(record) || "Address to confirm",
+    billingAddress: billingAddressFromRecord(record) || "Address to confirm",
     commercialOwner: "Imported from simPRO",
     notes: "Imported from simPRO. Review customer details before using on live documents.",
   };
 }
 
 function siteFromSimpro(record: UnknownRecord, clientId: string): Omit<ClientSite, "id"> {
-  const address = addressFromRecord(record) || "Address to confirm";
+  const address = siteAddressFromRecord(record) || "Address to confirm";
+  const name =
+    firstString(record, ["Name", "SiteName", "DisplayName"]) ||
+    simproSiteName(record) ||
+    (address !== "Address to confirm" ? address.split(",")[0]?.trim() : "") ||
+    "simPRO site";
   return {
     clientId,
-    name: firstString(record, ["Name", "SiteName"]) || address.split(",")[0]?.trim() || "simPRO site",
+    name,
     address,
     accessNotes: firstString(record, ["Notes", "AccessNotes", "Instructions"]) || "Imported from simPRO. Access notes to confirm.",
     primaryContact: firstString(record, ["Contact.Name", "PrimaryContact.Name", "Contact"]) || "To confirm",
-    serviceLine: firstString(record, ["ServiceLine", "Description"]) || "Imported simPRO site",
+    serviceLine: firstString(record, ["ServiceLine"]) || "Imported simPRO site",
     nextVisit: firstString(record, ["NextVisit", "NextServiceDate"]) || "To be scheduled",
   };
 }
@@ -822,6 +859,7 @@ let deepHierarchyBudget = SIMPRO_DEEP_HIERARCHY_LIMIT;
 
 function clearCustomerDetailCache() {
   customerDetailCache.clear();
+  clearSiteDetailCache();
 }
 
 function resetDeepHierarchyBudget() {
@@ -917,6 +955,78 @@ async function hydrateCustomersForRecords(config: ResolvedSimproDirectConfig, re
   });
 }
 
+/** Per-import cache so quote/job rows that only carry Site.ID still get real site addresses. */
+const siteDetailCache = new Map<string, UnknownRecord | null>();
+
+function clearSiteDetailCache() {
+  siteDetailCache.clear();
+}
+
+async function fetchSimproSiteDetail(config: ResolvedSimproDirectConfig, siteId: string) {
+  const cached = siteDetailCache.get(siteId);
+  if (cached !== undefined) return cached;
+
+  const paths = [`/sites/${siteId}/?display=all`, `/sites/${siteId}/`];
+  for (const path of paths) {
+    try {
+      const response = await fetch(`${config.baseUrl}/companies/${config.companyId}${path}`, {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${config.token}`,
+        },
+        cache: "no-store",
+      });
+      if (!response.ok) continue;
+      const body = await response.json().catch(() => null);
+      const record = asRecord(body);
+      if (record && (identifier(record) || siteAddressFromRecord(record) || simproSiteName(record))) {
+        siteDetailCache.set(siteId, record);
+        return record;
+      }
+    } catch {
+      // try next path
+    }
+  }
+
+  siteDetailCache.set(siteId, null);
+  return null;
+}
+
+function mergeSiteOntoRecord(record: UnknownRecord, site: UnknownRecord) {
+  const existing = asRecord(record.Site) || {};
+  return {
+    ...record,
+    Site: {
+      ...existing,
+      ...site,
+      ID: identifier(site) || existing.ID || simproSiteId(record),
+    },
+  };
+}
+
+function siteNeedsHydrate(record: UnknownRecord) {
+  if (!simproSiteId(record)) return false;
+  return !siteAddressFromRecord(record);
+}
+
+async function hydrateSitesForRecords(config: ResolvedSimproDirectConfig, records: UnknownRecord[]) {
+  const missingIds = [
+    ...new Set(records.filter(siteNeedsHydrate).map((record) => simproSiteId(record)).filter(Boolean)),
+  ] as string[];
+
+  for (let index = 0; index < missingIds.length; index += 2) {
+    const batch = missingIds.slice(index, index + 2);
+    await Promise.all(batch.map((id) => fetchSimproSiteDetail(config, id)));
+  }
+
+  return records.map((record) => {
+    const siteId = simproSiteId(record);
+    if (!siteId || !siteNeedsHydrate(record)) return record;
+    const detail = siteDetailCache.get(siteId);
+    return detail ? mergeSiteOntoRecord(record, detail) : record;
+  });
+}
+
 function matchingClientIdForRecord(record: UnknownRecord) {
   const externalId = simproCustomerId(record);
   if (externalId) {
@@ -955,8 +1065,27 @@ function resolveClientForRecord(record: UnknownRecord, mode: SimproSyncMode) {
   return { clientId, client };
 }
 
+function descriptionFromSimproRecord(record: UnknownRecord, fallback: string) {
+  return simproPlainDescription(
+    {
+      title: firstString(record, ["Name", "Title", "Subject", "JobName"]),
+      body: firstString(record, ["Description", "Notes", "LongDescription"]),
+    },
+    fallback,
+  );
+}
+
+function dueLabelFromSimpro(record: UnknownRecord, keys: string[]) {
+  const raw = firstString(record, keys);
+  if (!raw) return "Imported";
+  const time = Date.parse(raw);
+  if (!Number.isFinite(time)) return raw;
+  return new Date(time).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
 export function buildQuoteInput(record: UnknownRecord, client?: ClientRecord, site?: ClientSite): Omit<Quote, "id" | "ref"> {
   const simproStatus = firstString(record, ["Status.Name", "Status", "Stage", "Stage.Name"]);
+  const status = quoteStatusFromSimpro(simproStatus);
   const customerName =
     (client?.name && !isBlankImportedCustomerName(client.name) ? client.name : "") ||
     usableCustomerName(record) ||
@@ -965,10 +1094,9 @@ export function buildQuoteInput(record: UnknownRecord, client?: ClientRecord, si
     clientId: client?.id,
     siteId: site?.id,
     customer: customerName,
-    description:
-      firstString(record, ["Description", "Name", "Title", "Subject", "JobName"]) || "Imported simPRO quote",
+    description: descriptionFromSimproRecord(record, "Imported simPRO quote"),
     owner: firstString(record, ["Salesperson.Name", "Owner.Name", "ProjectManager.Name"]) || "Imported from simPRO",
-    status: quoteStatusFromSimpro(simproStatus),
+    status,
     value: firstNumber(record, [
       "Total.ExTax",
       "Total.IncTax",
@@ -980,8 +1108,13 @@ export function buildQuoteInput(record: UnknownRecord, client?: ClientRecord, si
       "Amount",
       "Total",
     ]),
-    next: "Review imported simPRO quote",
-    due: firstString(record, ["DueDate", "DateIssued", "DateCreated", "CreatedDate"]) || "To be reviewed",
+    next:
+      status === "Accepted"
+        ? "Convert to job"
+        : status === "Sent"
+          ? "Await customer response"
+          : "Review imported quote",
+    due: dueLabelFromSimpro(record, ["DueDate", "DateIssued", "DateCreated", "CreatedDate"]),
     simproQuoteId: identifier(record),
     simproStatus: "Sent",
     simproSentAt: new Date().toISOString(),
@@ -991,8 +1124,9 @@ export function buildQuoteInput(record: UnknownRecord, client?: ClientRecord, si
 export function buildJobInput(record: UnknownRecord, client?: ClientRecord, site?: ClientSite): Omit<Job, "id" | "ref" | "health"> & { simproJobId?: string } {
   const simproStatus = firstString(record, ["Status.Name", "Status", "Stage", "Stage.Name"]);
   const siteLabel =
-    site?.address ||
-    addressFromRecord(record) ||
+    (site?.address && !isPlaceholderSimproValue(site.address) ? site.address : "") ||
+    siteAddressFromRecord(record) ||
+    (site?.name && !isPlaceholderSimproValue(site.name) ? site.name : "") ||
     simproSiteName(record) ||
     firstString(record, ["Site.Name", "SiteName"]) ||
     "Site to confirm";
@@ -1005,8 +1139,7 @@ export function buildJobInput(record: UnknownRecord, client?: ClientRecord, site
     siteId: site?.id,
     customer: customerName,
     site: siteLabel,
-    description:
-      firstString(record, ["Description", "Name", "Title", "Subject", "JobName"]) || "Imported simPRO job",
+    description: descriptionFromSimproRecord(record, "Imported simPRO job"),
     manager: firstString(record, ["ProjectManager.Name", "Owner.Name", "Salesperson.Name"]) || "Imported from simPRO",
     status: jobStatusFromSimpro(simproStatus),
     value: firstNumber(record, [
@@ -1020,8 +1153,8 @@ export function buildJobInput(record: UnknownRecord, client?: ClientRecord, site
       "Amount",
       "Total",
     ]),
-    next: "Review imported simPRO job",
-    due: firstString(record, ["DueDate", "DateCreated", "CreatedDate", "StartDate"]) || "To be reviewed",
+    next: "Review imported job",
+    due: dueLabelFromSimpro(record, ["DueDate", "DateCreated", "CreatedDate", "StartDate"]),
     simproJobId: identifier(record),
   };
 }
@@ -1212,8 +1345,17 @@ export function processSite(record: UnknownRecord, mode: SimproSyncMode): Simpro
   return operation("sites", "create", `Created NeXa site ${site.name}.`, { simproId, simproName: mapped.name, nexaId: site.id });
 }
 
+async function hydrateRecordSite(config: ResolvedSimproDirectConfig, record: UnknownRecord) {
+  if (!siteNeedsHydrate(record)) return record;
+  const siteId = simproSiteId(record);
+  if (!siteId) return record;
+  const detail = await fetchSimproSiteDetail(config, siteId);
+  if (!detail) return record;
+  return mergeSiteOntoRecord(record, detail);
+}
+
 async function patchQuoteHeaderFromDeepRecord(config: ResolvedSimproDirectConfig, nexaQuoteId: string, record: UnknownRecord) {
-  const hydrated = await hydrateRecordCustomer(config, record);
+  const hydrated = await hydrateRecordSite(config, await hydrateRecordCustomer(config, record));
   const { client } = resolveClientForRecord(hydrated, "apply");
   const site = ensureSiteForRecord(hydrated, client?.id, "apply") || matchingSiteForRecord(hydrated, client?.id);
   const mapped = buildQuoteInput(hydrated, client, site);
@@ -1241,7 +1383,7 @@ async function patchQuoteHeaderFromDeepRecord(config: ResolvedSimproDirectConfig
 }
 
 async function patchJobHeaderFromDeepRecord(config: ResolvedSimproDirectConfig, nexaJobId: string, record: UnknownRecord) {
-  const hydrated = await hydrateRecordCustomer(config, record);
+  const hydrated = await hydrateRecordSite(config, await hydrateRecordCustomer(config, record));
   const { client } = resolveClientForRecord(hydrated, "apply");
   const site = ensureSiteForRecord(hydrated, client?.id, "apply") || matchingSiteForRecord(hydrated, client?.id);
   const mapped = buildJobInput(hydrated, client, site);
