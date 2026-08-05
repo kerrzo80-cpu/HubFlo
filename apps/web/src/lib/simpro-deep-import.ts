@@ -10,8 +10,10 @@ import {
   extractSimproRecords,
   getSimproReadConfig,
   simproGet,
+  simproGetEntityDetail,
   simproGetFirstOk,
   simproRecordId,
+  withSimproCompany,
   type UnknownRecord,
 } from "@/lib/simpro-client";
 import {
@@ -135,7 +137,8 @@ export async function fetchFullEntity(
   externalId: string,
   prefetchedRecord?: UnknownRecord | null,
 ) {
-  const config = await getSimproReadConfig();
+  const baseConfig = await getSimproReadConfig();
+  let config = baseConfig;
   let record = prefetchedRecord ? asRecord(prefetchedRecord) : null;
 
   // Ignore thin/incomplete prefetch — same trap as quote Apply caching a detail
@@ -159,14 +162,18 @@ export async function fetchFullEntity(
   }
 
   if (!record) {
-    const result = await simproGetFirstOk(config, [
-      `/${entity}/${externalId}/?display=all`,
-      `/${entity}/${externalId}/`,
-    ]);
+    const result = await simproGetEntityDetail(baseConfig, entity, externalId, { maxRetries: 2 });
     if (!result.ok) {
-      throw new Error(`Simpro ${entity.slice(0, -1)} ${externalId} detail failed (HTTP ${result.status}).`);
+      const tried = result.attempts
+        .slice(0, 6)
+        .map((attempt) => `co${attempt.companyId}:${attempt.path}→${attempt.status}`)
+        .join(", ");
+      throw new Error(
+        `Simpro ${entity.slice(0, -1)} ${externalId} detail failed (HTTP ${result.status}${tried ? `; tried ${tried}` : ""}).`,
+      );
     }
     record = asRecord(result.body);
+    config = withSimproCompany(baseConfig, result.companyId);
   }
   if (!record) throw new Error(`Simpro ${entity.slice(0, -1)} ${externalId} returned an empty body.`);
 
@@ -207,8 +214,12 @@ export async function fetchFullEntity(
       if (!centreHasLineItems(centre) && sectionId && ccId && ccDetailFetches < MAX_CC_DETAIL_FETCHES_PER_ENTITY) {
         ccDetailFetches += 1;
         const detail = await simproGetFirstOk(config, [
+          `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}?display=all`,
+          `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}`,
           `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/?display=all`,
           `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/`,
+          `/${entity}/${externalId}/sections/${sectionId}/costCentres/${ccId}?display=all`,
+          `/${entity}/${externalId}/sections/${sectionId}/costCentres/${ccId}`,
           `/${entity}/${externalId}/sections/${sectionId}/costCentres/${ccId}/?display=all`,
           `/${entity}/${externalId}/sections/${sectionId}/costCentres/${ccId}/`,
         ]);

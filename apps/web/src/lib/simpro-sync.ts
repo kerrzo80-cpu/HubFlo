@@ -24,7 +24,7 @@ import {
   type QuoteStatus,
 } from "@/lib/workflow-data";
 import { getSimproDirectConfigStatus, resolveSimproDirectConfig, type ResolvedSimproDirectConfig } from "@/lib/simpro-auth";
-import { simproGetFirstOk } from "@/lib/simpro-client";
+import { simproGetFirstOk, simproGetEntityDetail, clearSimproCompanyIdCache } from "@/lib/simpro-client";
 import {
   enrichNexaJobFromSimpro,
   enrichNexaQuoteFromSimpro,
@@ -973,6 +973,7 @@ const entityDetailCache = new Map<string, UnknownRecord | null>();
 
 function clearEntityDetailCache() {
   entityDetailCache.clear();
+  clearSimproCompanyIdCache();
 }
 
 async function fetchSimproEntityDetail(
@@ -985,14 +986,8 @@ async function fetchSimproEntityDetail(
   // Only reuse successful detail — never poison the Apply run with a cached null from one 429.
   if (cached) return cached;
 
-  // Same auth/base URL as deep-import (`getSimproReadConfig` → `resolveSimproDirectConfig`),
-  // but previously this used raw fetch with no 429/5xx retries and silently cached null.
-  // That left list-only headers ("Quote 2217", "Customer to confirm") while list fetch still worked.
-  const result = await simproGetFirstOk(
-    config,
-    [`/${entity}/${externalId}/?display=all`, `/${entity}/${externalId}/`],
-    { maxRetries: 3 },
-  );
+  // Same path variants + multi-company retry as job/scheduler fetchFullEntity.
+  const result = await simproGetEntityDetail(config, entity, externalId, { maxRetries: 2 });
   if (!result.ok) return null;
   const record = asRecord(result.body);
   if (!record || !identifier(record)) return null;
