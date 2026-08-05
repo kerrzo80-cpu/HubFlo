@@ -9,6 +9,7 @@ import {
   normalizeWeekLabourDays,
   parseDayworkLabourDays,
   parseDayworkLineItems,
+  stripDayworkCostsForClientCopy,
   type DayworkAccountContext,
   type DayworkAccountRecord,
   type DayworkLineItem,
@@ -87,10 +88,11 @@ function padLines(items: DayworkLineItem[], minRows: number) {
 /** Classic Daywork Account paper layout — week grid, materials/plant tables, named signatures. */
 export async function createDayworkAccountPdf(context: DayworkAccountContext) {
   const pdf = await PDFDocument.create();
-  pdf.setTitle(`Daywork Account - ${context.jobRef}`);
-  pdf.setAuthor("Errol Watson Group Ltd - NeXa");
-  pdf.setSubject("Daywork Account variation sheet");
-  pdf.setCreator("NeXa Core");
+  const clientCopy = context.variant === "client";
+  pdf.setTitle(`Daywork Account - ${context.jobRef}${clientCopy ? " (client copy)" : ""}`);
+  pdf.setAuthor("Errol Watson Group Ltd");
+  pdf.setSubject(clientCopy ? "Daywork Account client copy — hours and materials" : "Daywork Account variation sheet");
+  pdf.setCreator("EWG Field / Core");
 
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -168,7 +170,7 @@ export async function createDayworkAccountPdf(context: DayworkAccountContext) {
       font: bold,
       color: brand,
     });
-    page.drawText("Errol Watson Group Ltd", {
+    page.drawText(clientCopy ? "Client copy — hours & materials" : "Errol Watson Group Ltd", {
       x: margin + size.width + 14,
       y: y - 32,
       size: 9,
@@ -178,13 +180,19 @@ export async function createDayworkAccountPdf(context: DayworkAccountContext) {
     y -= Math.max(size.height, 36) + 8;
   } else {
     page.drawText("DAYWORK ACCOUNT", { x: margin, y: y - 16, size: 18, font: bold, color: brand });
-    page.drawText("Errol Watson Group Ltd", { x: margin, y: y - 32, size: 9, font: regular, color: muted });
+    page.drawText(clientCopy ? "Client copy — hours & materials" : "Errol Watson Group Ltd", {
+      x: margin,
+      y: y - 32,
+      size: 9,
+      font: regular,
+      color: muted,
+    });
     y -= 42;
   }
   drawRule(1.2);
   y -= 14;
 
-  const record = context.record;
+  const record = clientCopy && context.record ? stripDayworkCostsForClientCopy(context.record) : context.record;
   const totals = dayworkAccountTotals(record);
   const weekDays = normalizeWeekLabourDays(parseDayworkLabourDays(record?.labourDaysJson));
 
@@ -230,26 +238,30 @@ export async function createDayworkAccountPdf(context: DayworkAccountContext) {
   });
   y -= 42;
   drawFieldRow("Total hours", totals.labourHours ? String(totals.labourHours) : "");
-  drawFieldRow("Rate £/hr", record?.labourRate ? money(Number(record.labourRate)) : "Office to complete");
-  drawFieldRow("Labour cost", money(totals.labourCost) || "Pending office rate");
+  if (!clientCopy) {
+    drawFieldRow("Rate £/hr", record?.labourRate ? money(Number(record.labourRate)) : "Office to complete");
+    drawFieldRow("Labour cost", money(totals.labourCost) || "Pending office rate");
+  }
   y -= 4;
 
   function drawItemsTable(title: string, items: DayworkLineItem[], totalLabel: string, totalValue: string) {
     drawSectionTitle(title);
     ensureSpace(24);
     const qtyWidth = 54;
-    const costWidth = 72;
+    const costWidth = clientCopy ? 0 : 72;
     const descWidth = contentWidth - qtyWidth - costWidth;
     page.drawText("Description", { x: margin + 4, y, size: 8, font: bold, color: muted });
     page.drawText("Qty", { x: margin + descWidth + 4, y, size: 8, font: bold, color: muted });
-    page.drawText("£", { x: margin + descWidth + qtyWidth + 4, y, size: 8, font: bold, color: muted });
+    if (!clientCopy) {
+      page.drawText("£", { x: margin + descWidth + qtyWidth + 4, y, size: 8, font: bold, color: muted });
+    }
     y -= 4;
     drawRule(0.6);
     y -= 12;
 
     for (const item of padLines(items, 4)) {
       ensureSpace(16);
-      const amount = dayworkLineAmount(item);
+      const amount = clientCopy ? 0 : dayworkLineAmount(item);
       const descLines = wrapText(item.description || " ", regular, 9, descWidth - 8);
       page.drawText(safeText(descLines[0]) || "—", {
         x: margin + 4,
@@ -265,13 +277,15 @@ export async function createDayworkAccountPdf(context: DayworkAccountContext) {
         font: regular,
         color: ink,
       });
-      page.drawText(amount ? money(amount) : "—", {
-        x: margin + descWidth + qtyWidth + 4,
-        y,
-        size: 9,
-        font: regular,
-        color: ink,
-      });
+      if (!clientCopy) {
+        page.drawText(amount ? money(amount) : "—", {
+          x: margin + descWidth + qtyWidth + 4,
+          y,
+          size: 9,
+          font: regular,
+          color: ink,
+        });
+      }
       y -= 14;
       for (const extra of descLines.slice(1)) {
         ensureSpace(12);
@@ -280,7 +294,9 @@ export async function createDayworkAccountPdf(context: DayworkAccountContext) {
       }
     }
     y -= 2;
-    drawFieldRow(totalLabel, totalValue || "Office to price");
+    if (!clientCopy) {
+      drawFieldRow(totalLabel, totalValue || "Office to price");
+    }
     y -= 2;
   }
 
@@ -292,10 +308,12 @@ export async function createDayworkAccountPdf(context: DayworkAccountContext) {
   );
   drawItemsTable("Plant", parseDayworkLineItems(record?.plantJson), "Plant total", money(totals.plant));
 
-  drawSectionTitle("Summary");
-  drawFieldRow("Add % on mats/plant", totals.markupPercent ? `${totals.markupPercent}%` : "Office to complete");
-  drawFieldRow("Sheet total", money(totals.total) || "Pending office pricing");
-  y -= 6;
+  if (!clientCopy) {
+    drawSectionTitle("Summary");
+    drawFieldRow("Add % on mats/plant", totals.markupPercent ? `${totals.markupPercent}%` : "Office to complete");
+    drawFieldRow("Sheet total", money(totals.total) || "Pending office pricing");
+    y -= 6;
+  }
 
   drawSectionTitle("Sign-off");
   page.drawText("Printed names are required — signatures alone can be hard to read.", {
@@ -365,20 +383,30 @@ export async function createDayworkAccountPdf(context: DayworkAccountContext) {
   await drawSignerBox("Plumber / contractor", record?.plumberSignerName || record?.labourName, record?.plumberSignature);
   await drawSignerBox("Client / Clerk of Works", record?.clientSignerName, record?.clientSignature);
 
-  ensureSpace(20);
-  page.drawText("This Daywork Account attaches with the valuation / application for payment.", {
-    x: margin,
-    y,
-    size: 8,
-    font: regular,
-    color: muted,
-  });
+  ensureSpace(28);
+  page.drawText(
+    clientCopy
+      ? "Client copy — hours and materials only. Rates and pricing are completed by Errol Watson Group office."
+      : "This Daywork Account attaches with the valuation / application for payment.",
+    {
+      x: margin,
+      y,
+      size: 8,
+      font: regular,
+      color: muted,
+    },
+  );
 
   return Buffer.from(await pdf.save());
 }
 
-export function dayworkPdfFilename(record: DayworkAccountRecord | null | undefined, jobRef: string) {
+export function dayworkPdfFilename(
+  record: DayworkAccountRecord | null | undefined,
+  jobRef: string,
+  variant: "office" | "client" = "office",
+) {
   const week = String(record?.weekEnding || "sheet").replace(/[^\dA-Za-z-]+/g, "-");
   const ref = String(jobRef || "daywork").replace(/[^\dA-Za-z-]+/g, "-");
-  return `Daywork-Account-${ref}-${week}.pdf`;
+  const suffix = variant === "client" ? "-client-copy" : "";
+  return `Daywork-Account-${ref}-${week}${suffix}.pdf`;
 }

@@ -9,6 +9,7 @@ import {
   dayworkRecordFromDraft,
   defaultDayworkWeekEndingUk,
   isDayworkSubmittedToCore,
+  isValidDayworkClientEmail,
   totalDayworkLabourHours,
   validateDayworkSheetDraft,
   type DayworkAccountRecord,
@@ -74,6 +75,7 @@ export function DayworkSheetForm({
     return base;
   });
   const [saving, setSaving] = useState(false);
+  const [sendingCopy, setSendingCopy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [submittedRecord, setSubmittedRecord] = useState<DayworkAccountRecord | null>(
@@ -204,15 +206,26 @@ export function DayworkSheetForm({
       }
       const saved = body.record || record;
       setSubmittedRecord(saved);
+      setDraft(
+        dayworkDraftFromRecord(saved, {
+          labourName: engineerName,
+          labourTrade: "Plumber",
+          clientEmail: draft.clientEmail,
+        }),
+      );
       const okMessage = scheduleId
         ? `Submitted to Core and locked on Field · ${body.materialsCount ?? 0} materials. Office can edit in Core → Variations → Daywork account.`
         : `Saved to Core · ${body.materialsCount ?? 0} materials · client ${
             body.hasClientName ? "named" : "missing"
           } · signatures OK · sheets on server: ${body.storeSheetCount ?? "?"}.`;
-      setNotice(okMessage);
+      setNotice(
+        draft.clientEmail.trim()
+          ? `${okMessage} You can email a hours/materials copy to ${draft.clientEmail.trim()} below.`
+          : `${okMessage} Add a client email below to send them a hours/materials copy.`,
+      );
       shoutError(
         scheduleId
-          ? "Daywork submitted to Core.\n\nThis sheet is now locked on Field.\nOffice can edit it in Core → Variations → Daywork account."
+          ? "Daywork submitted to Core.\n\nThis sheet is now locked on Field.\nAdd the client email and tap Email client copy if they need a PDF."
           : `Daywork saved to Core.\n\nMaterials: ${body.materialsCount ?? 0}\nOpen Core → this job → Cost centres → Variations → Daywork account.`,
       );
       onSaved?.(saved);
@@ -220,6 +233,63 @@ export function DayworkSheetForm({
       showFailure(saveError instanceof Error ? saveError.message : "Could not save daywork sheet.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function sendClientCopy() {
+    if (!scheduleId && !jobId) {
+      showFailure("Missing job or schedule — cannot email Daywork copy.");
+      return;
+    }
+    const email = draft.clientEmail.trim();
+    if (!isValidDayworkClientEmail(email)) {
+      showFailure("Enter a valid client email address first.");
+      return;
+    }
+    if (!locked && !isDayworkSubmittedToCore(submittedRecord)) {
+      showFailure("Save and finish the Daywork (both signatures) before emailing a client copy.");
+      return;
+    }
+    setSendingCopy(true);
+    setError("");
+    setNotice("");
+    try {
+      const endpoint = scheduleId
+        ? `/api/field/jobs/${encodeURIComponent(scheduleId)}/daywork`
+        : `/api/jobs/${encodeURIComponent(jobId!)}/daywork`;
+      const response = await fetch(endpoint, {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          ...(requestHeaders || {}),
+        },
+        body: JSON.stringify({
+          action: "send_copy",
+          clientEmail: email,
+          createdBy: engineerName,
+          ...(costCentreId ? { costCentreId } : {}),
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        clientEmail?: string;
+        record?: DayworkAccountRecord;
+      };
+      if (!response.ok) throw new Error(body.error || "Could not email Daywork copy.");
+      if (body.record) {
+        setSubmittedRecord(body.record);
+        setDraft((current) => ({
+          ...current,
+          clientEmail: body.record?.clientEmail || email,
+        }));
+      }
+      setNotice(`Client copy emailed to ${body.clientEmail || email} (hours and materials only — no costs).`);
+    } catch (sendError) {
+      showFailure(sendError instanceof Error ? sendError.message : "Could not email Daywork copy.");
+    } finally {
+      setSendingCopy(false);
     }
   }
 
@@ -509,16 +579,39 @@ export function DayworkSheetForm({
           readOnly={locked}
           onChange={(dataUrl) => setDraft((current) => ({ ...current, clientSignature: dataUrl }))}
         />
+        <label className="daywork-field">
+          <span>Client email (for copy of this sheet)</span>
+          <input
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            value={draft.clientEmail}
+            placeholder="site.manager@example.com"
+            onChange={(event) => setDraft((current) => ({ ...current, clientEmail: event.target.value }))}
+          />
+        </label>
+        <p className="muted" style={{ margin: "0 0 8px" }}>
+          Optional. After Save and finish, email them a PDF of hours and materials only — no rates or costs.
+        </p>
       </section>
 
       <div className="daywork-form-actions">
         {onCancel ? (
-          <button type="button" className="secondary-btn" disabled={saving} onClick={onCancel}>
-            {locked ? "Back" : "Cancel"}
+          <button type="button" className="secondary-btn" disabled={saving || sendingCopy} onClick={onCancel}>
+            {locked ? "Back" : "Back to job checklist"}
           </button>
         ) : null}
-        {locked ? null : (
-          <button type="button" className="primary-btn daywork-save" disabled={saving} onClick={() => void saveSheet()}>
+        {locked ? (
+          <button
+            type="button"
+            className="primary-btn daywork-save"
+            disabled={saving || sendingCopy || !draft.clientEmail.trim()}
+            onClick={() => void sendClientCopy()}
+          >
+            {sendingCopy ? "Sending…" : "Email client copy"}
+          </button>
+        ) : (
+          <button type="button" className="primary-btn daywork-save" disabled={saving || sendingCopy} onClick={() => void saveSheet()}>
             {saving ? "Saving…" : "Save and finish"}
           </button>
         )}

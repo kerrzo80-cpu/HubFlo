@@ -52,6 +52,8 @@ export type DayworkAccountRecord = {
   /** Printed names next to drawn signatures (required — signatures may be illegible). */
   plumberSignerName?: string;
   clientSignerName?: string;
+  /** Optional email so Field can send the client a hours/materials copy (no costs). */
+  clientEmail?: string;
   completedAt?: string;
   populatedFrom: "engineer-app" | "core";
 };
@@ -74,6 +76,22 @@ export function isDayworkSubmittedToCore(record?: DayworkAccountRecord | null): 
   return Boolean(
     String(record.plumberSignature || "").trim() && String(record.clientSignature || "").trim(),
   );
+}
+
+/** Field stop/go rows that belong to a Daywork sheet (not the job gas/plumbing checklist). */
+export function isDayworkRequirement(item: {
+  id?: string;
+  stage?: string;
+  stepId?: string;
+  costCentreId?: string;
+}): boolean {
+  if (item.stage === "Daywork") return true;
+  if (item.stepId?.startsWith("daywork-")) return true;
+  if (item.costCentreId && /daywork/i.test(item.costCentreId)) return true;
+  const id = String(item.id || "");
+  if (id.startsWith("daywork-")) return true;
+  if (id.includes("-daywork-account") || id.includes(":daywork-")) return true;
+  return false;
 }
 
 /**
@@ -155,6 +173,31 @@ export function stripDayworkOfficePricing<T extends DayworkAccountRecord>(record
   void _plantCost;
   void _markupPercent;
   return rest as T;
+}
+
+/** Client / Field copy — hours, materials and plant qty only (no rates, unit costs or totals). */
+export function stripDayworkCostsForClientCopy<T extends DayworkAccountRecord>(record: T): T {
+  const stripLines = (json?: string) =>
+    serialiseDayworkLineItems(
+      parseDayworkLineItems(json).map((item) => ({
+        description: item.description,
+        qty: item.qty,
+      })),
+    );
+  return stripDayworkOfficePricing({
+    ...record,
+    materialsJson: stripLines(record.materialsJson),
+    plantJson: stripLines(record.plantJson),
+    materialsCost: undefined,
+    plantCost: undefined,
+  } as T);
+}
+
+export function isValidDayworkClientEmail(value: string): boolean {
+  const email = value.trim();
+  if (!email) return false;
+  // Practical Field check — full RFC validation is unnecessary here.
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 200;
 }
 
 export function parseDayworkLabourDays(value?: string): DayworkLabourDay[] {
@@ -359,6 +402,8 @@ export type DayworkAccountContext = {
   jobRef: string;
   contract?: string;
   record: DayworkAccountRecord | null;
+  /** Client copy omits rates, £ columns and office totals. */
+  variant?: "office" | "client";
 };
 
 export type DayworkFormSection = {
@@ -453,6 +498,7 @@ export type DayworkSheetDraft = {
   clientSignature: string;
   plumberSignerName: string;
   clientSignerName: string;
+  clientEmail: string;
 };
 
 export function normalizeWeekLabourDays(days: DayworkLabourDay[] | undefined | null): DayworkLabourDay[] {
@@ -493,6 +539,7 @@ export function emptyDayworkSheetDraft(defaults?: Partial<DayworkSheetDraft>): D
     clientSignature: "",
     plumberSignerName: "",
     clientSignerName: "",
+    clientEmail: "",
     ...rest,
     labourDays: normalizeWeekLabourDays(incomingDays),
   };
@@ -524,6 +571,7 @@ export function dayworkDraftFromRecord(
     clientSignature: record?.clientSignature || "",
     plumberSignerName: record?.plumberSignerName || defaults?.plumberSignerName || record?.labourName || "",
     clientSignerName: record?.clientSignerName || defaults?.clientSignerName || "",
+    clientEmail: record?.clientEmail || defaults?.clientEmail || "",
   });
 }
 
@@ -555,6 +603,7 @@ export function dayworkRecordFromDraft(
     clientSignature: draft.clientSignature.trim(),
     plumberSignerName: draft.plumberSignerName.trim(),
     clientSignerName: draft.clientSignerName.trim(),
+    clientEmail: draft.clientEmail.trim(),
     completedAt: new Date().toISOString(),
     populatedFrom,
   };
@@ -584,6 +633,9 @@ export function validateDayworkSheetDraft(draft: DayworkSheetDraft): string | nu
   }
   if (!draft.clientSignature.trim() || (draft.clientSignature.trim().length < 2 && !draft.clientSignature.startsWith("data:image/"))) {
     return "Client signature is required — draw it on the pad.";
+  }
+  if (draft.clientEmail.trim() && !isValidDayworkClientEmail(draft.clientEmail)) {
+    return "Enter a valid client email address, or leave it blank.";
   }
   return null;
 }

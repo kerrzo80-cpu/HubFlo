@@ -41,6 +41,7 @@ export async function GET(request: Request, { params }: Params) {
   const costCentreId =
     url.searchParams.get("costCentreId")?.trim() || ensureDayworkVariationCostCentre(jobId);
   const format = url.searchParams.get("format")?.trim().toLowerCase();
+  const variant = url.searchParams.get("variant")?.trim().toLowerCase() === "client" ? "client" : "office";
 
   let sheets = listDayworkSheetsForJob(jobId);
   if (costCentreId) {
@@ -103,8 +104,9 @@ export async function GET(request: Request, { params }: Params) {
       jobRef: job.ref,
       contract: job.site,
       record: sheet,
+      variant,
     });
-    const filename = dayworkPdfFilename(sheet, job.ref);
+    const filename = dayworkPdfFilename(sheet, job.ref, variant);
     return new NextResponse(new Uint8Array(bytes), {
       status: 200,
       headers: {
@@ -124,14 +126,16 @@ export async function GET(request: Request, { params }: Params) {
       jobRef: job.ref,
       contract: job.site,
       record: sheet,
+      variant,
     });
     attachments.push({
-      filename: dayworkPdfFilename(sheet, job.ref),
+      filename: dayworkPdfFilename(sheet, job.ref, variant),
       contentType: "application/pdf",
       contentBase64: bytes.toString("base64"),
       costCentreId: sheet.costCentreId,
       plumberSignerName: sheet.plumberSignerName || "",
       clientSignerName: sheet.clientSignerName || "",
+      variant,
     });
   }
 

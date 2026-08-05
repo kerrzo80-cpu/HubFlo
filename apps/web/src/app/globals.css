@@ -12872,6 +12872,49 @@ h1 {
   gap: 8px;
 }
 
+.field-daywork-sheet-chip-row {
+  align-items: stretch;
+  display: inline-flex;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.field-daywork-discard-btn {
+  background: #f3e8e8;
+  border: 1px solid #d9b8b8;
+  border-radius: 10px;
+  color: #8a3030;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+
+.field-daywork-discard-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.field-daywork-email-btn {
+  background: #e7f3f8;
+  border: 1px solid #b7d5e2;
+  border-radius: 10px;
+  color: #0f5f7a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+
+.field-daywork-email-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .field-daywork-sheet-chip {
   align-items: flex-start;
   background: #eef4f7;

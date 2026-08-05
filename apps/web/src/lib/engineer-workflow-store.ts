@@ -487,6 +487,16 @@ export function clearDayworkWorkflowMode(scheduleId: string) {
   const workflow = normaliseWorkflow(getMutableWorkflow(scheduleId));
   workflow.checklistMode = "job";
   delete workflow.dayworkCostCentreId;
+  // Drop Daywork-scoped rows (including Handover signature steps) so Mark complete
+  // uses the job stop/go again — not leftover Daywork checklist items.
+  workflow.requirements = workflow.requirements.filter((item) => {
+    if (item.stage === "Daywork") return false;
+    if (item.stepId?.startsWith("daywork-")) return false;
+    if (item.costCentreId && /daywork/i.test(item.costCentreId)) return false;
+    const id = String(item.id || "");
+    if (id.startsWith("daywork-") || id.includes("-daywork-account") || id.includes(":daywork-")) return false;
+    return true;
+  });
   saveStore();
   return getEngineerJobWorkflow(scheduleId);
 }
