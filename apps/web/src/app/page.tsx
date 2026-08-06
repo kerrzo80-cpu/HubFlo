@@ -7510,6 +7510,11 @@ function invoicePortalLink(invoice: { id: string; ref: string; portalToken?: str
   return `${baseUrl}/client/invoices/${token}`;
 }
 
+function clientHubLink(token: string) {
+  const baseUrl = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
+  return `${baseUrl}/client/hub/${token}`;
+}
+
 async function copyTextToClipboard(value: string) {
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
@@ -13423,6 +13428,37 @@ export default function Dashboard() {
       showNotice(`Invoice portal link copied: ${link}`);
     } catch {
       showNotice(`Copy failed — link is ${link}`);
+    }
+  }
+
+  async function copyClientHubPortalLink(customerName: string, clientId?: string) {
+    const cleanedCustomerName = customerName.trim();
+    if (!cleanedCustomerName) {
+      showNotice("Add a customer name before creating a hub link.");
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/client-portal/hub", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          customerName: cleanedCustomerName,
+          clientId,
+        }),
+      });
+      if (response.status === 401) {
+        window.location.assign(`/login?next=${encodeURIComponent(`${window.location.pathname}${window.location.search}` || "/")}`);
+        return;
+      }
+      const result = (await response.json().catch(() => null)) as { token?: string; url?: string; error?: string } | null;
+      if (!response.ok || !result?.token) throw new Error(result?.error || "Could not create customer hub link.");
+      const link = result.url || clientHubLink(result.token);
+      await copyTextToClipboard(link);
+      showNotice(`Customer hub link copied: ${link}`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Could not copy customer hub link.");
     }
   }
 
