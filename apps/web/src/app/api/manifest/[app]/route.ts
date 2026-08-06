@@ -87,19 +87,19 @@ export async function GET(_request: Request, { params }: Params) {
     lang: "en-GB",
     icons: [
       {
-        src: icon.includes("?") ? `${icon}&v=compose4` : `${icon}?v=compose4`,
+        src: icon.includes("?") ? `${icon}&v=compose5` : `${icon}?v=compose5`,
         sizes: "512x512",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: icon.includes("?") ? `${icon}&v=compose4` : `${icon}?v=compose4`,
+        src: icon.includes("?") ? `${icon}&v=compose5` : `${icon}?v=compose5`,
         sizes: "192x192",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: icon.includes("?") ? `${icon}&v=compose4` : `${icon}?v=compose4`,
+        src: icon.includes("?") ? `${icon}&v=compose5` : `${icon}?v=compose5`,
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",

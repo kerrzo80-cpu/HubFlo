@@ -65,7 +65,7 @@ export async function GET() {
       simproLeadsImport: "latest-10-open-stage-status-v2",
       simproEodRefresh: "weekday-1800-utc-cron-v1",
       actionAlertsRouting: "folders-and-daywork-signoff-v1",
-      personalisingBranding: "square-app-icons-v4-fullbleed",
+      personalisingBranding: "square-app-icons-v5-wordmark",
       browserTabFavicon: "ewg-wordmark-tab-v1",
       deployFix: "duplicate-messagecircle-import-v1",
       customiseForms: "delete-copy-colour-all-v1",
