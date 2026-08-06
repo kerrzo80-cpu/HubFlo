@@ -83,6 +83,8 @@ export interface Quote {
   simproQuoteId?: string;
   simproStatus?: "Queued" | "Sent" | "Failed";
   simproSentAt?: string;
+  /** Chain continuity ids (survey / takeoff / heat design). */
+  metadata?: Record<string, string | undefined>;
 }
 
 export interface PurchaseRequest {
@@ -558,6 +560,7 @@ export function createQuote(payload: Omit<Quote, "id" | "ref"> & { id?: string; 
     simproQuoteId: payload.simproQuoteId,
     simproStatus: payload.simproStatus,
     simproSentAt: payload.simproSentAt,
+    metadata: payload.metadata,
     ref: payload.ref || determineNextQuoteRef(store.quotes),
   };
   store.quotes = [...store.quotes, created];

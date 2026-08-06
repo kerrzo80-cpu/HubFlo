@@ -1,6 +1,204 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 
+import { getHubDetailState } from "@/lib/hub-detail-store";
+import { listVariationPortalRequests } from "@/lib/variation-portal-data";
+import { getJobs, type Job } from "@/lib/workflow-data";
+
 export type ReportPackRow = [string, string, string | number, string];
+
+/** Default overhead allowance until business settings expose a configured value. */
+export const DEFAULT_OVERHEAD_PERCENT = 12;
+
+type HubInvoicePayment = {
+  amount?: number;
+  source?: string;
+};
+
+type HubInvoiceRow = {
+  status?: string;
+  chargeTotal?: number;
+  paidAmount?: number;
+  vatRate?: number;
+  customer?: string;
+  ref?: string;
+  sourceId?: string;
+  claimType?: string;
+  payments?: HubInvoicePayment[];
+};
+
+export type ManagerBoardPackSnapshot = {
+  invoices?: HubInvoiceRow[];
+  jobs?: Job[];
+  businessSettings?: Record<string, unknown>;
+  variationPortalPending?: number;
+  variationPortalSell?: number;
+  paymentSourceTotals?: Record<string, number>;
+};
+
+export type ManagerBoardPackResult = {
+  asAt: string;
+  overheadPercent: number;
+  overheadLabel: string;
+  title: string;
+  rows: ReportPackRow[];
+};
+
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function numericSetting(value: unknown, fallback: number) {
+  const parsed = Number.parseFloat(String(value ?? "").replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function resolveOverheadPercent(businessSettings?: Record<string, unknown>) {
+  const raw =
+    businessSettings?.overheadPercent ??
+    businessSettings?.reportsOverheadPercent ??
+    businessSettings?.overheadAllowancePercent;
+  const parsed = numericSetting(raw, DEFAULT_OVERHEAD_PERCENT);
+  return Math.max(0, Math.min(100, parsed));
+}
+
+function invoiceOwed(invoice: HubInvoiceRow) {
+  if (invoice.status === "Cancelled") return 0;
+  const charge = Number(invoice.chargeTotal) || 0;
+  const vat = charge * ((Number(invoice.vatRate) || 0) / 100);
+  const grand = charge + vat;
+  const paid = invoice.status === "Paid" ? grand : Number(invoice.paidAmount) || 0;
+  return Math.max(0, grand - paid);
+}
+
+function sumPaymentsBySource(invoices: HubInvoiceRow[]) {
+  const totals: Record<string, number> = {};
+  for (const invoice of invoices) {
+    if (invoice.status === "Cancelled") continue;
+    for (const payment of invoice.payments ?? []) {
+      const source = String(payment.source || "manual").trim() || "manual";
+      totals[source] = (totals[source] ?? 0) + (Number(payment.amount) || 0);
+    }
+  }
+  return totals;
+}
+
+/** Executive board-pack rows managers trust — sourced from hub detail + workflow stores. */
+export function buildManagerBoardPackRows(options?: {
+  asAt?: string;
+  snapshot?: ManagerBoardPackSnapshot;
+}): ManagerBoardPackResult {
+  const asAt = options?.asAt ?? new Date().toISOString();
+  const snapshot = options?.snapshot;
+  const hub = snapshot ? null : getHubDetailState();
+  const businessSettings =
+    snapshot?.businessSettings ??
+    (hub?.businessSettings && typeof hub.businessSettings === "object"
+      ? (hub.businessSettings as Record<string, unknown>)
+      : undefined);
+  const overheadPercent = resolveOverheadPercent(businessSettings);
+  const overheadLabel = `${overheadPercent}% overhead allowance`;
+
+  const invoices = snapshot?.invoices ?? (Array.isArray(hub?.invoices) ? (hub.invoices as HubInvoiceRow[]) : []);
+  const jobs = snapshot?.jobs ?? getJobs();
+
+  const openInvoices = invoices.filter((invoice) => invoice.status !== "Cancelled" && invoice.status !== "Draft");
+  let cashOwed = 0;
+  let openInvoiceCharge = 0;
+  let visibleRevenue = 0;
+  for (const invoice of openInvoices) {
+    const charge = Number(invoice.chargeTotal) || 0;
+    openInvoiceCharge += charge;
+    visibleRevenue += charge;
+    cashOwed += invoiceOwed(invoice);
+  }
+
+  const readyJobs = jobs.filter((job) => job.status === "Ready to invoice");
+  const readyValue = readyJobs.reduce((total, job) => total + (Number(job.value) || 0), 0);
+
+  const wipJobs = jobs.filter((job) => !["Invoiced", "Closed", "Cancelled"].includes(job.status));
+  let wipSell = 0;
+  let wipUnbilled = 0;
+  for (const job of wipJobs) {
+    const billed = invoices
+      .filter(
+        (invoice) =>
+          invoice.sourceId === job.id &&
+          invoice.status !== "Cancelled" &&
+          invoice.claimType !== "credit-note",
+      )
+      .reduce((total, invoice) => total + (Number(invoice.chargeTotal) || 0), 0);
+    const sell = Number(job.value) || 0;
+    wipSell += sell;
+    wipUnbilled += Math.max(0, sell - billed);
+  }
+
+  let variationsAwaiting = snapshot?.variationPortalPending ?? 0;
+  let variationsSell = snapshot?.variationPortalSell ?? 0;
+  if (snapshot?.variationPortalPending === undefined) {
+    const pending = listVariationPortalRequests().filter(
+      (request) => request.status === "Pending" || request.status === "Viewed",
+    );
+    variationsAwaiting = pending.length;
+    variationsSell = pending.reduce((total, request) => total + (Number(request.sellValue) || 0), 0);
+  }
+
+  const paymentSources = snapshot?.paymentSourceTotals ?? sumPaymentsBySource(invoices);
+  const overheadAllowance = Math.round(visibleRevenue * (overheadPercent / 100));
+
+  const rows: ReportPackRow[] = [
+    ["Executive", "Cash owed", roundMoney(cashOwed), `${openInvoices.filter((invoice) => invoiceOwed(invoice) > 0).length} unpaid invoices`],
+    [
+      "Executive",
+      "Ready to invoice jobs",
+      readyJobs.length,
+      `${roundMoney(readyValue)} contract value · ${readyJobs.length} job(s)`,
+    ],
+    [
+      "Executive",
+      "WIP unbilled",
+      roundMoney(wipUnbilled),
+      `${wipJobs.length} open jobs · ${roundMoney(wipSell)} sell`,
+    ],
+    [
+      "Executive",
+      "Open invoice charge",
+      roundMoney(openInvoiceCharge),
+      `${openInvoices.length} open invoices (ex VAT)`,
+    ],
+    ["Executive", "Overhead allowance", overheadAllowance, overheadLabel],
+    [
+      "Variations",
+      "Awaiting client approval",
+      variationsAwaiting,
+      `${roundMoney(variationsSell)} sell value`,
+    ],
+    ...Object.entries(paymentSources).map(
+      ([source, amount]): ReportPackRow => ["Cash reconcile", source, roundMoney(amount), "Payment source split"],
+    ),
+    ...readyJobs.slice(0, 20).map(
+      (job): ReportPackRow => ["Ready to invoice", job.ref, Number(job.value) || 0, job.customer],
+    ),
+    ...openInvoices
+      .filter((invoice) => invoiceOwed(invoice) > 0)
+      .slice(0, 20)
+      .map(
+        (invoice): ReportPackRow => [
+          "Invoices",
+          String(invoice.ref || "Invoice"),
+          roundMoney(invoiceOwed(invoice)),
+          String(invoice.customer || ""),
+        ],
+      ),
+  ];
+
+  return {
+    asAt,
+    overheadPercent,
+    overheadLabel,
+    title: `Manager board pack · as at ${asAt}`,
+    rows,
+  };
+}
 
 export type ReportBoardPackInput = {
   title?: string;

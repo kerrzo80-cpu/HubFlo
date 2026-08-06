@@ -56,13 +56,35 @@ True ServiceTitan parity (multi-tenant SaaS, plant GPS, full accounting) is opti
 
 ---
 
-## Phase 4 — 10/10 for EWG
+## Phase 4 — 10/10 for EWG *(in progress / shipped on this branch)*
 
-1. No simPRO required for daily path (optional sync only)  
-2. Customer can accept quote, approve variation, pay invoice online  
-3. Engineer completes day offline and syncs without office rescue  
-4. Manager trusts Reports numbers enough to stop building Excel side-books  
-5. Survey → Takeoff → Heat Design → Quote → Job → Field → Invoice is one continuous chain  
+1. **Unified manager board pack** — `buildManagerBoardPackRows()` shared with Monday cron; cash owed, ready-to-invoice, WIP, variations portal, payment split, `asAt` timestamp, overhead label  
+2. **Cash reconcile period mark** — `POST/GET /api/reports/cash-reconcile` + Reports → WIP button  
+3. **Chain continuity** — Takeoff push creates quote when no `linkedQuoteId`; Field Complete → Draft invoice claim; quote `metadata` chain ids (takeoff / survey / heat design)  
+4. No simPRO required for daily path (optional sync only)  
+5. Customer can accept quote, approve variation, pay invoice online  
+6. Engineer completes day offline and syncs without office rescue  
+7. Manager trusts Reports numbers enough to stop building Excel side-books  
+8. Survey → Takeoff → Heat Design → Quote → Job → Field → Invoice is one continuous chain  
+
+**Done when:** health shows `tenOfTenPlan: phase-4-ten-of-ten-v1`, `reportsTrustPack`, `opsChainContinuity`, `portalHandoffAuthority`, `fieldOfflineDayComplete`, `dailyPathSimproOptional`; cron board pack uses manager rows; cash reconcile period can be marked; takeoff push can create quote; Field complete seeds draft invoice.
+
+### Phase 4 checklist
+
+- [x] `buildManagerBoardPackRows()` in `reports-board-pack.ts`
+- [x] Board pack cron uses shared builder (not `executiveRowsFromHub` only)
+- [x] `asAt` ISO in pack metadata/title
+- [x] `DEFAULT_OVERHEAD_PERCENT` + business settings override
+- [x] `cash-reconcile-periods.ts` store
+- [x] `/api/reports/cash-reconcile` POST/GET
+- [x] Minimal “Mark period reconciled” UI on Reports → WIP
+- [x] Takeoff push `createNew` when no linked quote
+- [x] Field Complete → `maybeCreateDraftInvoiceOnJobComplete`
+- [x] Quote `metadata` chain ids on takeoff/heat push
+- [x] Unit tests for board pack builder + cash reconcile store
+- [ ] Daily path without simPRO (optional sync only) — sibling / ongoing
+- [ ] Customer online quote / variation / pay flows — largely shipped in Phase 2–3
+- [ ] End-to-end chain polish in UI (all portals hand off without office rescue)
 
 ---
 

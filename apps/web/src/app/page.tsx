@@ -28602,18 +28602,32 @@ export default function Dashboard() {
         quote: Quote;
         job: Job;
         auditEvents: AuditEvent[];
+        handoff?: {
+          costCentresCopied?: number;
+          jobCostCentres?: EstimateCostCentre[];
+          depositInvoice?: Invoice | null;
+        };
       };
 
-      const centresFromQuote = estimateCostCentresFromQuote(result.job, quoteCostCentres[quote.id] ?? []);
+      const serverHandoff = result.handoff;
+      const centresFromQuote =
+        serverHandoff?.jobCostCentres?.length
+          ? serverHandoff.jobCostCentres
+          : estimateCostCentresFromQuote(result.job, quoteCostCentres[quote.id] ?? []);
 
       setQuotes((current) =>
         current.map((item) => (item.id === result.quote.id ? result.quote : item)),
       );
       setJobs((current) => [result.job, ...current.filter((job) => job.id !== result.job.id)]);
-      setJobEstimateCostCentres((current) => ({
-        ...current,
-        [result.job.id]: centresFromQuote,
-      }));
+      if (centresFromQuote.length > 0) {
+        setJobEstimateCostCentres((current) => ({
+          ...current,
+          [result.job.id]: centresFromQuote,
+        }));
+      }
+      if (serverHandoff?.depositInvoice) {
+        setInvoices((current) => [serverHandoff.depositInvoice as Invoice, ...current]);
+      }
       setAuditEvents((current) => [
         ...result.auditEvents,
         ...current.filter((event) => !result.auditEvents.some((created) => created.id === event.id)),
@@ -28623,13 +28637,13 @@ export default function Dashboard() {
         action: "converted",
         recordType: "job",
         recordId: result.job.id,
-        summary: `${result.job.ref} received ${(quoteCostCentres[quote.id] ?? []).length} quote cost centre(s), engineer notes and priced materials from ${quote.ref}.`,
+        summary: `${result.job.ref} received ${centresFromQuote.length} quote cost centre(s), engineer notes and priced materials from ${quote.ref}.`,
         source: "web",
         importance: "high",
       });
 
       let depositNotice = "";
-      if (workflowRules.autoCreateDepositOnAcceptance) {
+      if (!serverHandoff?.depositInvoice && workflowRules.autoCreateDepositOnAcceptance) {
         const depositPercent = Math.max(1, Math.min(100, Number(workflowRules.defaultDepositPercent) || 30));
         const deposit = createDepositInvoiceForJob(result.job, depositPercent, {
           openRecord: false,
@@ -28638,6 +28652,8 @@ export default function Dashboard() {
         if (deposit) {
           depositNotice = ` Deposit ${deposit.ref} (${depositPercent}%) created.`;
         }
+      } else if (serverHandoff?.depositInvoice && typeof serverHandoff.depositInvoice.ref === "string") {
+        depositNotice = ` Deposit ${serverHandoff.depositInvoice.ref} created.`;
       }
 
       openJobDrawer(result.job.id);
@@ -32811,6 +32827,27 @@ export default function Dashboard() {
                         onClick={() => void pullFilteredInvoicePaymentsFromXero()}
                       >
                         {isPullingXeroPayments ? "Pulling…" : "Pull Xero payments (filter)"}
+                      </button>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => {
+                          void fetch("/api/reports/cash-reconcile", {
+                            method: "POST",
+                            headers: { ...requestHeaders, "Content-Type": "application/json" },
+                            credentials: "same-origin",
+                            body: JSON.stringify({ periodKey: new Date().toISOString().slice(0, 7) }),
+                          }).then(async (response) => {
+                            const data = await response.json().catch(() => ({}));
+                            if (response.ok) {
+                              showNotice(`Cash reconcile period marked · ${data.lastReconciled?.periodKey ?? ""}`);
+                            } else {
+                              showNotice(data.error || "Could not mark period reconciled.");
+                            }
+                          });
+                        }}
+                      >
+                        Mark period reconciled
                       </button>
                     </header>
                     <div className="report-kpi-list">

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { appendAuditEvent } from "@/lib/people-data";
-import { convertQuoteToJob, getQuotes, updateQuote, type QuoteStatus } from "@/lib/workflow-data";
+import { convertQuoteToJobServer } from "@/lib/quote-conversion-handoff";
+import { getQuotes, updateQuote, type QuoteStatus } from "@/lib/workflow-data";
 
 type RouteContext = {
   params: Promise<{ token: string }>;
@@ -100,11 +101,19 @@ export async function POST(request: Request, context: RouteContext) {
     importance: "high",
   });
 
-  const conversion = status === "Accepted" ? convertQuoteToJob(quote.id, quote.customer, updated.value) : null;
+  const conversion =
+    status === "Accepted"
+      ? convertQuoteToJobServer(quote.id, {
+          actor: quote.customer,
+          chargeValue: updated.value,
+          source: "client portal",
+        })
+      : null;
 
   return NextResponse.json({
     quote: conversion?.quote ?? updated,
     job: conversion?.job ?? null,
     auditEvents: conversion?.auditEvents ?? [],
+    handoff: conversion?.handoff ?? null,
   });
 }
