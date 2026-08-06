@@ -1119,6 +1119,11 @@
   border-color: rgba(0, 110, 184, 0.28);
 }
 
+.takeoff-board-items .item.low-confidence {
+  border-color: rgba(247, 144, 9, 0.45);
+  background: #fff8e8;
+}
+
 .takeoff-board-items .item.derived {
   cursor: default;
   opacity: 0.88;
@@ -1287,6 +1292,11 @@
   background: var(--blue-soft);
   border-color: rgba(0, 110, 184, 0.45);
   color: var(--blue-deep);
+}
+
+.takeoff-skill-secondary.danger {
+  border-color: rgba(180, 58, 58, 0.35);
+  color: var(--red);
 }
 
 .takeoff-overlay-canvas-wrap.tool-add {

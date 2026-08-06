@@ -12,6 +12,7 @@ let createHeatDesignProject: typeof import("./heat-design-store").createHeatDesi
 let deleteHeatDesignProject: typeof import("./heat-design-store").deleteHeatDesignProject;
 let getHeatDesignProject: typeof import("./heat-design-store").getHeatDesignProject;
 let listHeatDesignProjects: typeof import("./heat-design-store").listHeatDesignProjects;
+let listHeatDesignRevisions: typeof import("./heat-design-store").listHeatDesignRevisions;
 let resetHeatDesignStoreForTests: typeof import("./heat-design-store").resetHeatDesignStoreForTests;
 let saveHeatDesignProject: typeof import("./heat-design-store").saveHeatDesignProject;
 
@@ -22,6 +23,7 @@ before(async () => {
     deleteHeatDesignProject,
     getHeatDesignProject,
     listHeatDesignProjects,
+    listHeatDesignRevisions,
     resetHeatDesignStoreForTests,
     saveHeatDesignProject,
   } = mod);
@@ -55,4 +57,22 @@ test("create/save/list/delete heat design projects", () => {
   assert.equal(deleteHeatDesignProject(created.id), true);
   assert.equal(getHeatDesignProject(created.id), undefined);
   assert.deepEqual(listHeatDesignProjects(), []);
+});
+
+test("save appends heat design revisions", () => {
+  resetHeatDesignStoreForTests();
+  const created = createHeatDesignProject({ name: "Audit design" });
+
+  const firstSave = saveHeatDesignProject({ ...created, customerName: "First customer" });
+  const secondSave = saveHeatDesignProject({ ...firstSave, customerName: "Second customer" });
+  const revisions = listHeatDesignRevisions(created.id);
+
+  assert.equal(firstSave.revisions?.length, 1);
+  assert.equal(secondSave.revisions?.length, 2);
+  assert.equal(revisions.length, 2);
+  const latestRevision = revisions[0];
+  assert.ok(latestRevision);
+  assert.equal(latestRevision.id, secondSave.revisions?.[0]?.id);
+  assert.match(latestRevision.summary, /^Saved 0 rooms · 0 W heat loss$/);
+  assert.ok(latestRevision.snapshotHash);
 });

@@ -95,6 +95,17 @@ function upsertProjectList(projects: HeatDesignProject[], project: HeatDesignPro
   return next.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
+function formatRevisionTimestamp(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function HeatDesignLabPage() {
   const brand = useBrand();
   const [tab, setTab] = useState<LabTab>("plan");
@@ -115,6 +126,8 @@ export default function HeatDesignLabPage() {
   const [selectedQuoteId, setSelectedQuoteId] = useState("");
   const [, startTransition] = useTransition();
   const hydratedRef = useRef(false);
+  const applyingServerSaveRef = useRef(false);
+  const skipNextProjectSaveRef = useRef(false);
   const saveTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -142,6 +155,7 @@ export default function HeatDesignLabPage() {
       setSelectedJobId(linked.linkedJobId || "");
       setSelectedQuoteId(linked.linkedQuoteId || "");
       setSaveStatus(status);
+      skipNextProjectSaveRef.current = status === "saved" && !jobId && !quoteId;
       if (jobId) {
         setLinkTarget("job");
         setSelectedJobId(jobId);
@@ -205,6 +219,16 @@ export default function HeatDesignLabPage() {
       setNotice("Couldn't save this design locally — your browser storage may be full or blocked.");
     }
 
+    if (applyingServerSaveRef.current) {
+      applyingServerSaveRef.current = false;
+      return;
+    }
+
+    if (skipNextProjectSaveRef.current) {
+      skipNextProjectSaveRef.current = false;
+      return;
+    }
+
     if (!hydratedRef.current) return;
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     setSaveStatus((current) => (current === "offline" ? current : "saving"));
@@ -218,6 +242,11 @@ export default function HeatDesignLabPage() {
         if (!res.ok) throw new Error("Could not save heat design project");
         const saved = normaliseProject((await res.json()) as HeatDesignProject);
         setProjects((current) => upsertProjectList(current, saved));
+        setProject((current) => {
+          if (current?.id !== saved.id) return current;
+          applyingServerSaveRef.current = true;
+          return saved;
+        });
         setSaveStatus("saved");
       } catch {
         setSaveStatus("offline");
@@ -321,6 +350,7 @@ export default function HeatDesignLabPage() {
   function selectProject(id: string) {
     const next = projects.find((item) => item.id === id);
     if (!next) return;
+    skipNextProjectSaveRef.current = true;
     activateProject(next);
     setLayoutMode(false);
     setSaveStatus(saveStatus === "offline" ? "offline" : "saved");
@@ -649,6 +679,7 @@ export default function HeatDesignLabPage() {
     (id) => id === "opt-ashp" || id === "opt-hybrid",
   ) || chosenOption?.kind === "ashp" || chosenOption?.kind === "hybrid";
   const projectOptions = projects.length ? projects : [project];
+  const revisionHistory = project.revisions ?? [];
   const saveStatusLabel =
     saveStatus === "saved"
       ? "Saved to server"
@@ -1637,6 +1668,7 @@ export default function HeatDesignLabPage() {
               project={project}
               design={design}
               options={optionResults}
+              companyName={brand.companyName}
               className={tab === "report" ? undefined : "is-print-source"}
             />
           </section>
@@ -1698,6 +1730,24 @@ export default function HeatDesignLabPage() {
                 <div className="hd-banner warn" style={{ marginTop: 14, marginBottom: 0 }}>
                   Choose a system and Design on plan to build the kit.
                 </div>
+              )}
+            </section>
+            <section className="hd-panel hd-history-panel no-print">
+              <div className="hd-history-head">
+                <h2>History</h2>
+                <span>{revisionHistory.length} revision{revisionHistory.length === 1 ? "" : "s"}</span>
+              </div>
+              {revisionHistory.length ? (
+                <ol className="hd-history-list">
+                  {revisionHistory.slice(0, 5).map((revision) => (
+                    <li key={revision.id}>
+                      <time dateTime={revision.at}>{formatRevisionTimestamp(revision.at)}</time>
+                      <span>{revision.summary}</span>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="hd-history-empty">No server saves recorded yet.</p>
               )}
             </section>
           </aside>

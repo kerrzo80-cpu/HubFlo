@@ -1,5 +1,7 @@
 /** NeXa Takeoff Studio — Togal-style classification + geometry model (NeXa / EWG, not a clone of Togal). */
 
+import type { TakeoffConfidence, TakeoffMeasureMethod } from "@/lib/takeoff-skill";
+
 export type StudioClassKind = "area" | "linear" | "count";
 
 export type StudioTool =
@@ -13,6 +15,37 @@ export type StudioTool =
   | "measure";
 
 export type StudioPoint = { x: number; y: number };
+
+export type StudioAiReviewStatus = "pending" | "confirmed" | "rejected";
+
+export type StudioAiReviewMeasuredQuantity = {
+  id: string;
+  assemblyId?: string;
+  kind: "primary" | "secondary";
+  code: string;
+  description: string;
+  quantity?: number;
+  unit: string;
+  method?: TakeoffMeasureMethod;
+  confidence?: TakeoffConfidence;
+  sourceSheetIds?: string[];
+  derivation?: string;
+  notes?: string;
+  tagMatches?: Array<{
+    id: string;
+    documentId: string;
+    fileName?: string;
+    pageNumber: number;
+    text?: string;
+    x: number;
+    y: number;
+    pageWidth?: number;
+    pageHeight?: number;
+    excluded?: boolean;
+    manual?: boolean;
+    derived?: boolean;
+  }>;
+};
 
 export type StudioClassification = {
   id: string;
@@ -31,6 +64,11 @@ export type StudioGeometry =
       documentId: string;
       page: number;
       point: StudioPoint;
+      source?: "manual" | "ai";
+      confidence?: TakeoffConfidence;
+      reviewStatus?: StudioAiReviewStatus;
+      sourceTagId?: string;
+      sourceText?: string;
     }
   | {
       id: string;
@@ -72,6 +110,9 @@ export type StudioState = {
   classifications: StudioClassification[];
   geometries: StudioGeometry[];
   scales: StudioPageScale[];
+  aiReviewStatus?: StudioAiReviewStatus;
+  aiReviewMeasured?: StudioAiReviewMeasuredQuantity[];
+  aiReviewUpdatedAt?: string;
   updatedAt: string;
 };
 
@@ -166,6 +207,21 @@ export function scaleForPage(studio: StudioState, documentId: string, page: numb
   return studio.scales.find((row) => row.documentId === documentId && row.page === page);
 }
 
+export function isAiStudioGeometry(geo: StudioGeometry): boolean {
+  return geo.kind === "count" && (geo.source === "ai" || geo.id.startsWith("ai-"));
+}
+
+export function studioHasAiCounts(studio: StudioState): boolean {
+  return studio.geometries.some(isAiStudioGeometry)
+    || Boolean(studio.aiReviewMeasured?.some((row) =>
+      (row.tagMatches || []).some((match) => !match.excluded),
+    ));
+}
+
+export function studioNeedsAiReview(studio: StudioState): boolean {
+  return studio.aiReviewStatus === "pending" && studioHasAiCounts(studio);
+}
+
 export type StudioQuantityRow = {
   classificationId: string;
   name: string;
@@ -235,27 +291,40 @@ export function importSkillCountsIntoStudio(
   studio: StudioState,
   measured: Array<{
     id: string;
+    assemblyId?: string;
     kind: "primary" | "secondary";
     code: string;
     description: string;
+    quantity?: number;
     unit: string;
+    method?: string;
+    confidence?: TakeoffConfidence;
+    sourceSheetIds?: string[];
     tagMatches?: Array<{
       id: string;
       documentId: string;
+      fileName?: string;
       pageNumber: number;
+      text?: string;
       x: number;
       y: number;
       pageWidth?: number;
       pageHeight?: number;
       excluded?: boolean;
+      manual?: boolean;
+      derived?: boolean;
     }>;
   }>,
-  options?: { canvasWidth?: number; canvasHeight?: number; replaceExistingAi?: boolean },
+  options?: {
+    canvasWidth?: number;
+    canvasHeight?: number;
+    replaceExistingAi?: boolean;
+    aiReviewStatus?: StudioAiReviewStatus;
+  },
 ): StudioState {
   const canvasW = options?.canvasWidth || 0;
-  const canvasH = options?.canvasHeight || 0;
   const keep = options?.replaceExistingAi
-    ? studio.geometries.filter((geo) => !geo.id.startsWith("ai-"))
+    ? studio.geometries.filter((geo) => !isAiStudioGeometry(geo))
     : studio.geometries;
 
   const classifications = [...studio.classifications];
@@ -290,6 +359,11 @@ export function importSkillCountsIntoStudio(
         kind: "count",
         documentId: match.documentId,
         page: match.pageNumber || 1,
+        source: "ai",
+        confidence: row.confidence,
+        reviewStatus: options?.aiReviewStatus ?? studio.aiReviewStatus ?? "pending",
+        sourceTagId: match.id,
+        sourceText: match.text,
         point: {
           x: match.x * renderScale,
           y: pageHeight ? (pageHeight - match.y) * renderScale : match.y * renderScale,
@@ -309,6 +383,9 @@ export function importSkillCountsIntoStudio(
     activePage: firstAi?.page || studio.activePage,
     activeClassificationId: firstAiClass?.id || studio.activeClassificationId,
     tool: "select",
+    aiReviewStatus: options?.aiReviewStatus ?? studio.aiReviewStatus,
+    aiReviewMeasured: studio.aiReviewMeasured,
+    aiReviewUpdatedAt: studio.aiReviewUpdatedAt,
     updatedAt: new Date().toISOString(),
   };
 }

@@ -114,3 +114,33 @@ services:
         value: 24.14.0
       - key: NEXA_IMPORT_TICK_SECRET
         sync: false
+
+  # Monday 08:00 UTC board pack email (enable recipients in Core → Reports → Schedule email).
+  - type: cron
+    name: nexa-live-board-pack-monday
+    runtime: node
+    region: frankfurt
+    plan: starter
+    schedule: "5 8 * * 1"
+    buildCommand: echo "nexa-board-pack-cron"
+    startCommand: >-
+      node --input-type=module -e "
+      const secret = process.env.NEXA_IMPORT_TICK_SECRET;
+      if (!secret) { console.error('NEXA_IMPORT_TICK_SECRET missing'); process.exit(1); }
+      const res = await fetch('https://nexa-live.onrender.com/api/reports/board-pack/cron', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-nexa-import-tick-secret': secret,
+        },
+        body: '{}',
+      });
+      const text = await res.text();
+      console.log(res.status, text.slice(0, 2000));
+      if (!res.ok) process.exit(1);
+      "
+    envVars:
+      - key: NODE_VERSION
+        value: 24.14.0
+      - key: NEXA_IMPORT_TICK_SECRET
+        sync: false
