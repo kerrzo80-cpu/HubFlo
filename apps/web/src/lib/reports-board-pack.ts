@@ -402,12 +402,4 @@ export function buildReportsExcelXml(input: ReportBoardPackInput): string {
 </Workbook>`;
 }
 
-export function downloadBlob(filename: string, blob: Blob) {
-  if (typeof window === "undefined") return;
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  window.URL.revokeObjectURL(url);
-}
+export { downloadBlob } from "@/lib/download-blob";
