@@ -34,7 +34,7 @@ test("generateDueRecurringPlans creates due jobs and draft invoices", async (t) 
   assert.ok(storeDir);
   t.after(() => rmSync(storeDir, { recursive: true, force: true }));
 
-  const { loadServerStore, writeServerStore } = await import("./server-store.ts");
+  const { loadServerStore, writeServerStore } = await import("./server-store");
   writeServerStore("people-store", {
     clients: [
       {
@@ -117,7 +117,7 @@ test("generateDueRecurringPlans creates due jobs and draft invoices", async (t) 
     deletedIds: [],
   });
 
-  const { generateDueRecurringPlans } = await import("./recurring-generate.ts");
+  const { generateDueRecurringPlans } = await import("./recurring-generate");
   const result = generateDueRecurringPlans({ asOf: "2026-01-01", actor: "Carol" });
 
   assert.deepEqual(result.errors, []);
