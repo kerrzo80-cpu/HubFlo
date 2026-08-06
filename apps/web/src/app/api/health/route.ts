@@ -50,7 +50,7 @@ export async function GET() {
       tenOfTenPlan: "phase-3-category-peer-v1",
       sumupPayLinks: "hosted-checkout-v1",
       cashReconcile: "xero-filter-pull-v1",
-      fieldServiceWorker: "shell-v1",
+      fieldServiceWorker: "shell-v2-scoped",
       dispatchRunSheet: "travel-buffer-v1",
       boardPackEmail: "monday-cron-v1",
       photoCompressBuild: "shrink-v1",

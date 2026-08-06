@@ -29,11 +29,28 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
-    // Script is at /sw-field.js (public). Default scope "/" is required —
-    // browsers reject scope "/field" unless the script lives under that path.
-    void navigator.serviceWorker.register("/sw-field.js").catch(() => {
-      // Private mode / unsupported — Field still works online with outbox.
-    });
+    void (async () => {
+      try {
+        // Tear down the Phase 3 root-scoped SW that could poison /_next after deploys.
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(
+          regs.map(async (reg) => {
+            const script =
+              reg.active?.scriptURL || reg.waiting?.scriptURL || reg.installing?.scriptURL || "";
+            if (script.endsWith("/sw-field.js")) await reg.unregister();
+          }),
+        );
+        if ("caches" in window) {
+          const keys = await caches.keys();
+          await Promise.all(
+            keys.filter((key) => key === "ewg-field-shell-v1").map((key) => caches.delete(key)),
+          );
+        }
+        await navigator.serviceWorker.register("/field/sw.js", { scope: "/field/" });
+      } catch {
+        // Private mode / unsupported — Field still works online with outbox.
+      }
+    })();
   }, []);
 
   async function syncNow() {

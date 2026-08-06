@@ -35,6 +35,7 @@ const publicAssetPaths = new Set([
   "/icon",
   "/favicon.ico",
   "/sw-field.js",
+  "/field/sw.js",
   "/nexa-ai-first.html",
   "/manifest-core.json",
   "/manifest-estimator.json",
