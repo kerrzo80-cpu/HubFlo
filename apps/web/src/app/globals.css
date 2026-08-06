@@ -3789,6 +3789,11 @@ a,
   z-index: 10;
 }
 
+/* Allow People (and any) dropdown to escape the scroll clip while open. */
+.module-bar.is-menu-open {
+  overflow: visible;
+}
+
 .module-bar-scroll {
   align-items: center;
   display: flex;
@@ -3801,6 +3806,10 @@ a,
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
+}
+
+.module-bar.is-menu-open .module-bar-scroll {
+  overflow: visible;
 }
 
 .module-bar-scroll::-webkit-scrollbar {
@@ -3960,7 +3969,7 @@ a,
   padding: 6px;
   position: absolute;
   top: 100%;
-  z-index: 9;
+  z-index: 80;
 }
 
 .module-submenu.open {

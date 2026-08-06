@@ -30622,7 +30622,10 @@ export default function Dashboard() {
         </button>
       </div>
 
-      <nav className="module-bar" aria-label="Main modules">
+      <nav
+        className={openModuleMenu ? "module-bar is-menu-open" : "module-bar"}
+        aria-label="Main modules"
+      >
         <button
           className="mobile-menu sidebar-toggle"
           aria-label={contextSidebarCollapsed ? "Open navigation" : "Close navigation"}
@@ -30664,7 +30667,16 @@ export default function Dashboard() {
                       type="button"
                       className={`${isOpen || isActiveModule ? "module-link active" : "module-link"} module-dropdown-trigger`}
                       aria-expanded={isOpen}
-                      onClick={() => setOpenModuleMenu(isOpen ? null : module.label)}
+                      onClick={() => {
+                        // Always open a useful People view — menu alone looked broken when
+                        // overflow clipping hid the submenu after the iPad nav scroll fix.
+                        if (module.label === "People") {
+                          goToPeopleSection("Employees");
+                          setOpenModuleMenu(module.label);
+                          return;
+                        }
+                        setOpenModuleMenu(isOpen ? null : module.label);
+                      }}
                     >
                       <Icon size={16} strokeWidth={1.8} />
                       <span>{module.label}</span>
