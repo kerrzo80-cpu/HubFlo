@@ -38,6 +38,7 @@ export type StockMovement = {
   reason: "Receipt" | "Issue to job" | "Return from job" | "Transfer" | "Stocktake" | "Adjustment";
   jobRef?: string;
   poNumber?: string;
+  receiptKey?: string;
   note?: string;
   actor: string;
 };
@@ -181,6 +182,7 @@ export function recordStockMovement(input: {
   toLocationId?: string;
   jobRef?: string;
   poNumber?: string;
+  receiptKey?: string;
   note?: string;
   actor?: string;
 }) {
@@ -224,6 +226,7 @@ export function recordStockMovement(input: {
     reason: input.reason,
     jobRef: input.jobRef,
     poNumber: input.poNumber,
+    receiptKey: input.receiptKey,
     note: input.note,
     actor: input.actor?.trim() || "NeXa",
   });
@@ -243,13 +246,34 @@ export function receivePurchaseIntoStock(input: {
   }>;
   locationId?: string;
   poNumber?: string;
+  receiptKey?: string;
   jobRef?: string;
   actor?: string;
 }) {
   let store = readStore();
   const locationId = input.locationId || store.locations.find((row) => row.kind === "Warehouse")?.id;
   if (!locationId) throw new Error("No warehouse location configured.");
+  const poNumber = input.poNumber?.trim();
+  const receiptKey = input.receiptKey?.trim();
+  if (
+    poNumber &&
+    receiptKey &&
+    store.movements.some(
+      (movement) =>
+        movement.reason === "Receipt" &&
+        movement.poNumber === poNumber &&
+        movement.receiptKey === receiptKey,
+    )
+  ) {
+    return {
+      ...getStockSnapshot(),
+      receivedCount: 0,
+      skippedDuplicate: true,
+      receiptKey,
+    };
+  }
 
+  let receivedCount = 0;
   for (const line of input.lines) {
     if (!line.quantity) continue;
     store = readStore();
@@ -295,13 +319,20 @@ export function receivePurchaseIntoStock(input: {
       quantity: line.quantity,
       reason: "Receipt",
       toLocationId: locationId,
-      poNumber: input.poNumber,
+      poNumber,
+      receiptKey,
       jobRef: input.jobRef,
       actor: input.actor,
       note: "Goods receipt from purchase order",
     });
+    receivedCount += 1;
   }
-  return getStockSnapshot();
+  return {
+    ...getStockSnapshot(),
+    receivedCount,
+    skippedDuplicate: false,
+    receiptKey,
+  };
 }
 
 export function archiveStockItem(id: string) {

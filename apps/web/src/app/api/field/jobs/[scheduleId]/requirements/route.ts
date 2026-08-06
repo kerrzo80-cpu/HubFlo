@@ -15,6 +15,8 @@ type RequirementBody = {
   text?: string;
   numberValue?: string;
   photoName?: string;
+  photoContentBase64?: string;
+  photoMimeType?: string;
   createdBy?: string;
   reopen?: boolean;
 };
@@ -53,6 +55,8 @@ export async function POST(request: Request, { params }: Params) {
             text: body.text,
             numberValue: body.numberValue,
             photoName: body.photoName,
+            photoContentBase64: body.photoContentBase64,
+            photoMimeType: body.photoMimeType,
             createdBy: body.createdBy,
             evidence: {
               text: body.text,
@@ -65,6 +69,7 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({
       scheduleId,
       requirements: workflow.requirements ?? [],
+      photos: workflow.photos ?? [],
     });
   } catch (error) {
     return NextResponse.json(

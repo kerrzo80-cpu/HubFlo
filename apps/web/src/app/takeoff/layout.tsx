@@ -3,7 +3,7 @@ import { TakeoffScrollUnlock } from "./takeoff-scroll-unlock";
 
 export const metadata: Metadata = {
   title: "Takeoffs",
-  description: "AI construction quantity takeoff — quantities, confidence scoring, BOQ handoff.",
+  description: "NeXa Takeoff Studio — AI area, linear and count takeoff with Core quote push.",
   applicationName: "Takeoffs",
   manifest: "/api/manifest/takeoffs",
   appleWebApp: {
@@ -12,8 +12,11 @@ export const metadata: Metadata = {
     title: "Takeoffs",
   },
   icons: {
-    icon: [{ url: "/api/branding/assets/logo-takeoffs", sizes: "512x512", type: "image/png" }],
-    apple: [{ url: "/api/branding/assets/logo-takeoffs", sizes: "180x180", type: "image/png" }],
+    icon: [
+      { url: "/api/branding/favicon?size=32&v=tab4", sizes: "32x32", type: "image/png" },
+      { url: "/api/branding/assets/logo-takeoffs?home=1&v=compose5", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/api/branding/assets/logo-takeoffs?apple=1&v=compose5", sizes: "180x180", type: "image/png" }],
   },
 };
 
