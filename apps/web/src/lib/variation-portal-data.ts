@@ -69,10 +69,6 @@ export function getVariationPortalRequestsByJob(jobId: string) {
   return clone(variationPortalStore.requests.filter((request) => request.jobId === jobId));
 }
 
-export function listVariationPortalRequests() {
-  return clone(variationPortalStore.requests);
-}
-
 export function getVariationPortalRequestsByVariationEvent(variationEventId: string) {
   return clone(variationPortalStore.requests.find((request) => request.variationEventId === variationEventId) ?? null);
 }

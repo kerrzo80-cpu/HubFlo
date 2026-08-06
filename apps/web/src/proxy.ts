@@ -9,7 +9,7 @@ const pilotSessionCookie = "nexa_pilot_session";
 const pilotSessionMaxAgeSeconds = 60 * 60 * 24 * 30;
 const publicPagePrefixes = ["/ai-first", "/heat-design", "/client"];
 const publicAssetPrefixes = ["/app-icons/", "/brand/", "/api/manifest/"];
-const publicApiPrefixes = ["/api/quote-portal", "/api/variation-portal", "/api/invoice-portal", "/api/client-portal"];
+const publicApiPrefixes = ["/api/quote-portal", "/api/variation-portal", "/api/invoice-portal"];
 const userAuthPublicPaths = new Set([
   "/api/auth/login",
   "/api/auth/me",
