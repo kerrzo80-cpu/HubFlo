@@ -53,10 +53,12 @@ async function checkPath(origin: string, path: string, acceptStatuses: number[])
 }
 
 async function runSmoke(origin: string) {
+  const coreModulePaths = ["/jobs", "/quotes", "/leads", "/setup", "/reports", "/people", "/schedule", "/invoices"];
   const checks = await Promise.all([
     checkPath(origin, "/api/health", [200]),
     checkPath(origin, "/login", [200]),
     checkPath(origin, "/", [200, 302, 307]),
+    ...coreModulePaths.map((path) => checkPath(origin, path, [200, 302, 307])),
     checkPath(origin, "/field", [200, 302, 307]),
     checkPath(origin, "/sw-field.js", [200]),
     checkPath(origin, "/field/sw.js", [200]),
@@ -76,6 +78,19 @@ async function runSmoke(origin: string) {
     }
   }
 
+  const deployment =
+    healthDetail && typeof healthDetail === "object" && "deployment" in healthDetail
+      ? (healthDetail.deployment as Record<string, unknown> | null)
+      : null;
+  const coreRoutesOk = deployment?.coreRoutes === "url-modules-v1";
+  if (health?.ok && !coreRoutesOk) {
+    checks.push({
+      path: "/api/health#coreRoutes",
+      ok: false,
+      error: `coreRoutes=${String(deployment?.coreRoutes)}, expected url-modules-v1`,
+    });
+  }
+
   const failed = checks.filter((check) => !check.ok);
   return {
     ok: failed.length === 0,
@@ -83,10 +98,7 @@ async function runSmoke(origin: string) {
     checkedAt: new Date().toISOString(),
     failed: failed.map((check) => check.path),
     checks,
-    deployment:
-      healthDetail && typeof healthDetail === "object" && "deployment" in healthDetail
-        ? healthDetail.deployment
-        : null,
+    deployment,
   };
 }
 
