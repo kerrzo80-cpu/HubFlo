@@ -548,10 +548,11 @@ export default function HeatDesignLabPage() {
       flowTemperature: nextFlow,
       heatingLayout: layout,
     });
-    setLayoutMode(true);
+    // Keep plan-edit mode so walls/rooms stay draggable; user can turn Heating layout on to move plant/pipes.
+    setLayoutMode(false);
     setTab("plan");
     setNotice(
-      `Designed ${option?.label ?? "system"} at ${nextFlow}°C flow with ${emitterMode === "ufh" ? "underfloor heating" : emitterMode === "mixed" ? "mixed radiators / UFH" : "radiators"}.`,
+      `Designed ${option?.label ?? "system"} at ${nextFlow}°C flow with ${emitterMode === "ufh" ? "underfloor heating" : emitterMode === "mixed" ? "mixed radiators / UFH" : "radiators"}. Walls stay editable — turn on Heating layout to move plant and pipes.`,
     );
   }
 
