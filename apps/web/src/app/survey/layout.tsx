@@ -13,10 +13,10 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/icon", sizes: "32x32", type: "image/png" },
-      { url: "/api/branding/assets/logo-survey?home=1&v=tab1", sizes: "512x512", type: "image/png" },
+      { url: "/api/branding/favicon?size=32&v=tab4", sizes: "32x32", type: "image/png" },
+      { url: "/api/branding/assets/logo-survey?home=1&v=compose5", sizes: "512x512", type: "image/png" },
     ],
-    apple: [{ url: "/api/branding/assets/logo-survey?apple=1&v=tab1", sizes: "180x180", type: "image/png" }],
+    apple: [{ url: "/api/branding/assets/logo-survey?apple=1&v=compose5", sizes: "180x180", type: "image/png" }],
   },
 };
 

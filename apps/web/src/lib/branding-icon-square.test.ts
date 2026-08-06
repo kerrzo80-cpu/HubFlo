@@ -6,7 +6,7 @@ import sharp from "sharp";
 import { APP_ICON_COMPOSE_VERSION, ensureSquareAppIcon } from "./branding-icon-square";
 
 describe("ensureSquareAppIcon", () => {
-  it("builds a 512 square without stretching and uses a white full-bleed canvas", async () => {
+  it("builds a 512 square with white full-bleed canvas and keeps wide artwork", async () => {
     const wide = await sharp({
       create: { width: 400, height: 200, channels: 3, background: { r: 255, g: 255, b: 255 } },
     })
@@ -27,7 +27,7 @@ describe("ensureSquareAppIcon", () => {
             .png()
             .toBuffer(),
           left: 200,
-          top: 40,
+          top: 80,
         },
       ])
       .png()
@@ -41,14 +41,27 @@ describe("ensureSquareAppIcon", () => {
     assert.equal(meta.width, 512);
     assert.equal(meta.height, 512);
 
-    const { data } = await sharp(result.buffer).raw().toBuffer({ resolveWithObject: true });
+    const { data, info } = await sharp(result.buffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     // Corners are white (full-bleed), not a nested brand ring.
     assert.equal(data[0], 255);
     assert.equal(data[1], 255);
     assert.equal(data[2], 255);
+
+    // Right-hand "wordmark" block must still be present (not cropped to left mark only).
+    let rightInk = 0;
+    for (let y = 0; y < info.height; y++) {
+      for (let x = Math.floor(info.width * 0.55); x < info.width; x++) {
+        const i = (y * info.width + x) * info.channels;
+        const r = data[i] ?? 0;
+        const g = data[i + 1] ?? 0;
+        const b = data[i + 2] ?? 0;
+        if (r < 80 && g < 80 && b < 80) rightInk += 1;
+      }
+    }
+    assert.ok(rightInk > 200, `expected wordmark ink on the right, got ${rightInk}`);
   });
 
-  it("composites the live EWG Core logo into a large square mark icon", async () => {
+  it("keeps the full EWG Core wordmark (not droplet-only)", async () => {
     let live: Buffer;
     try {
       live = readFileSync(
@@ -81,11 +94,11 @@ describe("ensureSquareAppIcon", () => {
       assert.ok((data[i + 2] ?? 0) > 250);
     }
 
-    // Mark content should occupy most of the canvas (not a tiny stamp).
     let minX = info.width;
     let minY = info.height;
     let maxX = 0;
     let maxY = 0;
+    let rightInk = 0;
     for (let y = 0; y < info.height; y++) {
       for (let x = 0; x < info.width; x++) {
         const i = (y * info.width + x) * info.channels;
@@ -97,13 +110,14 @@ describe("ensureSquareAppIcon", () => {
         minY = Math.min(minY, y);
         maxX = Math.max(maxX, x);
         maxY = Math.max(maxY, y);
+        if (x > info.width * 0.55) rightInk += 1;
       }
     }
     const contentW = maxX - minX + 1;
     const contentH = maxY - minY + 1;
-    assert.ok(contentW > 400, `expected wide mark fill, got ${contentW}`);
-    assert.ok(contentH > 400, `expected tall mark fill, got ${contentH}`);
-    const aspect = contentW / contentH;
-    assert.ok(aspect > 0.9 && aspect < 1.1, `expected ~square mark, got ${aspect}`);
+    assert.ok(contentW > 350, `expected wide wordmark fill, got ${contentW}`);
+    assert.ok(contentH > 180, `expected readable wordmark height, got ${contentH}`);
+    assert.ok(contentW / contentH > 1.2, `expected wide wordmark aspect, got ${contentW / contentH}`);
+    assert.ok(rightInk > 500, `expected CORE text ink on the right, got ${rightInk}`);
   });
 });
