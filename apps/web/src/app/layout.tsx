@@ -23,13 +23,13 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/api/branding/favicon?size=32&v=tab2", sizes: "32x32", type: "image/png" },
+      { url: "/api/branding/favicon?size=32&v=tab3", sizes: "32x32", type: "image/png" },
       { url: "/favicon.ico", sizes: "32x32", type: "image/png" },
-      { url: "/api/branding/assets/logo-core?home=1&v=tab2", sizes: "192x192", type: "image/png" },
-      { url: "/api/branding/assets/logo-core?home=1&v=tab2", sizes: "512x512", type: "image/png" },
+      { url: "/api/branding/assets/logo-core?v=tab3", sizes: "192x192", type: "image/png" },
+      { url: "/api/branding/assets/logo-core?v=tab3", sizes: "512x512", type: "image/png" },
     ],
-    apple: [{ url: "/api/branding/favicon?size=180&v=tab2", sizes: "180x180", type: "image/png" }],
-    shortcut: "/api/branding/favicon?size=32&v=tab2",
+    apple: [{ url: "/api/branding/favicon?size=180&v=tab3", sizes: "180x180", type: "image/png" }],
+    shortcut: "/api/branding/favicon?size=32&v=tab3",
   },
 };
 

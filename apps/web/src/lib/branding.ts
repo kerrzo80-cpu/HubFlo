@@ -76,7 +76,7 @@ export const defaultBusinessBrandingSettings: BusinessBrandingSettings = {
   brandPrimaryColor: "#157fa8",
   brandAccentColor: "#0f5f7d",
   logoUrl: "/ewg-logo.png",
-  appIconUrl: "/ewg-mark.png",
+  appIconUrl: "/ewg-logo.png",
   coreLogoUrl: "",
   fieldLogoUrl: "",
   surveyLogoUrl: "",

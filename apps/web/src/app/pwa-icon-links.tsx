@@ -13,7 +13,7 @@ import {
 } from "@/lib/branding";
 import { useBrand } from "@/components/BrandProvider";
 
-const iconVersion = "20260806e";
+const iconVersion = "20260806f";
 
 type Profile = {
   app: BrandAppKey;
@@ -121,17 +121,18 @@ export function PwaIconLinks() {
     upsertMeta("mobile-web-app-capable", "yes");
     upsertMeta("theme-color", profile.themeColor);
 
-    const iconHref = withVersion(profile.icon);
-    const appleTouchHref = withVersion(toAppleTouchHref(profile.icon));
+    // Tab favicon uses the full wordmark (not the droplet-only home mark).
+    const tabFavicon = withVersion("/api/branding/favicon?size=32");
+    const appleTouchHref = withVersion("/api/branding/favicon?size=180");
 
     document.head.querySelectorAll<HTMLLinkElement>('link[rel="apple-touch-icon"]').forEach((link) => {
       link.href = appleTouchHref;
       link.sizes = "180x180";
       link.type = "image/png";
     });
-    document.head.querySelectorAll<HTMLLinkElement>('link[rel="icon"]').forEach((link) => {
-      link.href = iconHref;
-      link.sizes = "512x512";
+    document.head.querySelectorAll<HTMLLinkElement>('link[rel="icon"], link[rel="shortcut icon"]').forEach((link) => {
+      link.href = tabFavicon;
+      link.sizes = "32x32";
       link.type = "image/png";
     });
     document.head.querySelectorAll<HTMLLinkElement>('link[rel="manifest"]').forEach((link) => {
@@ -139,8 +140,7 @@ export function PwaIconLinks() {
     });
 
     upsertLink("apple-touch-icon", appleTouchHref, { sizes: "180x180", type: "image/png" });
-    // Tab favicon: direct PNG URL (Safari often ignores favicon redirects).
-    upsertLink("icon", withVersion("/api/branding/favicon?size=32"), { sizes: "32x32", type: "image/png" });
+    upsertLink("icon", tabFavicon, { sizes: "32x32", type: "image/png" });
     upsertLink("manifest", profile.manifest);
   }, [brand, pathname]);
 
