@@ -60,9 +60,13 @@
 }
 
 .blake-train-brand img {
-  height: 40px;
-  max-width: 120px;
+  background: #fff;
+  border-radius: 8px;
+  display: block;
+  height: 52px;
+  max-width: 200px;
   object-fit: contain;
+  object-position: left center;
   width: auto;
 }
 

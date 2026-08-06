@@ -101,8 +101,9 @@ export function SetupPersonalisingPanel({
     const timeout = window.setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
     try {
       const prepared = await prepareBrandingImage(file, {
-        maxEdge: kind === "logo" ? 1024 : 512,
-        square: kind !== "logo",
+        // Company + per-app header logos stay wide. Only the shared home-screen icon is squared.
+        maxEdge: kind === "icon" ? 512 : 1024,
+        square: kind === "icon",
       });
       const body = new FormData();
       body.append("file", prepared);
@@ -365,8 +366,9 @@ export function SetupPersonalisingPanel({
             <div>
               <strong>App names & logos</strong>
               <small>
-                Each app can have its own logo for headers and the home-screen icon. Uploads are trimmed and resized
-                automatically so they fill the icon. Leave blank to use the default icon.
+                Each app can have its own logo for headers (and as the home-screen icon). Uploads keep the
+                original shape — wide logos stay wide so they fill the app top bar. Leave blank to use the
+                company logo / default icon.
               </small>
             </div>
           </div>
@@ -378,7 +380,7 @@ export function SetupPersonalisingPanel({
               const logoValue = businessSettings[app.field];
               return (
                 <article key={app.kind} className="personalising-app-logo-card">
-                  <div className="personalising-upload-preview personalising-upload-preview-icon" style={{ borderColor: businessSettings.brandPrimaryColor }}>
+                  <div className="personalising-upload-preview" style={{ borderColor: businessSettings.brandPrimaryColor }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={preview} alt={`${app.label} logo preview`} />
                   </div>
