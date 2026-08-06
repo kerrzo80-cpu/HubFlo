@@ -51,6 +51,13 @@ const ROLE_OPTIONS: HubRole[] = [
   "Read-only",
 ];
 
+/** Continuous conversation: end your turn when you pause after speaking. */
+const SPEECH_LEVEL = 0.11;
+const SILENCE_MS = 1300;
+const MIN_SPEECH_MS = 350;
+const MAX_LISTEN_MS = 28_000;
+const POST_SPEAK_GAP_MS = 480;
+
 function moodForState(state: VoiceSessionState, phase?: string): BlakeMood {
   if (state === "thinking") return "thinking";
   if (state === "listening") return "alert";
@@ -65,6 +72,12 @@ function progressPercent(progress?: TrainerProgress | null) {
   if (!steps.length) return 0;
   const done = steps.filter((step) => step.completed).length;
   return Math.round((done / steps.length) * 100);
+}
+
+function turnModeForUtterance(step: TrainerStep | null | undefined, trimmed: string) {
+  if (step?.kind === "check") return "check_answer" as const;
+  if (/^(next|continue|done|ok|okay|ready|got it)\b/i.test(trimmed)) return "continue" as const;
+  return "question" as const;
 }
 
 export function TrainHomeClient() {
@@ -128,8 +141,9 @@ export function TrainHomeClient() {
         <div>
           <h1>Blake trains your team by voice</h1>
           <p>
-            Blake talks staff through each module, pauses to check understanding, and answers
-            questions only from approved NeXa guides, screenshots, videos, FAQs and company rules.
+            Blake talks staff through each module in a continuous conversation — you speak, Blake
+            replies, back and forth. Answers stay grounded only in approved NeXa guides, screenshots,
+            videos, FAQs and company rules.
           </p>
           <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             <label style={{ fontSize: "0.86rem", fontWeight: 650 }}>
@@ -215,6 +229,7 @@ function TrainSession({
   const [level, setLevel] = useState(0);
   const [soundReady, setSoundReady] = useState(soundReadyProp);
   const [pendingSpeak, setPendingSpeak] = useState("");
+  const [conversationOn, setConversationOn] = useState(true);
 
   const micStreamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<ActiveVoiceRecorder | null>(null);
@@ -223,6 +238,29 @@ function TrainSession({
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const busyRef = useRef(false);
   const startedRef = useRef(false);
+  const conversationOnRef = useRef(true);
+  const phaseRef = useRef(phase);
+  const stepRef = useRef(step);
+  const listenWatchRef = useRef<number | null>(null);
+  const autoListenTimerRef = useRef<number | null>(null);
+  const listenStartedAtRef = useRef(0);
+  const speechStartedAtRef = useRef(0);
+  const lastSpeechAtRef = useRef(0);
+  const heardSpeechRef = useRef(false);
+  const finishingListenRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    conversationOnRef.current = conversationOn;
+  }, [conversationOn]);
+
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
+  useEffect(() => {
+    stepRef.current = step;
+  }, [step]);
 
   useEffect(() => {
     setSupported(speechSupported());
@@ -236,6 +274,7 @@ function TrainSession({
       void sendTurn("start");
     }
     return () => {
+      mountedRef.current = false;
       void hardStop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -245,6 +284,20 @@ function TrainSession({
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [bubbles, voiceState]);
 
+  function clearListenWatch() {
+    if (listenWatchRef.current != null) {
+      window.clearInterval(listenWatchRef.current);
+      listenWatchRef.current = null;
+    }
+  }
+
+  function clearAutoListenTimer() {
+    if (autoListenTimerRef.current != null) {
+      window.clearTimeout(autoListenTimerRef.current);
+      autoListenTimerRef.current = null;
+    }
+  }
+
   function stopLevelMonitor() {
     levelMonitorRef.current?.stop();
     levelMonitorRef.current = null;
@@ -252,6 +305,9 @@ function TrainSession({
   }
 
   async function hardStop() {
+    clearAutoListenTimer();
+    clearListenWatch();
+    conversationOnRef.current = false;
     stopSpeakRef.current?.();
     stopSpeakRef.current = null;
     stopLevelMonitor();
@@ -287,20 +343,44 @@ function TrainSession({
     });
   }
 
-  async function speak(text: string) {
+  function scheduleAutoListen() {
+    clearAutoListenTimer();
+    if (!mountedRef.current) return;
+    if (!conversationOnRef.current || !supported) {
+      setVoiceState("idle");
+      return;
+    }
+    if (phaseRef.current === "complete") {
+      setVoiceState("idle");
+      return;
+    }
+    setVoiceState("idle");
+    autoListenTimerRef.current = window.setTimeout(() => {
+      autoListenTimerRef.current = null;
+      if (!mountedRef.current || !conversationOnRef.current || busyRef.current) return;
+      if (phaseRef.current === "complete") return;
+      void startListening();
+    }, POST_SPEAK_GAP_MS);
+  }
+
+  async function speak(text: string, opts?: { afterSpeak?: "listen" | "idle" }) {
     const spoken = text.trim();
     if (!spoken) return;
+    clearAutoListenTimer();
     stopSpeakRef.current?.();
     setPendingSpeak(spoken);
     setVoiceState("speaking");
     setError("");
+    const after = opts?.afterSpeak ?? "listen";
     try {
       // Do not call stopBlakeAudio here — it can tear down the iPhone unlock.
       stopSpeakRef.current = await speakBlakeReply(spoken, {
         speakPath: "/api/blake-trainer/speak",
         preferServer: false,
         onEnd: () => {
-          setVoiceState("idle");
+          stopSpeakRef.current = null;
+          if (after === "listen") scheduleAutoListen();
+          else setVoiceState("idle");
         },
       });
     } catch {
@@ -312,9 +392,9 @@ function TrainSession({
 
   async function enableSoundAndReplay() {
     setError("");
+    clearAutoListenTimer();
     setVoiceState("speaking");
     try {
-      // User gesture: unlock Web Audio, then fetch + play through that context.
       await unlockBlakeVoice();
       setSoundReady(true);
       const lastBlake = [...bubbles].reverse().find((item) => item.role === "blake")?.text || pendingSpeak;
@@ -327,7 +407,10 @@ function TrainSession({
       stopSpeakRef.current = await speakBlakeReply(lastBlake, {
         speakPath: "/api/blake-trainer/speak",
         preferServer: false,
-        onEnd: () => setVoiceState("idle"),
+        onEnd: () => {
+          stopSpeakRef.current = null;
+          scheduleAutoListen();
+        },
       });
     } catch (err) {
       setVoiceState("idle");
@@ -368,10 +451,13 @@ function TrainSession({
       const data = (await response.json()) as TrainerTurnResponse & { error?: string; ok?: boolean };
       if (!response.ok) throw new Error(data.error || "Blake could not reply.");
       applyTurn(data, mode === "start" ? undefined : message);
-      await speak(data.reply);
+      await speak(data.reply, { afterSpeak: "listen" });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Turn failed.");
       setVoiceState("error");
+      if (conversationOnRef.current && phaseRef.current !== "complete") {
+        scheduleAutoListen();
+      }
     } finally {
       busyRef.current = false;
     }
@@ -386,72 +472,180 @@ function TrainSession({
     return stream;
   }
 
+  async function discardActiveRecorder() {
+    clearListenWatch();
+    stopLevelMonitor();
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    if (recorder) {
+      try {
+        await recorder.stop();
+      } catch {
+        // ignore
+      }
+    }
+    finishingListenRef.current = false;
+  }
+
   async function startListening() {
-    if (!supported || busyRef.current) return;
+    if (!supported || busyRef.current || !conversationOnRef.current) return;
+    if (recorderRef.current) return;
+    clearAutoListenTimer();
     setError("");
+    finishingListenRef.current = false;
+    heardSpeechRef.current = false;
+    speechStartedAtRef.current = 0;
+    lastSpeechAtRef.current = 0;
+    listenStartedAtRef.current = Date.now();
     try {
       await unlockBlakeVoice();
       setSoundReady(true);
-      stopBlakeAudio();
       const stream = await ensureOpenMic();
-      const recorder = await startVoiceRecorder(stream);
+      const recorder = startVoiceRecorder(stream);
       recorderRef.current = recorder;
-      levelMonitorRef.current = startMicLevelMonitor(stream, (value) => setLevel(value));
+      levelMonitorRef.current = startMicLevelMonitor(stream, (value) => {
+        setLevel(value);
+        const now = Date.now();
+        if (value >= SPEECH_LEVEL) {
+          if (!heardSpeechRef.current) {
+            heardSpeechRef.current = true;
+            speechStartedAtRef.current = now;
+          }
+          lastSpeechAtRef.current = now;
+        }
+      });
+      clearListenWatch();
+      listenWatchRef.current = window.setInterval(() => {
+        if (finishingListenRef.current || !conversationOnRef.current) return;
+        const now = Date.now();
+        const elapsed = now - listenStartedAtRef.current;
+        if (elapsed >= MAX_LISTEN_MS) {
+          void finishListening({ emptyRetry: !heardSpeechRef.current });
+          return;
+        }
+        if (
+          heardSpeechRef.current
+          && speechStartedAtRef.current > 0
+          && now - speechStartedAtRef.current >= MIN_SPEECH_MS
+          && now - lastSpeechAtRef.current >= SILENCE_MS
+        ) {
+          void finishListening();
+        }
+      }, 120);
       setVoiceState("listening");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Microphone blocked.");
       setVoiceState("error");
+      setConversationOn(false);
+      conversationOnRef.current = false;
     }
   }
 
-  async function finishListening() {
+  async function finishListening(opts?: { emptyRetry?: boolean }) {
+    if (finishingListenRef.current) return;
+    finishingListenRef.current = true;
+    clearListenWatch();
     const recorder = recorderRef.current;
     recorderRef.current = null;
     stopLevelMonitor();
     if (!recorder) {
-      setVoiceState("idle");
+      finishingListenRef.current = false;
+      if (conversationOnRef.current && phaseRef.current !== "complete") scheduleAutoListen();
+      else setVoiceState("idle");
       return;
     }
     setVoiceState("thinking");
     try {
       const blob = await recorder.stop();
-      if (!blob || blob.size < 200) {
-        setError("I didn’t catch that — try again.");
-        setVoiceState("idle");
+      if (!blob || blob.size < 200 || opts?.emptyRetry || !heardSpeechRef.current) {
+        finishingListenRef.current = false;
+        if (conversationOnRef.current && phaseRef.current !== "complete") {
+          setError("");
+          scheduleAutoListen();
+        } else {
+          setVoiceState("idle");
+        }
         return;
       }
       if (openaiOk === false) {
         setError("Voice transcription needs OpenAI connected (Setup / Connect). You can still type.");
         setVoiceState("idle");
+        setConversationOn(false);
+        conversationOnRef.current = false;
+        finishingListenRef.current = false;
         return;
       }
       const text = await transcribeBlakeAudio(blob, "/api/field/ask-blake/transcribe");
       const trimmed = text.trim();
+      finishingListenRef.current = false;
       if (!trimmed) {
-        setError("Could not transcribe — try again or type.");
-        setVoiceState("idle");
+        if (conversationOnRef.current && phaseRef.current !== "complete") {
+          scheduleAutoListen();
+        } else {
+          setVoiceState("idle");
+        }
         return;
       }
-      const mode =
-        step?.kind === "check" ? "check_answer" : /^(next|continue|done|ok|okay|ready|got it)\b/i.test(trimmed)
-          ? "continue"
-          : "question";
+      const mode = turnModeForUtterance(stepRef.current, trimmed);
       await sendTurn(mode, trimmed, { voice: true });
     } catch (err) {
+      finishingListenRef.current = false;
       setError(err instanceof Error ? err.message : "Listen failed.");
-      setVoiceState("idle");
+      if (conversationOnRef.current && phaseRef.current !== "complete") {
+        scheduleAutoListen();
+      } else {
+        setVoiceState("idle");
+      }
     }
+  }
+
+  async function pauseConversation() {
+    conversationOnRef.current = false;
+    setConversationOn(false);
+    clearAutoListenTimer();
+    stopSpeakRef.current?.();
+    stopSpeakRef.current = null;
+    await discardActiveRecorder();
+    setVoiceState("idle");
+  }
+
+  async function resumeConversation() {
+    setError("");
+    try {
+      await unlockBlakeVoice();
+      setSoundReady(true);
+    } catch {
+      // speak/listen will surface errors
+    }
+    conversationOnRef.current = true;
+    setConversationOn(true);
+    await startListening();
   }
 
   async function onSubmitText() {
     const trimmed = draft.trim();
     if (!trimmed) return;
     setDraft("");
-    const mode =
-      step?.kind === "check" ? "check_answer" : /^(next|continue|done|ok|okay|ready|got it)\b/i.test(trimmed)
-        ? "continue"
-        : "question";
+    await discardActiveRecorder();
+    clearAutoListenTimer();
+    const mode = turnModeForUtterance(step, trimmed);
     await sendTurn(mode, trimmed, { voice: false });
+  }
+
+  async function onNextStep() {
+    await discardActiveRecorder();
+    clearAutoListenTimer();
+    try {
+      await unlockBlakeVoice();
+      setSoundReady(true);
+    } catch {
+      // ignore — speak will prompt Enable sound
+    }
+    if (!conversationOnRef.current) {
+      conversationOnRef.current = true;
+      setConversationOn(true);
+    }
+    await sendTurn("continue", "next", { voice: true });
   }
 
   const flatSteps = useMemo(() => {
@@ -464,7 +658,19 @@ function TrainSession({
     );
   }, [progress]);
 
-  const listening = voiceState === "listening";
+  const statusLabel = (() => {
+    if (voiceState === "listening") {
+      return level > SPEECH_LEVEL
+        ? `Listening… pause when you’re done (${Math.round(level * 100)}%)`
+        : "Your turn — just talk. I’ll reply when you pause.";
+    }
+    if (voiceState === "thinking") return "Blake is thinking…";
+    if (voiceState === "speaking") return "Blake is speaking…";
+    if (phase === "complete") return "Training complete";
+    if (!conversationOn) return "Conversation paused — resume to keep talking";
+    if (step?.kind === "check") return "Answer the check when ready — just speak";
+    return "Conversation flowing — say a question, or say next";
+  })();
 
   return (
     <TrainChrome subtitle={flow?.title || "Training session"}>
@@ -480,17 +686,7 @@ function TrainSession({
               </p>
               <div className="blake-train-status">
                 <span className={`blake-train-dot ${voiceState}`} />
-                <span>
-                  {voiceState === "listening"
-                    ? `Listening… ${Math.round(level * 100)}%`
-                    : voiceState === "thinking"
-                      ? "Blake is thinking…"
-                      : voiceState === "speaking"
-                        ? "Blake is speaking…"
-                        : step?.kind === "check"
-                          ? "Answer the check when ready"
-                          : "Say a question, or say next"}
-                </span>
+                <span>{statusLabel}</span>
               </div>
             </div>
           </div>
@@ -531,31 +727,33 @@ function TrainSession({
               <Volume2 size={16} />
               {soundReady ? "Replay Blake" : "Enable sound"}
             </button>
-            {supported ? (
-              <button
-                type="button"
-                className={`blake-train-btn ${listening ? "" : "verdigris"}`}
-                onClick={() => (listening ? void finishListening() : void startListening())}
-                disabled={voiceState === "thinking" || voiceState === "speaking"}
-              >
-                {listening ? <MicOff size={16} /> : <Mic size={16} />}
-                {listening ? "I’m done" : "Start talking"}
-              </button>
+            {supported && phase !== "complete" ? (
+              conversationOn ? (
+                <button
+                  type="button"
+                  className="blake-train-btn secondary"
+                  onClick={() => void pauseConversation()}
+                  disabled={voiceState === "thinking"}
+                >
+                  <MicOff size={16} />
+                  Pause conversation
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="blake-train-btn verdigris"
+                  onClick={() => void resumeConversation()}
+                  disabled={voiceState === "thinking" || voiceState === "speaking"}
+                >
+                  <Mic size={16} />
+                  Resume conversation
+                </button>
+              )
             ) : null}
             <button
               type="button"
               className="blake-train-btn secondary"
-              onClick={() => {
-                void (async () => {
-                  try {
-                    await unlockBlakeVoice();
-                    setSoundReady(true);
-                  } catch {
-                    // ignore — speak will prompt Enable sound
-                  }
-                  await sendTurn("continue", "next", { voice: true });
-                })();
-              }}
+              onClick={() => void onNextStep()}
               disabled={phase === "complete" || step?.kind === "check" || voiceState === "thinking"}
             >
               <SkipForward size={16} />

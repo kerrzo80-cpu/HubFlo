@@ -386,13 +386,14 @@ export const nexaSystemKnowledge: SystemKnowledgeTopic[] = [
     tags: ["trainer", "blake", "admin"],
     content: [
       "Blake Trainer is the voice-first staff training surface at /train.",
-      "Blake talks staff through modules, pauses for understanding checks, and answers only from approved materials.",
+      "Training is a continuous conversation: Blake speaks, then listens; you talk naturally and pause when finished; Blake replies — no Start talking button.",
+      "Blake pauses for understanding checks, and answers only from approved materials.",
       "Admins such as Brian manage materials and flows in /train/admin.",
       "Blake can rebuild role-aware modules from the approved NeXa system knowledge pack — still no guessing outside that pack.",
       "Completion is tracked per person and per flow.",
     ].join(" "),
     teachScript:
-      "You’re in Blake Trainer. I’ll walk modules by voice, check understanding, and only answer from the approved NeXa pack. Admins rebuild modules from that pack when the system changes.",
+      "You’re in Blake Trainer. We talk back and forth — I’ll teach, then listen while you speak, then reply. Checks stay grounded in the approved NeXa pack. Admins rebuild modules when the system changes.",
     checkPoints: ["train", "approved", "check", "admin", "completion"],
     checkPrompt: "What does Blake Trainer do, and what must answers stay grounded in?",
   },
