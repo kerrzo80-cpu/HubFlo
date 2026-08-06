@@ -1,6 +1,13 @@
 "use client";
 
-export type OutboxItemKind = "checklist" | "daywork" | "photo" | "hours";
+export type OutboxItemKind =
+  | "checklist"
+  | "daywork"
+  | "photo"
+  | "hours"
+  | "outcome"
+  | "note"
+  | "po";
 
 export type OutboxItem = {
   id: string;
@@ -38,7 +45,17 @@ function normaliseMethod(method: string): OutboxItem["method"] | null {
 }
 
 function normaliseKind(kind: string): OutboxItemKind | null {
-  if (kind === "checklist" || kind === "daywork" || kind === "photo" || kind === "hours") return kind;
+  if (
+    kind === "checklist" ||
+    kind === "daywork" ||
+    kind === "photo" ||
+    kind === "hours" ||
+    kind === "outcome" ||
+    kind === "note" ||
+    kind === "po"
+  ) {
+    return kind;
+  }
   return null;
 }
 

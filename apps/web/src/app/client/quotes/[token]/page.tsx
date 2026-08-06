@@ -3,6 +3,13 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 
+type PortalCentre = {
+  id: string;
+  name: string;
+  description?: string;
+  sell: number;
+};
+
 type PortalQuote = {
   id: string;
   ref: string;
@@ -10,6 +17,7 @@ type PortalQuote = {
   description: string;
   status: string;
   value: number;
+  centres?: PortalCentre[];
   viewedAt?: string;
   respondedAt?: string;
   job?: {
@@ -137,6 +145,36 @@ export default function ClientQuotePortal({ params }: { params: Promise<{ token:
               <strong>{money(quote.value)}</strong>
               <small>Figures shown are excluding VAT unless your issued quote states otherwise.</small>
             </div>
+
+            {quote.centres && quote.centres.length > 0 ? (
+              <div className="client-portal-lines" style={{ marginTop: 16 }}>
+                <span style={{ display: "block", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>
+                  What’s included
+                </span>
+                <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
+                  {quote.centres.map((centre) => (
+                    <li
+                      key={centre.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        borderBottom: "1px solid #d7e0e5",
+                        paddingBottom: 8,
+                      }}
+                    >
+                      <div>
+                        <strong style={{ display: "block" }}>{centre.name}</strong>
+                        {centre.description ? (
+                          <small style={{ color: "#5b6b73" }}>{centre.description}</small>
+                        ) : null}
+                      </div>
+                      <strong>{money(centre.sell)}</strong>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
 
             {quote.status === "Accepted" || quote.status === "Converted" ? (
               <div className="client-portal-confirmation">

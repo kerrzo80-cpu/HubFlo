@@ -585,6 +585,7 @@ export default function HeatDesignLabPage() {
         body: JSON.stringify({
           quoteId: selectedQuoteId || undefined,
           createNew,
+          projectId: project.id,
           customerName: project.customerName,
           projectName: project.name,
           address: [project.address, project.postcode].filter(Boolean).join(", "),

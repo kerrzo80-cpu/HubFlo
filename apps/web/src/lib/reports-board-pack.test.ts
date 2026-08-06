@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { buildReportsBoardPackPdf, buildReportsExcelXml } from "./reports-board-pack";
+import { buildReportsBoardPackPdf, buildReportsExcelXml, buildManagerBoardPackRows } from "./reports-board-pack";
 
 describe("reports board pack", () => {
   it("builds a PDF with executive rows", async () => {
@@ -29,5 +29,14 @@ describe("reports board pack", () => {
     assert.match(xml, /ss:Name="Executive"/);
     assert.match(xml, /ss:Name="Jobs"/);
     assert.match(xml, /Workbook/);
+  });
+
+  it("buildManagerBoardPackRows returns titled pack metadata", () => {
+    const pack = buildManagerBoardPackRows({
+      asAt: "2026-08-06T09:00:00.000Z",
+      snapshot: { invoices: [], jobs: [] },
+    });
+    assert.match(pack.title, /Manager board pack/);
+    assert.equal(pack.rows.length >= 1, true);
   });
 });

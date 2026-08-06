@@ -17,6 +17,7 @@ import {
   type EngineerFlowStepEvidenceValue,
 } from "@/lib/engineer-flow";
 import { toUkDateDisplay } from "@/lib/uk-date";
+import { maybeCreateDraftInvoiceOnJobComplete } from "@/lib/field-job-invoice";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { createPurchaseRequest, getPurchaseRequests, getJobs, updateJob } from "@/lib/workflow-data";
@@ -1069,6 +1070,9 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
               ? `Marked complete by ${createdBy}.`
               : `Awaiting parts — noted by ${createdBy}.`),
         });
+        if (outcome.status === "Complete") {
+          maybeCreateDraftInvoiceOnJobComplete(job.jobId, createdBy);
+        }
       }
     }
     addReviewItem(workflow, {

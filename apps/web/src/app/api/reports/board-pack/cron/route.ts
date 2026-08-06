@@ -9,7 +9,7 @@ import {
 import { normalizeBusinessBranding } from "@/lib/branding";
 import { sendEmailMessage } from "@/lib/email-integration-store";
 import { getHubDetailState } from "@/lib/hub-detail-store";
-import { buildReportsBoardPackPdf, type ReportPackRow } from "@/lib/reports-board-pack";
+import { buildManagerBoardPackRows, buildReportsBoardPackPdf } from "@/lib/reports-board-pack";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -24,42 +24,6 @@ function canRunWithSecret(request: NextRequest) {
 function canManage(request: NextRequest) {
   const access = getAccessProfileFromHeaders(request.headers);
   return access.showFinance || access.canCustomize;
-}
-
-function executiveRowsFromHub(): ReportPackRow[] {
-  const invoices = Array.isArray(getHubDetailState().invoices)
-    ? (getHubDetailState().invoices as Array<{
-        status?: string;
-        chargeTotal?: number;
-        paidAmount?: number;
-        vatRate?: number;
-        customer?: string;
-        ref?: string;
-      }>)
-    : [];
-  const open = invoices.filter((row) => row.status !== "Cancelled" && row.status !== "Draft");
-  let owed = 0;
-  let revenue = 0;
-  for (const invoice of open) {
-    const charge = Number(invoice.chargeTotal) || 0;
-    const vat = charge * ((Number(invoice.vatRate) || 0) / 100);
-    const grand = charge + vat;
-    const paid = Number(invoice.paidAmount) || 0;
-    revenue += charge;
-    owed += Math.max(0, grand - paid);
-  }
-  return [
-    ["Executive", "Invoice charge (open set)", Math.round(revenue * 100) / 100, `${open.length} invoices`],
-    ["Executive", "Cash owed", Math.round(owed * 100) / 100, "Unpaid balance on open invoices"],
-    ...open.slice(0, 25).map(
-      (invoice): ReportPackRow => [
-        "Invoices",
-        String(invoice.ref || "Invoice"),
-        Number(invoice.chargeTotal) || 0,
-        String(invoice.customer || ""),
-      ],
-    ),
-  ];
 }
 
 async function sendBoardPackNow(force = false) {
@@ -79,11 +43,13 @@ async function sendBoardPackNow(force = false) {
     month: "long",
     year: "numeric",
   });
+  const pack = buildManagerBoardPackRows();
   const pdf = await buildReportsBoardPackPdf({
     companyName: company,
-    title: "Monday board pack",
+    title: pack.title,
     dateLabel,
-    rows: executiveRowsFromHub(),
+    generatedAt: pack.asAt,
+    rows: pack.rows,
   });
 
   await sendEmailMessage({
