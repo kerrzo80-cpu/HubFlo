@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowLeft, Sparkles, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { useBrand } from "@/components/BrandProvider";
 
 /** Studio is the primary Togal-style takeoff. Legacy routes kept off the main chrome. */
 const MODES: Array<{
@@ -34,6 +35,7 @@ export default function TakeoffChrome({
   compact = false,
 }: TakeoffChromeProps) {
   const pathname = usePathname() || "/takeoff";
+  const brand = useBrand();
 
   return (
     <header className={`takeoff-chrome${compact ? " compact" : ""}`}>
@@ -43,7 +45,7 @@ export default function TakeoffChrome({
           <span>Core</span>
         </Link>
         <div className="takeoff-chrome-title">
-          <strong>NeXa Takeoff</strong>
+          <strong>{brand.takeoffsAppName}</strong>
           {subtitle ? <span>{subtitle}</span> : null}
         </div>
       </div>

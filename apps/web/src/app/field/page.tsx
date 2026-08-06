@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { DayPicker } from "@/components/field/DayPicker";
 import { JobCard } from "@/components/field/JobCard";
+import { useBrand } from "@/components/BrandProvider";
 import { useNexaClient } from "@/lib/field/nexa";
 import { formatDuration, isoDate, todayLabel } from "@/lib/field/format";
 import { fieldPath } from "@/lib/field/routes";
@@ -40,6 +41,7 @@ function writeSeenAlertIds(ids: string[]) {
 }
 
 export default function MyDayPage() {
+  const brand = useBrand();
   const client = useNexaClient();
   const [selectedDate, setSelectedDate] = useState(isoDate);
   const [jobs, setJobs] = useState<FieldScheduleItem[]>([]);
@@ -195,7 +197,7 @@ export default function MyDayPage() {
 
       <Link href="/train" className="field-next-job" style={{ marginTop: 10 }}>
         <span>Blake Trainer</span>
-        <strong>Voice training · approved NeXa materials only</strong>
+        <strong>Voice training · approved {brand.trainerAppName} materials only</strong>
       </Link>
 
       {error ? <div className="feedback error">{error}</div> : null}

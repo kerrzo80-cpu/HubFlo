@@ -647,7 +647,7 @@ export default function JobDetailPage() {
     await runWorkflowAction(
       "add_photos",
       { files: mapped },
-      `${mapped.length} file${mapped.length === 1 ? "" : "s"} sent to office.`,
+      `${mapped.length} file name${mapped.length === 1 ? "" : "s"} logged — images not uploaded yet.`,
     );
   }
 

@@ -309,7 +309,7 @@ export default function TakeoffStudioPage() {
           name: draftName || "NeXa takeoff",
           customer: "",
           site: "",
-          description: "NeXa Takeoff Studio",
+          description: `${brand.takeoffsAppName} Studio`,
           studio: createDefaultStudioState(),
         }),
       });
@@ -698,7 +698,7 @@ export default function TakeoffStudioPage() {
     return (
       <div className="nexa-studio-gate">
         <Loader2 className="spin" size={22} />
-        Opening NeXa Takeoff…
+        Opening {brand.takeoffsAppName}…
       </div>
     );
   }
@@ -706,8 +706,8 @@ export default function TakeoffStudioPage() {
   if (authState === "signed-out") {
     return (
       <div className="nexa-studio-gate">
-        <h1>Sign in to NeXa Takeoff</h1>
-        <p>Use your Core login. This studio is linked to Errol Watson Group quotes and jobs.</p>
+        <h1>Sign in to {brand.takeoffsAppName}</h1>
+        <p>Use your Core login. This studio is linked to {brand.tradingName || brand.companyName} quotes and jobs.</p>
         <a className="nexa-studio-primary" href="/login?next=/takeoff">Sign in</a>
       </div>
     );
@@ -720,8 +720,8 @@ export default function TakeoffStudioPage() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={resolveBrandLogoUrl(brand, "takeoffs")} alt={brand.companyName || "Errol Watson Group"} />
           <div>
-            <strong>NeXa Takeoff</strong>
-            <span>Blake · {brand.tradingName || "Errol Watson Group"}</span>
+            <strong>{brand.takeoffsAppName}</strong>
+            <span>Blake · {brand.tradingName || brand.companyName}</span>
           </div>
         </div>
         <nav className="nexa-studio-flow" aria-label="Takeoff steps">

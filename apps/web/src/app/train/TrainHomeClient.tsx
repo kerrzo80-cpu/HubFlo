@@ -802,7 +802,7 @@ function TrainSession({
           <div className="blake-train-panel">
             <h3>Grounding rule</h3>
             <p style={{ margin: 0, color: "#5d6673", fontSize: "0.88rem", lineHeight: 1.45 }}>
-              Blake only answers from approved NeXa materials. No guessing. If it isn’t in the pack, Blake says so.
+              Blake only answers from approved company materials. No guessing. If it isn’t in the pack, Blake says so.
             </p>
           </div>
         </aside>
