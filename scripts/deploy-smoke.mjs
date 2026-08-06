@@ -83,6 +83,11 @@ async function runOnce() {
         if (json?.deployment?.coreRoutes !== "url-modules-v1") {
           throw new Error(`/api/health coreRoutes=${json?.deployment?.coreRoutes}, expected url-modules-v1`);
         }
+        if (json?.deployment?.fieldPhotoSync !== "bytes-v1") {
+          throw new Error(
+            `/api/health fieldPhotoSync=${json?.deployment?.fieldPhotoSync}, expected bytes-v1`,
+          );
+        }
       },
     }),
   );

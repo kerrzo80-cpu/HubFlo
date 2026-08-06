@@ -9,6 +9,10 @@ export type FieldJobPackWorkflow = {
     type: string;
     uploadedBy: string;
     uploadedAt: string;
+    url?: string;
+    mimeType?: string;
+    size?: number;
+    storageKey?: string;
   }>;
   notes: Array<{
     id: string;

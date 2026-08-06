@@ -38,6 +38,7 @@ import {
   sortDayworkSheetsByNumber,
   type DayworkAccountRecord,
 } from "@/lib/daywork-account-form";
+import { prepareFieldUploadFile, prepareFieldUploadFiles } from "@/lib/field/field-photo-client";
 import { formatDuration, mapsUrl } from "@/lib/field/format";
 import { fieldPath } from "@/lib/field/routes";
 import type {
@@ -131,6 +132,9 @@ type DraftValue = {
   text?: string;
   numberValue?: string;
   photoName?: string;
+  photoContentBase64?: string;
+  photoMimeType?: string;
+  photoPreviewUrl?: string;
 };
 
 function evidenceTypeOf(item: FieldRequirement): FieldEvidenceType {
@@ -202,13 +206,6 @@ function doneSummary(item: FieldRequirement) {
     .map((part) => String(part || "").trim())
     .filter(Boolean);
   return parts.join(" · ");
-}
-
-function attachmentKindFromFile(file: File): FieldAttachment["type"] {
-  const lower = `${file.type} ${file.name}`.toLowerCase();
-  if (lower.includes("video") || /\.(mp4|mov|webm|m4v)$/i.test(file.name)) return "Video";
-  if (lower.includes("pdf") || /\.(pdf|docx?|xlsx?|txt)$/i.test(file.name)) return "PDF";
-  return "Photo";
 }
 
 function outcomeToJobStatus(status: FieldWorkflowOutcome["status"]): FieldJobStatus | null {
@@ -507,16 +504,29 @@ export default function JobDetailPage() {
 
       if (action === "add_photos") {
         const files = Array.isArray(payload.files)
-          ? (payload.files as Array<{ name?: string; type?: FieldAttachment["type"] }>)
+          ? (payload.files as Array<{
+              name?: string;
+              type?: FieldAttachment["type"];
+              contentBase64?: string;
+              mimeType?: string;
+              size?: number;
+            }>)
           : [];
         const uploadedAt = "Pending sync";
-        const offlinePhotos = files.map((file, index): FieldAttachment => ({
-          id: `offline-photo-${Date.now()}-${index}`,
-          name: String(file.name || `Upload ${index + 1}`),
-          type: file.type || "Photo",
-          uploadedBy: job.engineerName,
-          uploadedAt,
-        }));
+        const offlinePhotos = files.map((file, index): FieldAttachment => {
+          const mimeType = String(file.mimeType || "image/jpeg");
+          const contentBase64 = String(file.contentBase64 || "");
+          return {
+            id: `offline-photo-${Date.now()}-${index}`,
+            name: String(file.name || `Upload ${index + 1}`),
+            type: file.type || "Photo",
+            uploadedBy: job.engineerName,
+            uploadedAt,
+            mimeType,
+            size: file.size,
+            url: contentBase64 ? `data:${mimeType};base64,${contentBase64}` : undefined,
+          };
+        });
         if (offlinePhotos.length) {
           setWorkflow((current) => ({
             ...current,
@@ -640,15 +650,24 @@ export default function JobDetailPage() {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (!files.length) return;
-    const mapped = files.slice(0, 10).map((file) => ({
-      name: file.name,
-      type: attachmentKindFromFile(file),
-    }));
-    await runWorkflowAction(
-      "add_photos",
-      { files: mapped },
-      `${mapped.length} file name${mapped.length === 1 ? "" : "s"} logged — images not uploaded yet.`,
-    );
+    setWorkflowBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const mapped = await prepareFieldUploadFiles(files);
+      const withBytes = mapped.filter((file) => file.contentBase64).length;
+      await runWorkflowAction(
+        "add_photos",
+        { files: mapped },
+        withBytes
+          ? `${mapped.length} file${mapped.length === 1 ? "" : "s"} synced to Core.`
+          : `${mapped.length} file${mapped.length === 1 ? "" : "s"} queued.`,
+      );
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Could not prepare those files.");
+    } finally {
+      setWorkflowBusy(false);
+    }
   }
 
   async function submitNote(event: FormEvent) {
@@ -1009,6 +1028,7 @@ export default function JobDetailPage() {
         text: normalizedDraft.text,
         numberValue: normalizedDraft.numberValue,
         photoName: normalizedDraft.photoName,
+        photoUrl: normalizedDraft.photoPreviewUrl,
         capturedAt: new Date().toISOString(),
       };
       setJob({
@@ -1025,6 +1045,8 @@ export default function JobDetailPage() {
         text: normalizedDraft.text,
         numberValue: normalizedDraft.numberValue,
         photoName: normalizedDraft.photoName,
+        photoContentBase64: normalizedDraft.photoContentBase64,
+        photoMimeType: normalizedDraft.photoMimeType,
         createdBy: job.engineerName,
       };
       const queueOfflineRequirement = () => {
@@ -1548,15 +1570,53 @@ export default function JobDetailPage() {
                                 capture="environment"
                                 onChange={(event) => {
                                   const file = event.target.files?.[0];
-                                  if (!file) return;
-                                  setDraftByRequirement((current) => ({
-                                    ...current,
-                                    [item.id]: { ...current[item.id], photoName: file.name },
-                                  }));
                                   event.target.value = "";
+                                  if (!file) return;
+                                  void (async () => {
+                                    try {
+                                      setError("");
+                                      const prepared = await prepareFieldUploadFile(file);
+                                      setDraftByRequirement((current) => ({
+                                        ...current,
+                                        [item.id]: {
+                                          ...current[item.id],
+                                          photoName: prepared.name,
+                                          photoContentBase64: prepared.contentBase64,
+                                          photoMimeType: prepared.mimeType,
+                                          photoPreviewUrl: `data:${prepared.mimeType};base64,${prepared.contentBase64}`,
+                                        },
+                                      }));
+                                    } catch (prepareError) {
+                                      setError(
+                                        prepareError instanceof Error
+                                          ? prepareError.message
+                                          : "Could not prepare that photo.",
+                                      );
+                                    }
+                                  })();
                                 }}
                               />
-                              {draft.photoName ? <small>Selected: {draft.photoName}</small> : null}
+                              {draft.photoPreviewUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={draft.photoPreviewUrl}
+                                  alt={draft.photoName || "Checklist photo"}
+                                  style={{
+                                    display: "block",
+                                    marginTop: 8,
+                                    maxHeight: 120,
+                                    maxWidth: "100%",
+                                    objectFit: "cover",
+                                    borderRadius: 10,
+                                  }}
+                                />
+                              ) : null}
+                              {draft.photoName ? (
+                                <small>
+                                  {draft.photoContentBase64 ? "Ready to sync: " : "Selected: "}
+                                  {draft.photoName}
+                                </small>
+                              ) : null}
                             </label>
                           ) : null}
                           {evidenceType === "Checkbox" ? (
@@ -1646,11 +1706,35 @@ export default function JobDetailPage() {
             <div className="file-list">
               {photos.map((photo) => (
                 <div className="file-row" key={photo.id}>
-                  <span>{photo.type}</span>
-                  <strong>{photo.name}</strong>
-                  <small className="muted">
-                    {photo.uploadedBy} · {photo.uploadedAt}
-                  </small>
+                  {photo.url && (photo.type === "Photo" || photo.mimeType?.startsWith("image/")) ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={photo.url}
+                      alt={photo.name}
+                      style={{
+                        width: 56,
+                        height: 56,
+                        objectFit: "cover",
+                        borderRadius: 10,
+                        flex: "0 0 auto",
+                        background: "#e8f1f5",
+                      }}
+                    />
+                  ) : (
+                    <span>{photo.type}</span>
+                  )}
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <strong>{photo.name}</strong>
+                    <small className="muted" style={{ display: "block" }}>
+                      {photo.uploadedBy} · {photo.uploadedAt}
+                      {photo.url && !photo.url.startsWith("data:") ? " · synced" : photo.url ? " · pending sync" : ""}
+                    </small>
+                  </div>
+                  {photo.url && !photo.url.startsWith("data:") ? (
+                    <a className="ghost-btn" href={photo.url} target="_blank" rel="noreferrer">
+                      Open
+                    </a>
+                  ) : null}
                 </div>
               ))}
             </div>

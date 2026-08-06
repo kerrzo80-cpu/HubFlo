@@ -37730,6 +37730,64 @@ html.nexa-survey-scroll body {
   margin-top: 4px;
 }
 
+.job-field-photo-link {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand, #38a1ce);
+}
+
+.job-field-visit-photos {
+  margin-top: 14px;
+}
+
+.job-field-visit-photos h3 {
+  font-size: 0.92rem;
+  margin: 0 0 8px;
+}
+
+.job-field-photo-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.job-field-photo-card {
+  align-items: center;
+  background: #f7f9fa;
+  border-radius: 10px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  padding: 10px 12px;
+}
+
+.job-field-photo-card img {
+  background: #e8f1f5;
+  border-radius: 8px;
+  height: 56px;
+  object-fit: cover;
+  width: 56px;
+}
+
+.job-field-photo-card strong,
+.job-field-photo-card small {
+  display: block;
+}
+
+.job-field-photo-card small {
+  color: var(--steel, #5b6570);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.job-field-photo-card a {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand, #38a1ce);
+}
+
 @media (max-width: 900px) {
   .job-field-live-stats,
   .job-field-visit-grid {
