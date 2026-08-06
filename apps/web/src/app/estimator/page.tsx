@@ -25,8 +25,20 @@ import { resolveBrandLogoUrl } from "@/lib/branding";
 
 const requestHeaders: HeadersInit = {
   "x-hubflo-role": "Office",
-  "x-hubflo-employee-id": "Brian Kerr",
 };
+
+async function apiFetch(input: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers || {});
+  for (const [key, value] of Object.entries(requestHeaders)) {
+    if (!headers.has(key) && typeof value === "string") headers.set(key, value);
+  }
+  const response = await fetch(input, { ...init, credentials: "same-origin", headers });
+  if (response.status === 401 && typeof window !== "undefined") {
+    const next = `${window.location.pathname}${window.location.search}`;
+    window.location.assign(`/login?next=${encodeURIComponent(next || "/estimator")}`);
+  }
+  return response;
+}
 
 type EstimateTab = "summary" | "materials" | "labour" | "rfq" | "simpro" | "source";
 type EditableLine =
@@ -92,11 +104,11 @@ export default function EstimatorPage() {
     setLoading(true);
     setError("");
     try {
-      const estimateResponse = await fetch(`/api/estimates/${encodeURIComponent(id)}`, { headers: requestHeaders });
+      const estimateResponse = await apiFetch(`/api/estimates/${encodeURIComponent(id)}`, { headers: requestHeaders });
       if (!estimateResponse.ok) throw new Error("Unable to open this estimate.");
       const loaded = await estimateResponse.json() as EstimateRecord;
       setEstimate(loaded);
-      const surveyResponse = await fetch(`/api/surveys/${encodeURIComponent(loaded.surveyId)}`, { headers: requestHeaders });
+      const surveyResponse = await apiFetch(`/api/surveys/${encodeURIComponent(loaded.surveyId)}`, { headers: requestHeaders });
       setSurvey(surveyResponse.ok ? await surveyResponse.json() as SurveyRecord : null);
       window.history.replaceState(null, "", `/estimator?estimate=${encodeURIComponent(loaded.id)}`);
     } catch (loadError) {
@@ -109,7 +121,7 @@ export default function EstimatorPage() {
   useEffect(() => {
     void (async () => {
       try {
-        const response = await fetch("/api/estimates", { headers: requestHeaders });
+        const response = await apiFetch("/api/estimates", { headers: requestHeaders });
         if (!response.ok) throw new Error("Unable to load estimates.");
         const loaded = await response.json() as EstimateRecord[];
         setEstimates(loaded);
@@ -178,7 +190,7 @@ export default function EstimatorPage() {
     setWorking(true);
     setError("");
     try {
-      const response = await fetch(`/api/estimates/${encodeURIComponent(estimate.id)}/pricing`, {
+      const response = await apiFetch(`/api/estimates/${encodeURIComponent(estimate.id)}/pricing`, {
         method: "PATCH",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -223,7 +235,7 @@ export default function EstimatorPage() {
         sellRate: numberValue(editValues.sellRate),
         notes: editValues.notes,
       };
-      const response = await fetch(`/api/estimates/${encodeURIComponent(estimate.id)}`, {
+      const response = await apiFetch(`/api/estimates/${encodeURIComponent(estimate.id)}`, {
         method: "PATCH",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -253,7 +265,7 @@ export default function EstimatorPage() {
     setWorking(true);
     setError("");
     try {
-      const response = await fetch(`/api/estimates/${encodeURIComponent(estimate.id)}/regenerate`, {
+      const response = await apiFetch(`/api/estimates/${encodeURIComponent(estimate.id)}/regenerate`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ expectedVersion: estimate.version }),
@@ -275,7 +287,7 @@ export default function EstimatorPage() {
     setWorking(true);
     setError("");
     try {
-      const response = await fetch(`/api/estimates/${encodeURIComponent(estimate.id)}/push-to-quote`, {
+      const response = await apiFetch(`/api/estimates/${encodeURIComponent(estimate.id)}/push-to-quote`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ expectedVersion: estimate.version }),

@@ -14,8 +14,11 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
   },
   icons: {
-    icon: "/api/branding/assets/logo-field",
-    apple: "/api/branding/assets/logo-field",
+    icon: [
+      { url: "/api/branding/favicon?size=32&v=tab4", sizes: "32x32", type: "image/png" },
+      { url: "/api/branding/assets/logo-field?home=1&v=compose5", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/api/branding/assets/logo-field?apple=1&v=compose5", sizes: "180x180", type: "image/png" }],
   },
 };
 

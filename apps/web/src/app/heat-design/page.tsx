@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   autoMarkExteriorWalls,
   calculateRoomHeatLoss,
@@ -45,36 +45,75 @@ import { DesignReport } from "./DesignReport";
 import "./heat-design.css";
 
 const STORAGE_KEY = "nexa-heat-design-lab-v9";
+const PROJECTS_CACHE_KEY = `${STORAGE_KEY}-projects`;
+const LEGACY_STORAGE_KEYS = [
+  STORAGE_KEY,
+  "nexa-heat-design-lab-v8",
+  "nexa-heat-design-lab-v7",
+  "nexa-heat-design-lab-v6",
+  "nexa-heat-design-lab-v5",
+  "nexa-heat-design-lab-v4",
+  "nexa-heat-design-lab-v3",
+  "nexa-heat-design-lab-v2",
+  "nexa-heat-design-lab-v1",
+] as const;
 
 type LabTab = "project" | "plan" | "materials" | "rooms" | "system" | "options" | "kit" | "forms" | "report";
 type LinkTarget = "job" | "quote";
+type SaveStatus = "loading" | "saving" | "saved" | "offline";
 
-function loadProject(): HeatDesignProject {
-  if (typeof window === "undefined") return makeBlankProject();
+function readCachedProject(): HeatDesignProject | null {
+  if (typeof window === "undefined") return null;
   try {
-    const raw =
-      window.localStorage.getItem(STORAGE_KEY) ??
-      window.localStorage.getItem("nexa-heat-design-lab-v8") ??
-      window.localStorage.getItem("nexa-heat-design-lab-v7") ??
-      window.localStorage.getItem("nexa-heat-design-lab-v6") ??
-      window.localStorage.getItem("nexa-heat-design-lab-v5") ??
-      window.localStorage.getItem("nexa-heat-design-lab-v4") ??
-      window.localStorage.getItem("nexa-heat-design-lab-v3") ??
-      window.localStorage.getItem("nexa-heat-design-lab-v2") ??
-      window.localStorage.getItem("nexa-heat-design-lab-v1");
-    if (!raw) return makeBlankProject();
-    return normaliseProject(JSON.parse(raw) as HeatDesignProject);
+    for (const key of LEGACY_STORAGE_KEYS) {
+      const raw = window.localStorage.getItem(key);
+      if (raw) return normaliseProject(JSON.parse(raw) as HeatDesignProject);
+    }
   } catch {
-    return makeBlankProject();
+    return null;
   }
+  return null;
+}
+
+function readCachedProjects() {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(PROJECTS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as HeatDesignProject[];
+    return Array.isArray(parsed) ? parsed.map((item) => normaliseProject(item)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function upsertProjectList(projects: HeatDesignProject[], project: HeatDesignProject) {
+  const normalised = normaliseProject(project);
+  const next = projects.some((item) => item.id === normalised.id)
+    ? projects.map((item) => (item.id === normalised.id ? normalised : item))
+    : [normalised, ...projects];
+  return next.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+function formatRevisionTimestamp(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export default function HeatDesignLabPage() {
   const brand = useBrand();
   const [tab, setTab] = useState<LabTab>("plan");
+  const [projects, setProjects] = useState<HeatDesignProject[]>([]);
   const [project, setProject] = useState<HeatDesignProject | null>(null);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("loading");
   const [pendingPrint, setPendingPrint] = useState(false);
   const [layoutMode, setLayoutMode] = useState(false);
   const [linkBusy, setLinkBusy] = useState(false);
@@ -86,38 +125,147 @@ export default function HeatDesignLabPage() {
   const [selectedJobId, setSelectedJobId] = useState("");
   const [selectedQuoteId, setSelectedQuoteId] = useState("");
   const [, startTransition] = useTransition();
+  const hydratedRef = useRef(false);
+  const applyingServerSaveRef = useRef(false);
+  const skipNextProjectSaveRef = useRef(false);
+  const saveTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const loaded = loadProject();
+    let cancelled = false;
     const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
     const jobId = params?.get("jobId") || "";
     const quoteId = params?.get("quoteId") || "";
-    const next = {
-      ...loaded,
-      linkedJobId: jobId || loaded.linkedJobId,
-      linkedQuoteId: quoteId || loaded.linkedQuoteId,
-    };
-    setProject(next);
-    setSelectedRoomId(next.rooms[0]?.id ?? null);
-    if (jobId) {
-      setLinkTarget("job");
-      setSelectedJobId(jobId);
-      setTab("kit");
-    } else if (quoteId) {
-      setLinkTarget("quote");
-      setSelectedQuoteId(quoteId);
-      setTab("kit");
+
+    function applyIncomingLinks(input: HeatDesignProject) {
+      if (!jobId && !quoteId) return input;
+      return {
+        ...input,
+        linkedJobId: jobId || input.linkedJobId,
+        linkedQuoteId: quoteId || input.linkedQuoteId,
+        updatedAt: new Date().toISOString(),
+      };
     }
+
+    function activate(nextProjects: HeatDesignProject[], active: HeatDesignProject, status: SaveStatus) {
+      if (cancelled) return;
+      const linked = normaliseProject(applyIncomingLinks(active));
+      setProjects(upsertProjectList(nextProjects, linked));
+      setProject(linked);
+      setSelectedRoomId(linked.rooms[0]?.id ?? null);
+      setSelectedJobId(linked.linkedJobId || "");
+      setSelectedQuoteId(linked.linkedQuoteId || "");
+      setSaveStatus(status);
+      skipNextProjectSaveRef.current = status === "saved" && !jobId && !quoteId;
+      if (jobId) {
+        setLinkTarget("job");
+        setSelectedJobId(jobId);
+        setTab("kit");
+      } else if (quoteId) {
+        setLinkTarget("quote");
+        setSelectedQuoteId(quoteId);
+        setTab("kit");
+      }
+      hydratedRef.current = true;
+    }
+
+    async function hydrateProjects() {
+      const cachedProject = readCachedProject();
+      const cachedProjects = readCachedProjects();
+      try {
+        const res = await fetch("/api/heat-design/projects", { cache: "no-store" });
+        if (!res.ok) throw new Error("Could not load heat design projects");
+        const data = await res.json();
+        const serverProjects = (Array.isArray(data) ? data : []).map((item) => normaliseProject(item as HeatDesignProject));
+        if (serverProjects.length > 0) {
+          const active = serverProjects.find((item) => item.id === cachedProject?.id) ?? serverProjects[0]!;
+          activate(serverProjects, active, "saved");
+          return;
+        }
+
+        if (cachedProject) {
+          const migrateRes = await fetch("/api/heat-design/projects", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cachedProject),
+          });
+          if (!migrateRes.ok) throw new Error("Could not migrate cached heat design project");
+          const migrated = normaliseProject((await migrateRes.json()) as HeatDesignProject);
+          activate([migrated], migrated, "saved");
+          setNotice("Migrated your saved Heat Design project to the server.");
+          return;
+        }
+
+        const blank = normaliseProject(makeBlankProject());
+        activate([blank], blank, "saving");
+      } catch {
+        const fallback = cachedProject ?? cachedProjects[0] ?? normaliseProject(makeBlankProject());
+        activate(cachedProjects.length ? cachedProjects : [fallback], fallback, "offline");
+        setNotice("Offline — loaded the Heat Design cache. Changes will keep saving locally until the server is reachable.");
+      }
+    }
+
+    hydrateProjects();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (!project) return;
+    setProjects((current) => upsertProjectList(current, project));
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(project));
     } catch {
       setNotice("Couldn't save this design locally — your browser storage may be full or blocked.");
     }
+
+    if (applyingServerSaveRef.current) {
+      applyingServerSaveRef.current = false;
+      return;
+    }
+
+    if (skipNextProjectSaveRef.current) {
+      skipNextProjectSaveRef.current = false;
+      return;
+    }
+
+    if (!hydratedRef.current) return;
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    setSaveStatus((current) => (current === "offline" ? current : "saving"));
+    saveTimerRef.current = window.setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/heat-design/projects/${encodeURIComponent(project.id)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(project),
+        });
+        if (!res.ok) throw new Error("Could not save heat design project");
+        const saved = normaliseProject((await res.json()) as HeatDesignProject);
+        setProjects((current) => upsertProjectList(current, saved));
+        setProject((current) => {
+          if (current?.id !== saved.id) return current;
+          applyingServerSaveRef.current = true;
+          return saved;
+        });
+        setSaveStatus("saved");
+      } catch {
+        setSaveStatus("offline");
+      }
+    }, 700);
+
+    return () => {
+      if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    };
   }, [project]);
+
+  useEffect(() => {
+    if (!projects.length) return;
+    try {
+      window.localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify(projects));
+    } catch {
+      /* active project cache still gives us a single-project fallback */
+    }
+  }, [projects]);
 
   useEffect(() => {
     let cancelled = false;
@@ -190,6 +338,23 @@ export default function HeatDesignLabPage() {
       project.reportOptionIds,
     );
   }, [project, design]);
+
+  function activateProject(next: HeatDesignProject) {
+    const normalised = normaliseProject(next);
+    setProject(normalised);
+    setSelectedRoomId(normalised.rooms[0]?.id ?? null);
+    setSelectedJobId(normalised.linkedJobId || "");
+    setSelectedQuoteId(normalised.linkedQuoteId || "");
+  }
+
+  function selectProject(id: string) {
+    const next = projects.find((item) => item.id === id);
+    if (!next) return;
+    skipNextProjectSaveRef.current = true;
+    activateProject(next);
+    setLayoutMode(false);
+    setSaveStatus(saveStatus === "offline" ? "offline" : "saved");
+  }
 
   function patchProject(patch: Partial<HeatDesignProject>) {
     setProject((current) =>
@@ -266,17 +431,35 @@ export default function HeatDesignLabPage() {
     });
   }
 
-  function startBlankPlan() {
-    startTransition(() => {
-      const next = makeBlankProject();
-      setProject(next);
-      setSelectedRoomId(null);
-      setSelectedJobId("");
-      setSelectedQuoteId("");
-      setLayoutMode(false);
-      setTab("plan");
-      setNotice("New design — draw the floor plan, then link materials to a quote or job.");
-    });
+  async function startBlankPlan() {
+    setSaveStatus("saving");
+    const localProject = normaliseProject(makeBlankProject());
+    try {
+      const res = await fetch("/api/heat-design/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(localProject),
+      });
+      if (!res.ok) throw new Error("Could not create heat design project");
+      const created = normaliseProject((await res.json()) as HeatDesignProject);
+      startTransition(() => {
+        setProjects((current) => upsertProjectList(current, created));
+        activateProject(created);
+        setLayoutMode(false);
+        setTab("plan");
+        setNotice("New project — draw the floor plan, then link materials to a quote or job.");
+        setSaveStatus("saved");
+      });
+    } catch {
+      startTransition(() => {
+        setProjects((current) => upsertProjectList(current, localProject));
+        activateProject(localProject);
+        setLayoutMode(false);
+        setTab("plan");
+        setNotice("New project — server unavailable, saved locally for now.");
+        setSaveStatus("offline");
+      });
+    }
   }
 
   function resetDemo() {
@@ -402,6 +585,7 @@ export default function HeatDesignLabPage() {
         body: JSON.stringify({
           quoteId: selectedQuoteId || undefined,
           createNew,
+          projectId: project.id,
           customerName: project.customerName,
           projectName: project.name,
           address: [project.address, project.postcode].filter(Boolean).join(", "),
@@ -495,6 +679,16 @@ export default function HeatDesignLabPage() {
   const showHeatPumpPicker = (project.reportOptionIds ?? []).some(
     (id) => id === "opt-ashp" || id === "opt-hybrid",
   ) || chosenOption?.kind === "ashp" || chosenOption?.kind === "hybrid";
+  const projectOptions = projects.length ? projects : [project];
+  const revisionHistory = project.revisions ?? [];
+  const saveStatusLabel =
+    saveStatus === "saved"
+      ? "Saved to server"
+      : saveStatus === "saving"
+        ? "Saving…"
+        : saveStatus === "loading"
+          ? "Loading projects…"
+          : "Offline — saved locally";
 
   return (
     <main className={`hd-lab${tab === "plan" ? " is-plan-mode" : ""}`}>
@@ -512,8 +706,19 @@ export default function HeatDesignLabPage() {
             ) : null}
           </div>
           <div className="hd-top-actions">
+            <label className="hd-project-switcher">
+              <span>Project</span>
+              <select value={project.id} onChange={(event) => selectProject(event.target.value)}>
+                {projectOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name || "Untitled heat design"}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className={`hd-save-status is-${saveStatus}`}>{saveStatusLabel}</span>
             <button type="button" className="hd-btn hd-btn-ghost" onClick={startBlankPlan}>
-              New design
+              New project
             </button>
             <button type="button" className="hd-btn hd-btn-ghost" onClick={resetDemo}>
               Load sample
@@ -1464,6 +1669,7 @@ export default function HeatDesignLabPage() {
               project={project}
               design={design}
               options={optionResults}
+              companyName={brand.companyName}
               className={tab === "report" ? undefined : "is-print-source"}
             />
           </section>
@@ -1525,6 +1731,24 @@ export default function HeatDesignLabPage() {
                 <div className="hd-banner warn" style={{ marginTop: 14, marginBottom: 0 }}>
                   Choose a system and Design on plan to build the kit.
                 </div>
+              )}
+            </section>
+            <section className="hd-panel hd-history-panel no-print">
+              <div className="hd-history-head">
+                <h2>History</h2>
+                <span>{revisionHistory.length} revision{revisionHistory.length === 1 ? "" : "s"}</span>
+              </div>
+              {revisionHistory.length ? (
+                <ol className="hd-history-list">
+                  {revisionHistory.slice(0, 5).map((revision) => (
+                    <li key={revision.id}>
+                      <time dateTime={revision.at}>{formatRevisionTimestamp(revision.at)}</time>
+                      <span>{revision.summary}</span>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="hd-history-empty">No server saves recorded yet.</p>
               )}
             </section>
           </aside>

@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
       toLocationId?: string;
       jobRef?: string;
       poNumber?: string;
+      receiptKey?: string;
       note?: string;
     };
     receipt?: Parameters<typeof receivePurchaseIntoStock>[0];

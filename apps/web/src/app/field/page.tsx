@@ -140,6 +140,22 @@ export default function MyDayPage() {
             ? `${jobs.length} job${jobs.length === 1 ? "" : "s"} · ${formatDuration(totalHours)} booked`
             : "No jobs booked"}
         </p>
+        <p style={{ marginTop: 10 }}>
+          <a
+            className="field-next-job"
+            href={`/api/dispatch/run-sheet?date=${encodeURIComponent(selectedDate)}`}
+            target="_blank"
+            rel="noreferrer"
+            style={{ display: "inline-flex", marginTop: 0 }}
+          >
+            <span>Dispatch</span>
+            <strong>
+              {jobs.length
+                ? `Print run sheet · ${jobs.length} job${jobs.length === 1 ? "" : "s"} · 20m travel`
+                : "Print run sheet · no jobs today"}
+            </strong>
+          </a>
+        </p>
       </header>
 
       <DayPicker
