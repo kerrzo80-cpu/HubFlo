@@ -127,6 +127,7 @@ import {
   normalizeBusinessBranding,
   operationsLabel,
   platformLabel,
+  resolveBrandLogoUrl,
   type BusinessBrandingSettings,
 } from "@/lib/branding";
 import {
@@ -30424,7 +30425,7 @@ export default function Dashboard() {
       ) : null}
       <header className="global-header">
         <div className="brand-lockup">
-          <img className="company-logo" src={businessSettings.logoUrl || "/ewg-logo.png"} alt={businessSettings.companyName} />
+          <img className="company-logo" src={resolveBrandLogoUrl(businessSettings, "core")} alt={businessSettings.companyName} />
         </div>
 
         <label className="global-search">
@@ -30943,7 +30944,7 @@ export default function Dashboard() {
 
           <div className="support-panel">
             {/* Owner brand only — no NeXa mark in the rail. */}
-            <img src={businessSettings.logoUrl || "/ewg-logo.png"} alt={businessSettings.companyName} />
+            <img src={resolveBrandLogoUrl(businessSettings, "core")} alt={businessSettings.companyName} />
             <small>{businessSettings.productName || businessSettings.companyName}</small>
           </div>
         </aside>
