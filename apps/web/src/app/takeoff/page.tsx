@@ -404,9 +404,15 @@ export default function TakeoffStudioPage() {
         studio: nextStudio,
       });
       setSaveState("saved");
+      const message = payload.message || "Blake finished.";
       setBlakeStep(payload.pinCount ? `Done — ${payload.pinCount} pin(s) placed.` : "Done — no tags found.");
       await new Promise((resolve) => window.setTimeout(resolve, 700));
-      show(payload.message || "Blake finished.", 12000);
+      if ((payload.pinCount || 0) > 0) {
+        show(message, 12000);
+      } else {
+        setNotice(null);
+        setError(message);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Blake could not finish. Try again or mark up manually.");
     } finally {
@@ -457,6 +463,61 @@ export default function TakeoffStudioPage() {
     }
   }
 
+  const hasScale = Boolean(
+    activeDoc && studio.scales.some((row) => row.documentId === activeDoc.id && row.page === (studio.activePage || 1)),
+  );
+  const hasMarks = studio.geometries.length > 0;
+  const flowStep: "upload" | "scale" | "blake" | "mark" | "push" = !drawingDocs.length
+    ? "upload"
+    : !hasScale
+      ? "scale"
+      : !hasMarks
+        ? "blake"
+        : selected?.linkedQuoteId
+          ? "push"
+          : "mark";
+
+  function runFlowAction(step: typeof flowStep) {
+    if (!selected && step !== "upload") {
+      setError("Create or select a project first.");
+      return;
+    }
+    if (step === "upload") {
+      if (!selected) {
+        setError("Create a project first, then upload a PDF.");
+        return;
+      }
+      fileRef.current?.click();
+      return;
+    }
+    if (step === "scale") {
+      if (!activeDoc) {
+        setError("Upload a PDF first, then set scale.");
+        return;
+      }
+      void persistStudio({ ...studio, tool: "scale" });
+      show("Scale tool on — tap two points on a known length, enter metres (or use a 1:N chip).");
+      return;
+    }
+    if (step === "blake") {
+      void runAiAssist();
+      return;
+    }
+    if (step === "mark") {
+      if (!activeDoc) {
+        setError("Upload a PDF first.");
+        return;
+      }
+      const tool = studio.classifications.find((cls) => cls.id === studio.activeClassificationId)?.kind || "count";
+      void persistStudio({ ...studio, tool: tool === "area" || tool === "linear" || tool === "count" ? tool : "count" });
+      show("Mark-up mode — tap Count / Linear / Area on the toolbar, or ask Blake first.");
+      return;
+    }
+    if (step === "push") {
+      void pushToCore();
+    }
+  }
+
   if (authState === "checking") {
     return (
       <div className="nexa-studio-gate">
@@ -487,13 +548,27 @@ export default function TakeoffStudioPage() {
             <span>Blake · {brand.tradingName || "Errol Watson Group"}</span>
           </div>
         </div>
-        <div className="nexa-studio-flow" aria-hidden="true">
-          <span>Upload</span>
-          <span>Scale</span>
-          <span className="on">Blake</span>
-          <span>Mark</span>
-          <span>Push</span>
-        </div>
+        <nav className="nexa-studio-flow" aria-label="Takeoff steps">
+          {(
+            [
+              ["upload", "Upload"],
+              ["scale", "Scale"],
+              ["blake", "Blake"],
+              ["mark", "Mark"],
+              ["push", "Push"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              className={flowStep === id ? "on" : undefined}
+              disabled={id === "blake" && busy === "ai"}
+              onClick={() => runFlowAction(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
         <div className="nexa-studio-top-actions">
           <Link href="/" className="nexa-studio-core-pill">Core</Link>
           <span className={`pill save-${saveState}`}>
@@ -504,6 +579,7 @@ export default function TakeoffStudioPage() {
             {busy === "ai" ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
             Ask Blake
           </button>
+          <input ref={fileRef} type="file" accept="application/pdf,.pdf" multiple hidden onChange={(e) => void uploadDrawings(e)} />
         </div>
       </header>
 
@@ -570,7 +646,6 @@ export default function TakeoffStudioPage() {
                     {busy === "upload" ? <Loader2 className="spin" size={14} /> : <Upload size={14} />}
                     Upload
                   </button>
-                  <input ref={fileRef} type="file" accept="application/pdf,.pdf" multiple hidden onChange={(e) => void uploadDrawings(e)} />
                 </header>
                 <div className="nexa-studio-doc-list">
                   {drawingDocs.length ? drawingDocs.map((doc: TakeoffDocument) => (

@@ -70,32 +70,57 @@
 .nexa-studio-flow {
   display: none;
   align-items: center;
-  gap: 0;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.nexa-studio-flow button {
+  position: relative;
+  border: 0;
+  background: transparent;
+  color: #7fa9bb;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #7fa9bb;
+  padding: 7px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+  min-height: 34px;
 }
 
-.nexa-studio-flow span {
-  position: relative;
-  padding: 6px 10px;
-}
-
-.nexa-studio-flow span + span::before {
+.nexa-studio-flow button + button::before {
   content: "›";
   position: absolute;
-  left: -2px;
+  left: -1px;
+  top: 50%;
+  transform: translateY(-52%);
   color: #4f7486;
   font-weight: 400;
+  pointer-events: none;
 }
 
-.nexa-studio-flow span.on {
-  color: #9ef0bf;
+.nexa-studio-flow button.on {
+  background: #fff;
+  color: #103040;
 }
 
-@media (min-width: 980px) {
+.nexa-studio-flow button:hover {
+  color: #e8f3f8;
+}
+
+.nexa-studio-flow button.on:hover {
+  color: #103040;
+}
+
+.nexa-studio-flow button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (min-width: 720px) {
   .nexa-studio-flow {
     display: inline-flex;
   }

@@ -418,7 +418,12 @@ async function textTagMeasure(
   const primaries = skill.assemblies.filter((item) => item.included && item.kind === "primary");
   if (!primaries.length) return [];
 
-  const docs = project.documents.filter((document) => document.kind === "Drawing" || document.kind === "Marked-up drawing");
+  const docs = project.documents.filter((document) =>
+    document.kind === "Drawing"
+    || document.kind === "Marked-up drawing"
+    || (document.mimeType || "").includes("pdf")
+    || document.fileName.toLowerCase().endsWith(".pdf"),
+  );
   const extractedByDoc = new Map<string, Awaited<ReturnType<typeof extractPdfDocument>>>();
   for (const document of docs) {
     const bytes = await readDocumentBytes(document);
