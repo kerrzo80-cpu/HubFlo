@@ -688,6 +688,49 @@ export default function StudioCanvas({
 
   const canLocalUndo = draftPoints.length > 0 || scaleDraft.length > 0 || Boolean(rectStart);
 
+  const toolHelp: Record<StudioTool, { label: string; title: string; hint: string }> = {
+    pan: {
+      label: "Move",
+      title: "Move the drawing around (drag). Pinch to zoom.",
+      hint: "Drag to move the sheet. Pinch or use + / − to zoom.",
+    },
+    select: {
+      label: "Edit",
+      title: "Select and move pins. Drag empty space to pan.",
+      hint: "Tap a pin to select it. Drag the pin to move it. Delete removes it.",
+    },
+    count: {
+      label: "Count",
+      title: "Tap once for each fixture (WC, basin, socket, etc.).",
+      hint: "Tap each fixture once to count it. Use Ask Blake first if tags are on the PDF.",
+    },
+    linear: {
+      label: "Length",
+      title: "Tap along a pipe or wall run to measure metres.",
+      hint: "Tap along the run point-by-point, then Done run. Set scale first for metres.",
+    },
+    area: {
+      label: "Area",
+      title: "Tap around a room or zone to measure m².",
+      hint: "Tap the corners of the space, then Close area (or tap near the first point).",
+    },
+    rect: {
+      label: "Box",
+      title: "Drag a rectangle for a quick area takeoff.",
+      hint: "Press and drag a box over the area. Set scale first for m².",
+    },
+    measure: {
+      label: "Check m",
+      title: "Check a distance between two points (does not set scale).",
+      hint: "Tap two points to see the distance. This only checks — it does not set scale.",
+    },
+    scale: {
+      label: "Set scale",
+      title: "Calibrate the drawing so lengths show in metres.",
+      hint: "Tap two ends of a known dimension, enter how many metres it is, Save scale.",
+    },
+  };
+
   const draftHint = (() => {
     if ((studio.tool === "scale" || studio.tool === "measure") && scaleDraft.length === 2) {
       const from = scaleDraft[0];
@@ -697,72 +740,72 @@ export default function StudioCanvas({
         const metres = pageScale ? units * pageScale.metresPerUnit : null;
         if (studio.tool === "measure") {
           return metres != null
-            ? `Measure ≈ ${metres.toFixed(2)} m (${units.toFixed(0)} units)`
-            : `Measure ${units.toFixed(0)} units — set Scale to see metres.`;
+            ? `Checked distance ≈ ${metres.toFixed(2)} m`
+            : `Checked ${units.toFixed(0)} drawing units — Set scale to see metres.`;
         }
-        return "Enter the known length, then Save scale.";
+        return "Type the real length in metres, then Save scale.";
       }
     }
     if (studio.tool === "linear" && draftPoints.length >= 2) {
       const units = polylineLength(draftPoints);
       const metres = pageScale ? units * pageScale.metresPerUnit : null;
       return metres != null
-        ? `Draft ≈ ${metres.toFixed(2)} m — Done run (or double-tap last point).`
-        : "Set scale for metres. Tap Done run when finished.";
+        ? `Length so far ≈ ${metres.toFixed(2)} m — tap Done run when finished.`
+        : "Length draft started — Set scale for metres, then Done run.";
     }
     if (studio.tool === "area" && draftPoints.length >= 3) {
       const closePt = draftPoints[0];
       const area = closePt ? polygonArea([...draftPoints, closePt]) : 0;
       const m2 = pageScale ? area * pageScale.metresPerUnit ** 2 : null;
       return m2 != null
-        ? `Draft ≈ ${m2.toFixed(2)} m² — tap first point or Close area.`
-        : "Tap near the first point to close.";
+        ? `Area so far ≈ ${m2.toFixed(2)} m² — Close area when finished.`
+        : "Area draft started — tap near the first corner or Close area.";
     }
-    if (studio.tool === "count") return "Tap each fixture once. Two fingers to pan/zoom.";
-    if (studio.tool === "rect") return "Drag a rectangle for area takeoff (needs Scale for m²).";
-    if (studio.tool === "measure") return "Tap two points to check a distance (does not change scale).";
-    if (studio.tool === "select") return "Tap to select · drag pins · blank drag pans. Inactive classes dimmed.";
-    return "Two-finger pinch zoom · Pan tool or Space+drag · iPad ready.";
+    return toolHelp[studio.tool]?.hint || "Choose a tool above, then mark the drawing.";
   })();
+
+  const toolGroups: Array<Array<StudioTool>> = [
+    ["pan", "select"],
+    ["count", "linear", "area", "rect"],
+    ["measure", "scale"],
+  ];
 
   return (
     <div className="nexa-studio-canvas-wrap">
       <div className="nexa-studio-toolbar" role="toolbar" aria-label="Drawing tools">
-        {(
-          [
-            ["pan", "Pan"],
-            ["select", "Select"],
-            ["count", "Count"],
-            ["linear", "Linear"],
-            ["area", "Poly"],
-            ["rect", "Rect"],
-            ["measure", "Measure"],
-            ["scale", "Scale"],
-          ] as Array<[StudioTool, string]>
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            className={studio.tool === id ? "on" : undefined}
-            onClick={() => setTool(id)}
-          >
-            {label}
-          </button>
+        {toolGroups.map((group, groupIndex) => (
+          <div className="nexa-studio-tool-group" key={group.join("-")} role="group">
+            {groupIndex === 0 ? <span className="nexa-studio-tool-group-label">View</span> : null}
+            {groupIndex === 1 ? <span className="nexa-studio-tool-group-label">Mark up</span> : null}
+            {groupIndex === 2 ? <span className="nexa-studio-tool-group-label">Calibrate</span> : null}
+            {group.map((id) => (
+              <button
+                key={id}
+                type="button"
+                className={studio.tool === id ? "on" : undefined}
+                title={toolHelp[id].title}
+                aria-label={toolHelp[id].title}
+                onClick={() => setTool(id)}
+              >
+                {toolHelp[id].label}
+              </button>
+            ))}
+          </div>
         ))}
         <span className="nexa-studio-toolbar-gap" />
-        <button type="button" onClick={handleUndo} disabled={!canUndo && !canLocalUndo} aria-label="Undo">
+        <button type="button" onClick={handleUndo} disabled={!canUndo && !canLocalUndo} aria-label="Undo last mark" title="Undo last mark">
           <Undo2 size={15} />
         </button>
-        <button type="button" onClick={() => onRedo?.()} disabled={!canRedo} aria-label="Redo">
+        <button type="button" onClick={() => onRedo?.()} disabled={!canRedo} aria-label="Redo" title="Redo">
           <Redo2 size={15} />
         </button>
-        <button type="button" onClick={() => setView((v) => ({ ...v, scale: Math.min(5, v.scale * 1.15) }))} aria-label="Zoom in">
+        <button type="button" onClick={() => setView((v) => ({ ...v, scale: Math.min(5, v.scale * 1.15) }))} aria-label="Zoom in" title="Zoom in">
           <ZoomIn size={15} />
         </button>
-        <button type="button" onClick={() => setView((v) => ({ ...v, scale: Math.max(0.2, v.scale * 0.87) }))} aria-label="Zoom out">
+        <button type="button" onClick={() => setView((v) => ({ ...v, scale: Math.max(0.2, v.scale * 0.87) }))} aria-label="Zoom out" title="Zoom out">
           <ZoomOut size={15} />
         </button>
-        <button type="button" onClick={() => fitView(pageSize.width, pageSize.height)}>Fit</button>
+        <button type="button" onClick={() => fitView(pageSize.width, pageSize.height)} title="Fit drawing on screen">Fit</button>
         <div className="nexa-studio-page-nav">
           <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} aria-label="Previous page">
             <ChevronLeft size={16} />
@@ -800,8 +843,10 @@ export default function StudioCanvas({
             Close area
           </button>
         ) : null}
-        <button type="button" onClick={deleteSelected} disabled={!selectedId}>Delete</button>
+        <button type="button" onClick={deleteSelected} disabled={!selectedId} title="Delete selected mark">Delete</button>
       </div>
+
+      <p className="nexa-studio-tool-banner">{draftHint}</p>
 
       <div
         ref={stageRef}
@@ -836,12 +881,11 @@ export default function StudioCanvas({
 
       <div className="nexa-studio-statusbar">
         <span>
-          Scale:{" "}
+          Drawing scale:{" "}
           {pageScale
             ? `${pageScale.label || "set"}`
-            : "Not set — Scale tool, two taps, enter metres"}
+            : "not set yet — use Set scale"}
         </span>
-        <strong>{draftHint}</strong>
         {scaleHints.length && !pageScale ? (
           <div className="nexa-studio-scale-hints" role="group" aria-label="Scale found on drawing">
             <span>Found on sheet:</span>
@@ -870,7 +914,7 @@ export default function StudioCanvas({
           </form>
         ) : null}
         {studio.tool === "measure" && scaleDraft.length === 2 ? (
-          <button type="button" onClick={() => setScaleDraft([])}>Clear measure</button>
+          <button type="button" onClick={() => setScaleDraft([])}>Clear check</button>
         ) : null}
       </div>
     </div>

@@ -516,10 +516,41 @@
 .nexa-studio-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
   padding: 8px 10px;
   background: rgba(255, 255, 255, 0.94);
   border-bottom: 1px solid var(--line);
+}
+
+.nexa-studio-tool-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f4f8fb;
+}
+
+.nexa-studio-tool-group-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 6px;
+}
+
+.nexa-studio-tool-banner {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #173344;
+  background: #eef7fc;
+  border-bottom: 1px solid #d5e2ea;
 }
 
 .nexa-studio-toolbar .on,
