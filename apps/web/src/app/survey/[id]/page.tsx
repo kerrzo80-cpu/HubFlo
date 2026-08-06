@@ -627,7 +627,7 @@ export default function SimpleSurveyWorkspacePage() {
 
         {aiStatus && !aiStatus.connected ? (
           <p className="survey-simple-warning">
-            OpenAI is not connected on this live service. Set <code>{aiStatus.keyName || "OPENAI_API_KEY"}</code> on Render → nexa-live → Environment, then Manual Deploy.
+            OpenAI is not connected. Add your key in Core → Setup → Integrations → Blake AI, or set <code>{aiStatus.keyName || "OPENAI_API_KEY"}</code> in this environment and redeploy.
           </p>
         ) : null}
         {notice ? <p className={noticeTone === "warn" ? "survey-simple-warning" : "survey-simple-notice"}>{notice}</p> : null}

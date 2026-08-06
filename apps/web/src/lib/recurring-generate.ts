@@ -171,7 +171,7 @@ function generateRecurringJob(plan: RecurringPlan, actor: string): Job {
     site: site?.address ?? plan.site ?? "Site to be confirmed",
     description: plan.description.trim() || plan.name,
     manager: actor,
-    status: "Needs scheduling",
+    status: "Pending",
     value: 0,
     next: `Generated from recurring plan ${plan.name}`,
     due: isIsoDue ? plan.nextDueDate : "This week",

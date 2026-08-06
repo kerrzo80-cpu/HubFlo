@@ -3237,10 +3237,10 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "business", label: "Business profile", detail: "Company details, personalising, logos and colours across all apps", subItems: ["Company", "Personalising", "Portal"] },
   { key: "forms", label: "Customise forms", detail: "Headers, logos and wording for quotes, jobs, invoices, POs, dayworks and Gas Safe", subItems: ["Quote", "Job sheet", "Application for payment", "Invoice", "Purchase order", "Daywork", "Gas Safe"] },
   { key: "documents", label: "Documents", detail: "Default folders, visibility and record scopes", subItems: ["Folders", "Visibility", "Engineer pack"] },
-  { key: "cost-centres", label: "Cost centre types", detail: "Default categories and assigned engineer checklists", subItems: ["Boiler", "Bathroom", "Reactive"] },
+  { key: "cost-centres", label: "Cost centre types", detail: "Default categories and assigned engineer checklists", subItems: ["Types", "Boiler", "Bathroom", "Reactive"] },
   { key: "engineer-checklists", label: "Engineer checklists", detail: "Stop/go flows used inside cost centres", subItems: ["Boiler service", "Boiler replacement", "General works"] },
   { key: "workflow-rules", label: "Workflow rules", detail: "Lead chases, quote follow-ups, approvals and default margins", subItems: ["Leads", "Quotes", "Approvals"] },
-  { key: "imports", label: "Data import", detail: "Bring existing business records into NeXa", subItems: ["Employees", "Customers", "Sites", "Suppliers", "Contacts", "Contractors", "Leads", "Quotes", "Jobs", "Invoices"] },
+  { key: "imports", label: "Data import", detail: "Bring existing business records into Core", subItems: ["Employees", "Customers", "Sites", "Suppliers", "Contacts", "Contractors", "Leads", "Quotes", "Jobs", "Invoices"] },
   { key: "catalogue", label: "Catalogue import", detail: "Import and manage reusable priced items", subItems: ["Materials", "Labour", "Suppliers"] },
   { key: "prebuilds", label: "Pre-builds", detail: "Material + labour kits that expand onto cost centres" },
   { key: "rates", label: "Rates & markups", detail: "Default labour rates and markup percentages", subItems: ["Labour rates", "Default markups", "Supplier pricing"] },
@@ -3329,6 +3329,11 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
     },
   },
   "cost-centres": {
+    Types: {
+      summary: "Edit live cost centre types and assign the engineer checklist each type uses in Field.",
+      focus: ["Add and rename types", "Checklist assignment", "Used on quote and job centres"],
+      status: "Editable now",
+    },
     Boiler: {
       summary: "Mockup page for boiler cost centre defaults, linked checklist rules and reporting category setup.",
       focus: ["Default boiler categories", "Engineer checklist assignment", "Report grouping"],
@@ -3763,7 +3768,7 @@ function makeDefaultEmployeeUsername(employee: Pick<EmployeeCard, "name" | "prof
 function makeDefaultEmployeeLogin(employee: EmployeeCard) {
   return {
     username: makeDefaultEmployeeUsername(employee),
-    password: "EWG2026",
+    password: "",
     enabled: true,
   };
 }
@@ -7533,8 +7538,8 @@ function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null, templat
       ? fillEmailTemplate(template.subject, vars)
       : `${quote.ref} - ${quote.description}`,
     body: template?.body
-      ? `${fillEmailTemplate(template.body, vars)}\n\nView and accept online:\n${quotePortalLink(quote)}`
-      : `Hi ${contactName},\n\nPlease find attached our quote for ${quote.description}.\n\nYou can review and accept it online here:\n${quotePortalLink(quote)}\n\nKind regards,\n${companyName}`,
+      ? `${fillEmailTemplate(template.body, vars)}\n\nView and respond online:\n${quotePortalLink(quote)}`
+      : `Hi ${contactName},\n\nPlease find attached our quote for ${quote.description}.\n\nYou can review and respond online here:\n${quotePortalLink(quote)}\n\nKind regards,\n${companyName}`,
     layout: "quote",
     attachPdf: true,
   };
@@ -7542,7 +7547,8 @@ function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null, templat
 
 function quotePortalLink(quote: Quote) {
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
-  return quote.portalUrl ?? `${baseUrl}/client/quotes/${quote.portalToken ?? quote.ref.toLowerCase()}`;
+  const token = quote.portalToken ?? makeQuotePortalToken(quote);
+  return quote.portalUrl ?? `${baseUrl}/client/quotes/${token}`;
 }
 
 function variationPortalBaseUrl() {
@@ -20776,7 +20782,7 @@ export default function CoreApp() {
       site: site.address,
       description: plan.description.trim() || plan.name,
       manager: activeEmployee?.name || "Unassigned",
-      status: "Needs scheduling",
+      status: "Pending",
       value: 0,
       next: `Generated from recurring plan ${plan.name}`,
       due: dueDate,
@@ -21195,7 +21201,7 @@ export default function CoreApp() {
     }
 
     const subject = `Application for payment - ${selectedInvoice.sourceName}`;
-    const body = `Hi,\n\nPlease find our application for payment for ${selectedInvoice.sourceName}.\n\nApplication value excluding VAT: ${currency(selectedInvoice.chargeTotal)}.\nVAT: ${currency(selectedInvoice.chargeTotal * (selectedInvoice.vatRate / 100))}.\nTotal applied for: ${currency(selectedInvoiceFinancials.grandTotal)}.\n\nKind regards,\nNeXa`;
+    const body = `Hi,\n\nPlease find our application for payment for ${selectedInvoice.sourceName}.\n\nApplication value excluding VAT: ${currency(selectedInvoice.chargeTotal)}.\nVAT: ${currency(selectedInvoice.chargeTotal * (selectedInvoice.vatRate / 100))}.\nTotal applied for: ${currency(selectedInvoiceFinancials.grandTotal)}.\n\nKind regards,\n${businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group"}`;
     setIsSendingLiveEmail(true);
     let delivery: LiveEmailDelivery;
     try {
@@ -27063,7 +27069,7 @@ export default function CoreApp() {
     const enteredLoginPassword = employeeProfileDraft.loginPassword.trim();
     const savedLoginPassword = serverAuthMode === "users"
       ? ""
-      : enteredLoginPassword || activeEditingEmployee?.login?.password || "EWG2026";
+      : enteredLoginPassword || activeEditingEmployee?.login?.password || "";
 
     markEmployeeEdited();
     const nextEmployees = employees.map((employee) =>
@@ -32513,17 +32519,46 @@ export default function CoreApp() {
                                 },
                                 {
                                   label: "Mark accepted",
-                                  onClick: () =>
-                                    updateQuoteFromDirectory(
-                                      quote,
-                                      {
-                                        status: "Accepted",
-                                        respondedAt: quote.respondedAt ?? new Date().toISOString(),
-                                        next: "Create job and schedule",
-                                      },
-                                      `${quote.ref} accepted.`,
-                                    ),
-                                  disabled: quote.status === "Accepted",
+                                  onClick: () => {
+                                    if (
+                                      typeof window !== "undefined" &&
+                                      !window.confirm(
+                                        `Mark ${quote.ref} as Accepted from the office? This can create the job.`,
+                                      )
+                                    ) {
+                                      return;
+                                    }
+                                    void (async () => {
+                                      try {
+                                        const respondedAt = quote.respondedAt ?? workflowTimestamp();
+                                        const updated = await persistQuotePatch(quote.id, {
+                                          status: "Accepted",
+                                          respondedAt,
+                                          viewedAt: quote.viewedAt ?? respondedAt,
+                                          next: "Create job and schedule",
+                                        });
+                                        logAuditEvent({
+                                          actor: activeEmployee?.name ?? "Office user",
+                                          action: "accepted",
+                                          recordType: "quote",
+                                          recordId: quote.id,
+                                          summary: `${quote.ref} was marked accepted by the office from the quotes directory.`,
+                                          source: "office quote response",
+                                          importance: "high",
+                                        });
+                                        if (!updated.convertedJobId) {
+                                          await convertQuoteToJob(updated);
+                                          return;
+                                        }
+                                        showNotice(`${quote.ref} marked accepted.`);
+                                      } catch (error) {
+                                        const message =
+                                          error instanceof Error ? error.message : "Unable to mark the quote accepted.";
+                                        showNotice(message);
+                                      }
+                                    })();
+                                  },
+                                  disabled: quote.status === "Accepted" || quote.status === "Converted",
                                 },
                                 {
                                   label: "Archive as lost",
@@ -42819,8 +42854,7 @@ export default function CoreApp() {
                   ) : null}
 
                   {activeSetupCategory === "cost-centres" &&
-                  (!activeSetupSubItem ||
-                    !["Boiler", "Bathroom", "Reactive"].includes(activeSetupSubItem)) ? (
+                  (!activeSetupSubItem || activeSetupSubItem === "Types") ? (
                     <section className="setup-panel">
                       <div className="documents-toolbar">
                         <div>
