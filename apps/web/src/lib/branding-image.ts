@@ -1,6 +1,6 @@
-/** Client-side prepare for Personalising logo / icon uploads — trim empty padding and resize. */
+/** Client-side prepare for Personalising logo / icon uploads — trim padding and build square app icons. */
 
-const MAX_BYTES_BEFORE_PROCESS = 350_000;
+const APP_ICON_SIZE = 512;
 
 function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -18,12 +18,7 @@ function loadImage(file: File): Promise<HTMLImageElement> {
   });
 }
 
-function contentBounds(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  treatNearWhiteAsEmpty: boolean,
-) {
+function contentBounds(ctx: CanvasRenderingContext2D, width: number, height: number) {
   const { data } = ctx.getImageData(0, 0, width, height);
   let top = height;
   let left = width;
@@ -38,10 +33,8 @@ function contentBounds(
       const red = data[i] ?? 0;
       const green = data[i + 1] ?? 0;
       const blue = data[i + 2] ?? 0;
-      // Transparent padding is always empty. Near-white is only empty when we will
-      // put the mark back onto a white plate (otherwise logos go black on JPEG/dark UI).
-      const nearWhite = alpha > 200 && red > 248 && green > 248 && blue > 248;
-      const empty = alpha < 10 || (treatNearWhiteAsEmpty && nearWhite);
+      // Transparent or near-white = empty padding.
+      const empty = alpha < 10 || (alpha > 200 && red > 248 && green > 248 && blue > 248);
       if (empty) continue;
       found = true;
       if (x < left) left = x;
@@ -55,8 +48,8 @@ function contentBounds(
     return { x: 0, y: 0, width, height };
   }
 
-  const padX = Math.max(2, Math.round((right - left + 1) * 0.04));
-  const padY = Math.max(2, Math.round((bottom - top + 1) * 0.04));
+  const padX = Math.max(2, Math.round((right - left + 1) * 0.03));
+  const padY = Math.max(2, Math.round((bottom - top + 1) * 0.03));
   const x = Math.max(0, left - padX);
   const y = Math.max(0, top - padY);
   const w = Math.min(width - x, right - left + 1 + padX * 2);
@@ -78,28 +71,20 @@ function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number)
 }
 
 export type PrepareBrandingImageOptions = {
-  /** Longest edge after prepare. */
+  /** Longest edge after prepare (company logos). */
   maxEdge?: number;
-  /** Prefer a square canvas (home-screen icons). */
+  /** Build a true square home-screen icon (never stretched). */
   square?: boolean;
-  /**
-   * Plate behind the logo. Header logos must use white — clearing to transparent then
-   * saving JPEG fills those pixels black (what turned Core logos black).
-   */
-  background?: "transparent" | "white";
 };
 
-/** Trim empty padding, resize, and compress so logo uploads are fast and fill the preview. */
+/** Trim empty padding, resize, and for app icons emit a true 512×512 PNG. */
 export async function prepareBrandingImage(file: File, options: PrepareBrandingImageOptions = {}): Promise<File> {
   if (typeof window === "undefined") return file;
   if (!file.type.startsWith("image/")) {
     throw new Error("Upload a PNG, JPG or WEBP image.");
   }
-  // Keep SVG as-is — canvas rasterisation would lose vector quality.
   if (file.type.includes("svg")) return file;
 
-  const background = options.background ?? (options.square ? "transparent" : "white");
-  const maxEdge = options.maxEdge ?? (options.square ? 512 : 1024);
   const image = await loadImage(file);
   const source = document.createElement("canvas");
   source.width = image.naturalWidth || image.width;
@@ -110,71 +95,55 @@ export async function prepareBrandingImage(file: File, options: PrepareBrandingI
   if (!sourceCtx) return file;
   sourceCtx.drawImage(image, 0, 0);
 
-  const bounds = contentBounds(sourceCtx, source.width, source.height, background === "white");
-  let drawW = bounds.width;
-  let drawH = bounds.height;
-  const scale = Math.min(1, maxEdge / Math.max(drawW, drawH));
-  drawW = Math.max(1, Math.round(drawW * scale));
-  drawH = Math.max(1, Math.round(drawH * scale));
-
+  const bounds = contentBounds(sourceCtx, source.width, source.height);
   const out = document.createElement("canvas");
-  if (options.square) {
-    const side = Math.max(drawW, drawH);
-    out.width = side;
-    out.height = side;
-  } else {
-    out.width = drawW;
-    out.height = drawH;
-  }
-
   const outCtx = out.getContext("2d");
   if (!outCtx) return file;
-  if (background === "white") {
+
+  if (options.square) {
+    // True square icon for iOS / Android home screen — never stretch.
+    const size = APP_ICON_SIZE;
+    out.width = size;
+    out.height = size;
     outCtx.fillStyle = "#ffffff";
-    outCtx.fillRect(0, 0, out.width, out.height);
-  } else {
-    outCtx.clearRect(0, 0, out.width, out.height);
-  }
-  const offsetX = options.square ? Math.round((out.width - drawW) / 2) : 0;
-  const offsetY = options.square ? Math.round((out.height - drawH) / 2) : 0;
-  outCtx.drawImage(
-    source,
-    bounds.x,
-    bounds.y,
-    bounds.width,
-    bounds.height,
-    offsetX,
-    offsetY,
-    drawW,
-    drawH,
-  );
+    outCtx.fillRect(0, 0, size, size);
 
-  // Prefer PNG so logos never lose a white plate to JPEG's black "transparency".
-  let type: string = "image/png";
-  let blob = await canvasToBlob(out, type);
+    const fit = Math.round(size * 0.86);
+    const scale = Math.min(fit / bounds.width, fit / bounds.height);
+    const drawW = Math.max(1, Math.round(bounds.width * scale));
+    const drawH = Math.max(1, Math.round(bounds.height * scale));
+    const offsetX = Math.round((size - drawW) / 2);
+    const offsetY = Math.round((size - drawH) / 2);
+    outCtx.drawImage(
+      source,
+      bounds.x,
+      bounds.y,
+      bounds.width,
+      bounds.height,
+      offsetX,
+      offsetY,
+      drawW,
+      drawH,
+    );
 
-  // If still large, switch to JPEG only after the white plate is painted.
-  if (blob.size > MAX_BYTES_BEFORE_PROCESS) {
-    if (background !== "white") {
-      outCtx.fillStyle = "#ffffff";
-      outCtx.fillRect(0, 0, out.width, out.height);
-      outCtx.drawImage(
-        source,
-        bounds.x,
-        bounds.y,
-        bounds.width,
-        bounds.height,
-        offsetX,
-        offsetY,
-        drawW,
-        drawH,
-      );
-    }
-    blob = await canvasToBlob(out, "image/jpeg", 0.88);
-    type = "image/jpeg";
+    const blob = await canvasToBlob(out, "image/png");
+    const base = (file.name || "logo").replace(/\.[^.]+$/, "");
+    return new File([blob], `${base}-icon-512.png`, { type: "image/png", lastModified: Date.now() });
   }
 
-  const ext = type === "image/jpeg" ? "jpg" : "png";
+  const maxEdge = options.maxEdge ?? 1024;
+  const scale = Math.min(1, maxEdge / Math.max(bounds.width, bounds.height));
+  const drawW = Math.max(1, Math.round(bounds.width * scale));
+  const drawH = Math.max(1, Math.round(bounds.height * scale));
+  out.width = drawW;
+  out.height = drawH;
+  outCtx.clearRect(0, 0, drawW, drawH);
+  outCtx.drawImage(source, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, drawW, drawH);
+
+  const hasAlpha = file.type.includes("png") || file.type.includes("webp") || file.type.includes("gif");
+  const type = hasAlpha ? "image/png" : "image/jpeg";
+  const blob = await canvasToBlob(out, type, type === "image/jpeg" ? 0.88 : undefined);
+  const ext = blob.type === "image/jpeg" ? "jpg" : "png";
   const base = (file.name || "logo").replace(/\.[^.]+$/, "");
   return new File([blob], `${base}-prepared.${ext}`, { type: blob.type, lastModified: Date.now() });
 }
