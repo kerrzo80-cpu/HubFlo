@@ -18,7 +18,12 @@ function loadImage(file: File): Promise<HTMLImageElement> {
   });
 }
 
-function contentBounds(ctx: CanvasRenderingContext2D, width: number, height: number) {
+function contentBounds(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  treatNearWhiteAsEmpty: boolean,
+) {
   const { data } = ctx.getImageData(0, 0, width, height);
   let top = height;
   let left = width;
@@ -33,8 +38,10 @@ function contentBounds(ctx: CanvasRenderingContext2D, width: number, height: num
       const red = data[i] ?? 0;
       const green = data[i + 1] ?? 0;
       const blue = data[i + 2] ?? 0;
-      // Treat transparent or near-white pixels as empty padding.
-      const empty = alpha < 10 || (alpha > 200 && red > 248 && green > 248 && blue > 248);
+      // Transparent padding is always empty. Near-white is only empty when we will
+      // put the mark back onto a white plate (otherwise logos go black on JPEG/dark UI).
+      const nearWhite = alpha > 200 && red > 248 && green > 248 && blue > 248;
+      const empty = alpha < 10 || (treatNearWhiteAsEmpty && nearWhite);
       if (empty) continue;
       found = true;
       if (x < left) left = x;
@@ -75,6 +82,11 @@ export type PrepareBrandingImageOptions = {
   maxEdge?: number;
   /** Prefer a square canvas (home-screen icons). */
   square?: boolean;
+  /**
+   * Plate behind the logo. Header logos must use white — clearing to transparent then
+   * saving JPEG fills those pixels black (what turned Core logos black).
+   */
+  background?: "transparent" | "white";
 };
 
 /** Trim empty padding, resize, and compress so logo uploads are fast and fill the preview. */
@@ -86,6 +98,7 @@ export async function prepareBrandingImage(file: File, options: PrepareBrandingI
   // Keep SVG as-is — canvas rasterisation would lose vector quality.
   if (file.type.includes("svg")) return file;
 
+  const background = options.background ?? (options.square ? "transparent" : "white");
   const maxEdge = options.maxEdge ?? (options.square ? 512 : 1024);
   const image = await loadImage(file);
   const source = document.createElement("canvas");
@@ -97,7 +110,7 @@ export async function prepareBrandingImage(file: File, options: PrepareBrandingI
   if (!sourceCtx) return file;
   sourceCtx.drawImage(image, 0, 0);
 
-  const bounds = contentBounds(sourceCtx, source.width, source.height);
+  const bounds = contentBounds(sourceCtx, source.width, source.height, background === "white");
   let drawW = bounds.width;
   let drawH = bounds.height;
   const scale = Math.min(1, maxEdge / Math.max(drawW, drawH));
@@ -116,7 +129,12 @@ export async function prepareBrandingImage(file: File, options: PrepareBrandingI
 
   const outCtx = out.getContext("2d");
   if (!outCtx) return file;
-  outCtx.clearRect(0, 0, out.width, out.height);
+  if (background === "white") {
+    outCtx.fillStyle = "#ffffff";
+    outCtx.fillRect(0, 0, out.width, out.height);
+  } else {
+    outCtx.clearRect(0, 0, out.width, out.height);
+  }
   const offsetX = options.square ? Math.round((out.width - drawW) / 2) : 0;
   const offsetY = options.square ? Math.round((out.height - drawH) / 2) : 0;
   outCtx.drawImage(
@@ -131,16 +149,32 @@ export async function prepareBrandingImage(file: File, options: PrepareBrandingI
     drawH,
   );
 
-  const hasAlpha = file.type.includes("png") || file.type.includes("webp") || file.type.includes("gif");
-  const type = hasAlpha ? "image/png" : "image/jpeg";
-  let blob = await canvasToBlob(out, type, type === "image/jpeg" ? 0.88 : undefined);
+  // Prefer PNG so logos never lose a white plate to JPEG's black "transparency".
+  let type: string = "image/png";
+  let blob = await canvasToBlob(out, type);
 
-  // If still large, force JPEG.
-  if (blob.size > MAX_BYTES_BEFORE_PROCESS && type === "image/png") {
-    blob = await canvasToBlob(out, "image/jpeg", 0.85);
+  // If still large, switch to JPEG only after the white plate is painted.
+  if (blob.size > MAX_BYTES_BEFORE_PROCESS) {
+    if (background !== "white") {
+      outCtx.fillStyle = "#ffffff";
+      outCtx.fillRect(0, 0, out.width, out.height);
+      outCtx.drawImage(
+        source,
+        bounds.x,
+        bounds.y,
+        bounds.width,
+        bounds.height,
+        offsetX,
+        offsetY,
+        drawW,
+        drawH,
+      );
+    }
+    blob = await canvasToBlob(out, "image/jpeg", 0.88);
+    type = "image/jpeg";
   }
 
-  const ext = blob.type === "image/jpeg" ? "jpg" : "png";
+  const ext = type === "image/jpeg" ? "jpg" : "png";
   const base = (file.name || "logo").replace(/\.[^.]+$/, "");
   return new File([blob], `${base}-prepared.${ext}`, { type: blob.type, lastModified: Date.now() });
 }

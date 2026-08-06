@@ -101,9 +101,11 @@ export function SetupPersonalisingPanel({
     const timeout = window.setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
     try {
       const prepared = await prepareBrandingImage(file, {
-        // Company + per-app header logos stay wide. Only the shared home-screen icon is squared.
+        // Company + per-app header logos stay wide on a white plate (avoids black JPEG backgrounds).
+        // Only the shared home-screen icon is squared; it keeps transparency when possible.
         maxEdge: kind === "icon" ? 512 : 1024,
         square: kind === "icon",
+        background: kind === "icon" ? "transparent" : "white",
       });
       const body = new FormData();
       body.append("file", prepared);

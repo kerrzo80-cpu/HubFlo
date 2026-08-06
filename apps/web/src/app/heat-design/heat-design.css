@@ -45,12 +45,15 @@
 }
 
 .hd-brand-logo {
+  background: #fff;
+  border-radius: 6px;
   display: block;
   height: 56px;
   margin: 0 0 0.35rem;
   max-width: 220px;
   object-fit: contain;
   object-position: left center;
+  padding: 2px 4px;
   width: auto;
 }
 
