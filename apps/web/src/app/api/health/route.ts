@@ -120,6 +120,7 @@ export async function GET() {
       resetWorkflowRemoved: "no-accidental-wipe-v1",
       dashboardLayout: "pipeline-gantt-v3",
       coreUiPerf: "lazy-panels-boot-shell-v1",
+      coreRoutes: "url-modules-v1",
       deploySmoke: "health-smoke-cron-v1",
       takeoffSkill: "drawing-first-v8-routes-page",
       takeoffAiConfirm: "overlay-review-v1",

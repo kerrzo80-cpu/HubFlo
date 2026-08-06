@@ -80,6 +80,9 @@ async function runOnce() {
         if (!json?.ok) throw new Error("/api/health ok !== true");
         if (!json?.deployment?.commit) throw new Error("/api/health missing deployment.commit");
         if (!json?.deployment?.tenOfTenPlan) throw new Error("/api/health missing tenOfTenPlan");
+        if (json?.deployment?.coreRoutes !== "url-modules-v1") {
+          throw new Error(`/api/health coreRoutes=${json?.deployment?.coreRoutes}, expected url-modules-v1`);
+        }
       },
     }),
   );
@@ -97,6 +100,15 @@ async function runOnce() {
       expectStatus: [307, 302, 200],
     }),
   );
+
+  // Core module URL routes (Phase 1 route split) — must resolve, not 404.
+  for (const path of ["/jobs", "/quotes", "/leads", "/setup", "/reports", "/people", "/schedule", "/invoices"]) {
+    results.push(
+      await probe(path, {
+        expectStatus: [307, 302, 200],
+      }),
+    );
+  }
 
   results.push(
     await probe("/field", {
