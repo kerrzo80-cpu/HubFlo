@@ -52,7 +52,6 @@ import {
   ShieldAlert,
   SlidersHorizontal,
   Sparkles,
-  MessageCircle,
   TrendingDown,
   TrendingUp,
   UserCheck,
@@ -2387,6 +2386,7 @@ const TRUSTED_EMPLOYEE_SESSION_DAYS = 60;
 
 const modules: ModuleItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, active: true },
+  { label: "Blake Trainer", icon: MessageCircle, href: "/train" },
   { label: "Leads", icon: Mail },
   { label: "Quotes", icon: FileText },
   { label: "Jobs", icon: Wrench },
@@ -7836,7 +7836,7 @@ export default function Dashboard() {
   const [createMenuPosition, setCreateMenuPosition] = useState({ left: 0, top: 0 });
   const [openModuleMenu, setOpenModuleMenu] = useState<string | null>(null);
   const [openDirectoryActionMenu, setOpenDirectoryActionMenu] = useState<{ scope: DirectoryRecordScope; id: string } | null>(null);
-  const [contextSidebarCollapsed, setContextSidebarCollapsed] = useState(true);
+  const [contextSidebarCollapsed, setContextSidebarCollapsed] = useState(false);
   const [homeView, setHomeView] = useState<HomeView>("dashboard");
   const [activeEmployeeTab, setActiveEmployeeTab] = useState<EmployeeTab>("details");
   const [activeClientTab, setActiveClientTab] = useState<ClientTab>("overview");
@@ -8107,8 +8107,10 @@ export default function Dashboard() {
   const [hasHydratedLocalData, setHasHydratedLocalData] = useState(false);
   const [hasLoadedHubDetailState, setHasLoadedHubDetailState] = useState(false);
   const [recordSaveStatus, setRecordSaveStatus] = useState<RecordSaveStatus>("saved");
+  const [setupSaveStatus, setSetupSaveStatus] = useState<RecordSaveStatus>("saved");
   const [handledInitialRoute, setHandledInitialRoute] = useState(false);
   const noticeClearTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setupManualSaveInFlightRef = useRef(false);
   const lastLocalSetupEditAt = useRef(0);
   const lastLocalCostCentreEditAt = useRef(0);
   const lastLocalEmployeeEditAt = useRef(0);
@@ -10970,6 +10972,8 @@ export default function Dashboard() {
     const controller = new AbortController();
     const timer = setTimeout(() => {
       const payload = buildHubDetailStatePayload();
+      // Background autosave must not flip the Save button to "Saving…" — that state
+      // was getting stuck when rapid Setup edits aborted in-flight requests.
 
       fetch("/api/hub-state", {
         method: "PUT",
@@ -10984,8 +10988,9 @@ export default function Dashboard() {
           setSectionError((current) =>
             current === "Could not save shared hub detail state, so local fallback is being used." ? null : current,
           );
-          if (setupSaveIncludesRecentEdit) {
+          if ((setupSaveIncludesRecentEdit || pendingSetupSaveRef.current) && !setupManualSaveInFlightRef.current) {
             pendingSetupSaveRef.current = false;
+            setSetupSaveStatus("saved");
           }
           if (costCentreSaveIncludesRecentEdit) {
             pendingCostCentreSaveRef.current = false;
@@ -10995,18 +11000,18 @@ export default function Dashboard() {
           }
         })
         .catch(() => {
-          if (!controller.signal.aborted) {
-            if (setupSaveIncludesRecentEdit) {
-              pendingSetupSaveRef.current = false;
-            }
-            if (costCentreSaveIncludesRecentEdit) {
-              pendingCostCentreSaveRef.current = false;
-            }
-            if (invoiceSaveIncludesRecentEdit) {
-              pendingInvoiceSaveRef.current = false;
-            }
-            setSectionError("Could not save shared hub detail state, so local fallback is being used.");
+          if (controller.signal.aborted) return;
+          if ((setupSaveIncludesRecentEdit || pendingSetupSaveRef.current) && !setupManualSaveInFlightRef.current) {
+            pendingSetupSaveRef.current = true;
+            setSetupSaveStatus("unsaved");
           }
+          if (costCentreSaveIncludesRecentEdit) {
+            pendingCostCentreSaveRef.current = false;
+          }
+          if (invoiceSaveIncludesRecentEdit) {
+            pendingInvoiceSaveRef.current = false;
+          }
+          setSectionError("Could not save shared hub detail state, so local fallback is being used.");
         });
     }, 700);
 
@@ -14732,6 +14737,65 @@ export default function Dashboard() {
     lastLocalSetupEditAt.current = Date.now();
     pendingSetupSaveRef.current = true;
     hasAppliedHubSetupState.current = true;
+    if (!setupManualSaveInFlightRef.current) {
+      setSetupSaveStatus("unsaved");
+    }
+  }
+
+  async function saveSetupNow() {
+    if (!hasLoadedHubDetailState) {
+      showNotice("Setup is still loading — try again in a moment.");
+      return;
+    }
+    if (setupManualSaveInFlightRef.current) return;
+    setupManualSaveInFlightRef.current = true;
+    setSetupSaveStatus("saving");
+    lastLocalSetupEditAt.current = Date.now();
+    pendingSetupSaveRef.current = true;
+    hasAppliedHubSetupState.current = true;
+    try {
+      const response = await fetch("/api/hub-state", {
+        method: "PUT",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify(buildHubDetailStatePayload()),
+      });
+      if (!response.ok) throw new Error(`Setup save failed (${response.status}).`);
+      pendingSetupSaveRef.current = false;
+      setSetupSaveStatus("saved");
+      showNotice("Setup saved.");
+    } catch (error) {
+      pendingSetupSaveRef.current = true;
+      setSetupSaveStatus("error");
+      showNotice(error instanceof Error ? error.message : "Could not save setup.");
+    } finally {
+      setupManualSaveInFlightRef.current = false;
+    }
+  }
+
+  function renderSetupSaveControls() {
+    const statusLabel =
+      setupSaveStatus === "saving"
+        ? "Saving to workspace…"
+        : setupSaveStatus === "unsaved"
+          ? "Unsaved changes"
+          : setupSaveStatus === "error"
+            ? "Save failed — tap Save setup"
+            : "All changes saved";
+    return (
+      <div className="setup-save-controls">
+        <span className={`setup-save-status ${setupSaveStatus}`} aria-live="polite">
+          {statusLabel}
+        </span>
+        <button
+          className="primary-button"
+          type="button"
+          disabled={setupSaveStatus === "saving"}
+          onClick={() => void saveSetupNow()}
+        >
+          {setupSaveStatus === "saving" ? "Saving…" : setupSaveStatus === "saved" ? "Saved" : "Save setup"}
+        </button>
+      </div>
+    );
   }
 
   function markCostCentreEdited() {
@@ -30801,6 +30865,10 @@ export default function Dashboard() {
 
           <div className="sidebar-divider" />
           <p className="sidebar-label">Addons</p>
+          <a href="/train" className="context-link" aria-label="Blake Trainer" data-tooltip="Blake Trainer">
+            <MessageCircle size={17} />
+            <span>Blake Trainer</span>
+          </a>
           <a href="/survey" className="context-link" aria-label="Surveyor" data-tooltip="Surveyor">
             <Sparkles size={17} />
             <span>Surveyor</span>
@@ -30819,17 +30887,9 @@ export default function Dashboard() {
           </a>
 
           <div className="support-panel">
-            {businessSettings.hidePlatformName ? (
-              <>
-                <img src={businessSettings.logoUrl || "/ewg-logo.png"} alt={businessSettings.companyName} />
-                <small>{businessSettings.productName || businessSettings.companyName}</small>
-              </>
-            ) : (
-              <>
-                <img src="/brand/nexa-command-lockup-rail.svg" alt="NeXa - Bound into one command center" />
-                <small>Service command center</small>
-              </>
-            )}
+            {/* Owner brand only — no NeXa mark in the rail. */}
+            <img src={businessSettings.logoUrl || "/ewg-logo.png"} alt={businessSettings.companyName} />
+            <small>{businessSettings.productName || businessSettings.companyName}</small>
           </div>
         </aside>
 
@@ -31381,10 +31441,7 @@ export default function Dashboard() {
                   <button className="secondary-button" onClick={returnToDashboard}>
                     Back to dashboard
                   </button>
-                  <button className="primary-button" onClick={addDocumentFolderTemplate}>
-                    <Plus size={16} />
-                    Add folder
-                  </button>
+                  {renderSetupSaveControls()}
                 </>
               ) : homeView === "addons" ? (
                 <>
@@ -41371,10 +41428,13 @@ export default function Dashboard() {
 
                 <div className="setup-category-content">
                   <div className="setup-category-heading">
-                    <span className="permission-heading">
-                      {activeSetupSubItem ? `${activeSetupCategoryMeta.label} / ${activeSetupSubItem}` : "Setup page"}
-                    </span>
-                    <h2>{activeSetupSubItem ?? activeSetupCategoryMeta.label}</h2>
+                    <div>
+                      <span className="permission-heading">
+                        {activeSetupSubItem ? `${activeSetupCategoryMeta.label} / ${activeSetupSubItem}` : "Setup page"}
+                      </span>
+                      <h2>{activeSetupSubItem ?? activeSetupCategoryMeta.label}</h2>
+                    </div>
+                    {renderSetupSaveControls()}
                   </div>
 
                   {activeSetupSubItemMeta && !(activeSetupCategory === "communications" && (activeSetupSubItem === "Outlook" || activeSetupSubItem === "WhatsApp")) ? (
