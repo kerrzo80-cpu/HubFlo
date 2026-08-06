@@ -365,7 +365,17 @@ export async function POST(
 
     const latest = getTakeoffProject(id) || project;
     const baseStudio = latest.studio ?? createDefaultStudioState();
-    const nextStudio = importSkillCountsIntoStudio(baseStudio, measured, { replaceExistingAi: true });
+    const reviewStatus = pinCount > 0 ? "pending" as const : undefined;
+    const nextStudio = importSkillCountsIntoStudio(
+      {
+        ...baseStudio,
+        aiReviewStatus: reviewStatus,
+        aiReviewMeasured: pinCount > 0 ? measured : undefined,
+        aiReviewUpdatedAt: pinCount > 0 ? new Date().toISOString() : baseStudio.aiReviewUpdatedAt,
+      },
+      measured,
+      { replaceExistingAi: true, aiReviewStatus: reviewStatus },
+    );
     if (!nextStudio.activeDocumentId) {
       nextStudio.activeDocumentId = drawings[0]?.id || baseStudio.activeDocumentId;
     }
@@ -377,6 +387,7 @@ export async function POST(
     return NextResponse.json({
       ok: true,
       project: updated,
+      measured,
       pinCount,
       trade,
       usedFallback,

@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { employeeHeaderName, getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
-import { pushTakeoffProjectToQuote } from "@/lib/takeoff-data";
+import { getTakeoffProject, pushTakeoffProjectToQuote } from "@/lib/takeoff-data";
+import { studioNeedsAiReview } from "@/lib/takeoff-studio";
 
 type PushPayload = {
   quoteId?: string;
   actor?: string;
+  allowPendingAiReview?: boolean;
 };
 
 export async function POST(
@@ -24,6 +26,17 @@ export async function POST(
   }
 
   const { id } = await params;
+  const project = getTakeoffProject(id);
+  if (project?.studio && studioNeedsAiReview(project.studio) && !body.allowPendingAiReview) {
+    return NextResponse.json(
+      {
+        error: "Blake AI count pins are pending human review. Confirm/reject them or explicitly override before pushing to Core.",
+        code: "AI_REVIEW_PENDING",
+      },
+      { status: 409 },
+    );
+  }
+
   const actor = body.actor?.trim() || request.headers.get(employeeHeaderName) || "NeXa Takeoff";
   const result = pushTakeoffProjectToQuote(id, body.quoteId, actor);
 

@@ -17,17 +17,24 @@ import { roleHeaderName } from "@/lib/access";
 import type { TakeoffDocument, TakeoffProject } from "@/lib/takeoff-data";
 import {
   createDefaultStudioState,
+  importSkillCountsIntoStudio,
+  isAiStudioGeometry,
   nextClassificationColour,
   studioId,
+  studioHasAiCounts,
+  studioNeedsAiReview,
   studioQuantitiesToMaterialAllowances,
   summariseStudioQuantities,
+  type StudioAiReviewMeasuredQuantity,
   type StudioClassKind,
   type StudioClassification,
   type StudioState,
 } from "@/lib/takeoff-studio";
 import { extractTakeoffPdfInBrowser } from "@/lib/takeoff-pdf-browser";
 
+import TakeoffOverlayReview from "./TakeoffOverlayReview";
 import StudioCanvas from "./studio/StudioCanvas";
+import "./takeoff-skill.css";
 import "./studio/studio.css";
 
 type QuoteOption = { id: string; ref: string; customer: string; site: string };
@@ -66,6 +73,7 @@ export default function TakeoffStudioPage() {
   const [newClassKind, setNewClassKind] = useState<StudioClassKind>("count");
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
   const [blakeStep, setBlakeStep] = useState<string | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const saveTimer = useRef<number | null>(null);
   const historyRef = useRef<StudioState[]>([]);
   const futureRef = useRef<StudioState[]>([]);
@@ -84,6 +92,14 @@ export default function TakeoffStudioPage() {
     drawingDocs.find((doc) => doc.id === studio.activeDocumentId) || drawingDocs[0] || null;
   const quantities = summariseStudioQuantities(studio);
   const linkedQuote = quotes.find((q) => q.id === selected?.linkedQuoteId);
+  const aiReviewRows = studio.aiReviewMeasured || [];
+  const aiReviewPinCount = aiReviewRows.reduce(
+    (sum, row) => sum + (row.tagMatches || []).filter((match) => !match.excluded).length,
+    0,
+  );
+  const hasAiReviewRows = aiReviewPinCount > 0;
+  const hasAiCounts = studioHasAiCounts(studio);
+  const hasPendingAiReview = studioNeedsAiReview(studio);
   const canUndo = historyRef.current.length > 0;
   const canRedo = futureRef.current.length > 0;
   void historyTick;
@@ -135,7 +151,12 @@ export default function TakeoffStudioPage() {
     futureRef.current = [];
     setHistoryTick((value) => value + 1);
     setSaveState("saved");
+    setReviewOpen(false);
   }, [selectedId]);
+
+  useEffect(() => {
+    if (hasPendingAiReview) setReviewOpen(true);
+  }, [hasPendingAiReview, selectedId]);
 
   useEffect(() => {
     let active = true;
@@ -432,6 +453,7 @@ export default function TakeoffStudioPage() {
         ok?: boolean;
         error?: string;
         message?: string;
+        measured?: StudioAiReviewMeasuredQuantity[];
         pinCount?: number;
         project?: TakeoffProject;
         focus?: { documentId: string; page: number; classificationId: string } | null;
@@ -455,6 +477,7 @@ export default function TakeoffStudioPage() {
       setBlakeStep(payload.pinCount ? `Done — ${payload.pinCount} pin(s) placed.` : "Done — no tags found.");
       await new Promise((resolve) => window.setTimeout(resolve, 700));
       if ((payload.pinCount || 0) > 0) {
+        setReviewOpen(true);
         show(message, 12000);
       } else {
         setNotice(null);
@@ -469,10 +492,92 @@ export default function TakeoffStudioPage() {
     }
   }
 
-  async function pushToCore() {
+  async function confirmAiReview(reviewed: StudioAiReviewMeasuredQuantity[]) {
+    if (!selected) return;
+    setBusy("ai-review");
+    setError(null);
+    try {
+      const stamp = new Date().toISOString();
+      const baseStudio: StudioState = {
+        ...studio,
+        aiReviewStatus: "confirmed",
+        aiReviewMeasured: reviewed,
+        aiReviewUpdatedAt: stamp,
+      };
+      const nextStudio = importSkillCountsIntoStudio(baseStudio, reviewed, {
+        replaceExistingAi: true,
+        aiReviewStatus: "confirmed",
+      });
+      nextStudio.aiReviewStatus = "confirmed";
+      nextStudio.aiReviewMeasured = reviewed;
+      nextStudio.aiReviewUpdatedAt = stamp;
+      nextStudio.updatedAt = stamp;
+      await persistStudio(nextStudio, {}, { immediate: true, skipHistory: true });
+      setReviewOpen(false);
+      const activePins = reviewed.reduce(
+        (sum, row) => sum + (row.tagMatches || []).filter((match) => !match.excluded).length,
+        0,
+      );
+      show(`AI counts confirmed — ${activePins} pin(s) ready for Core.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not confirm AI counts.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function rejectAiReview() {
+    if (!selected) return;
+    const ok = window.confirm("Reject all Blake AI count pins for this takeoff? This removes them from Studio quantities.");
+    if (!ok) return;
+    setBusy("ai-review");
+    setError(null);
+    try {
+      const stamp = new Date().toISOString();
+      const rejectedRows = aiReviewRows.map((row) => ({
+        ...row,
+        quantity: 0,
+        tagMatches: (row.tagMatches || []).map((match) => ({ ...match, excluded: true })),
+        notes: "Rejected during human AI count review",
+      }));
+      const remainingGeometries = studio.geometries.filter((geo) => !isAiStudioGeometry(geo));
+      const usedClassifications = new Set(remainingGeometries.map((geo) => geo.classificationId));
+      const nextStudio: StudioState = {
+        ...studio,
+        geometries: remainingGeometries,
+        classifications: studio.classifications.filter((cls) => !cls.id.startsWith("cls-ai-") || usedClassifications.has(cls.id)),
+        aiReviewStatus: "rejected",
+        aiReviewMeasured: rejectedRows,
+        aiReviewUpdatedAt: stamp,
+        tool: "select",
+        updatedAt: stamp,
+      };
+      await persistStudio(nextStudio, {}, { immediate: true, skipHistory: true });
+      setReviewOpen(false);
+      show("AI counts rejected — Blake pins were excluded from the Core push.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not reject AI counts.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function pushToCore(options: { allowPendingAiReview?: boolean } = {}) {
     if (!selected) return;
     if (!selected.linkedQuoteId) {
       setError("Link a Core quote before pushing.");
+      return;
+    }
+    if (hasPendingAiReview && !options.allowPendingAiReview) {
+      const ok = window.confirm(
+        "Blake AI count pins are still pending human review. Push to Core anyway and mark this as an explicit override?",
+      );
+      if (!ok) {
+        setReviewOpen(true);
+        setError("Confirm or reject Blake AI counts before pushing to Core.");
+        return;
+      }
+      await pushToCore({ allowPendingAiReview: true });
       return;
     }
     setBusy("push");
@@ -494,10 +599,17 @@ export default function TakeoffStudioPage() {
       const push = await apiFetch(`/api/takeoff-projects/${selected.id}/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ quoteId: selected.linkedQuoteId, actor: authName || "Office" }),
+        body: JSON.stringify({
+          quoteId: selected.linkedQuoteId,
+          actor: authName || "Office",
+          allowPendingAiReview: Boolean(options.allowPendingAiReview),
+        }),
       });
       if (!push.ok) {
-        const body = (await push.json().catch(() => ({}))) as { error?: string };
+        const body = (await push.json().catch(() => ({}))) as { error?: string; code?: string };
+        if (body.code === "AI_REVIEW_PENDING") {
+          setReviewOpen(true);
+        }
         throw new Error(body.error || "Push failed");
       }
       const result = (await push.json()) as { project: TakeoffProject; quote: { id: string; ref: string } };
@@ -514,9 +626,11 @@ export default function TakeoffStudioPage() {
     activeDoc && studio.scales.some((row) => row.documentId === activeDoc.id && row.page === (studio.activePage || 1)),
   );
   const hasMarks = studio.geometries.length > 0;
-  const flowStep: "upload" | "scale" | "blake" | "mark" | "push" = !drawingDocs.length
+  const flowStep: "upload" | "scale" | "blake" | "review" | "mark" | "push" = !drawingDocs.length
     ? "upload"
-    : !hasScale
+    : hasPendingAiReview
+      ? "review"
+      : !hasScale
       ? "scale"
       : !hasMarks
         ? "blake"
@@ -548,6 +662,21 @@ export default function TakeoffStudioPage() {
     }
     if (step === "blake") {
       void runAiAssist();
+      return;
+    }
+    if (step === "review") {
+      if (!hasAiReviewRows && !hasAiCounts) {
+        setError("Ask Blake first so there are AI count pins to review.");
+        return;
+      }
+      setReviewOpen(true);
+      show(
+        studio.aiReviewStatus === "confirmed"
+          ? "AI counts are already confirmed. Review is open if you need to inspect them."
+          : studio.aiReviewStatus === "rejected"
+            ? "AI counts were rejected. Ask Blake again to create a new review."
+            : "Review Blake's AI pins, then confirm or reject before Core push.",
+      );
       return;
     }
     if (step === "mark") {
@@ -601,6 +730,7 @@ export default function TakeoffStudioPage() {
               ["upload", "Upload"],
               ["scale", "Scale"],
               ["blake", "Blake"],
+              ["review", "Review"],
               ["mark", "Mark"],
               ["push", "Push"],
             ] as const
@@ -609,7 +739,7 @@ export default function TakeoffStudioPage() {
               key={id}
               type="button"
               className={flowStep === id ? "on" : undefined}
-              disabled={id === "blake" && busy === "ai"}
+              disabled={(id === "blake" && busy === "ai") || (id === "review" && !hasAiCounts)}
               onClick={() => runFlowAction(id)}
             >
               {label}
@@ -648,6 +778,15 @@ export default function TakeoffStudioPage() {
       {selected && activeDoc && !studio.scales.some((row) => row.documentId === activeDoc.id && row.page === (studio.activePage || 1)) ? (
         <div className="nexa-studio-banner warn">
           Set scale before measuring lengths or areas — use a <strong>1:N</strong> chip if Blake finds one on the sheet, or tap <strong>Scale</strong>, two points, enter metres.
+        </div>
+      ) : null}
+
+      {selected && hasPendingAiReview ? (
+        <div className="nexa-studio-banner warn nexa-studio-ai-review-banner">
+          <span>
+            Blake placed {aiReviewPinCount} AI count pin{aiReviewPinCount === 1 ? "" : "s"} pending human review. Confirm or reject before Core push.
+          </span>
+          <button type="button" onClick={() => setReviewOpen(true)}>Review AI counts</button>
         </div>
       ) : null}
 
@@ -807,7 +946,20 @@ export default function TakeoffStudioPage() {
         </aside>
 
         <main className="nexa-studio-main">
-          {selected ? (
+          {selected && reviewOpen && aiReviewRows.length ? (
+            <div className="nexa-studio-ai-review-panel">
+              <TakeoffOverlayReview
+                projectId={selected.id}
+                documents={selected.documents}
+                measured={aiReviewRows}
+                busy={busy === "ai-review"}
+                reviewStatus={studio.aiReviewStatus}
+                onApply={confirmAiReview}
+                onReject={studio.aiReviewStatus === "rejected" ? undefined : rejectAiReview}
+                onClose={() => setReviewOpen(false)}
+              />
+            </div>
+          ) : selected ? (
             <StudioCanvas
               projectId={selected.id}
               document={activeDoc}

@@ -256,11 +256,36 @@
   color: #1f6b45;
 }
 
+.nexa-studio-ai-review-banner {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.nexa-studio-ai-review-banner button {
+  border: 1px solid #f0d39a;
+  border-radius: 999px;
+  background: #fff;
+  color: #8a5a00;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 7px 12px;
+  white-space: nowrap;
+}
+
 .nexa-studio-body {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+}
+
+.nexa-studio-ai-review-panel {
+  min-height: 0;
+  padding: 12px;
 }
 
 .nexa-studio-rail {
