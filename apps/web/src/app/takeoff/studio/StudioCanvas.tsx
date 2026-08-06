@@ -8,11 +8,10 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
-import { Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Redo2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 
 import type { TakeoffDocument } from "@/lib/takeoff-data";
 import {
-  createDefaultStudioState,
   polygonArea,
   polylineLength,
   scaleForPage,
@@ -28,55 +27,90 @@ type Props = {
   document: TakeoffDocument | null;
   studio: StudioState;
   onChange: (next: StudioState) => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
 };
 
 function dist(a: StudioPoint, b: StudioPoint) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-export default function StudioCanvas({ projectId, document, studio, onChange }: Props) {
+const RENDER_SCALE = 1.35;
+
+export default function StudioCanvas({
+  projectId,
+  document,
+  studio,
+  onChange,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
+}: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pdfRef = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [error, setError] = useState("");
   const [pageSize, setPageSize] = useState({ width: 1, height: 1 });
+  const [pageCount, setPageCount] = useState(1);
   const [view, setView] = useState({ scale: 1, panX: 0, panY: 0 });
   const [draftPoints, setDraftPoints] = useState<StudioPoint[]>([]);
   const [scaleDraft, setScaleDraft] = useState<StudioPoint[]>([]);
   const [scaleMetres, setScaleMetres] = useState("5");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [spaceDown, setSpaceDown] = useState(false);
 
+  const [dragPreview, setDragPreview] = useState<{ id: string; point: StudioPoint } | null>(null);
   const panRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
-  const pinchRef = useRef<{ dist: number; scale: number } | null>(null);
+  const pinchRef = useRef<{ dist: number; scale: number; panX: number; panY: number; midX: number; midY: number } | null>(null);
+  const dragGeoRef = useRef<{ id: string; origin: StudioPoint; start: StudioPoint } | null>(null);
   const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   const activeClass = studio.classifications.find((c) => c.id === studio.activeClassificationId);
   const page = studio.activePage || 1;
   const pageScale = document ? scaleForPage(studio, document.id, page) : undefined;
 
-  const clientToPage = useCallback(
-    (clientX: number, clientY: number): StudioPoint | null => {
-      const stage = stageRef.current;
-      if (!stage) return null;
-      const rect = stage.getBoundingClientRect();
-      const x = (clientX - rect.left - view.panX) / view.scale;
-      const y = (clientY - rect.top - view.panY) / view.scale;
-      return { x, y };
-    },
-    [view],
-  );
+  const clientToPage = useCallback((clientX: number, clientY: number): StudioPoint | null => {
+    const stage = stageRef.current;
+    if (!stage) return null;
+    const rect = stage.getBoundingClientRect();
+    const v = viewRef.current;
+    return {
+      x: (clientX - rect.left - v.panX) / v.scale,
+      y: (clientY - rect.top - v.panY) / v.scale,
+    };
+  }, []);
 
-  // Load PDF page
+  const fitView = useCallback((width: number, height: number) => {
+    const stage = stageRef.current;
+    if (!stage || width < 2 || height < 2) return;
+    const pad = 28;
+    const fit = Math.min((stage.clientWidth - pad) / width, (stage.clientHeight - pad) / height, 1.6);
+    setView({
+      scale: Math.max(0.3, fit),
+      panX: (stage.clientWidth - width * fit) / 2,
+      panY: 12,
+    });
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
       if (!document) {
         setStatus("idle");
+        setPageCount(1);
         return;
       }
       setStatus("loading");
       setError("");
+      setDraftPoints([]);
+      setScaleDraft([]);
+      setSelectedId(null);
       try {
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -89,8 +123,15 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
         const data = new Uint8Array(await response.arrayBuffer());
         const task = pdfjs.getDocument({ data, isOffscreenCanvasSupported: false });
         const pdf = await task.promise;
-        const pdfPage = await pdf.getPage(Math.min(Math.max(1, page), pdf.numPages));
-        const viewport = pdfPage.getViewport({ scale: 1.35 });
+        if (cancelled) return;
+        setPageCount(pdf.numPages);
+        const safePage = Math.min(Math.max(1, page), pdf.numPages);
+        if (safePage !== page) {
+          onChange({ ...studio, activePage: safePage, updatedAt: new Date().toISOString() });
+          return;
+        }
+        const pdfPage = await pdf.getPage(safePage);
+        const viewport = pdfPage.getViewport({ scale: RENDER_SCALE });
         if (cancelled) return;
         setPageSize({ width: viewport.width, height: viewport.height });
 
@@ -102,22 +143,7 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
         if (!ctx) throw new Error("Canvas unavailable");
         await pdfPage.render({ canvas: pdfCanvas, canvasContext: ctx, viewport } as never).promise;
         if (cancelled) return;
-
-        // Fit to stage
-        const stage = stageRef.current;
-        if (stage) {
-          const pad = 24;
-          const fit = Math.min(
-            (stage.clientWidth - pad) / viewport.width,
-            (stage.clientHeight - pad) / viewport.height,
-            1.4,
-          );
-          setView({
-            scale: Math.max(0.35, fit),
-            panX: (stage.clientWidth - viewport.width * fit) / 2,
-            panY: 16,
-          });
-        }
+        fitView(viewport.width, viewport.height);
         setStatus("ready");
       } catch (err) {
         if (!cancelled) {
@@ -130,9 +156,9 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
     return () => {
       cancelled = true;
     };
-  }, [document?.id, page, projectId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload on doc/page/project only
+  }, [document?.id, page, projectId, fitView]);
 
-  // Draw overlays
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !document) return;
@@ -142,10 +168,7 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const geos = studio.geometries.filter(
-      (g) => g.documentId === document.id && g.page === page,
-    );
-
+    const geos = studio.geometries.filter((g) => g.documentId === document.id && g.page === page);
     for (const geo of geos) {
       const cls = studio.classifications.find((c) => c.id === geo.classificationId);
       const colour = cls?.colour || "#1998cf";
@@ -155,15 +178,16 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
       ctx.fillStyle = colour;
 
       if (geo.kind === "count") {
-        const r = selected ? 14 : 11;
+        const point = dragPreview?.id === geo.id ? dragPreview.point : geo.point;
+        const r = selected ? 15 : 12;
         ctx.beginPath();
-        ctx.arc(geo.point.x, geo.point.y, r, 0, Math.PI * 2);
+        ctx.arc(point.x, point.y, r, 0, Math.PI * 2);
         ctx.fillStyle = selected ? colour : `${colour}cc`;
         ctx.fill();
         ctx.strokeStyle = "#fff";
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 2.5;
         ctx.stroke();
-      } else if (geo.kind === "linear" || geo.kind === "area") {
+      } else {
         const pts = geo.points;
         const first = pts[0];
         if (!first) continue;
@@ -181,7 +205,7 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
         ctx.stroke();
         for (const p of pts) {
           ctx.beginPath();
-          ctx.arc(p.x, p.y, selected ? 6 : 4.5, 0, Math.PI * 2);
+          ctx.arc(p.x, p.y, selected ? 7 : 5, 0, Math.PI * 2);
           ctx.fillStyle = "#fff";
           ctx.fill();
           ctx.strokeStyle = colour;
@@ -191,7 +215,6 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
       }
     }
 
-    // Draft
     const draftColour = activeClass?.colour || "#1998cf";
     const draftFirst = draftPoints[0];
     if (draftFirst) {
@@ -236,7 +259,55 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
         ctx.fill();
       }
     }
-  }, [studio, document, page, pageSize, draftPoints, scaleDraft, selectedId, activeClass]);
+  }, [studio, document, page, pageSize, draftPoints, scaleDraft, selectedId, activeClass, dragPreview]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) return;
+      if (event.code === "Space") {
+        event.preventDefault();
+        setSpaceDown(true);
+      }
+      if ((event.key === "z" || event.key === "Z") && (event.metaKey || event.ctrlKey) && !event.shiftKey) {
+        event.preventDefault();
+        onUndo?.();
+      }
+      if ((event.key === "z" || event.key === "Z") && (event.metaKey || event.ctrlKey) && event.shiftKey) {
+        event.preventDefault();
+        onRedo?.();
+      }
+      if ((event.key === "y" || event.key === "Y") && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        onRedo?.();
+      }
+      if (event.key === "Escape") {
+        setDraftPoints([]);
+        setScaleDraft([]);
+        setSelectedId(null);
+      }
+      if ((event.key === "Backspace" || event.key === "Delete") && selectedId) {
+        event.preventDefault();
+        patchStudio({ geometries: studio.geometries.filter((g) => g.id !== selectedId) });
+        setSelectedId(null);
+      }
+      if (event.key === "1") setTool("pan");
+      if (event.key === "2") setTool("select");
+      if (event.key === "3") setTool("count");
+      if (event.key === "4") setTool("linear");
+      if (event.key === "5") setTool("area");
+      if (event.key === "6") setTool("scale");
+    }
+    function onKeyUp(event: KeyboardEvent) {
+      if (event.code === "Space") setSpaceDown(false);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  });
 
   function patchStudio(partial: Partial<StudioState>) {
     onChange({
@@ -249,7 +320,15 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
   function setTool(tool: StudioTool) {
     setDraftPoints([]);
     setScaleDraft([]);
+    dragGeoRef.current = null;
     patchStudio({ tool });
+  }
+
+  function setPage(next: number) {
+    const safe = Math.min(Math.max(1, next), pageCount);
+    setDraftPoints([]);
+    setScaleDraft([]);
+    patchStudio({ activePage: safe });
   }
 
   function hitTest(point: StudioPoint): StudioGeometry | null {
@@ -258,10 +337,10 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
     for (let i = geos.length - 1; i >= 0; i -= 1) {
       const geo = geos[i];
       if (!geo) continue;
-      if (geo.kind === "count" && dist(geo.point, point) <= 18 / view.scale) return geo;
+      if (geo.kind === "count" && dist(geo.point, point) <= 20 / view.scale) return geo;
       if (geo.kind === "linear" || geo.kind === "area") {
         for (const p of geo.points) {
-          if (dist(p, point) <= 16 / view.scale) return geo;
+          if (dist(p, point) <= 18 / view.scale) return geo;
         }
       }
     }
@@ -269,7 +348,7 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
   }
 
   function commitScale(from: StudioPoint, to: StudioPoint, metres: number) {
-    if (!document || metres <= 0) return;
+    if (!document || !(metres > 0)) return;
     const units = dist(from, to);
     if (units < 1) return;
     const metresPerUnit = metres / units;
@@ -286,12 +365,12 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
       },
     ];
     setScaleDraft([]);
-    patchStudio({ scales: nextScales, tool: "pan" });
+    patchStudio({ scales: nextScales, tool: activeClass?.kind || "count" });
   }
 
   function onPointerDown(event: ReactPointerEvent) {
     const stage = stageRef.current;
-    if (!stage || !document) return;
+    if (!stage || !document || status !== "ready") return;
     stage.setPointerCapture(event.pointerId);
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
 
@@ -303,40 +382,44 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
       pinchRef.current = {
         dist: Math.hypot(a.x - b.x, a.y - b.y),
         scale: view.scale,
-      };
-      panRef.current = null;
-      return;
-    }
-
-    const tool = studio.tool;
-    const wantsPan =
-      tool === "pan" ||
-      event.button === 1 ||
-      event.shiftKey ||
-      (event.pointerType === "touch" && tool === "select");
-
-    if (wantsPan && pointers.current.size === 1) {
-      panRef.current = {
-        x: event.clientX,
-        y: event.clientY,
         panX: view.panX,
         panY: view.panY,
+        midX: (a.x + b.x) / 2,
+        midY: (a.y + b.y) / 2,
       };
+      panRef.current = null;
+      dragGeoRef.current = null;
       return;
     }
 
     const point = clientToPage(event.clientX, event.clientY);
     if (!point) return;
+    const tool = studio.tool;
+    const hit = hitTest(point);
+
+    // Pan: dedicated tool, middle mouse, shift, space, or two-finger (handled above).
+    // Single-finger on blank space in select also pans — but tap on a pin selects/drags.
+    const forcePan = tool === "pan" || event.button === 1 || event.shiftKey || spaceDown;
+    if (forcePan) {
+      panRef.current = { x: event.clientX, y: event.clientY, panX: view.panX, panY: view.panY };
+      return;
+    }
 
     if (tool === "select") {
-      const hit = hitTest(point);
-      setSelectedId(hit?.id || null);
+      if (hit) {
+        setSelectedId(hit.id);
+        if (hit.kind === "count") {
+          dragGeoRef.current = { id: hit.id, origin: { ...hit.point }, start: point };
+        }
+      } else {
+        setSelectedId(null);
+        panRef.current = { x: event.clientX, y: event.clientY, panX: view.panX, panY: view.panY };
+      }
       return;
     }
 
     if (tool === "scale") {
-      const next = [...scaleDraft, point].slice(0, 2);
-      setScaleDraft(next);
+      setScaleDraft((current) => [...current, point].slice(0, 2));
       return;
     }
 
@@ -357,9 +440,8 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
 
     if (tool === "linear" || tool === "area") {
       if (!activeClass || activeClass.kind !== tool) return;
-      // Double-tap / second tap near first closes area
       const firstDraft = draftPoints[0];
-      if (tool === "area" && firstDraft && draftPoints.length >= 3 && dist(firstDraft, point) < 18 / view.scale) {
+      if (tool === "area" && firstDraft && draftPoints.length >= 3 && dist(firstDraft, point) < 22 / view.scale) {
         const geo: StudioGeometry = {
           id: studioId("geo"),
           classificationId: activeClass.id,
@@ -372,6 +454,12 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
         setDraftPoints([]);
         patchStudio({ geometries: [...studio.geometries, geo] });
         setSelectedId(geo.id);
+        return;
+      }
+      // Double-tap near last point finishes linear
+      const last = draftPoints[draftPoints.length - 1];
+      if (tool === "linear" && last && draftPoints.length >= 2 && dist(last, point) < 14 / view.scale) {
+        finishLinear([...draftPoints]);
         return;
       }
       setDraftPoints((current) => [...current, point]);
@@ -388,8 +476,24 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
       const b = pts[1];
       if (!a || !b) return;
       const d = Math.hypot(a.x - b.x, a.y - b.y);
-      const nextScale = Math.min(4, Math.max(0.25, pinchRef.current.scale * (d / Math.max(1, pinchRef.current.dist))));
-      setView((v) => ({ ...v, scale: nextScale }));
+      const midX = (a.x + b.x) / 2;
+      const midY = (a.y + b.y) / 2;
+      const nextScale = Math.min(5, Math.max(0.2, pinchRef.current.scale * (d / Math.max(1, pinchRef.current.dist))));
+      setView({
+        scale: nextScale,
+        panX: pinchRef.current.panX + (midX - pinchRef.current.midX),
+        panY: pinchRef.current.panY + (midY - pinchRef.current.midY),
+      });
+      return;
+    }
+
+    if (dragGeoRef.current) {
+      const point = clientToPage(event.clientX, event.clientY);
+      if (!point) return;
+      const dx = point.x - dragGeoRef.current.start.x;
+      const dy = point.y - dragGeoRef.current.start.y;
+      const origin = dragGeoRef.current.origin;
+      setDragPreview({ id: dragGeoRef.current.id, point: { x: origin.x + dx, y: origin.y + dy } });
       return;
     }
 
@@ -405,24 +509,49 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
   function onPointerUp(event: ReactPointerEvent) {
     pointers.current.delete(event.pointerId);
     if (pointers.current.size < 2) pinchRef.current = null;
-    if (pointers.current.size === 0) panRef.current = null;
+    if (pointers.current.size === 0) {
+      if (dragGeoRef.current && dragPreview) {
+        const id = dragGeoRef.current.id;
+        const point = dragPreview.point;
+        patchStudio({
+          geometries: studio.geometries.map((geo) => (
+            geo.id === id && geo.kind === "count" ? { ...geo, point } : geo
+          )),
+        });
+      }
+      panRef.current = null;
+      dragGeoRef.current = null;
+      setDragPreview(null);
+    }
   }
 
   function onWheel(event: ReactWheelEvent) {
     event.preventDefault();
+    const stage = stageRef.current;
+    if (!stage) return;
+    const rect = stage.getBoundingClientRect();
     const factor = event.deltaY > 0 ? 0.9 : 1.1;
-    setView((v) => ({ ...v, scale: Math.min(4, Math.max(0.25, v.scale * factor)) }));
+    const nextScale = Math.min(5, Math.max(0.2, view.scale * factor));
+    const mx = event.clientX - rect.left;
+    const my = event.clientY - rect.top;
+    const pageX = (mx - view.panX) / view.scale;
+    const pageY = (my - view.panY) / view.scale;
+    setView({
+      scale: nextScale,
+      panX: mx - pageX * nextScale,
+      panY: my - pageY * nextScale,
+    });
   }
 
-  function finishLinear() {
-    if (!document || !activeClass || studio.tool !== "linear" || draftPoints.length < 2) return;
+  function finishLinear(points = draftPoints) {
+    if (!document || !activeClass || points.length < 2) return;
     const geo: StudioGeometry = {
       id: studioId("geo"),
       classificationId: activeClass.id,
       kind: "linear",
       documentId: document.id,
       page,
-      points: draftPoints,
+      points,
     };
     setDraftPoints([]);
     patchStudio({ geometries: [...studio.geometries, geo] });
@@ -436,25 +565,25 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
   }
 
   const draftHint = (() => {
-    if (studio.tool === "scale" && scaleDraft.length === 2) {
-      return "Enter the known length below, then Save scale.";
-    }
+    if (studio.tool === "scale" && scaleDraft.length === 2) return "Enter the known length, then Save scale.";
     if (studio.tool === "linear" && draftPoints.length >= 2) {
       const units = polylineLength(draftPoints);
       const metres = pageScale ? units * pageScale.metresPerUnit : null;
       return metres != null
-        ? `Draft run ≈ ${metres.toFixed(2)} m — tap Done to save.`
-        : "Set scale first for metres. Tap Done to save the run.";
+        ? `Draft ≈ ${metres.toFixed(2)} m — Done run (or double-tap last point).`
+        : "Set scale for metres. Tap Done run when finished.";
     }
     if (studio.tool === "area" && draftPoints.length >= 3) {
       const closePt = draftPoints[0];
       const area = closePt ? polygonArea([...draftPoints, closePt]) : 0;
       const m2 = pageScale ? area * pageScale.metresPerUnit ** 2 : null;
       return m2 != null
-        ? `Draft area ≈ ${m2.toFixed(2)} m² — tap first point (or Close) to finish.`
-        : "Tap near the first point to close the area.";
+        ? `Draft ≈ ${m2.toFixed(2)} m² — tap first point or Close area.`
+        : "Tap near the first point to close.";
     }
-    return null;
+    if (studio.tool === "count") return "Tap each fixture once. Two fingers to pan/zoom.";
+    if (studio.tool === "select") return "Tap to select · drag pins · blank drag pans.";
+    return "Two-finger pinch zoom · Pan tool or Space+drag · iPad ready.";
   })();
 
   return (
@@ -480,8 +609,30 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
           </button>
         ))}
         <span className="nexa-studio-toolbar-gap" />
+        <button type="button" onClick={() => onUndo?.()} disabled={!canUndo} aria-label="Undo">
+          <Undo2 size={15} />
+        </button>
+        <button type="button" onClick={() => onRedo?.()} disabled={!canRedo} aria-label="Redo">
+          <Redo2 size={15} />
+        </button>
+        <button type="button" onClick={() => setView((v) => ({ ...v, scale: Math.min(5, v.scale * 1.15) }))} aria-label="Zoom in">
+          <ZoomIn size={15} />
+        </button>
+        <button type="button" onClick={() => setView((v) => ({ ...v, scale: Math.max(0.2, v.scale * 0.87) }))} aria-label="Zoom out">
+          <ZoomOut size={15} />
+        </button>
+        <button type="button" onClick={() => fitView(pageSize.width, pageSize.height)}>Fit</button>
+        <div className="nexa-studio-page-nav">
+          <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} aria-label="Previous page">
+            <ChevronLeft size={16} />
+          </button>
+          <span>Page {page}/{pageCount}</span>
+          <button type="button" disabled={page >= pageCount} onClick={() => setPage(page + 1)} aria-label="Next page">
+            <ChevronRight size={16} />
+          </button>
+        </div>
         {studio.tool === "linear" ? (
-          <button type="button" className="accent" onClick={finishLinear} disabled={draftPoints.length < 2}>
+          <button type="button" className="accent" onClick={() => finishLinear()} disabled={draftPoints.length < 2}>
             Done run
           </button>
         ) : null}
@@ -508,23 +659,19 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
             Close area
           </button>
         ) : null}
-        <button type="button" onClick={deleteSelected} disabled={!selectedId}>
-          Delete
-        </button>
+        <button type="button" onClick={deleteSelected} disabled={!selectedId}>Delete</button>
       </div>
 
       <div
         ref={stageRef}
-        className="nexa-studio-stage"
+        className={`nexa-studio-stage tool-${studio.tool}${spaceDown ? " space-pan" : ""}`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onWheel={onWheel}
       >
-        {!document ? (
-          <div className="nexa-studio-empty">Upload a PDF drawing to start the takeoff.</div>
-        ) : null}
+        {!document ? <div className="nexa-studio-empty">Upload a PDF drawing to start the takeoff.</div> : null}
         {status === "loading" ? (
           <div className="nexa-studio-empty">
             <Loader2 className="spin" size={22} />
@@ -550,10 +697,10 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
         <span>
           Scale:{" "}
           {pageScale
-            ? `${pageScale.label || "set"} · ${(1 / pageScale.metresPerUnit).toFixed(1)} units/m`
-            : "Not set — tap Scale, two points, enter metres"}
+            ? `${pageScale.label || "set"}`
+            : "Not set — Scale tool, two taps, enter metres"}
         </span>
-        {draftHint ? <strong>{draftHint}</strong> : <span>Pinch zoom · drag to pan · large tap targets for iPad</span>}
+        <strong>{draftHint}</strong>
         {studio.tool === "scale" && scaleDraft.length === 2 ? (
           <form
             className="nexa-studio-scale-form"
@@ -566,20 +713,12 @@ export default function StudioCanvas({ projectId, document, studio, onChange }: 
           >
             <label>
               Known length (m)
-              <input
-                inputMode="decimal"
-                value={scaleMetres}
-                onChange={(e) => setScaleMetres(e.target.value)}
-              />
+              <input inputMode="decimal" value={scaleMetres} onChange={(e) => setScaleMetres(e.target.value)} />
             </label>
-            <button type="submit" className="accent">
-              Save scale
-            </button>
+            <button type="submit" className="accent">Save scale</button>
           </form>
         ) : null}
       </div>
     </div>
   );
 }
-
-export { createDefaultStudioState };

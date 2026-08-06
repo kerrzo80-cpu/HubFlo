@@ -17,6 +17,7 @@ import { roleHeaderName } from "@/lib/access";
 import type { TakeoffDocument, TakeoffProject } from "@/lib/takeoff-data";
 import {
   createDefaultStudioState,
+  importSkillCountsIntoStudio,
   nextClassificationColour,
   studioId,
   studioQuantitiesToMaterialAllowances,
@@ -63,7 +64,11 @@ export default function TakeoffStudioPage() {
   const [draftName, setDraftName] = useState("");
   const [newClassName, setNewClassName] = useState("");
   const [newClassKind, setNewClassKind] = useState<StudioClassKind>("count");
+  const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
   const saveTimer = useRef<number | null>(null);
+  const historyRef = useRef<StudioState[]>([]);
+  const futureRef = useRef<StudioState[]>([]);
+  const [historyTick, setHistoryTick] = useState(0);
 
   const selected = useMemo(
     () => projects.find((p) => p.id === selectedId) ?? null,
@@ -78,6 +83,9 @@ export default function TakeoffStudioPage() {
     drawingDocs.find((doc) => doc.id === studio.activeDocumentId) || drawingDocs[0] || null;
   const quantities = summariseStudioQuantities(studio);
   const linkedQuote = quotes.find((q) => q.id === selected?.linkedQuoteId);
+  const canUndo = historyRef.current.length > 0;
+  const canRedo = futureRef.current.length > 0;
+  void historyTick;
 
   const upsert = useCallback((project: TakeoffProject) => {
     setProjects((current) => {
@@ -122,6 +130,13 @@ export default function TakeoffStudioPage() {
   }, []);
 
   useEffect(() => {
+    historyRef.current = [];
+    futureRef.current = [];
+    setHistoryTick((value) => value + 1);
+    setSaveState("saved");
+  }, [selectedId]);
+
+  useEffect(() => {
     let active = true;
     void (async () => {
       try {
@@ -161,8 +176,17 @@ export default function TakeoffStudioPage() {
     window.setTimeout(() => setNotice(null), 4000);
   }
 
-  async function persistStudio(nextStudio: StudioState, extras: Partial<TakeoffProject> = {}) {
+  async function persistStudio(
+    nextStudio: StudioState,
+    extras: Partial<TakeoffProject> = {},
+    options?: { skipHistory?: boolean },
+  ) {
     if (!selected) return;
+    if (!options?.skipHistory) {
+      historyRef.current = [...historyRef.current.slice(-40), studio];
+      futureRef.current = [];
+      setHistoryTick((value) => value + 1);
+    }
     const optimistic: TakeoffProject = {
       ...selected,
       ...extras,
@@ -170,6 +194,7 @@ export default function TakeoffStudioPage() {
       updatedAt: new Date().toISOString(),
     };
     upsert(optimistic);
+    setSaveState("saving");
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(async () => {
       const response = await apiFetch(`/api/takeoff-projects/${selected.id}`, {
@@ -178,13 +203,45 @@ export default function TakeoffStudioPage() {
         body: JSON.stringify({ studio: nextStudio, ...extras }),
       });
       if (!response.ok) {
+        setSaveState("error");
         setError("Could not save studio takeoff");
         return;
       }
       const project = (await response.json()) as TakeoffProject;
       upsert({ ...project, studio: project.studio ?? nextStudio });
+      setSaveState("saved");
     }, 450);
   }
+
+  function undoStudio() {
+    if (!selected || !historyRef.current.length) return;
+    const previous = historyRef.current[historyRef.current.length - 1];
+    if (!previous) return;
+    historyRef.current = historyRef.current.slice(0, -1);
+    futureRef.current = [...futureRef.current, studio];
+    setHistoryTick((value) => value + 1);
+    void persistStudio(previous, {}, { skipHistory: true });
+  }
+
+  function redoStudio() {
+    if (!selected || !futureRef.current.length) return;
+    const next = futureRef.current[futureRef.current.length - 1];
+    if (!next) return;
+    futureRef.current = futureRef.current.slice(0, -1);
+    historyRef.current = [...historyRef.current, studio];
+    setHistoryTick((value) => value + 1);
+    void persistStudio(next, {}, { skipHistory: true });
+  }
+
+  // Keep active drawing set when documents exist.
+  useEffect(() => {
+    if (!selected || !drawingDocs.length) return;
+    if (studio.activeDocumentId && drawingDocs.some((doc) => doc.id === studio.activeDocumentId)) return;
+    const first = drawingDocs[0];
+    if (!first) return;
+    void persistStudio({ ...studio, activeDocumentId: first.id, activePage: 1 }, {}, { skipHistory: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id, drawingDocs.map((d) => d.id).join("|")]);
 
   async function createProject() {
     setBusy("create");
@@ -268,20 +325,93 @@ export default function TakeoffStudioPage() {
   }
 
   async function runAiAssist() {
-    if (!selected) return;
+    if (!selected || !activeDoc) {
+      setError("Upload a drawing first, then run NeXa AI.");
+      return;
+    }
     setBusy("ai");
+    setError(null);
     try {
-      // Use existing skill analyse + measure pipeline when available; keep studio primary UI.
+      show("NeXa AI: indexing drawings…");
       const analyse = await apiFetch(`/api/takeoff-projects/${selected.id}/skill`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "analyse" }),
       });
-      if (analyse.ok) {
-        show("NeXa scanned the drawings — review classifications, or keep measuring manually.");
-      } else {
-        show("AI scan needs drawings + OpenAI on the server. Manual Count / Area / Linear still work.");
+      if (!analyse.ok) {
+        show("AI index skipped — use Count / Linear / Area manually (OpenAI may be offline).");
+        return;
       }
+
+      await apiFetch(`/api/takeoff-projects/${selected.id}/skill`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "set-scope", trade: "plumbing", focusLabels: [] }),
+      });
+      await apiFetch(`/api/takeoff-projects/${selected.id}/skill`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "build-plan", trade: "plumbing" }),
+      });
+      const planBody = await apiFetch(`/api/takeoff-projects/${selected.id}/skill`, {
+        method: "GET",
+      });
+      if (planBody.ok) {
+        const payload = (await planBody.json()) as { skill?: { assemblies?: Array<{ id: string; included: boolean }> } };
+        const assemblies = payload.skill?.assemblies || [];
+        await apiFetch(`/api/takeoff-projects/${selected.id}/skill`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "approve-plan", assemblies }),
+        });
+      }
+
+      show("NeXa AI: counting text tags on drawings…");
+      const measure = await apiFetch(`/api/takeoff-projects/${selected.id}/skill`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "measure" }),
+      });
+      if (!measure.ok) {
+        show("AI count finished with no tags — keep marking up manually.");
+        await refresh();
+        return;
+      }
+      const measuredPayload = (await measure.json()) as {
+        skill?: {
+          measured?: Array<{
+            id: string;
+            kind: "primary" | "secondary";
+            code: string;
+            description: string;
+            unit: string;
+            tagMatches?: Array<{
+              id: string;
+              documentId: string;
+              pageNumber: number;
+              x: number;
+              y: number;
+              pageWidth?: number;
+              pageHeight?: number;
+              excluded?: boolean;
+            }>;
+          }>;
+        };
+      };
+      const measured = measuredPayload.skill?.measured || [];
+      const pinCount = measured.reduce(
+        (sum, row) => sum + (row.tagMatches || []).filter((match) => !match.excluded).length,
+        0,
+      );
+      const nextStudio = importSkillCountsIntoStudio(studio, measured, {
+        replaceExistingAi: true,
+        // Skill tags are stored in canvas/page units already when measured from pdf extract.
+      });
+      nextStudio.activeDocumentId = activeDoc.id;
+      await persistStudio(nextStudio);
+      show(pinCount
+        ? `Imported ${pinCount} AI count pin(s) onto the canvas — review in Select mode.`
+        : "AI ran but found no text tags. Tap Count to place pins manually.");
       await refresh();
     } catch {
       setError("AI assist failed — keep taking off manually.");
@@ -368,6 +498,9 @@ export default function TakeoffStudioPage() {
           <Link href="/">Core</Link>
         </nav>
         <div className="nexa-studio-top-actions">
+          <span className={`pill save-${saveState}`}>
+            {saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Saved"}
+          </span>
           {authName ? <span className="pill">{authName}</span> : null}
           <button type="button" className="nexa-studio-ai" disabled={busy === "ai" || !selected} onClick={() => void runAiAssist()}>
             {busy === "ai" ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
@@ -538,6 +671,10 @@ export default function TakeoffStudioPage() {
               document={activeDoc}
               studio={studio}
               onChange={(next) => void persistStudio(next)}
+              onUndo={undoStudio}
+              onRedo={redoStudio}
+              canUndo={canUndo}
+              canRedo={canRedo}
             />
           ) : (
             <div className="nexa-studio-empty-main">

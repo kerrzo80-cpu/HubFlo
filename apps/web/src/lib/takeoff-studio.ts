@@ -195,3 +195,76 @@ export function studioQuantitiesToMaterialAllowances(
       supplierRequired: false,
     }));
 }
+
+/** Import skill text-tag count pins onto the Studio canvas as Count classifications. */
+export function importSkillCountsIntoStudio(
+  studio: StudioState,
+  measured: Array<{
+    id: string;
+    kind: "primary" | "secondary";
+    code: string;
+    description: string;
+    unit: string;
+    tagMatches?: Array<{
+      id: string;
+      documentId: string;
+      pageNumber: number;
+      x: number;
+      y: number;
+      pageWidth?: number;
+      pageHeight?: number;
+      excluded?: boolean;
+    }>;
+  }>,
+  options?: { canvasWidth?: number; canvasHeight?: number; replaceExistingAi?: boolean },
+): StudioState {
+  const canvasW = options?.canvasWidth || 0;
+  const canvasH = options?.canvasHeight || 0;
+  const keep = options?.replaceExistingAi
+    ? studio.geometries.filter((geo) => !geo.id.startsWith("ai-"))
+    : studio.geometries;
+
+  const classifications = [...studio.classifications];
+  const geometries = [...keep];
+
+  for (const row of measured) {
+    if (row.kind !== "primary" || row.unit !== "nr") continue;
+    const matches = (row.tagMatches || []).filter((match) => !match.excluded);
+    if (!matches.length) continue;
+
+    let cls = classifications.find((item) => item.id === `cls-ai-${row.code}`);
+    if (!cls) {
+      cls = {
+        id: `cls-ai-${row.code}`,
+        kind: "count",
+        name: row.description || row.code,
+        colour: nextClassificationColour(classifications),
+        unit: "nr",
+        notes: `Imported from NeXa AI · ${row.code}`,
+      };
+      classifications.push(cls);
+    }
+
+    for (const match of matches) {
+      const sx = canvasW && match.pageWidth ? canvasW / match.pageWidth : 1;
+      const sy = canvasH && match.pageHeight ? canvasH / match.pageHeight : sx;
+      geometries.push({
+        id: `ai-${match.id}`,
+        classificationId: cls.id,
+        kind: "count",
+        documentId: match.documentId,
+        page: match.pageNumber || 1,
+        point: { x: match.x * sx, y: match.y * sy },
+      });
+    }
+  }
+
+  return {
+    ...studio,
+    classifications,
+    geometries,
+    activeClassificationId: classifications.find((c) => c.id.startsWith("cls-ai-"))?.id || studio.activeClassificationId,
+    tool: "select",
+    updatedAt: new Date().toISOString(),
+  };
+}
