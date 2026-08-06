@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
-import { convertQuoteToJob } from "@/lib/workflow-data";
+import { convertQuoteToJobServer } from "@/lib/quote-conversion-handoff";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -19,7 +19,12 @@ export async function POST(request: Request, context: RouteContext) {
     actor?: string;
     chargeValue?: number;
   }>(request)) || {};
-  const result = convertQuoteToJob(id, payload.actor || "HubFlo user", payload.chargeValue);
+  const result = convertQuoteToJobServer(id, {
+    actor: payload.actor || "HubFlo user",
+    chargeValue: payload.chargeValue,
+    source: "web",
+    skipCommunication: true,
+  });
 
   if (!result) {
     return NextResponse.json(

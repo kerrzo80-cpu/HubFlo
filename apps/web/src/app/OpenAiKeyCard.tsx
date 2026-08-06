@@ -49,7 +49,7 @@ export function OpenAiKeyCard() {
       }
       if (data) setStatus(data);
       setKeyDraft("");
-      setMessage("OpenAI connected — Blake is now live across NeXa.");
+      setMessage("OpenAI connected — Blake is now live across Core, Field, Survey and Takeoff.");
     } catch {
       setError("Network error while saving the key.");
     } finally {
@@ -87,10 +87,10 @@ export function OpenAiKeyCard() {
         </span>
         <div>
           <span className="ai-key-card__eyebrow">Integrations</span>
-          <h2>NeXa AI · OpenAI</h2>
+          <h2>Blake AI · OpenAI</h2>
           <p>
             One key powers Blake everywhere — Takeoff extraction, Survey packs, the Field “Ask Blake” chat and the
-            NeXa Assistant.
+            Core assistant.
           </p>
         </div>
         <span className={`ai-key-card__status ${connected ? "is-on" : "is-off"}`}>
@@ -107,7 +107,7 @@ export function OpenAiKeyCard() {
           </p>
         ) : (
           <p className="ai-key-card__note">
-            Paste an OpenAI API key to switch NeXa AI on instantly — no redeploy required. Stored securely in your
+            Paste an OpenAI API key to switch Blake AI on instantly — no redeploy required. Stored securely in your
             workspace and never shown again.
           </p>
         )}
