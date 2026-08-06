@@ -23,6 +23,7 @@ import {
 import { heatingSystemOptions } from "./systems";
 import type {
   HeatDesignProject,
+  HeatDesignRevision,
   HeatDesignRoom,
   HeatPumpOption,
   RoomHeatLossResult,
@@ -345,6 +346,34 @@ export function wattsLabel(value: number) {
   return `${Math.round(value).toLocaleString("en-GB")} W`;
 }
 
+function normaliseRevisions(revisions: HeatDesignProject["revisions"]): HeatDesignRevision[] {
+  if (!Array.isArray(revisions)) return [];
+  return revisions
+    .filter((revision): revision is HeatDesignRevision => {
+      return (
+        revision != null &&
+        typeof revision.id === "string" &&
+        revision.id.trim().length > 0 &&
+        typeof revision.at === "string" &&
+        revision.at.trim().length > 0 &&
+        typeof revision.summary === "string" &&
+        revision.summary.trim().length > 0
+      );
+    })
+    .map((revision) => ({
+      id: revision.id.trim(),
+      at: revision.at.trim(),
+      actor: typeof revision.actor === "string" && revision.actor.trim() ? revision.actor.trim() : undefined,
+      summary: revision.summary.trim(),
+      snapshotHash:
+        typeof revision.snapshotHash === "string" && revision.snapshotHash.trim()
+          ? revision.snapshotHash.trim()
+          : undefined,
+    }))
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .slice(0, 50);
+}
+
 /** Migrate older localStorage projects missing plan / kit fields. */
 export function normaliseProject(project: HeatDesignProject): HeatDesignProject {
   return {
@@ -376,6 +405,7 @@ export function normaliseProject(project: HeatDesignProject): HeatDesignProject 
             project.heatingLayout.emitterMode ?? project.emitterMode ?? "radiators",
         }
       : null,
+    revisions: normaliseRevisions(project.revisions),
     rooms: (project.rooms ?? []).map((room, index) => {
       const exteriorFlags = room.exteriorFlags ?? defaultExteriorFlags(room.exteriorWalls ?? 2);
       const polygon =
