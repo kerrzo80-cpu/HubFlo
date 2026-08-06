@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { usePathname, useRouter } from "next/navigation";
 import {
   useEffect,
   useMemo,
@@ -14,6 +15,7 @@ import {
 } from "react";
 import { CorePanelSkeleton } from "@/components/CorePanelSkeleton";
 import { downloadBlob } from "@/lib/download-blob";
+import { homeViewForPath, modulePathForHomeView } from "@/lib/core-routes";
 import {
   AlertTriangle,
   BarChart3,
@@ -7782,7 +7784,10 @@ function makeEstimateLabourLine(
   };
 }
 
-export default function Dashboard() {
+export default function CoreApp() {
+  const pathname = usePathname() || "/";
+  const router = useRouter();
+  const syncingHomeViewFromUrlRef = useRef(false);
   const [employees, setEmployees] = useState<EmployeeCard[]>(() => normalizeEmployeeCards(seedEmployees));
   const [dashboardLayouts, setDashboardLayouts] = useState<Record<string, DashboardLayout>>({});
   const [isDashboardCustomising, setIsDashboardCustomising] = useState(false);
@@ -7929,7 +7934,9 @@ export default function Dashboard() {
   const [openModuleMenu, setOpenModuleMenu] = useState<string | null>(null);
   const [openDirectoryActionMenu, setOpenDirectoryActionMenu] = useState<{ scope: DirectoryRecordScope; id: string } | null>(null);
   const [contextSidebarCollapsed, setContextSidebarCollapsed] = useState(false);
-  const [homeView, setHomeView] = useState<HomeView>("dashboard");
+  const [homeView, setHomeView] = useState<HomeView>(
+    () => (homeViewForPath(pathname) as HomeView | null) ?? "dashboard",
+  );
   const [activeEmployeeTab, setActiveEmployeeTab] = useState<EmployeeTab>("details");
   const [activeClientTab, setActiveClientTab] = useState<ClientTab>("overview");
   const [activeLeadTab, setActiveLeadTab] = useState<LeadTab>("details");
@@ -11277,6 +11284,26 @@ export default function Dashboard() {
     if (!hasHydratedLocalData || !selectedJob) return;
     refreshSelectedJobVariationPortalStatuses().catch(() => {});
   }, [hasHydratedLocalData, selectedJob?.id]);
+
+  // Keep the address bar aligned with the top-level Core module (nested records stay under parent path).
+  useEffect(() => {
+    const targetPath = modulePathForHomeView(homeView);
+    if (pathname === targetPath) return;
+    if (syncingHomeViewFromUrlRef.current) return;
+    router.replace(targetPath);
+  }, [homeView, pathname, router]);
+
+  // Browser back/forward + hard loads on /jobs, /quotes, etc. drive homeView without remounting CoreApp.
+  useEffect(() => {
+    const fromPath = homeViewForPath(pathname);
+    if (!fromPath) return;
+    if (modulePathForHomeView(homeView) === pathname) return;
+    syncingHomeViewFromUrlRef.current = true;
+    setHomeView(fromPath as HomeView);
+    queueMicrotask(() => {
+      syncingHomeViewFromUrlRef.current = false;
+    });
+  }, [pathname, homeView]);
 
   useEffect(() => {
     if (!hasHydratedLocalData || handledInitialRoute || typeof window === "undefined") return;
