@@ -6,8 +6,8 @@ services:
     plan: starter
     autoDeploy: true
     healthCheckPath: /api/health
-    # Bump to force Render to pick up postcode street-list fix (AB12 4TG).
-    buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile --filter @hubflo/web... && NODE_OPTIONS=--max-old-space-size=3072 pnpm --filter @hubflo/web build && echo "nexa-postcode-lookup=street-list-v2"
+    # Bump to force Render to pick up Phase 4 ten-of-ten.
+    buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile --filter @hubflo/web... && NODE_OPTIONS=--max-old-space-size=3072 pnpm --filter @hubflo/web build && echo "nexa-ten-of-ten=phase-4-v1"
     startCommand: corepack enable && pnpm --filter @hubflo/web start --hostname 0.0.0.0 --port $PORT
     disk:
       name: nexa-live-data
