@@ -13,7 +13,7 @@ import {
 } from "@/lib/branding";
 import { useBrand } from "@/components/BrandProvider";
 
-const iconVersion = "20260806c";
+const iconVersion = "20260806d";
 
 type Profile = {
   app: BrandAppKey;

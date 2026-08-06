@@ -22,8 +22,8 @@ export const metadata: Metadata = {
     title: "Core",
   },
   icons: {
-    icon: [{ url: "/api/branding/assets/logo-core?home=1&v=compose3", sizes: "512x512", type: "image/png" }],
-    apple: [{ url: "/api/branding/assets/logo-core?apple=1&v=compose3", sizes: "180x180", type: "image/png" }],
+    icon: [{ url: "/api/branding/assets/logo-core?home=1&v=compose4", sizes: "512x512", type: "image/png" }],
+    apple: [{ url: "/api/branding/assets/logo-core?apple=1&v=compose4", sizes: "180x180", type: "image/png" }],
   },
 };
 

@@ -1,7 +1,7 @@
 import sharp from "sharp";
 
 /** Bump when home-screen compose rules change so cached icons rebuild. */
-export const APP_ICON_COMPOSE_VERSION = 3;
+export const APP_ICON_COMPOSE_VERSION = 4;
 const APP_ICON_SIZE = 512;
 
 export function isAppIconAssetKind(kind: string): boolean {
@@ -19,9 +19,78 @@ function parseHexColor(value: string | undefined): { r: number; g: number; b: nu
 }
 
 export type SquareAppIconOptions = {
-  /** Brand fill behind the logo plate (Personalising primary). */
+  /** Kept for API compatibility; v4 uses a full-bleed white canvas. */
   background?: string;
 };
+
+/**
+ * Force artwork content into a true 1:1 square.
+ * Tall crops are centre-clipped (not padded) so the mark does not look narrow.
+ */
+async function forceSquareContent(png: Buffer): Promise<Buffer> {
+  const { data, info } = await sharp(png, { failOn: "none" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const width = info.width || 0;
+  const height = info.height || 0;
+  if (!width || !height) return png;
+
+  let minX = width;
+  let minY = height;
+  let maxX = 0;
+  let maxY = 0;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const r = data[i] ?? 0;
+      const g = data[i + 1] ?? 0;
+      const b = data[i + 2] ?? 0;
+      if (r > 245 && g > 245 && b > 245) continue;
+      if (minX > x) minX = x;
+      if (minY > y) minY = y;
+      if (maxX < x) maxX = x;
+      if (maxY < y) maxY = y;
+    }
+  }
+  if (maxX < minX || maxY < minY) return png;
+
+  const contentW = maxX - minX + 1;
+  const contentH = maxY - minY + 1;
+
+  // Near-square / tall marks: centre-crop to 1:1 so they do not look narrow.
+  // Very wide wordmarks: pad instead so text is not clipped.
+  if (contentW / contentH > 1.25) {
+    const side = Math.max(contentW, contentH);
+    const padX = Math.floor((side - contentW) / 2);
+    const padY = Math.floor((side - contentH) / 2);
+    return sharp(png, { failOn: "none" })
+      .extract({ left: minX, top: minY, width: contentW, height: contentH })
+      .extend({
+        top: padY,
+        bottom: side - contentH - padY,
+        left: padX,
+        right: side - contentW - padX,
+        background: { r: 255, g: 255, b: 255, alpha: 1 },
+      })
+      .png()
+      .toBuffer();
+  }
+
+  const side = Math.min(contentW, contentH);
+  const left = minX + Math.floor((contentW - side) / 2);
+  const top = minY + Math.floor((contentH - side) / 2);
+
+  return sharp(png, { failOn: "none" })
+    .extract({
+      left: Math.max(0, left),
+      top: Math.max(0, top),
+      width: Math.min(side, width - left),
+      height: Math.min(side, height - top),
+    })
+    .png()
+    .toBuffer();
+}
 
 /**
  * Prefer the left-hand mark from a wide wordmark (droplet / monogram).
@@ -126,8 +195,7 @@ async function extractLeftMark(trimmedPng: Buffer): Promise<Buffer | null> {
     }
     solidRuns.push({ start, end });
   }
-  // Prefer the last solid stroke that still sits inside a roughly-square mark
-  // (left border → droplet fills → right border). Later strokes are wordmark letters.
+  // Prefer the last solid stroke that still sits inside a roughly-square mark.
   const markLimit = minX + Math.round(height * 1.05);
   let frameRight = -1;
   for (const run of solidRuns) {
@@ -139,7 +207,6 @@ async function extractLeftMark(trimmedPng: Buffer): Promise<Buffer | null> {
   } else if (solidRuns.length === 1 && solidRuns[0]!.end - minX + 1 >= Math.round(height * 0.55)) {
     maxX = solidRuns[0]!.end;
   } else {
-    // Fallback: walk back while the column is only sparse anti-alias / text bleed.
     const minMarkWidth = Math.round(height * 0.55);
     while (maxX - minX + 1 > minMarkWidth) {
       let colCount = 0;
@@ -154,20 +221,21 @@ async function extractLeftMark(trimmedPng: Buffer): Promise<Buffer | null> {
   const markW = maxX - minX + 1;
   const markH = maxY - minY + 1;
   const aspect = markW / markH;
-  // Reject if flood-fill swallowed the wordmark or produced a strip.
   if (aspect < 0.65 || aspect > 1.35) return null;
   if (markW > width * 0.72) return null;
 
-  const pad = Math.max(2, Math.round(Math.min(markW, markH) * 0.03));
-  const left = Math.max(0, minX - pad);
-  const top = Math.max(0, minY - pad);
-  // Bias pad left/top; keep the right edge tight so wordmark glyphs cannot bleed in.
-  const extractW = Math.min(width - left, markW + pad);
-  const extractH = Math.min(height - top, markH + pad * 2);
+  // Crop to a square centred on the mark so the pipe frame stays 1:1.
+  const side = Math.max(markW, markH);
+  const centerX = minX + Math.floor(markW / 2);
+  const centerY = minY + Math.floor(markH / 2);
+  let left = Math.max(0, centerX - Math.floor(side / 2));
+  let top = Math.max(0, centerY - Math.floor(side / 2));
+  if (left + side > width) left = Math.max(0, width - side);
+  if (top + side > height) top = Math.max(0, height - side);
+  const extractSide = Math.min(side, width - left, height - top);
 
-  // Extract the full rectangle (keeps the droplet inside the frame) then trim padding.
   return sharp(trimmedPng, { failOn: "none" })
-    .extract({ left, top, width: extractW, height: extractH })
+    .extract({ left, top, width: extractSide, height: extractSide })
     .trim({ threshold: 12 })
     .png()
     .toBuffer();
@@ -175,14 +243,14 @@ async function extractLeftMark(trimmedPng: Buffer): Promise<Buffer | null> {
 
 /**
  * Build a proper iOS/Android home-screen icon:
- * full-bleed brand colour + square white plate + centred mark (never stretched).
+ * full-bleed white + large centred mark (never stretched, no nested plate).
  * Wide wordmarks use the left mark when it can be isolated.
  */
 export async function ensureSquareAppIcon(
   input: Buffer,
-  options: SquareAppIconOptions = {},
+  _options: SquareAppIconOptions = {},
 ): Promise<{ buffer: Buffer; mimeType: string; composeVersion: number }> {
-  const background = parseHexColor(options.background);
+  void parseHexColor(_options.background);
 
   let trimmed: Buffer;
   try {
@@ -192,45 +260,30 @@ export async function ensureSquareAppIcon(
   }
 
   const mark = await extractLeftMark(trimmed).catch(() => null);
-  const artwork = mark || trimmed;
+  const artwork = await forceSquareContent(mark || trimmed);
 
-  // Square white plate with a brand-coloured ring (reads as a native app icon).
-  const margin = Math.round(APP_ICON_SIZE * 0.07);
-  const plateSize = APP_ICON_SIZE - margin * 2;
-  const plateLeft = margin;
-  const plateTop = margin;
-  const plateRadius = Math.round(plateSize * 0.21);
-  const plateSvg = Buffer.from(
-    `<svg width="${plateSize}" height="${plateSize}" xmlns="http://www.w3.org/2000/svg">
-      <rect x="0" y="0" width="${plateSize}" height="${plateSize}" rx="${plateRadius}" ry="${plateRadius}" fill="white"/>
-    </svg>`,
-  );
-
-  const fitBox = Math.round(plateSize * (mark ? 0.78 : 0.84));
+  // Fill nearly the whole icon — the mark already has its own frame.
+  const fitBox = Math.round(APP_ICON_SIZE * (mark ? 0.92 : 0.88));
   const fitted = await sharp(artwork, { failOn: "none" })
     .resize(fitBox, fitBox, {
-      fit: "inside",
+      fit: "fill",
       withoutEnlargement: false,
-      background: { r: 255, g: 255, b: 255, alpha: 0 },
     })
     .png()
     .toBuffer({ resolveWithObject: true });
 
-  const left = plateLeft + Math.max(0, Math.floor((plateSize - (fitted.info.width || fitBox)) / 2));
-  const top = plateTop + Math.max(0, Math.floor((plateSize - (fitted.info.height || fitBox)) / 2));
+  const left = Math.max(0, Math.floor((APP_ICON_SIZE - (fitted.info.width || fitBox)) / 2));
+  const top = Math.max(0, Math.floor((APP_ICON_SIZE - (fitted.info.height || fitBox)) / 2));
 
   const buffer = await sharp({
     create: {
       width: APP_ICON_SIZE,
       height: APP_ICON_SIZE,
       channels: 3,
-      background,
+      background: { r: 255, g: 255, b: 255 },
     },
   })
-    .composite([
-      { input: plateSvg, left: plateLeft, top: plateTop },
-      { input: fitted.data, left, top },
-    ])
+    .composite([{ input: fitted.data, left, top }])
     .png()
     .toBuffer();
 
