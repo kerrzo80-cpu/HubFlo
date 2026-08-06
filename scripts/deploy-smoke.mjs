@@ -88,9 +88,9 @@ async function runOnce() {
             `/api/health fieldPhotoSync=${json?.deployment?.fieldPhotoSync}, expected bytes-v1`,
           );
         }
-        if (json?.deployment?.mobileNavFix !== "click-scroll-hotfix-v2") {
+        if (json?.deployment?.mobileNavFix !== "url-sync-off-v3") {
           throw new Error(
-            `/api/health mobileNavFix=${json?.deployment?.mobileNavFix}, expected click-scroll-hotfix-v2`,
+            `/api/health mobileNavFix=${json?.deployment?.mobileNavFix}, expected url-sync-off-v3`,
           );
         }
       },

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   useEffect,
   useMemo,
@@ -7802,7 +7802,6 @@ function makeEstimateLabourLine(
 
 export default function CoreApp() {
   const pathname = usePathname() || "/";
-  const router = useRouter();
   const [employees, setEmployees] = useState<EmployeeCard[]>(() => normalizeEmployeeCards(seedEmployees));
   const [dashboardLayouts, setDashboardLayouts] = useState<Record<string, DashboardLayout>>({});
   const [isDashboardCustomising, setIsDashboardCustomising] = useState(false);
