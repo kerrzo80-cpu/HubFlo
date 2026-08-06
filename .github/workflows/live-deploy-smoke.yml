@@ -1,0 +1,23 @@
+name: Live deploy smoke
+
+on:
+  push:
+    branches:
+      - codex/ai-surveyor-estimator-takeoff
+  workflow_dispatch:
+  schedule:
+    # Catch silent overnight breakage (UTC).
+    - cron: "15 */6 * * *"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for Render deploy settle
+        run: sleep 90
+      - name: Smoke live (hold 2 minutes)
+        env:
+          NEXA_SMOKE_BASE_URL: https://nexa-live.onrender.com
+        run: node scripts/deploy-smoke.mjs --hold-seconds 120

@@ -17,6 +17,8 @@ import {
   type EngineerFlowStepEvidenceValue,
 } from "@/lib/engineer-flow";
 import { toUkDateDisplay } from "@/lib/uk-date";
+import { maybeCreateDraftInvoiceOnJobComplete } from "@/lib/field-job-invoice";
+import { saveFieldPhotoBytes } from "@/lib/field/field-photo-store";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { createPurchaseRequest, getPurchaseRequests, getJobs, updateJob } from "@/lib/workflow-data";
@@ -144,6 +146,10 @@ export type EngineerWorkflowAction =
         createdBy?: string;
         evidence?: EngineerFlowStepEvidenceValue;
         photoName?: string;
+        photoUrl?: string;
+        photoId?: string;
+        photoContentBase64?: string;
+        photoMimeType?: string;
         text?: string;
         numberValue?: string;
       };
@@ -159,7 +165,13 @@ export type EngineerWorkflowAction =
       action: "add_photos";
       payload: {
         fileNames?: string[];
-        files?: Array<{ name: string; type?: "PDF" | "Photo" | "Note" | "Video" }>;
+        files?: Array<{
+          name: string;
+          type?: "PDF" | "Photo" | "Note" | "Video";
+          contentBase64?: string;
+          mimeType?: string;
+          size?: number;
+        }>;
         createdBy?: string;
       };
     }
@@ -619,8 +631,38 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
         text: input.payload.text ?? input.payload.evidence?.text ?? requirement.value?.text,
         numberValue: input.payload.numberValue ?? input.payload.evidence?.numberValue ?? requirement.value?.numberValue,
         photoName: input.payload.photoName ?? input.payload.evidence?.photoName ?? requirement.value?.photoName,
+        photoUrl: input.payload.photoUrl ?? input.payload.evidence?.photoUrl ?? requirement.value?.photoUrl,
+        photoId: input.payload.photoId ?? input.payload.evidence?.photoId ?? requirement.value?.photoId,
         capturedAt: new Date().toISOString(),
       };
+      const photoBytes = String(input.payload.photoContentBase64 || "").trim();
+      if (photoBytes && evidenceValue.photoName) {
+        const photoId = makeId("engineer-photo");
+        const saved = saveFieldPhotoBytes({
+          scheduleId,
+          photoId,
+          fileName: evidenceValue.photoName,
+          contentBase64: photoBytes,
+          mimeType: input.payload.photoMimeType || undefined,
+        });
+        evidenceValue.photoId = saved.id;
+        evidenceValue.photoUrl = saved.url;
+        const liveWorkflow = normaliseWorkflow(getMutableWorkflow(scheduleId));
+        liveWorkflow.photos = [
+          {
+            id: saved.id,
+            name: evidenceValue.photoName,
+            type: "Photo",
+            uploadedBy: createdBy,
+            uploadedAt: createdAt,
+            url: saved.url,
+            mimeType: saved.mimeType,
+            size: saved.size,
+            storageKey: saved.storageKey,
+          },
+          ...(liveWorkflow.photos ?? []),
+        ];
+      }
       const evidenceType = requirement.evidence || "Checkbox";
       if (evidenceType !== "Checkbox" && !hasCapturedFlowEvidence(evidenceType, evidenceValue)) {
         // Do not accept empty completions for photo/text/number/signature steps.
@@ -759,6 +801,9 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
           | "Photo"
           | "Note"
           | "Video",
+        contentBase64: typeof file.contentBase64 === "string" ? file.contentBase64 : "",
+        mimeType: typeof file.mimeType === "string" ? file.mimeType : "",
+        size: typeof file.size === "number" ? file.size : undefined,
       }))
       .filter((file) => file.name);
     const fromNames = (input.payload.fileNames ?? [])
@@ -772,17 +817,44 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
             : /\.(pdf|docx?|xlsx?|txt)$/i.test(lower)
               ? "PDF"
               : "Photo";
-        return { name, type };
+        return { name, type, contentBase64: "", mimeType: "", size: undefined as number | undefined };
       });
-    const photos = [...fromFiles, ...fromNames].slice(0, 10).map((file) => ({
-      id: makeId("engineer-photo"),
-      name: file.name,
-      type: file.type,
-      uploadedBy: createdBy,
-      uploadedAt: createdAt,
-    }));
+    const photos = [...fromFiles, ...fromNames].slice(0, 10).map((file) => {
+      const id = makeId("engineer-photo");
+      let url: string | undefined;
+      let mimeType: string | undefined;
+      let size: number | undefined;
+      let storageKey: string | undefined;
+      if (file.contentBase64.trim()) {
+        const saved = saveFieldPhotoBytes({
+          scheduleId,
+          photoId: id,
+          fileName: file.name,
+          contentBase64: file.contentBase64,
+          mimeType: file.mimeType || undefined,
+        });
+        url = saved.url;
+        mimeType = saved.mimeType;
+        size = saved.size;
+        storageKey = saved.storageKey;
+      } else if (file.size) {
+        size = file.size;
+      }
+      return {
+        id,
+        name: file.name,
+        type: file.type,
+        uploadedBy: createdBy,
+        uploadedAt: createdAt,
+        url,
+        mimeType,
+        size,
+        storageKey,
+      } satisfies EngineerAttachment;
+    });
     workflow.photos = [...photos, ...workflow.photos];
     if (photos.length) {
+      const withBytes = photos.filter((item) => Boolean(item.url)).length;
       const label =
         photos.every((item) => item.type === "Photo")
           ? "photo"
@@ -792,7 +864,10 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
       addReviewItem(workflow, {
         type: "Photo",
         title: `${photos.length} ${label}${photos.length === 1 ? "" : "s"} uploaded`,
-        detail: photos.map((photo) => photo.name).join(", "),
+        detail:
+          withBytes > 0
+            ? `${withBytes} synced with image bytes · ${photos.map((photo) => photo.name).join(", ")}`
+            : `Names only (no image bytes) · ${photos.map((photo) => photo.name).join(", ")}`,
         createdBy,
         createdAt,
       });
@@ -1069,6 +1144,9 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
               ? `Marked complete by ${createdBy}.`
               : `Awaiting parts — noted by ${createdBy}.`),
         });
+        if (outcome.status === "Complete") {
+          maybeCreateDraftInvoiceOnJobComplete(job.jobId, createdBy);
+        }
       }
     }
     addReviewItem(workflow, {
