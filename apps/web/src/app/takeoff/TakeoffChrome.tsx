@@ -2,31 +2,32 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, Map, Ruler, type LucideIcon } from "lucide-react";
+import { ArrowLeft, Map, Ruler, Sparkles, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
-type TakeoffMode = "quantity" | "routes";
-
 const MODES: Array<{
-  id: TakeoffMode;
   href: string;
   label: string;
   icon: LucideIcon;
   match: (path: string) => boolean;
 }> = [
   {
-    id: "quantity",
     href: "/takeoff",
-    label: "Quantity",
-    icon: Ruler,
+    label: "Studio",
+    icon: Sparkles,
     match: (path) => path === "/takeoff" || path === "/takeoff/",
   },
   {
-    id: "routes",
     href: "/takeoff/routes",
     label: "Routes",
     icon: Map,
     match: (path) => path.startsWith("/takeoff/routes") || path.startsWith("/takeoff/markup"),
+  },
+  {
+    href: "/takeoff/skill",
+    label: "Skill",
+    icon: Ruler,
+    match: (path) => path.startsWith("/takeoff/skill"),
   },
 ];
 
@@ -64,7 +65,7 @@ export default function TakeoffChrome({
           const active = mode.match(pathname);
           return (
             <Link
-              key={mode.id}
+              key={mode.href}
               href={mode.href}
               className={active ? "on" : undefined}
               aria-current={active ? "page" : undefined}

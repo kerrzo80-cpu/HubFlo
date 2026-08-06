@@ -3,7 +3,7 @@ import { TakeoffScrollUnlock } from "./takeoff-scroll-unlock";
 
 export const metadata: Metadata = {
   title: "Takeoffs",
-  description: "AI construction quantity takeoff — quantities, confidence scoring, BOQ handoff.",
+  description: "NeXa Takeoff Studio — AI area, linear and count takeoff with Core quote push.",
   applicationName: "Takeoffs",
   manifest: "/api/manifest/takeoffs",
   appleWebApp: {

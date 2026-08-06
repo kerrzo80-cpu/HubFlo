@@ -1,34 +1,35 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import Link from "next/link";
 import {
-  Check,
-  FileSpreadsheet,
+  ExternalLink,
+  FolderOpen,
   Loader2,
+  Plus,
   Sparkles,
   Upload,
 } from "lucide-react";
 
-import type { TakeoffDocument, TakeoffProject } from "@/lib/takeoff-data";
+import { useBrand } from "@/components/BrandProvider";
+import { resolveBrandLogoUrl } from "@/lib/branding";
 import { roleHeaderName } from "@/lib/access";
+import type { TakeoffDocument, TakeoffProject } from "@/lib/takeoff-data";
 import {
-  TAKEOFF_SKILL_STEPS,
-  TAKEOFF_TRADES,
-  createDefaultTakeoffSkill,
-  focusOptionsForTrade,
-  methodLabel,
-  type TakeoffAssemblyItem,
-  type TakeoffSkillStep,
-  type TakeoffSkillWorkflow,
-  type TakeoffTradeId,
-} from "@/lib/takeoff-skill";
+  createDefaultStudioState,
+  nextClassificationColour,
+  studioId,
+  studioQuantitiesToMaterialAllowances,
+  summariseStudioQuantities,
+  type StudioClassKind,
+  type StudioClassification,
+  type StudioState,
+} from "@/lib/takeoff-studio";
 
-import TakeoffOverlayReview from "./TakeoffOverlayReview";
-import TakeoffChrome from "./TakeoffChrome";
-import "./takeoff-skill.css";
+import StudioCanvas from "./studio/StudioCanvas";
+import "./studio/studio.css";
 
 type QuoteOption = { id: string; ref: string; customer: string; site: string };
-type AiStatus = { connected: boolean; model?: string; source?: string };
 type AuthState = "checking" | "signed-in" | "signed-out" | "pilot";
 
 const requestHeaders: HeadersInit = {
@@ -40,77 +41,83 @@ async function apiFetch(input: string, init: RequestInit = {}) {
   for (const [key, value] of Object.entries(requestHeaders)) {
     if (!headers.has(key) && typeof value === "string") headers.set(key, value);
   }
-  return fetch(input, {
-    ...init,
-    credentials: "include",
-    headers,
-  });
+  const response = await fetch(input, { ...init, credentials: "include", headers });
+  if (response.status === 401 && typeof window !== "undefined") {
+    const next = `${window.location.pathname}${window.location.search}`;
+    window.location.assign(`/login?next=${encodeURIComponent(next || "/takeoff")}`);
+  }
+  return response;
 }
 
-function stepIndex(step: TakeoffSkillStep) {
-  return TAKEOFF_SKILL_STEPS.findIndex((row) => row.id === step);
-}
-
-export default function TakeoffSkillPage() {
+export default function TakeoffStudioPage() {
+  const brand = useBrand();
+  const fileRef = useRef<HTMLInputElement | null>(null);
   const [authState, setAuthState] = useState<AuthState>("checking");
   const [authName, setAuthName] = useState<string | null>(null);
   const [projects, setProjects] = useState<TakeoffProject[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [quotes, setQuotes] = useState<QuoteOption[]>([]);
-  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ name: "", customer: "", site: "", description: "", linkedQuoteId: "" });
-  const [focusOptions, setFocusOptions] = useState<string[]>([]);
-  const [showCreate, setShowCreate] = useState(false);
-  const [invokePrompt, setInvokePrompt] = useState(
-    "Perform a quantity takeoff on the plumbing drawings — WCs, basins, baths, showers, sinks, hot & cold pipe + fittings, waste / soil. Output Excel BOQ + marked-up PDF.",
-  );
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [draftName, setDraftName] = useState("");
+  const [newClassName, setNewClassName] = useState("");
+  const [newClassKind, setNewClassKind] = useState<StudioClassKind>("count");
+  const saveTimer = useRef<number | null>(null);
 
   const selected = useMemo(
-    () => projects.find((project) => project.id === selectedId) ?? null,
+    () => projects.find((p) => p.id === selectedId) ?? null,
     [projects, selectedId],
   );
-  const skill: TakeoffSkillWorkflow = selected?.skill ?? createDefaultTakeoffSkill();
+
+  const studio: StudioState = selected?.studio ?? createDefaultStudioState();
+  const drawingDocs = (selected?.documents || []).filter(
+    (doc) => doc.kind === "Drawing" || doc.kind === "Marked-up drawing" || (doc.mimeType || "").includes("pdf"),
+  );
+  const activeDoc =
+    drawingDocs.find((doc) => doc.id === studio.activeDocumentId) || drawingDocs[0] || null;
+  const quantities = summariseStudioQuantities(studio);
+  const linkedQuote = quotes.find((q) => q.id === selected?.linkedQuoteId);
+
+  const upsert = useCallback((project: TakeoffProject) => {
+    setProjects((current) => {
+      const next = current.filter((row) => row.id !== project.id);
+      return [project, ...next];
+    });
+    setSelectedId(project.id);
+  }, []);
 
   const refresh = useCallback(async () => {
-    const [projectRes, quoteRes, aiRes] = await Promise.all([
+    const [projectRes, quoteRes] = await Promise.all([
       apiFetch("/api/takeoff-projects"),
       apiFetch("/api/quotes"),
-      apiFetch("/api/takeoff-ai/status"),
     ]);
-    if (projectRes.status === 401 || quoteRes.status === 401) {
+    if (projectRes.status === 401) {
       setAuthState("signed-out");
-      setError("Sign in to Core first, then open Takeoff again.");
       return;
     }
     if (!projectRes.ok) {
-      const body = await projectRes.json().catch(() => null) as { error?: string } | null;
-      setError(body?.error || "Unable to load takeoff projects");
+      setError("Unable to load takeoff projects");
       return;
     }
     const list = (await projectRes.json()) as TakeoffProject[];
     setProjects(list.map((project) => ({
       ...project,
-      skill: project.skill ?? createDefaultTakeoffSkill(),
+      studio: project.studio ?? createDefaultStudioState(),
     })));
     setSelectedId((current) => current ?? list[0]?.id ?? null);
     if (quoteRes.ok) {
       const quoteList = (await quoteRes.json()) as Array<Record<string, unknown>>;
       setQuotes(
-        quoteList.map((quote) => ({
-          id: String(quote.id || ""),
-          ref: String(quote.ref || ""),
-          customer: String(quote.customer || ""),
-          site: String(quote.site || ""),
-        })).filter((quote) => quote.id),
+        quoteList
+          .map((quote) => ({
+            id: String(quote.id || ""),
+            ref: String(quote.ref || ""),
+            customer: String(quote.customer || ""),
+            site: String(quote.site || ""),
+          }))
+          .filter((quote) => quote.id),
       );
-    }
-    if (aiRes.ok) {
-      const body = await aiRes.json() as AiStatus;
-      setAiStatus(body);
     }
   }, []);
 
@@ -124,7 +131,7 @@ export default function TakeoffSkillPage() {
           setAuthState("signed-out");
           return;
         }
-        const body = await response.json().catch(() => null) as {
+        const body = (await response.json().catch(() => null)) as {
           mode?: string;
           user?: { name?: string } | null;
         } | null;
@@ -140,10 +147,7 @@ export default function TakeoffSkillPage() {
         }
         await refresh();
       } catch {
-        if (active) {
-          setAuthState("signed-out");
-          setError("Unable to reach NeXa auth. Refresh and try again.");
-        }
+        if (active) setAuthState("signed-out");
       }
     })();
     return () => {
@@ -151,53 +155,55 @@ export default function TakeoffSkillPage() {
     };
   }, [refresh]);
 
-  useEffect(() => {
-    if (!selected) return;
-    setFocusOptions(focusOptionsForTrade(skill.scope.trade));
-  }, [selected?.id, skill.scope.trade]);
-
   function show(message: string) {
     setNotice(message);
     setError(null);
-    window.setTimeout(() => setNotice(null), 4500);
+    window.setTimeout(() => setNotice(null), 4000);
   }
 
-  function upsertProject(project: TakeoffProject) {
-    setProjects((current) => {
-      const next = current.filter((row) => row.id !== project.id);
-      return [{ ...project, skill: project.skill ?? createDefaultTakeoffSkill() }, ...next];
-    });
-    setSelectedId(project.id);
+  async function persistStudio(nextStudio: StudioState, extras: Partial<TakeoffProject> = {}) {
+    if (!selected) return;
+    const optimistic: TakeoffProject = {
+      ...selected,
+      ...extras,
+      studio: nextStudio,
+      updatedAt: new Date().toISOString(),
+    };
+    upsert(optimistic);
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(async () => {
+      const response = await apiFetch(`/api/takeoff-projects/${selected.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studio: nextStudio, ...extras }),
+      });
+      if (!response.ok) {
+        setError("Could not save studio takeoff");
+        return;
+      }
+      const project = (await response.json()) as TakeoffProject;
+      upsert({ ...project, studio: project.studio ?? nextStudio });
+    }, 450);
   }
 
   async function createProject() {
     setBusy("create");
-    setError(null);
     try {
       const response = await apiFetch("/api/takeoff-projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: draft.name || "Construction takeoff",
-          customer: draft.customer,
-          site: draft.site,
-          description: draft.description || "AI quantity takeoff",
-          linkedQuoteId: draft.linkedQuoteId || undefined,
-          skill: createDefaultTakeoffSkill(),
+          name: draftName || "NeXa takeoff",
+          customer: "",
+          site: "",
+          description: "NeXa Takeoff Studio",
+          studio: createDefaultStudioState(),
         }),
       });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null) as { error?: string } | null;
-        if (response.status === 401) {
-          setAuthState("signed-out");
-          throw new Error("Sign in to Core first, then create a takeoff project.");
-        }
-        throw new Error(body?.error || "Unable to create takeoff project");
-      }
-      const project = await response.json() as TakeoffProject;
-      upsertProject(project);
-      setDraft({ name: "", customer: "", site: "", description: "", linkedQuoteId: "" });
-      setShowCreate(false);
+      if (!response.ok) throw new Error("Unable to create project");
+      const project = (await response.json()) as TakeoffProject;
+      upsert({ ...project, studio: project.studio ?? createDefaultStudioState() });
+      setDraftName("");
       show(`Created ${project.reference}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Create failed");
@@ -207,146 +213,117 @@ export default function TakeoffSkillPage() {
   }
 
   async function uploadDrawings(event: ChangeEvent<HTMLInputElement>) {
-    if (!selected) return;
-    const files = Array.from(event.target.files || []);
-    event.target.value = "";
-    if (!files.length) return;
+    if (!selected || !event.target.files?.length) return;
     setBusy("upload");
-    setError(null);
     try {
-      const form = new FormData();
-      form.append("kind", "Drawing");
-      for (const file of files) {
-        form.append("files", file);
-      }
+      const body = new FormData();
+      for (const file of Array.from(event.target.files)) body.append("files", file);
+      body.append("kind", "Drawing");
       const response = await apiFetch(`/api/takeoff-projects/${selected.id}/documents`, {
         method: "POST",
-        body: form,
+        body,
       });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null) as { error?: string } | null;
-        if (response.status === 401) {
-          setAuthState("signed-out");
-          throw new Error("Sign in to Core first, then upload drawings.");
-        }
-        if (response.status === 403) {
-          throw new Error("Your login cannot upload takeoff files. Use an Office / Manager account.");
-        }
-        throw new Error(body?.error || `Upload failed (${response.status})`);
-      }
-      const body = await response.json() as { project?: TakeoffProject; parseWarnings?: string[] };
-      if (body.project) upsertProject(body.project);
-      if (body.parseWarnings?.length) {
-        show(`Uploaded ${files.length} file(s). ${body.parseWarnings[0]}`);
-      } else {
-        show(`Uploaded ${files.length} drawing file(s)`);
-      }
+      if (!response.ok) throw new Error("Upload failed");
+      const payload = (await response.json()) as { project: TakeoffProject };
+      const project = payload.project;
+      const docs = project.documents || [];
+      const first = docs[docs.length - 1];
+      const nextStudio: StudioState = {
+        ...(project.studio ?? studio),
+        activeDocumentId: first?.id || studio.activeDocumentId,
+        activePage: 1,
+        updatedAt: new Date().toISOString(),
+      };
+      upsert({ ...project, studio: nextStudio });
+      await apiFetch(`/api/takeoff-projects/${selected.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studio: nextStudio }),
+      });
+      show(`Uploaded ${event.target.files.length} drawing(s)`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setBusy(null);
+      event.target.value = "";
     }
   }
 
-  async function runSkill(action: string, payload: Record<string, unknown> = {}) {
-    if (!selected) return null;
-    setBusy(action);
-    setError(null);
+  function addClassification() {
+    const name = newClassName.trim() || (newClassKind === "area" ? "Area" : newClassKind === "linear" ? "Linear" : "Count");
+    const cls: StudioClassification = {
+      id: studioId("cls"),
+      kind: newClassKind,
+      name,
+      colour: nextClassificationColour(studio.classifications),
+      unit: newClassKind === "area" ? "m2" : newClassKind === "linear" ? "m" : "nr",
+    };
+    void persistStudio({
+      ...studio,
+      classifications: [...studio.classifications, cls],
+      activeClassificationId: cls.id,
+      tool: newClassKind,
+    });
+    setNewClassName("");
+  }
+
+  async function runAiAssist() {
+    if (!selected) return;
+    setBusy("ai");
     try {
-      const response = await apiFetch(`/api/takeoff-projects/${selected.id}/skill`, {
+      // Use existing skill analyse + measure pipeline when available; keep studio primary UI.
+      const analyse = await apiFetch(`/api/takeoff-projects/${selected.id}/skill`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, ...payload }),
+        body: JSON.stringify({ action: "analyse" }),
       });
-      const body = await response.json().catch(() => null) as {
-        error?: string;
-        project?: TakeoffProject;
-        skill?: TakeoffSkillWorkflow;
-        focusOptions?: string[];
-      } | null;
-      if (!response.ok) throw new Error(body?.error || `Skill action ${action} failed`);
-      if (body?.project) upsertProject(body.project);
-      if (body?.focusOptions) setFocusOptions(body.focusOptions);
-      return body;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Skill action failed");
-      return null;
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function approveAndContinue(assemblies: TakeoffAssemblyItem[]) {
-    const saved = await runSkill("save-plan", { assemblies });
-    if (!saved) return;
-    const approved = await runSkill("approve-plan", { assemblies });
-    if (!approved) return;
-    const measured = await runSkill("measure");
-    if (measured) {
-      show("Takeoff board open — click fixtures on the drawing to count");
-    }
-  }
-
-  async function downloadExport(format: "xlsx" | "marked-pdf") {
-    if (!selected) return;
-    setBusy(`export-${format}`);
-    setError(null);
-    try {
-      const response = await apiFetch(`/api/takeoff-projects/${selected.id}/skill/export?format=${format}`);
-      if (!response.ok) {
-        const body = await response.json().catch(() => null) as { error?: string } | null;
-        throw new Error(body?.error || "Export failed");
+      if (analyse.ok) {
+        show("NeXa scanned the drawings — review classifications, or keep measuring manually.");
+      } else {
+        show("AI scan needs drawings + OpenAI on the server. Manual Count / Area / Linear still work.");
       }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = format === "xlsx"
-        ? `${selected.reference}-takeoff-boq.xlsx`
-        : `${selected.reference}-marked-takeoff.pdf`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-      show(format === "xlsx" ? "Excel BOQ downloaded" : "Marked-up PDF downloaded");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Export failed");
+      await refresh();
+    } catch {
+      setError("AI assist failed — keep taking off manually.");
     } finally {
       setBusy(null);
     }
   }
 
-  async function pushToQuote() {
-    if (!selected?.linkedQuoteId) {
-      setError("Link a Core quote on the project before pushing the BOQ.");
+  async function pushToCore() {
+    if (!selected) return;
+    if (!selected.linkedQuoteId) {
+      setError("Link a Core quote before pushing.");
       return;
     }
     setBusy("push");
     try {
-      // Apply BOQ materials first
-      await runSkill("apply-boq");
-      // Approve if needed
-      if (selected.status === "Draft" || selected.status === "In review") {
-        await apiFetch(`/api/takeoff-projects/${selected.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            status: "Approved",
-            review: {
-              ...selected.review,
-              approvedBy: "NeXa Takeoff",
-              approvedAt: new Date().toISOString(),
-            },
-          }),
-        });
-      }
-      const response = await apiFetch(`/api/takeoff-projects/${selected.id}/push`, {
+      const materials = studioQuantitiesToMaterialAllowances(studio, selected.id);
+      const patch = await apiFetch(`/api/takeoff-projects/${selected.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studio,
+          materialAllowances: [
+            ...selected.materialAllowances.filter((line) => !line.id.startsWith("studio-mat-")),
+            ...materials,
+          ],
+          status: "Approved",
+        }),
+      });
+      if (!patch.ok) throw new Error("Could not prepare BOQ");
+      const push = await apiFetch(`/api/takeoff-projects/${selected.id}/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ quoteId: selected.linkedQuoteId }),
+        body: JSON.stringify({ quoteId: selected.linkedQuoteId, actor: authName || "Office" }),
       });
-      const body = await response.json().catch(() => null) as { error?: string } | null;
-      if (!response.ok) throw new Error(body?.error || "Push failed");
-      show("BOQ pushed into Core quote");
-      await refresh();
+      if (!push.ok) {
+        const body = (await push.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error || "Push failed");
+      }
+      const result = (await push.json()) as { project: TakeoffProject; quote: { id: string; ref: string } };
+      upsert(result.project);
+      show(`Pushed into Core quote ${result.quote.ref}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Push failed");
     } finally {
@@ -354,73 +331,75 @@ export default function TakeoffSkillPage() {
     }
   }
 
-  const currentStep = skill.step;
-  const assemblies = skill.assemblies;
+  if (authState === "checking") {
+    return (
+      <div className="nexa-studio-gate">
+        <Loader2 className="spin" size={22} />
+        Opening NeXa Takeoff…
+      </div>
+    );
+  }
+
+  if (authState === "signed-out") {
+    return (
+      <div className="nexa-studio-gate">
+        <h1>Sign in to NeXa Takeoff</h1>
+        <p>Use your Core login. This studio is linked to Errol Watson Group quotes and jobs.</p>
+        <a className="nexa-studio-primary" href="/login?next=/takeoff">Sign in</a>
+      </div>
+    );
+  }
 
   return (
-    <div className="takeoff-v2">
-      <TakeoffChrome
-        subtitle="Count fixtures · build BOQ"
-        status={(
-          <span className={`takeoff-chrome-pill ${aiStatus?.connected ? "on" : ""}`}>
-            <Sparkles size={13} />
-            {aiStatus?.connected ? (aiStatus.model || "Blake ready") : "Text-tag mode"}
-          </span>
-        )}
-        actions={authName ? <span className="takeoff-chrome-pill on">{authName}</span> : null}
-      />
+    <div className="nexa-studio">
+      <header className="nexa-studio-top">
+        <div className="nexa-studio-brand">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={resolveBrandLogoUrl(brand, "takeoffs")} alt={brand.companyName || "Errol Watson Group"} />
+          <div>
+            <strong>NeXa Takeoff</strong>
+            <span>AI takeoff studio · {brand.tradingName || "Errol Watson Group"}</span>
+          </div>
+        </div>
+        <nav className="nexa-studio-modes" aria-label="Takeoff modes">
+          <Link href="/takeoff" className="on">Studio</Link>
+          <Link href="/takeoff/routes">Pipe routes</Link>
+          <Link href="/takeoff/skill">Skill board</Link>
+          <Link href="/">Core</Link>
+        </nav>
+        <div className="nexa-studio-top-actions">
+          {authName ? <span className="pill">{authName}</span> : null}
+          <button type="button" className="nexa-studio-ai" disabled={busy === "ai" || !selected} onClick={() => void runAiAssist()}>
+            {busy === "ai" ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
+            Run NeXa AI
+          </button>
+        </div>
+      </header>
 
       {(notice || error) ? (
-        <div className={`takeoff-v2-banner ${error ? "error" : "ok"}`}>
-          {error || notice}
-        </div>
+        <div className={`nexa-studio-banner ${error ? "error" : "ok"}`}>{error || notice}</div>
       ) : null}
 
-      {authState === "checking" ? (
-        <section className="takeoff-v2-gate">
-          <h1>Opening Takeoff…</h1>
-          <p>Checking your NeXa sign-in.</p>
-        </section>
-      ) : null}
-
-      {authState === "signed-out" ? (
-        <section className="takeoff-v2-gate">
-          <h1>Sign in to use Takeoff</h1>
-          <p>Use your Core login, then create a project, upload drawings, and run the skill.</p>
-          <a className="takeoff-skill-primary" href="/login?next=/takeoff">Sign in to NeXa</a>
-        </section>
-      ) : null}
-
-      {authState === "signed-in" || authState === "pilot" ? (
-        <div className="takeoff-v2-body">
-          <aside className="takeoff-v2-rail">
-            <div className="takeoff-v2-rail-head">
+      <div className="nexa-studio-body">
+        <aside className="nexa-studio-rail">
+          <section>
+            <header>
+              <FolderOpen size={15} />
               <h2>Projects</h2>
-              <button type="button" className="takeoff-v2-ghost" onClick={() => setShowCreate((v) => !v)}>
-                {showCreate ? "Cancel" : "New"}
+            </header>
+            <div className="nexa-studio-create">
+              <input
+                value={draftName}
+                onChange={(e) => setDraftName(e.target.value)}
+                placeholder="New project name"
+              />
+              <button type="button" className="nexa-studio-primary" disabled={busy === "create"} onClick={() => void createProject()}>
+                {busy === "create" ? <Loader2 className="spin" size={14} /> : <Plus size={14} />}
+                New
               </button>
             </div>
-
-            {showCreate ? (
-              <div className="takeoff-v2-create">
-                <input value={draft.name} onChange={(e) => setDraft((c) => ({ ...c, name: e.target.value }))} placeholder="Project name" />
-                <input value={draft.customer} onChange={(e) => setDraft((c) => ({ ...c, customer: e.target.value }))} placeholder="Customer" />
-                <input value={draft.site} onChange={(e) => setDraft((c) => ({ ...c, site: e.target.value }))} placeholder="Site" />
-                <select value={draft.linkedQuoteId} onChange={(e) => setDraft((c) => ({ ...c, linkedQuoteId: e.target.value }))}>
-                  <option value="">Link quote (optional)</option>
-                  {quotes.map((quote) => (
-                    <option key={quote.id} value={quote.id}>{quote.ref} · {quote.customer}</option>
-                  ))}
-                </select>
-                <button className="takeoff-skill-primary" type="button" disabled={busy === "create"} onClick={() => void createProject()}>
-                  {busy === "create" ? <Loader2 className="spin" size={16} /> : null}
-                  Create
-                </button>
-              </div>
-            ) : null}
-
-            <div className="takeoff-v2-project-list">
-              {projects.length ? projects.map((project) => (
+            <div className="nexa-studio-project-list">
+              {projects.map((project) => (
                 <button
                   key={project.id}
                   type="button"
@@ -429,525 +408,145 @@ export default function TakeoffSkillPage() {
                 >
                   <strong>{project.reference}</strong>
                   <span>{project.name}</span>
-                  <small>{project.documents.length} drawings</small>
                 </button>
-              )) : (
-                <p className="takeoff-skill-empty">No projects yet.</p>
-              )}
+              ))}
             </div>
-          </aside>
+          </section>
 
-          <main className="takeoff-v2-main">
-            {!selected ? (
-              <section className="takeoff-v2-gate inline">
-                <h1>Start a quantity takeoff</h1>
-                <p>Create or select a project, upload drawings, then follow the steps one at a time.</p>
-                <button className="takeoff-skill-primary" type="button" onClick={() => setShowCreate(true)}>New project</button>
-              </section>
-            ) : (
-              <>
-                <div className="takeoff-v2-projectbar">
-                  <div>
-                    <p className="eyebrow">{selected.reference}</p>
-                    <h1>{selected.name}</h1>
-                    <p>{[selected.customer, selected.site].filter(Boolean).join(" · ") || "No site set"}</p>
-                  </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    accept="application/pdf,image/*,.pdf,.png,.jpg,.jpeg,.webp,.dwg"
-                    onChange={(e) => void uploadDrawings(e)}
-                    hidden
-                  />
+          {selected ? (
+            <>
+              <section>
+                <header>
+                  <h2>Drawings</h2>
+                  <button type="button" className="ghost" onClick={() => fileRef.current?.click()} disabled={busy === "upload"}>
+                    {busy === "upload" ? <Loader2 className="spin" size={14} /> : <Upload size={14} />}
+                    Upload
+                  </button>
+                  <input ref={fileRef} type="file" accept="application/pdf,.pdf" multiple hidden onChange={(e) => void uploadDrawings(e)} />
+                </header>
+                <div className="nexa-studio-doc-list">
+                  {drawingDocs.length ? drawingDocs.map((doc: TakeoffDocument) => (
+                    <button
+                      key={doc.id}
+                      type="button"
+                      className={doc.id === activeDoc?.id ? "on" : undefined}
+                      onClick={() => void persistStudio({ ...studio, activeDocumentId: doc.id, activePage: 1 })}
+                    >
+                      {doc.fileName}
+                    </button>
+                  )) : <p className="muted">Upload a PDF plan set.</p>}
                 </div>
+              </section>
 
-                <ol className="takeoff-v2-steps" aria-label="Takeoff steps">
-                  {TAKEOFF_SKILL_STEPS.map((step, index) => {
-                    const active = step.id === currentStep;
-                    const done = stepIndex(currentStep) > index;
-                    return (
-                      <li key={step.id}>
-                        <button
-                          type="button"
-                          className={`${active ? "active" : ""} ${done ? "done" : ""}`}
-                          onClick={() => void runSkill("set-step", { step: step.id })}
-                        >
-                          <b>{index + 1}</b>
-                          <span>{step.label}</span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ol>
-
-                {currentStep === "drawings" || currentStep === "analyse" ? (
-                  <details className="takeoff-v2-invoke">
-                    <summary>Optional AI skill prompt</summary>
-                    <form
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void (async () => {
-                          const result = await runSkill("invoke", { prompt: invokePrompt });
-                          if (result) show("Skill invoked — review the assembly plan, then approve to measure");
-                        })();
-                      }}
-                    >
-                      <textarea
-                        value={invokePrompt}
-                        onChange={(event) => setInvokePrompt(event.target.value)}
-                        rows={2}
-                      />
-                      <button className="takeoff-skill-secondary" type="submit" disabled={busy === "invoke" || !selected.documents.length}>
-                        {busy === "invoke" ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
-                        Run prompt
-                      </button>
-                    </form>
-                  </details>
-                ) : null}
-
-              {currentStep === "drawings" ? (
-                <section className="takeoff-skill-panel">
-                  <header>
-                    <div>
-                      <h2>1. Drawing folder</h2>
-                      <p>Upload the construction set into this project. Vector PDFs with selectable text are preferred — image-only scans score lower confidence later.</p>
-                    </div>
+              <section>
+                <header>
+                  <h2>Classifications</h2>
+                </header>
+                <div className="nexa-studio-class-list">
+                  {studio.classifications.map((cls) => (
                     <button
-                      className="takeoff-skill-primary"
+                      key={cls.id}
                       type="button"
-                      disabled={busy === "upload"}
-                      onClick={() => {
-                        void runSkill("set-step", { step: "drawings" });
-                        fileInputRef.current?.click();
-                      }}
-                    >
-                      {busy === "upload" ? <Loader2 className="spin" size={16} /> : <Upload size={16} />}
-                      Upload drawings
-                    </button>
-                  </header>
-                  <div className="takeoff-skill-doc-grid">
-                    {selected.documents.length ? selected.documents.map((document: TakeoffDocument) => (
-                      <article key={document.id}>
-                        <strong>{document.fileName}</strong>
-                        <span>{document.kind}</span>
-                        <small>{document.status}</small>
-                      </article>
-                    )) : (
-                      <p className="takeoff-skill-empty">No drawings yet.</p>
-                    )}
-                  </div>
-                  <footer>
-                    <button
-                      className="takeoff-skill-primary"
-                      type="button"
-                      disabled={!selected.documents.length || busy === "analyse"}
-                      onClick={async () => {
-                        const result = await runSkill("analyse");
-                        if (result) show("Drawing index ready — choose scope");
-                      }}
-                    >
-                      {busy === "analyse" ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
-                      Analyse drawings
-                    </button>
-                  </footer>
-                </section>
-              ) : null}
-
-              {currentStep === "analyse" ? (
-                <section className="takeoff-skill-panel">
-                  <header>
-                    <div>
-                      <h2>2. Drawing analysis</h2>
-                      <p>{skill.drawingIndex.summary || "Build a structured map of sheets before measuring."}</p>
-                    </div>
-                    <button className="takeoff-skill-primary" type="button" disabled={busy === "analyse"} onClick={() => void runSkill("analyse")}>
-                      {busy === "analyse" ? <Loader2 className="spin" size={16} /> : null}
-                      Re-run analysis
-                    </button>
-                  </header>
-                  <div className="takeoff-skill-table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Sheet</th>
-                          <th>Discipline</th>
-                          <th>Reliability</th>
-                          <th>Notes</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {skill.drawingIndex.sheets.map((sheet) => (
-                          <tr key={sheet.id}>
-                            <td>
-                              <strong>{sheet.title}</strong>
-                              <small>{sheet.fileName}</small>
-                            </td>
-                            <td>{sheet.discipline}</td>
-                            <td><span className={`conf ${sheet.reliability.toLowerCase()}`}>{sheet.reliability}</span></td>
-                            <td>{sheet.notes.join("; ") || (sheet.hasSelectableText ? "Selectable text" : "Likely image PDF")}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  {skill.drawingIndex.objectHints.length ? (
-                    <ul className="takeoff-skill-hints">
-                      {skill.drawingIndex.objectHints.map((hint) => <li key={hint}>{hint}</li>)}
-                    </ul>
-                  ) : null}
-                  <footer>
-                    <button className="takeoff-skill-primary" type="button" onClick={() => void runSkill("set-step", { step: "scope" })}>
-                      Continue to scope
-                    </button>
-                  </footer>
-                </section>
-              ) : null}
-
-              {currentStep === "scope" ? (
-                <section className="takeoff-skill-panel">
-                  <header>
-                    <div>
-                      <h2>3. Scope — what should we take off?</h2>
-                      <p>Narrow the trade and focus so AI only measures reliable primaries. Secondary quantities are derived with ratios / formulas.</p>
-                    </div>
-                  </header>
-                  <div className="takeoff-skill-trade-grid">
-                    {TAKEOFF_TRADES.map((trade) => (
-                      <button
-                        key={trade.id}
-                        type="button"
-                        className={skill.scope.trade === trade.id ? "active" : ""}
-                        onClick={async () => {
-                          await runSkill("set-scope", { trade: trade.id as TakeoffTradeId, focusLabels: [] });
-                          setFocusOptions(focusOptionsForTrade(trade.id));
-                        }}
-                      >
-                        <strong>{trade.label}</strong>
-                        <span>{trade.blurb}</span>
-                      </button>
-                    ))}
-                  </div>
-                  <div className="takeoff-skill-focus">
-                    <h3>Focus quantities</h3>
-                    <div className="takeoff-skill-chip-row">
-                      {focusOptions.map((label) => {
-                        const on = skill.scope.focusLabels.includes(label);
-                        return (
-                          <button
-                            key={label}
-                            type="button"
-                            className={on ? "chip on" : "chip"}
-                            onClick={() => {
-                              const focusLabels = on
-                                ? skill.scope.focusLabels.filter((row) => row !== label)
-                                : [...skill.scope.focusLabels, label];
-                              void runSkill("set-scope", { focusLabels, trade: skill.scope.trade });
-                            }}
-                          >
-                            {on ? <Check size={12} /> : null}
-                            {label}
-                          </button>
-                        );
+                      className={cls.id === studio.activeClassificationId ? "on" : undefined}
+                      onClick={() => void persistStudio({
+                        ...studio,
+                        activeClassificationId: cls.id,
+                        tool: cls.kind,
                       })}
+                    >
+                      <i style={{ background: cls.colour }} />
+                      <span>
+                        <strong>{cls.name}</strong>
+                        <small>{cls.kind}</small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <div className="nexa-studio-create class">
+                  <select value={newClassKind} onChange={(e) => setNewClassKind(e.target.value as StudioClassKind)}>
+                    <option value="count">Count</option>
+                    <option value="linear">Linear</option>
+                    <option value="area">Area</option>
+                  </select>
+                  <input value={newClassName} onChange={(e) => setNewClassName(e.target.value)} placeholder="Name" />
+                  <button type="button" className="ghost" onClick={addClassification}>Add</button>
+                </div>
+              </section>
+
+              <section>
+                <header>
+                  <h2>Quantities</h2>
+                </header>
+                <div className="nexa-studio-qty">
+                  {quantities.map((row) => (
+                    <div key={row.classificationId}>
+                      <i style={{ background: row.colour }} />
+                      <span>{row.name}</span>
+                      <strong>
+                        {row.quantity} {row.unit}
+                      </strong>
                     </div>
-                  </div>
-                  <footer>
-                    <button
-                      className="takeoff-skill-primary"
-                      type="button"
-                      disabled={busy === "build-plan"}
-                      onClick={async () => {
-                        const result = await runSkill("build-plan", {
-                          trade: skill.scope.trade,
-                          focusLabels: skill.scope.focusLabels,
-                        });
-                        if (result) show("Assembly plan ready for review");
-                      }}
-                    >
-                      {busy === "build-plan" ? <Loader2 className="spin" size={16} /> : null}
-                      Build primary / secondary plan
-                    </button>
-                  </footer>
-                </section>
-              ) : null}
+                  ))}
+                </div>
+              </section>
 
-              {currentStep === "plan" ? (
-                <section className="takeoff-skill-panel">
-                  <header>
-                    <div>
-                      <h2>4. Assembly plan</h2>
-                      <p>{skill.planSummary || "Primaries are counted on the drawing. Secondaries (taps, traps, elbows, couplings) are derived from those counts — not counted separately as duplicates."}</p>
-                    </div>
-                  </header>
-                  <div className="takeoff-skill-table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Include</th>
-                          <th>Kind</th>
-                          <th>Code</th>
-                          <th>Description</th>
-                          <th>Method</th>
-                          <th>Expected confidence</th>
-                          <th>Derivation</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {assemblies.map((row) => (
-                          <tr key={row.id} className={row.kind}>
-                            <td>
-                              <input
-                                type="checkbox"
-                                checked={row.included}
-                                onChange={(event) => {
-                                  const next = assemblies.map((item) =>
-                                    item.id === row.id ? { ...item, included: event.target.checked } : item,
-                                  );
-                                  void runSkill("save-plan", { assemblies: next });
-                                }}
-                              />
-                            </td>
-                            <td><span className={`kind ${row.kind}`}>{row.kind}</span></td>
-                            <td>{row.code}</td>
-                            <td>{row.description}</td>
-                            <td>{methodLabel(row.method)}</td>
-                            <td><span className={`conf ${row.expectedConfidence.toLowerCase()}`}>{row.expectedConfidence}</span></td>
-                            <td>{row.derivation || row.notes || "—"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <footer>
-                    <button className="takeoff-skill-secondary" type="button" onClick={() => void runSkill("set-step", { step: "scope" })}>
-                      Back to scope
-                    </button>
-                    <button
-                      className="takeoff-skill-primary"
-                      type="button"
-                      disabled={!assemblies.some((row) => row.included) || busy === "approve-plan"}
-                      onClick={() => void approveAndContinue(assemblies)}
-                    >
-                      {busy === "approve-plan" ? <Loader2 className="spin" size={16} /> : <Check size={16} />}
-                      Approve plan
-                    </button>
-                  </footer>
-                </section>
-              ) : null}
+              <section className="nexa-studio-core-link">
+                <header>
+                  <h2>Core link</h2>
+                </header>
+                <label>
+                  Quote
+                  <select
+                    value={selected.linkedQuoteId || ""}
+                    onChange={(e) => {
+                      const linkedQuoteId = e.target.value || undefined;
+                      void persistStudio(studio, { linkedQuoteId });
+                    }}
+                  >
+                    <option value="">Select Core quote</option>
+                    {quotes.map((quote) => (
+                      <option key={quote.id} value={quote.id}>
+                        {quote.ref} · {quote.customer}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {linkedQuote ? (
+                  <a className="ghost link" href={`/?quote=${encodeURIComponent(linkedQuote.id)}`}>
+                    Open {linkedQuote.ref} in Core
+                    <ExternalLink size={13} />
+                  </a>
+                ) : null}
+                <button
+                  type="button"
+                  className="nexa-studio-primary"
+                  disabled={busy === "push" || !selected.linkedQuoteId}
+                  onClick={() => void pushToCore()}
+                >
+                  {busy === "push" ? <Loader2 className="spin" size={14} /> : null}
+                  Push BOQ to Core
+                </button>
+              </section>
+            </>
+          ) : null}
+        </aside>
 
-              {currentStep === "measure" || currentStep === "review" ? (
-                <section className="takeoff-skill-panel takeoff-board-panel">
-                  <header>
-                    <div>
-                      <h2>{currentStep === "measure" ? "5. Takeoff board" : "6. Takeoff board · review"}</h2>
-                      <p>
-                        {skill.measureSummary
-                          || "Work like PlanSwift / ZZ Takeoff: pick a fixture on the left, click every instance on the drawing. Fittings derive when you save."}
-                      </p>
-                    </div>
-                    <div className="takeoff-board-header-actions">
-                      {!skill.measured.length ? (
-                        <button
-                          className="takeoff-skill-primary"
-                          type="button"
-                          disabled={!skill.planApproved || busy === "measure"}
-                          onClick={async () => {
-                            const result = await runSkill("measure");
-                            if (result) show("Takeoff board ready");
-                          }}
-                        >
-                          {busy === "measure" ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
-                          Open takeoff board
-                        </button>
-                      ) : (
-                        <button className="takeoff-skill-secondary" type="button" disabled={busy === "sanity"} onClick={() => void runSkill("sanity")}>
-                          Re-run sanity
-                        </button>
-                      )}
-                    </div>
-                  </header>
-
-                  {!skill.planApproved ? <p className="takeoff-skill-empty">Approve the assembly plan first.</p> : null}
-
-                  {skill.measured.length ? (
-                    <>
-                      <div className="takeoff-skill-callout">
-                        <strong>How this works (same idea as PlanSwift / Bluebeam count)</strong>
-                        <p>
-                          1) Select a primary on the left · 2) Click each one on the PDF · 3) Move / remove pins as needed ·
-                          4) Save &amp; derive fittings (cistern, traps, isolators, elbows…). No invented quantities.
-                        </p>
-                      </div>
-                      <TakeoffOverlayReview
-                        projectId={selected.id}
-                        documents={selected.documents}
-                        measured={skill.measured}
-                        busy={busy === "approve-overlay" || busy === "measure"}
-                        onFindTags={async () => {
-                          const result = await runSkill("measure");
-                          if (result) show("Re-scanned PDF text tags");
-                        }}
-                        onApply={async (measured) => {
-                          const result = await runSkill("approve-overlay", { measured });
-                          if (result) {
-                            await runSkill("sanity");
-                            show("Saved — quantities recounted from pins");
-                          }
-                        }}
-                      />
-                      <div className="takeoff-skill-table-wrap" style={{ marginTop: 16 }}>
-                        <table>
-                          <thead>
-                            <tr>
-                              <th>Kind</th>
-                              <th>Code</th>
-                              <th>Description</th>
-                              <th>Qty</th>
-                              <th>Method</th>
-                              <th>Confidence</th>
-                              <th>Sanity</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {skill.measured.map((row) => (
-                              <tr key={row.id}>
-                                <td><span className={`kind ${row.kind}`}>{row.kind}</span></td>
-                                <td>{row.code}</td>
-                                <td>
-                                  {row.description}
-                                  {row.derivation ? <small>{row.derivation}</small> : null}
-                                </td>
-                                <td><strong>{row.quantity}</strong> {row.unit}</td>
-                                <td>{methodLabel(row.method)}</td>
-                                <td><span className={`conf ${row.confidence.toLowerCase()}`}>{row.confidence}</span></td>
-                                <td className={row.sanityCheck && !row.sanityCheck.ok ? "bad" : "ok"}>
-                                  {row.sanityCheck?.detail || "—"}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      <footer>
-                        <button className="takeoff-skill-primary" type="button" onClick={() => void runSkill("set-step", { step: "boq" })}>
-                          Continue to BOQ
-                        </button>
-                      </footer>
-                    </>
-                  ) : (
-                    <p className="takeoff-skill-note">Approve the plan (or tap Open takeoff board) to start counting on the drawings.</p>
-                  )}
-                </section>
-              ) : null}
-
-              {currentStep === "boq" ? (
-                <section className="takeoff-skill-panel">
-                  <header>
-                    <div>
-                      <h2>7. Bill of quantities</h2>
-                      <p>Export the measured schedule into materials and push into the linked Core quote.</p>
-                    </div>
-                    <FileSpreadsheet size={20} />
-                  </header>
-                  <div className="takeoff-skill-table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Section</th>
-                          <th>Item</th>
-                          <th>Qty</th>
-                          <th>Unit</th>
-                          <th>Confidence</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {skill.measured.map((row) => (
-                          <tr key={row.id}>
-                            <td>{row.kind === "primary" ? "Primary" : "Secondary"}</td>
-                            <td>{row.code} · {row.description}</td>
-                            <td>{row.quantity}</td>
-                            <td>{row.unit}</td>
-                            <td><span className={`conf ${row.confidence.toLowerCase()}`}>{row.confidence}</span></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <footer>
-                    <label className="takeoff-skill-inline-link">
-                      Linked quote
-                      <select
-                        value={selected.linkedQuoteId || ""}
-                        onChange={(event) => {
-                          const linkedQuoteId = event.target.value || undefined;
-                          void apiFetch(`/api/takeoff-projects/${selected.id}`, {
-                            method: "PATCH",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ linkedQuoteId }),
-                          }).then(async (response) => {
-                            if (!response.ok) return;
-                            const project = await response.json() as TakeoffProject;
-                            upsertProject(project);
-                          });
-                        }}
-                      >
-                        <option value="">Select quote</option>
-                        {quotes.map((quote) => (
-                          <option key={quote.id} value={quote.id}>{quote.ref} · {quote.customer}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <button
-                      className="takeoff-skill-secondary"
-                      type="button"
-                      onClick={() => void downloadExport("xlsx")}
-                      disabled={!skill.measured.length || busy === "export-xlsx"}
-                    >
-                      {busy === "export-xlsx" ? <Loader2 className="spin" size={16} /> : null}
-                      Download Excel BOQ
-                    </button>
-                    <button
-                      className="takeoff-skill-secondary"
-                      type="button"
-                      onClick={() => void downloadExport("marked-pdf")}
-                      disabled={!skill.measured.length || busy === "export-marked-pdf"}
-                    >
-                      {busy === "export-marked-pdf" ? <Loader2 className="spin" size={16} /> : null}
-                      Download marked PDF
-                    </button>
-                    <button
-                      className="takeoff-skill-secondary"
-                      type="button"
-                      disabled={busy === "apply-boq"}
-                      onClick={async () => {
-                        const result = await runSkill("apply-boq");
-                        if (result) show("BOQ applied to takeoff materials");
-                      }}
-                    >
-                      Apply BOQ to project
-                    </button>
-                    <button
-                      className="takeoff-skill-primary"
-                      type="button"
-                      disabled={busy === "push" || !selected.linkedQuoteId}
-                      onClick={() => void pushToQuote()}
-                    >
-                      {busy === "push" ? <Loader2 className="spin" size={16} /> : null}
-                      Push to Core quote
-                    </button>
-                  </footer>
-                  {!selected.linkedQuoteId ? (
-                    <p className="takeoff-skill-note">Select a Core quote above before pushing.</p>
-                  ) : null}
-                </section>
-              ) : null}
-
-              </>
-            )}
-          </main>
-        </div>
-      ) : null}
+        <main className="nexa-studio-main">
+          {selected ? (
+            <StudioCanvas
+              projectId={selected.id}
+              document={activeDoc}
+              studio={studio}
+              onChange={(next) => void persistStudio(next)}
+            />
+          ) : (
+            <div className="nexa-studio-empty-main">
+              <h1>Start a NeXa takeoff</h1>
+              <p>Create a project, upload drawings, set scale, then Count / Linear / Area — or run NeXa AI.</p>
+            </div>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

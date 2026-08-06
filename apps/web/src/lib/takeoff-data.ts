@@ -7,6 +7,7 @@ import {
   createDefaultTakeoffSkill,
   type TakeoffSkillWorkflow,
 } from "@/lib/takeoff-skill";
+import type { StudioState } from "@/lib/takeoff-studio";
 
 export type TakeoffStatus = "Draft" | "In review" | "Approved" | "Pushed";
 export type TakeoffDocumentKind = "Drawing" | "Marked-up drawing" | "Specification" | "Contractor BOQ" | "Survey note" | "Survey photo" | "LiDAR scan";
@@ -446,6 +447,8 @@ export type TakeoffProject = {
   servicesMarkup?: TakeoffServicesMarkup;
   /** AI construction takeoff skill workflow (primary/secondary quantities). */
   skill?: TakeoffSkillWorkflow;
+  /** NeXa Takeoff Studio (Togal-style area / linear / count canvas). */
+  studio?: StudioState;
   review: TakeoffReview;
   extraction?: TakeoffExtractionSummary;
   createdAt: string;
@@ -2419,6 +2422,7 @@ export function createTakeoffProject(payload: Partial<TakeoffProject>): TakeoffP
       scopeNotes: payload.description?.trim() || "",
     }),
     skill: payload.skill ?? createDefaultTakeoffSkill(),
+    studio: payload.studio,
     review: payload.review ?? { officeNotes: "", riskFlags: [] },
     createdAt,
     updatedAt: createdAt,
