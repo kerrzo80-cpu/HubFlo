@@ -29041,6 +29041,25 @@ export default function Dashboard() {
       return;
     }
 
+    const receiptKey = [
+      request.id,
+      draft.locationId,
+      receiptLines
+        .map((line) =>
+          [
+            line.id,
+            line.sku,
+            line.qty,
+            line.unitCost,
+            line.catalogItemId || "",
+            line.stockItemId || "",
+            line.alreadyReceivedPercent || 0,
+          ].join(":"),
+        )
+        .join("|"),
+    ].join(":");
+    const receiptTimestamp = workflowTimestamp();
+
     const updatedLines = (request.lines?.length ? request.lines : [{
       id: `${request.id}-line`,
       description: request.item || request.poNumber || "PO item",
@@ -29069,19 +29088,20 @@ export default function Dashboard() {
     const anyReceived = updatedLines.some((line) => (line.receivedPercent || 0) > 0);
     const actualCost = updatedLines.reduce((total, line) => total + (line.actualCost ?? line.estimatedCost), 0);
 
-    await patchPurchaseRequest(
+    const updatedPurchaseRequest = await patchPurchaseRequest(
       request.id,
       {
         status: allReceived ? "Received" : anyReceived ? "Part received" : request.status,
         lines: updatedLines,
         actualCost,
         invoiceFileName: request.invoiceFileName || `${request.poNumber || request.id} supplier invoice`,
-        invoiceReceivedAt: request.invoiceReceivedAt || workflowTimestamp(),
+        invoiceReceivedAt: request.invoiceReceivedAt || receiptTimestamp,
         supplierInvoiceAmount: request.supplierInvoiceAmount ?? actualCost,
-        receivedAt: allReceived ? workflowTimestamp() : request.receivedAt,
+        receivedAt: anyReceived ? request.receivedAt || receiptTimestamp : request.receivedAt,
       },
       `${request.poNumber || "PO"} ${allReceived ? "fully received" : "part received"} into stock.`,
     );
+    if (!updatedPurchaseRequest) return;
 
     try {
       const response = await fetch("/api/stock", {
@@ -29101,13 +29121,19 @@ export default function Dashboard() {
               catalogItemId: line.catalogItemId,
             })),
             poNumber: request.poNumber,
+            receiptKey,
             jobRef: request.jobRef,
           },
         }),
       });
-      const body = await response.json().catch(() => null) as { error?: string } | null;
+      const body = await response.json().catch(() => null) as { error?: string; skippedDuplicate?: boolean } | null;
       if (!response.ok) {
         showNotice(body?.error || "PO updated, but stock receipt could not be recorded.");
+        return;
+      }
+      if (body?.skippedDuplicate) {
+        showNotice(`${request.poNumber || "PO"} was already received into stock. No duplicate stock movement was created.`);
+        setPoReceiptDraft(null);
         return;
       }
       const locationName = draft.locations.find((row) => row.id === draft.locationId)?.name || "stock";
@@ -33461,6 +33487,7 @@ export default function Dashboard() {
               onNotice={showNotice}
               onGenerateJob={generateRecurringJobFromPlan}
               onGenerateInvoice={generateRecurringInvoiceFromPlan}
+              actor={activeEmployee?.name}
             />
           ) : homeView === "addons" ? (
             <section className="addon-workspace">
