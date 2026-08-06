@@ -26010,6 +26010,7 @@ body:has([data-takeoff-mode="page"]) {
 .takeoff-drawing-mode .takeoff-sidebar,
 .takeoff-drawing-mode .takeoff-project-hero,
 .takeoff-drawing-mode .estimate-flow-strip,
+.takeoff-drawing-mode .takeoff-stepper,
 .takeoff-drawing-mode .takeoff-ai-handoff,
 .takeoff-drawing-mode .takeoff-metrics,
 .takeoff-drawing-mode .takeoff-tabs {
@@ -27531,6 +27532,7 @@ img.markup-document-preview {
 .takeoff-app.takeoff-drawing-mode .takeoff-sidebar,
 .takeoff-app.takeoff-drawing-mode .takeoff-project-hero,
 .takeoff-app.takeoff-drawing-mode .estimate-flow-strip,
+.takeoff-app.takeoff-drawing-mode .takeoff-stepper,
 .takeoff-app.takeoff-drawing-mode .takeoff-ai-handoff,
 .takeoff-app.takeoff-drawing-mode .takeoff-metrics,
 .takeoff-app.takeoff-drawing-mode .takeoff-tabs {
@@ -36744,7 +36746,32 @@ body {
   border: 1px solid var(--survey-line);
   border-radius: 18px;
   margin-bottom: 18px;
-  padding: 18px;
+  padding: 14px 18px 18px;
+}
+
+.survey-simple-core-link > summary {
+  align-items: baseline;
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  justify-content: space-between;
+  list-style: none;
+  margin: 0 0 4px;
+}
+
+.survey-simple-core-link > summary::-webkit-details-marker {
+  display: none;
+}
+
+.survey-simple-core-link > summary span {
+  color: var(--survey-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.survey-simple-core-link[open] > summary {
+  margin-bottom: 12px;
 }
 
 .survey-simple-create-head,
@@ -36954,6 +36981,27 @@ body {
   display: flex;
   gap: 10px;
   padding: 10px 12px;
+}
+
+.survey-simple-evidence-grid {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.survey-simple-upload-featured {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.92);
+  border: 2px dashed var(--survey-blue);
+  border-radius: 16px;
+  margin-top: 8px;
+}
+
+.survey-simple-empty-evidence {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--survey-line);
+  border-radius: 12px;
+  color: var(--survey-muted);
+  margin: 12px 0 0;
+  padding: 16px;
 }
 
 .survey-simple-cta-row {
@@ -37346,6 +37394,87 @@ body {
 
 .takeoff-tabs-simple {
   margin-bottom: 12px;
+}
+
+.takeoff-stepper {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0 0 14px;
+  overflow: hidden;
+}
+
+.takeoff-stepper button {
+  background: #f8fbfc;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 4px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 14px 14px;
+  text-align: left;
+}
+
+.takeoff-stepper button:hover,
+.takeoff-stepper button:focus-visible {
+  background: var(--blue-soft, #e8f5fb);
+  outline: 0;
+}
+
+.takeoff-stepper button.active {
+  background: var(--green-soft, #e8f6ee);
+}
+
+.takeoff-stepper button > span:first-child {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--blue-deep, #0879ab);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 900;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
+.takeoff-stepper strong {
+  align-items: center;
+  align-self: end;
+  color: var(--ink);
+  display: inline-flex;
+  font-size: 13px;
+  gap: 6px;
+}
+
+.takeoff-stepper small {
+  color: var(--muted);
+  font-size: 12px;
+  grid-column: 2;
+  line-height: 1.35;
+}
+
+.takeoff-header-actions .takeoff-ai-status.compact {
+  align-items: center;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 6px;
+  margin: 0;
+  max-width: none;
+  padding: 0 8px;
+}
+
+@media (max-width: 900px) {
+  .takeoff-stepper {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 .survey-simple-primary-link {

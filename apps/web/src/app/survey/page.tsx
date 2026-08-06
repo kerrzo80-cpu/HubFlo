@@ -8,7 +8,6 @@ import { resolveBrandLogoUrl } from "@/lib/branding";
 
 const requestHeaders: HeadersInit = {
   "x-hubflo-role": "Office",
-  "x-hubflo-employee-id": "Brian Kerr",
 };
 
 type CoreQuote = {
@@ -160,7 +159,7 @@ export default function SurveyDirectoryPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/surveys${includeArchived ? "?includeArchived=1" : ""}`, { headers: requestHeaders });
+      const response = await fetch(`/api/surveys${includeArchived ? "?includeArchived=1" : ""}`, { headers: requestHeaders, credentials: "same-origin" });
       if (!response.ok) throw new Error("Unable to load surveys.");
       setSurveys((await response.json()) as SurveyRecord[]);
     } catch (loadError) {
@@ -173,10 +172,10 @@ export default function SurveyDirectoryPage() {
   async function loadCoreRecords() {
     try {
       const [quotesRes, leadsRes, jobsRes, sitesRes] = await Promise.all([
-        fetch("/api/quotes", { headers: requestHeaders }),
-        fetch("/api/leads", { headers: requestHeaders }),
-        fetch("/api/jobs", { headers: requestHeaders }),
-        fetch("/api/client-sites", { headers: requestHeaders }),
+        fetch("/api/quotes", { headers: requestHeaders, credentials: "same-origin" }),
+        fetch("/api/leads", { headers: requestHeaders, credentials: "same-origin" }),
+        fetch("/api/jobs", { headers: requestHeaders, credentials: "same-origin" }),
+        fetch("/api/client-sites", { headers: requestHeaders, credentials: "same-origin" }),
       ]);
       if (quotesRes.ok) setQuotes((await quotesRes.json()) as CoreQuote[]);
       if (leadsRes.ok) setLeads((await leadsRes.json()) as CoreLead[]);
@@ -206,7 +205,7 @@ export default function SurveyDirectoryPage() {
         : undefined;
       const response = await fetch("/api/surveys", {
         method: "POST",
-        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        headers: { ...requestHeaders, "Content-Type": "application/json" }, credentials: "same-origin",
         body: JSON.stringify({
           clientMutationId: crypto.randomUUID(),
           customerName: choice?.customerName || "",
