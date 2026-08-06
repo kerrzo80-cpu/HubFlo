@@ -30675,7 +30675,27 @@ export default function CoreApp() {
                     <span
                       className="nexa-kpi-bar-fill"
                       style={{
-                        width: "70%",
+                        width: `${Math.max(
+                          12,
+                          Math.min(
+                            100,
+                            Math.round(
+                              100 -
+                                Math.max(
+                                  0,
+                                  Math.min(
+                                    28,
+                                    Math.ceil(
+                                      (new Date(`${plan.nextDueDate}T12:00:00`).getTime() -
+                                        new Date(`${asOf}T12:00:00`).getTime()) /
+                                        (24 * 60 * 60 * 1000),
+                                    ),
+                                  ),
+                                ) *
+                                  (100 / 28),
+                            ),
+                          ),
+                        )}%`,
                         background: plan.nextDueDate <= asOf ? "#f04438" : "#f79009",
                       }}
                     />
