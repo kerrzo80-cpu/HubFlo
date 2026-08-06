@@ -15,7 +15,7 @@ import {
 } from "react";
 import { CorePanelSkeleton } from "@/components/CorePanelSkeleton";
 import { downloadBlob } from "@/lib/download-blob";
-import { homeViewForPath, modulePathForHomeView } from "@/lib/core-routes";
+import { homeViewForPath } from "@/lib/core-routes";
 import {
   AlertTriangle,
   BarChart3,
@@ -11321,32 +11321,9 @@ export default function CoreApp() {
     refreshSelectedJobVariationPortalStatuses().catch(() => {});
   }, [hasHydratedLocalData, selectedJob?.id]);
 
-  // Desktop: open the context rail once. Do not listen for viewport changes — mobile
-  // browsers fire those during scroll and were fighting the drawer / eating taps.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.matchMedia("(min-width: 721px)").matches) {
-      setContextSidebarCollapsed(false);
-    }
-  }, []);
-
-  // UI → address bar. Depend on homeView only so pathname updates do not re-enter this effect.
-  useEffect(() => {
-    const targetPath = modulePathForHomeView(homeView);
-    if (pathname === targetPath) return;
-    router.replace(targetPath);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- pathname read intentionally; must not re-run on pathname
-  }, [homeView, router]);
-
-  // Address bar → UI (back/forward / hard load). Never clobber nested record views on the same module.
-  useEffect(() => {
-    const fromPath = homeViewForPath(pathname);
-    if (!fromPath) return;
-    setHomeView((current) => {
-      if (modulePathForHomeView(current) === pathname) return current;
-      return fromPath as HomeView;
-    });
-  }, [pathname]);
+  // Module URL sync DISABLED — bidirectional router.replace/homeView updates were
+  // freezing taps on live (replace loop / effect fight). homeView is local UI state;
+  // initial view still comes from the URL via useState(homeViewForPath(pathname)).
 
   useEffect(() => {
     if (!hasHydratedLocalData || handledInitialRoute || typeof window === "undefined") return;
@@ -31338,22 +31315,29 @@ export default function CoreApp() {
                 );
               }
 
-              const moduleHref = module.href ?? "#";
+              if (module.href) {
+                return (
+                  <a
+                    href={module.href}
+                    key={module.label}
+                    className={isActiveModule ? "module-link active" : "module-link"}
+                  >
+                    <Icon size={16} strokeWidth={1.8} />
+                    <span>{module.label}</span>
+                  </a>
+                );
+              }
 
               return (
-                <a
-                  href={moduleHref}
+                <button
+                  type="button"
                   key={module.label}
                   className={isActiveModule ? "module-link active" : "module-link"}
-                  onClick={(event) => {
-                    if (module.href) return;
-                    event.preventDefault();
-                    navigateToModule(module.label);
-                  }}
+                  onClick={() => navigateToModule(module.label)}
                 >
                   <Icon size={16} strokeWidth={1.8} />
                   <span>{module.label}</span>
-                </a>
+                </button>
               );
             })}
         </div>

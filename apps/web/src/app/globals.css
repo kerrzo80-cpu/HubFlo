@@ -18042,9 +18042,10 @@ h1 {
     background: rgba(10, 26, 38, 0.38);
     border: 0;
     bottom: 0;
-    display: none;
+    display: none !important;
     left: 0;
     padding: 0;
+    pointer-events: none !important;
     position: fixed;
     right: 0;
     top: 112px;
@@ -18052,7 +18053,8 @@ h1 {
   }
 
   .body-shell:not(.sidebar-collapsed) .context-sidebar-backdrop {
-    display: block;
+    display: block !important;
+    pointer-events: auto !important;
   }
 
   .workspace {
@@ -31536,6 +31538,7 @@ body {
     display: none !important;
     left: 0 !important;
     padding: 0 !important;
+    pointer-events: none !important;
     position: fixed !important;
     right: 0 !important;
     top: 112px !important;
@@ -31544,6 +31547,15 @@ body {
 
   .body-shell:not(.sidebar-collapsed) .context-sidebar-backdrop {
     display: block !important;
+    pointer-events: auto !important;
+  }
+
+  /* Hard guarantee: collapsed rail never sits in the tap layer. */
+  .body-shell.sidebar-collapsed .context-sidebar,
+  .body-shell.sidebar-collapsed .context-sidebar-backdrop {
+    display: none !important;
+    pointer-events: none !important;
+    visibility: hidden !important;
   }
 
   .record-directory.quote-panel {
