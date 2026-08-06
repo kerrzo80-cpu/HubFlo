@@ -1,8 +1,13 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 
-import { getHubDetailState } from "@/lib/hub-detail-store";
-import { listVariationPortalRequests } from "@/lib/variation-portal-data";
-import { getJobs, type Job } from "@/lib/workflow-data";
+/** Lightweight job shape for board packs — avoid importing workflow-data (sqlite) into client. */
+export type BoardPackJob = {
+  id: string;
+  ref: string;
+  customer: string;
+  status: string;
+  value: number;
+};
 
 export type ReportPackRow = [string, string, string | number, string];
 
@@ -28,7 +33,7 @@ type HubInvoiceRow = {
 
 export type ManagerBoardPackSnapshot = {
   invoices?: HubInvoiceRow[];
-  jobs?: Job[];
+  jobs?: BoardPackJob[];
   businessSettings?: Record<string, unknown>;
   variationPortalPending?: number;
   variationPortalSell?: number;
@@ -82,24 +87,22 @@ function sumPaymentsBySource(invoices: HubInvoiceRow[]) {
   return totals;
 }
 
-/** Executive board-pack rows managers trust — sourced from hub detail + workflow stores. */
+/**
+ * Pure executive board-pack builder. Pass a snapshot from the server loader
+ * (`reports-board-pack-server.ts`) — do not import hub/sqlite here (client-safe).
+ */
 export function buildManagerBoardPackRows(options?: {
   asAt?: string;
   snapshot?: ManagerBoardPackSnapshot;
 }): ManagerBoardPackResult {
   const asAt = options?.asAt ?? new Date().toISOString();
-  const snapshot = options?.snapshot;
-  const hub = snapshot ? null : getHubDetailState();
-  const businessSettings =
-    snapshot?.businessSettings ??
-    (hub?.businessSettings && typeof hub.businessSettings === "object"
-      ? (hub.businessSettings as Record<string, unknown>)
-      : undefined);
+  const snapshot = options?.snapshot ?? {};
+  const businessSettings = snapshot.businessSettings;
   const overheadPercent = resolveOverheadPercent(businessSettings);
   const overheadLabel = `${overheadPercent}% overhead allowance`;
 
-  const invoices = snapshot?.invoices ?? (Array.isArray(hub?.invoices) ? (hub.invoices as HubInvoiceRow[]) : []);
-  const jobs = snapshot?.jobs ?? getJobs();
+  const invoices = snapshot.invoices ?? [];
+  const jobs = snapshot.jobs ?? [];
 
   const openInvoices = invoices.filter((invoice) => invoice.status !== "Cancelled" && invoice.status !== "Draft");
   let cashOwed = 0;
@@ -132,17 +135,10 @@ export function buildManagerBoardPackRows(options?: {
     wipUnbilled += Math.max(0, sell - billed);
   }
 
-  let variationsAwaiting = snapshot?.variationPortalPending ?? 0;
-  let variationsSell = snapshot?.variationPortalSell ?? 0;
-  if (snapshot?.variationPortalPending === undefined) {
-    const pending = listVariationPortalRequests().filter(
-      (request) => request.status === "Pending" || request.status === "Viewed",
-    );
-    variationsAwaiting = pending.length;
-    variationsSell = pending.reduce((total, request) => total + (Number(request.sellValue) || 0), 0);
-  }
+  const variationsAwaiting = snapshot.variationPortalPending ?? 0;
+  const variationsSell = snapshot.variationPortalSell ?? 0;
 
-  const paymentSources = snapshot?.paymentSourceTotals ?? sumPaymentsBySource(invoices);
+  const paymentSources = snapshot.paymentSourceTotals ?? sumPaymentsBySource(invoices);
   const overheadAllowance = Math.round(visibleRevenue * (overheadPercent / 100));
 
   const rows: ReportPackRow[] = [
