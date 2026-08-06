@@ -312,7 +312,7 @@ export default function StudioCanvas({
       }
       if ((event.key === "z" || event.key === "Z") && (event.metaKey || event.ctrlKey) && !event.shiftKey) {
         event.preventDefault();
-        onUndo?.();
+        handleUndo();
       }
       if ((event.key === "z" || event.key === "Z") && (event.metaKey || event.ctrlKey) && event.shiftKey) {
         event.preventDefault();
@@ -669,6 +669,25 @@ export default function StudioCanvas({
     setSelectedId(null);
   }
 
+  function handleUndo() {
+    if (draftPoints.length) {
+      setDraftPoints((points) => points.slice(0, -1));
+      return;
+    }
+    if (scaleDraft.length) {
+      setScaleDraft((points) => points.slice(0, -1));
+      return;
+    }
+    if (rectStart) {
+      setRectStart(null);
+      setRectCurrent(null);
+      return;
+    }
+    onUndo?.();
+  }
+
+  const canLocalUndo = draftPoints.length > 0 || scaleDraft.length > 0 || Boolean(rectStart);
+
   const draftHint = (() => {
     if ((studio.tool === "scale" || studio.tool === "measure") && scaleDraft.length === 2) {
       const from = scaleDraft[0];
@@ -731,7 +750,7 @@ export default function StudioCanvas({
           </button>
         ))}
         <span className="nexa-studio-toolbar-gap" />
-        <button type="button" onClick={() => onUndo?.()} disabled={!canUndo} aria-label="Undo">
+        <button type="button" onClick={handleUndo} disabled={!canUndo && !canLocalUndo} aria-label="Undo">
           <Undo2 size={15} />
         </button>
         <button type="button" onClick={() => onRedo?.()} disabled={!canRedo} aria-label="Redo">

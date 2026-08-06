@@ -177,13 +177,23 @@ export default function TakeoffStudioPage() {
     window.setTimeout(() => setNotice(null), ms);
   }
 
+  function studioMarkupKey(state: StudioState) {
+    // Only geometry / classes / scales count as undoable edits — not tool, page, or selection.
+    return JSON.stringify({
+      geometries: state.geometries,
+      classifications: state.classifications,
+      scales: state.scales,
+    });
+  }
+
   async function persistStudio(
     nextStudio: StudioState,
     extras: Partial<TakeoffProject> = {},
     options?: { skipHistory?: boolean; immediate?: boolean },
   ) {
     if (!selected) return null;
-    if (!options?.skipHistory) {
+    const markupChanged = studioMarkupKey(studio) !== studioMarkupKey(nextStudio);
+    if (!options?.skipHistory && markupChanged) {
       historyRef.current = [...historyRef.current.slice(-40), studio];
       futureRef.current = [];
       setHistoryTick((value) => value + 1);
@@ -232,7 +242,14 @@ export default function TakeoffStudioPage() {
     historyRef.current = historyRef.current.slice(0, -1);
     futureRef.current = [...futureRef.current, studio];
     setHistoryTick((value) => value + 1);
-    void persistStudio(previous, {}, { skipHistory: true });
+    // Restore last markup only — keep current tool/page/doc so Undo is not browser-Back.
+    void persistStudio({
+      ...studio,
+      geometries: previous.geometries,
+      classifications: previous.classifications,
+      scales: previous.scales,
+      updatedAt: new Date().toISOString(),
+    }, {}, { skipHistory: true });
   }
 
   function redoStudio() {
@@ -242,7 +259,13 @@ export default function TakeoffStudioPage() {
     futureRef.current = futureRef.current.slice(0, -1);
     historyRef.current = [...historyRef.current, studio];
     setHistoryTick((value) => value + 1);
-    void persistStudio(next, {}, { skipHistory: true });
+    void persistStudio({
+      ...studio,
+      geometries: next.geometries,
+      classifications: next.classifications,
+      scales: next.scales,
+      updatedAt: new Date().toISOString(),
+    }, {}, { skipHistory: true });
   }
 
   // Keep active drawing set when documents exist.
