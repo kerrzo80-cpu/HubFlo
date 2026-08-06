@@ -2,21 +2,22 @@ import { NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import {
-  clearStoredStripeConfig,
-  getStripePublishableKey,
-  isStripeConfigured,
-  saveStoredStripeConfig,
-  stripeKeySource,
-} from "@/lib/stripe-key-store";
+  clearStoredSumUpConfig,
+  getSumUpMerchantCode,
+  isSumUpConfigured,
+  saveStoredSumUpConfig,
+  sumUpKeySource,
+} from "@/lib/sumup-key-store";
 
 export const runtime = "nodejs";
 
 function statusPayload() {
+  const merchant = getSumUpMerchantCode();
   return {
-    connected: isStripeConfigured(),
-    source: stripeKeySource(),
-    publishableKey: getStripePublishableKey() ? `${getStripePublishableKey().slice(0, 8)}…` : "",
-    hasPublishableKey: Boolean(getStripePublishableKey()),
+    connected: isSumUpConfigured(),
+    source: sumUpKeySource(),
+    merchantCode: merchant ? `${merchant.slice(0, 2)}…${merchant.slice(-2)}` : "",
+    hasMerchantCode: Boolean(merchant),
   };
 }
 
@@ -31,19 +32,20 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json().catch(() => null)) as {
-    secretKey?: string;
-    publishableKey?: string;
-    webhookSecret?: string;
+    apiKey?: string;
+    merchantCode?: string;
   } | null;
 
-  if (!body?.secretKey?.trim() && !isStripeConfigured()) {
-    return NextResponse.json({ error: "Paste a Stripe secret key (sk_…)." }, { status: 400 });
+  if (!body?.apiKey?.trim() && !isSumUpConfigured()) {
+    return NextResponse.json({ error: "Paste your SumUp API key from the Developers dashboard." }, { status: 400 });
+  }
+  if (!body?.merchantCode?.trim() && !getSumUpMerchantCode()) {
+    return NextResponse.json({ error: "Merchant code is required (e.g. MCxxxxxx from SumUp)." }, { status: 400 });
   }
 
-  saveStoredStripeConfig({
-    secretKey: body?.secretKey,
-    publishableKey: body?.publishableKey,
-    webhookSecret: body?.webhookSecret,
+  saveStoredSumUpConfig({
+    apiKey: body?.apiKey,
+    merchantCode: body?.merchantCode,
   });
 
   return NextResponse.json({ ...statusPayload(), ok: true });
@@ -54,6 +56,6 @@ export async function DELETE(request: Request) {
   if (!access.canEditInvoice && !access.showFinance) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  clearStoredStripeConfig();
+  clearStoredSumUpConfig();
   return NextResponse.json({ ...statusPayload(), ok: true });
 }

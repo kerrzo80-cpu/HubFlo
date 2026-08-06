@@ -14,7 +14,7 @@ const publicApiPrefixes = [
   "/api/variation-portal",
   "/api/invoice-portal",
   "/api/client-portal",
-  "/api/integrations/stripe/webhook",
+  "/api/integrations/sumup/webhook",
 ];
 const userAuthPublicPaths = new Set([
   "/api/auth/login",

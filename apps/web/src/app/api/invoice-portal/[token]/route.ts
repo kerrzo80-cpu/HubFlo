@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { appendAuditEvent } from "@/lib/people-data";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
-import { isStripeConfigured } from "@/lib/stripe-key-store";
+import { isSumUpConfigured } from "@/lib/sumup-key-store";
 
 type RouteContext = {
   params: Promise<{ token: string }>;
@@ -106,7 +106,7 @@ export async function GET(_request: Request, context: RouteContext) {
   const fresh = findInvoiceByToken(token) ?? invoice;
   return NextResponse.json({
     ...publicInvoice(fresh),
-    stripeEnabled: isStripeConfigured(),
+    sumupEnabled: isSumUpConfigured(),
   });
 }
 
