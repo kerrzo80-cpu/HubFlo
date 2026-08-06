@@ -268,6 +268,25 @@ export function resolveBrandLogoUrl(brand: PublicBranding | BusinessBrandingSett
   return brand.logoUrl || defaultBusinessBrandingSettings.logoUrl;
 }
 
+/**
+ * Logos for coloured chrome bars (Core header, blue rail, Field topbar).
+ * Prefer the wide company wordmark — square per-app marks read as a boxed “edge” on blue.
+ */
+export function resolveBrandChromeLogoUrl(
+  brand: PublicBranding | BusinessBrandingSettings,
+  app?: BrandAppKey,
+): string {
+  const company = trimLogoUrl(brand.logoUrl) || defaultBusinessBrandingSettings.logoUrl;
+  if (!app) return company;
+  const specific = trimLogoUrl(brand[brandAppLogoField(app)]);
+  if (!specific) return company;
+  // Square CORE/mark-style uploads belong on home screens, not in the blue rail.
+  if (/logo-core|ewg-mark|appIcon|icon/i.test(specific) && !/logo-field|logo-survey|logo-takeoffs|logo-heat|logo-trainer/i.test(specific)) {
+    return company;
+  }
+  return specific;
+}
+
 /** Append home=1 so /api/branding/assets/* returns the composed home-screen icon. */
 function withHomeIconParam(url: string): string {
   const trimmed = trimLogoUrl(url);

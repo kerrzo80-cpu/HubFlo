@@ -75,6 +75,8 @@ export type PrepareBrandingImageOptions = {
   maxEdge?: number;
   /** Build a true square home-screen icon (never stretched). */
   square?: boolean;
+  /** Canvas fill under the artwork. JPEG always needs a solid fill. */
+  background?: "transparent" | "white";
 };
 
 /** Trim empty padding, resize, and for app icons emit a true 512×512 PNG. */
@@ -137,11 +139,19 @@ export async function prepareBrandingImage(file: File, options: PrepareBrandingI
   const drawH = Math.max(1, Math.round(bounds.height * scale));
   out.width = drawW;
   out.height = drawH;
-  outCtx.clearRect(0, 0, drawW, drawH);
-  outCtx.drawImage(source, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, drawW, drawH);
 
   const hasAlpha = file.type.includes("png") || file.type.includes("webp") || file.type.includes("gif");
-  const type = hasAlpha ? "image/png" : "image/jpeg";
+  // JPEG cannot keep transparency — always paint a white plate under the art.
+  const useWhitePlate = options.background === "white" || (!hasAlpha && options.background !== "transparent");
+  if (useWhitePlate) {
+    outCtx.fillStyle = "#ffffff";
+    outCtx.fillRect(0, 0, drawW, drawH);
+  } else {
+    outCtx.clearRect(0, 0, drawW, drawH);
+  }
+  outCtx.drawImage(source, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, drawW, drawH);
+
+  const type = hasAlpha && !useWhitePlate ? "image/png" : hasAlpha ? "image/png" : "image/jpeg";
   const blob = await canvasToBlob(out, type, type === "image/jpeg" ? 0.88 : undefined);
   const ext = blob.type === "image/jpeg" ? "jpg" : "png";
   const base = (file.name || "logo").replace(/\.[^.]+$/, "");

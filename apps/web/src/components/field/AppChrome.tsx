@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CalendarDays, Clock3, MessageCircle, RefreshCw } from "lucide-react";
 import { useBrand } from "@/components/BrandProvider";
-import { resolveBrandLogoUrl } from "@/lib/branding";
+import { resolveBrandChromeLogoUrl } from "@/lib/branding";
 import { flushOutbox, subscribeOutbox } from "@/lib/field/offline-outbox";
 import { FIELD_BASE, fieldPath } from "@/lib/field/routes";
 
@@ -75,9 +75,8 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
       <header className="field-topbar">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={resolveBrandLogoUrl(brand, "field")}
+          src={resolveBrandChromeLogoUrl(brand, "field")}
           alt={brand.companyName}
-          style={{ background: "#fff" }}
         />
         <div>
           <strong>{brand.fieldAppName}</strong>
