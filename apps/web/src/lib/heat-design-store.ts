@@ -1,10 +1,17 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
-import { makeBlankProject, normaliseProject, type HeatDesignProject } from "@/lib/heat-design";
+import {
+  calculateRoomHeatLoss,
+  makeBlankProject,
+  normaliseProject,
+  type HeatDesignProject,
+  type HeatDesignRevision,
+} from "@/lib/heat-design";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
 export const heatDesignStoreName = "heat-design-v1";
 const schemaVersion = 1;
+const maxRevisionCount = 50;
 
 export type HeatDesignStore = {
   schemaVersion: number;
@@ -30,8 +37,45 @@ function makeId() {
   return `hd-project-${randomUUID()}`;
 }
 
+function makeRevisionId() {
+  return `hd-revision-${randomUUID()}`;
+}
+
 function stringValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function projectSnapshotHash(project: HeatDesignProject) {
+  const { revisions: _revisions, ...snapshot } = project;
+  return createHash("sha256").update(JSON.stringify(snapshot)).digest("hex").slice(0, 12);
+}
+
+function revisionSummary(project: HeatDesignProject) {
+  try {
+    const heatLossWatts = project.rooms.reduce((total, room) => {
+      return (
+        total +
+        calculateRoomHeatLoss(
+          { ...room, meanWaterTemperature: String(project.flowTemperature) },
+          project.designExternalTemp,
+        ).watts
+      );
+    }, 0);
+    const roomLabel = `${project.rooms.length} room${project.rooms.length === 1 ? "" : "s"}`;
+    return `Saved ${roomLabel} · ${Math.round(heatLossWatts).toLocaleString("en-GB")} W heat loss`;
+  } catch {
+    return "Project saved";
+  }
+}
+
+function appendRevision(project: HeatDesignProject, priorRevisions: HeatDesignRevision[] = []) {
+  const revision: HeatDesignRevision = {
+    id: makeRevisionId(),
+    at: nowIso(),
+    summary: revisionSummary(project),
+    snapshotHash: projectSnapshotHash(project),
+  };
+  return [revision, ...priorRevisions].slice(0, maxRevisionCount);
 }
 
 function withProjectDefaults(project: Partial<HeatDesignProject> = {}): HeatDesignProject {
@@ -69,6 +113,8 @@ export function getHeatDesignProject(id: string) {
 export function saveHeatDesignProject(project: Partial<HeatDesignProject>) {
   const saved = withProjectDefaults(project);
   const index = store.projects.findIndex((item) => item.id === saved.id);
+  const priorRevisions = index >= 0 ? (store.projects[index].revisions ?? []) : (saved.revisions ?? []);
+  saved.revisions = appendRevision(saved, priorRevisions);
   if (index >= 0) {
     store.projects[index] = saved;
   } else {
@@ -76,6 +122,11 @@ export function saveHeatDesignProject(project: Partial<HeatDesignProject>) {
   }
   persist();
   return clone(saved);
+}
+
+export function listHeatDesignRevisions(projectId: string) {
+  const project = store.projects.find((item) => item.id === projectId);
+  return clone(project?.revisions ?? []);
 }
 
 export function deleteHeatDesignProject(id: string) {

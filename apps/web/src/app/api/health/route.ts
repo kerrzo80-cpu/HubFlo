@@ -40,6 +40,7 @@ export async function GET() {
       heatDesign: "/heat-design",
       heatDesignBuild: "remove-core-heat-calc-tab-v1",
       heatDesignPersistence: "server-projects-v1",
+      heatDesignAudit: "revisions-v1",
       fieldApp: "/field",
       fieldCoreLinked: true,
       fieldOfflineOutbox: "v1",
