@@ -39,6 +39,7 @@ export async function GET() {
       talkLabBuild: "realtime-voice-picker-v1",
       heatDesign: "/heat-design",
       heatDesignBuild: "remove-core-heat-calc-tab-v1",
+      heatDesignPersistence: "server-projects-v1",
       fieldApp: "/field",
       fieldCoreLinked: true,
       fieldOfflineOutbox: "v1",
