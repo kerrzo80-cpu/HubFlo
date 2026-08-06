@@ -115,7 +115,7 @@ export default function HeatDesignLabPage() {
   const [selectedQuoteId, setSelectedQuoteId] = useState("");
   const [, startTransition] = useTransition();
   const hydratedRef = useRef(false);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;

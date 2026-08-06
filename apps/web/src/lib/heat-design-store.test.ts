@@ -8,15 +8,15 @@ const storeDir = path.join(tmpdir(), `hubflo-heat-design-store-${process.pid}-${
 process.env.NEXA_STORE_DIR = storeDir;
 process.env.NEXA_STORE_PATH = "";
 
-let createHeatDesignProject: typeof import("./heat-design-store.ts").createHeatDesignProject;
-let deleteHeatDesignProject: typeof import("./heat-design-store.ts").deleteHeatDesignProject;
-let getHeatDesignProject: typeof import("./heat-design-store.ts").getHeatDesignProject;
-let listHeatDesignProjects: typeof import("./heat-design-store.ts").listHeatDesignProjects;
-let resetHeatDesignStoreForTests: typeof import("./heat-design-store.ts").resetHeatDesignStoreForTests;
-let saveHeatDesignProject: typeof import("./heat-design-store.ts").saveHeatDesignProject;
+let createHeatDesignProject: typeof import("./heat-design-store").createHeatDesignProject;
+let deleteHeatDesignProject: typeof import("./heat-design-store").deleteHeatDesignProject;
+let getHeatDesignProject: typeof import("./heat-design-store").getHeatDesignProject;
+let listHeatDesignProjects: typeof import("./heat-design-store").listHeatDesignProjects;
+let resetHeatDesignStoreForTests: typeof import("./heat-design-store").resetHeatDesignStoreForTests;
+let saveHeatDesignProject: typeof import("./heat-design-store").saveHeatDesignProject;
 
 before(async () => {
-  const mod = await import("./heat-design-store.ts");
+  const mod = await import("./heat-design-store");
   ({
     createHeatDesignProject,
     deleteHeatDesignProject,
