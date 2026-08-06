@@ -3,11 +3,13 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ExternalLink, RotateCcw, Smartphone, Sparkles } from "lucide-react";
+import { useBrand } from "@/components/BrandProvider";
 import { useNexaClient } from "@/lib/field/nexa";
 import { resetMockDemo } from "@/lib/field/nexa/mock-data";
 import { fieldPath } from "@/lib/field/routes";
 
 export default function SettingsPage() {
+  const brand = useBrand();
   const client = useNexaClient();
   const connection = useMemo(() => client.getConnection(), [client]);
   const [resetNotice, setResetNotice] = useState("");
@@ -21,12 +23,12 @@ export default function SettingsPage() {
   return (
     <main className="field-screen">
       <header className="field-page-header">
-        <p className="eyebrow">{isCore ? "NeXa Core" : "Demo"}</p>
+        <p className="eyebrow">{isCore ? brand.coreAppName : "Demo"}</p>
         <h1>{isCore ? "Connected" : "Connect later"}</h1>
         <p className="field-page-sub">
           {isCore
-            ? "Schedule and Blake hours come from NeXa Core on this same account."
-            : "Playing on mock jobs for now. NeXa wiring comes next."}
+            ? `Schedule and Blake hours come from ${brand.coreAppName} on this same account.`
+            : "Playing on mock jobs for now. Sign in to Core to wire your live schedule."}
         </p>
       </header>
 
@@ -40,11 +42,11 @@ export default function SettingsPage() {
         </div>
         <p>
           {isCore
-            ? "Office schedules in Core. Those jobs appear here as My Day. Hours Blake confirms charge back against the jobs."
+            ? `Office schedules in ${brand.coreAppName}. Those jobs appear here as My Day. Hours Blake confirms charge back against the jobs.`
             : "This build is still on the standalone mock diary."}
         </p>
         <Link href="/" className="primary-btn">
-          <ExternalLink size={16} /> Open Core
+          <ExternalLink size={16} /> Open {brand.coreAppName}
         </Link>
       </section>
 
@@ -57,8 +59,8 @@ export default function SettingsPage() {
           <Smartphone size={20} />
         </div>
         <p>
-          EWG Field is a web app you can install like a real app today. Store-listed native shells (Capacitor) come next —
-          same Field screens, wrapped for the App Store and Play Store.
+          {brand.fieldAppName} is a web app you can install like a real app today. Store-listed native shells
+          (Capacitor) come next — same Field screens, wrapped for the App Store and Play Store.
         </p>
         <ol className="settings-install-steps">
           <li>
@@ -74,7 +76,8 @@ export default function SettingsPage() {
           </li>
         </ol>
         <p className="settings-note">
-          The separate NeXa Field LiDAR app is only for Survey room scans on LiDAR iPads/iPhones — not this plumber schedule app.
+          The separate {brand.surveyAppName} app is only for Survey room scans on LiDAR iPads/iPhones — not this
+          plumber schedule app.
         </p>
       </section>
 

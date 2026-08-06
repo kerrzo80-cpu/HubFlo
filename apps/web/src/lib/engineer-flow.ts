@@ -49,6 +49,8 @@ export type EngineerFlowStepEvidenceValue = {
   text?: string;
   numberValue?: string;
   photoName?: string;
+  photoUrl?: string;
+  photoId?: string;
   capturedAt?: string;
 };
 

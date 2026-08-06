@@ -1,3 +1,6 @@
-"use client";
+import { redirect } from "next/navigation";
 
-export { default } from "../MarkupLegacyApp";
+/** Legacy pipe-route takeoff — folded into Studio for the Togal-style workflow. */
+export default function TakeoffRoutesRedirect() {
+  redirect("/takeoff");
+}
