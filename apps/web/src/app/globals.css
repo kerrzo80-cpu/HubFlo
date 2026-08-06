@@ -23056,12 +23056,23 @@ kbd,
   color: var(--nexa-slate);
 }
 
-.verrova-client-lockup img,
-.engineer-brand-bar img {
+.verrova-client-lockup img {
   border-radius: 8px;
   height: 34px;
   object-fit: contain;
   width: 34px;
+}
+
+.engineer-brand-bar img {
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  height: 38px;
+  max-width: 160px;
+  object-fit: contain;
+  object-position: left center;
+  padding: 0;
+  width: auto;
 }
 
 .client-portal-shell,
