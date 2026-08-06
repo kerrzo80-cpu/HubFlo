@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, Map, Ruler, Sparkles, type LucideIcon } from "lucide-react";
+import { ArrowLeft, Sparkles, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
+/** Studio is the primary Togal-style takeoff. Legacy routes kept off the main chrome. */
 const MODES: Array<{
   href: string;
   label: string;
@@ -15,19 +16,7 @@ const MODES: Array<{
     href: "/takeoff",
     label: "Studio",
     icon: Sparkles,
-    match: (path) => path === "/takeoff" || path === "/takeoff/",
-  },
-  {
-    href: "/takeoff/routes",
-    label: "Routes",
-    icon: Map,
-    match: (path) => path.startsWith("/takeoff/routes") || path.startsWith("/takeoff/markup"),
-  },
-  {
-    href: "/takeoff/skill",
-    label: "Skill",
-    icon: Ruler,
-    match: (path) => path.startsWith("/takeoff/skill"),
+    match: (path) => path === "/takeoff" || path === "/takeoff/" || path.startsWith("/takeoff/studio"),
   },
 ];
 

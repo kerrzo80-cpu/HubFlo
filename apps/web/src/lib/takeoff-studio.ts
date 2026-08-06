@@ -8,6 +8,7 @@ export type StudioTool =
   | "count"
   | "linear"
   | "area"
+  | "rect"
   | "scale"
   | "measure";
 
@@ -94,6 +95,39 @@ export function createDefaultStudioState(): StudioState {
     scales: [],
     updatedAt: stamp,
   };
+}
+
+export function detectScaleRatioHints(text: string): string[] {
+  const hints = new Set<string>();
+  const patterns = [
+    /\bSCALE\s*[:=]?\s*1\s*[:/]\s*(\d+)\b/gi,
+    /\b1\s*:\s*(\d+)\b/g,
+    /\b1\s*\/\s*(\d+)\b/g,
+  ];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const denom = Number(match[1]);
+      if (denom >= 10 && denom <= 5000) hints.add(`1:${denom}`);
+    }
+  }
+  return [...hints].slice(0, 4);
+}
+
+/**
+ * Convert a printed ratio (e.g. 1:100) into metres-per-canvas-unit.
+ * Assumes PDF user units are points (1/72"), then divides by the canvas render scale.
+ */
+export function metresPerUnitFromRatio(denom: number, renderScale = 1.35): number | null {
+  if (!(denom > 0) || !(renderScale > 0)) return null;
+  const metresPerPdfPoint = (1 / 72) * 0.0254 * denom;
+  return metresPerPdfPoint / renderScale;
+}
+
+export function parseScaleRatioLabel(label: string): number | null {
+  const match = /^1\s*[:/]\s*(\d+)$/i.exec(label.trim());
+  if (!match) return null;
+  const denom = Number(match[1]);
+  return denom >= 10 && denom <= 5000 ? denom : null;
 }
 
 export function studioId(prefix: string) {
@@ -240,30 +274,40 @@ export function importSkillCountsIntoStudio(
         name: row.description || row.code,
         colour: nextClassificationColour(classifications),
         unit: "nr",
-        notes: `Imported from NeXa AI · ${row.code}`,
+        notes: `Imported from Blake · ${row.code}`,
       };
       classifications.push(cls);
     }
 
     for (const match of matches) {
-      const sx = canvasW && match.pageWidth ? canvasW / match.pageWidth : 1;
-      const sy = canvasH && match.pageHeight ? canvasH / match.pageHeight : sx;
+      const pageHeight = match.pageHeight || 0;
+      const renderScale =
+        canvasW && match.pageWidth ? canvasW / match.pageWidth : 1.35;
+      // PDF text transforms are origin bottom-left; Studio canvas is top-left at render scale.
       geometries.push({
         id: `ai-${match.id}`,
         classificationId: cls.id,
         kind: "count",
         documentId: match.documentId,
         page: match.pageNumber || 1,
-        point: { x: match.x * sx, y: match.y * sy },
+        point: {
+          x: match.x * renderScale,
+          y: pageHeight ? (pageHeight - match.y) * renderScale : match.y * renderScale,
+        },
       });
     }
   }
+
+  const firstAi = geometries.find((geo) => geo.id.startsWith("ai-"));
+  const firstAiClass = classifications.find((c) => c.id.startsWith("cls-ai-"));
 
   return {
     ...studio,
     classifications,
     geometries,
-    activeClassificationId: classifications.find((c) => c.id.startsWith("cls-ai-"))?.id || studio.activeClassificationId,
+    activeDocumentId: firstAi?.documentId || studio.activeDocumentId,
+    activePage: firstAi?.page || studio.activePage,
+    activeClassificationId: firstAiClass?.id || studio.activeClassificationId,
     tool: "select",
     updatedAt: new Date().toISOString(),
   };

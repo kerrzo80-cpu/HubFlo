@@ -17,7 +17,6 @@ import { roleHeaderName } from "@/lib/access";
 import type { TakeoffDocument, TakeoffProject } from "@/lib/takeoff-data";
 import {
   createDefaultStudioState,
-  importSkillCountsIntoStudio,
   nextClassificationColour,
   studioId,
   studioQuantitiesToMaterialAllowances,
@@ -65,6 +64,7 @@ export default function TakeoffStudioPage() {
   const [newClassName, setNewClassName] = useState("");
   const [newClassKind, setNewClassKind] = useState<StudioClassKind>("count");
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
+  const [blakeStep, setBlakeStep] = useState<string | null>(null);
   const saveTimer = useRef<number | null>(null);
   const historyRef = useRef<StudioState[]>([]);
   const futureRef = useRef<StudioState[]>([]);
@@ -170,18 +170,18 @@ export default function TakeoffStudioPage() {
     };
   }, [refresh]);
 
-  function show(message: string) {
+  function show(message: string, ms = 6000) {
     setNotice(message);
     setError(null);
-    window.setTimeout(() => setNotice(null), 4000);
+    window.setTimeout(() => setNotice(null), ms);
   }
 
   async function persistStudio(
     nextStudio: StudioState,
     extras: Partial<TakeoffProject> = {},
-    options?: { skipHistory?: boolean },
+    options?: { skipHistory?: boolean; immediate?: boolean },
   ) {
-    if (!selected) return;
+    if (!selected) return null;
     if (!options?.skipHistory) {
       historyRef.current = [...historyRef.current.slice(-40), studio];
       futureRef.current = [];
@@ -196,7 +196,8 @@ export default function TakeoffStudioPage() {
     upsert(optimistic);
     setSaveState("saving");
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(async () => {
+
+    const write = async () => {
       const response = await apiFetch(`/api/takeoff-projects/${selected.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -205,12 +206,22 @@ export default function TakeoffStudioPage() {
       if (!response.ok) {
         setSaveState("error");
         setError("Could not save studio takeoff");
-        return;
+        return null;
       }
       const project = (await response.json()) as TakeoffProject;
-      upsert({ ...project, studio: project.studio ?? nextStudio });
+      const merged = { ...project, studio: project.studio ?? nextStudio };
+      upsert(merged);
       setSaveState("saved");
+      return merged;
+    };
+
+    if (options?.immediate) {
+      return write();
+    }
+    saveTimer.current = window.setTimeout(() => {
+      void write();
     }, 450);
+    return optimistic;
   }
 
   function undoStudio() {
@@ -324,99 +335,84 @@ export default function TakeoffStudioPage() {
     setNewClassName("");
   }
 
+  function deleteClassification(id: string) {
+    const remaining = studio.classifications.filter((cls) => cls.id !== id);
+    const activeClassificationId =
+      studio.activeClassificationId === id
+        ? remaining[0]?.id
+        : studio.activeClassificationId;
+    void persistStudio({
+      ...studio,
+      classifications: remaining,
+      geometries: studio.geometries.filter((geo) => geo.classificationId !== id),
+      activeClassificationId,
+      tool: remaining.find((cls) => cls.id === activeClassificationId)?.kind || "select",
+    });
+  }
+
   async function runAiAssist() {
-    if (!selected || !activeDoc) {
-      setError("Upload a drawing first, then run NeXa AI.");
+    const doc = activeDoc || drawingDocs[0] || null;
+    if (!selected) {
+      setError("Create or select a project first.");
+      return;
+    }
+    if (!doc) {
+      setError("Upload a PDF drawing first, then tap Ask Blake.");
       return;
     }
     setBusy("ai");
     setError(null);
+    setNotice(null);
+    const steps = [
+      "Blake is analysing your drawings…",
+      "Building a measurement plan…",
+      "Reading PDF text tags…",
+      "Placing count pins on the sheet…",
+    ];
+    let stepIndex = 0;
+    setBlakeStep(steps[0] || "Blake is working…");
+    const stepTimer = window.setInterval(() => {
+      stepIndex = Math.min(stepIndex + 1, steps.length - 1);
+      setBlakeStep(steps[stepIndex] || "Blake is working…");
+    }, 2200);
     try {
-      show("NeXa AI: indexing drawings…");
-      const analyse = await apiFetch(`/api/takeoff-projects/${selected.id}/skill`, {
+      const response = await apiFetch(`/api/takeoff-projects/${selected.id}/blake-run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "analyse" }),
+        body: JSON.stringify({}),
       });
-      if (!analyse.ok) {
-        show("AI index skipped — use Count / Linear / Area manually (OpenAI may be offline).");
-        return;
-      }
-
-      await apiFetch(`/api/takeoff-projects/${selected.id}/skill`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "set-scope", trade: "plumbing", focusLabels: [] }),
-      });
-      await apiFetch(`/api/takeoff-projects/${selected.id}/skill`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "build-plan", trade: "plumbing" }),
-      });
-      const planBody = await apiFetch(`/api/takeoff-projects/${selected.id}/skill`, {
-        method: "GET",
-      });
-      if (planBody.ok) {
-        const payload = (await planBody.json()) as { skill?: { assemblies?: Array<{ id: string; included: boolean }> } };
-        const assemblies = payload.skill?.assemblies || [];
-        await apiFetch(`/api/takeoff-projects/${selected.id}/skill`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "approve-plan", assemblies }),
-        });
-      }
-
-      show("NeXa AI: counting text tags on drawings…");
-      const measure = await apiFetch(`/api/takeoff-projects/${selected.id}/skill`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "measure" }),
-      });
-      if (!measure.ok) {
-        show("AI count finished with no tags — keep marking up manually.");
-        await refresh();
-        return;
-      }
-      const measuredPayload = (await measure.json()) as {
-        skill?: {
-          measured?: Array<{
-            id: string;
-            kind: "primary" | "secondary";
-            code: string;
-            description: string;
-            unit: string;
-            tagMatches?: Array<{
-              id: string;
-              documentId: string;
-              pageNumber: number;
-              x: number;
-              y: number;
-              pageWidth?: number;
-              pageHeight?: number;
-              excluded?: boolean;
-            }>;
-          }>;
-        };
+      const payload = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+        pinCount?: number;
+        project?: TakeoffProject;
+        focus?: { documentId: string; page: number; classificationId: string } | null;
       };
-      const measured = measuredPayload.skill?.measured || [];
-      const pinCount = measured.reduce(
-        (sum, row) => sum + (row.tagMatches || []).filter((match) => !match.excluded).length,
-        0,
-      );
-      const nextStudio = importSkillCountsIntoStudio(studio, measured, {
-        replaceExistingAi: true,
-        // Skill tags are stored in canvas/page units already when measured from pdf extract.
+      if (!response.ok || !payload.ok || !payload.project) {
+        throw new Error(payload.error || `Blake failed (${response.status}).`);
+      }
+      const nextStudio = payload.project.studio ?? createDefaultStudioState();
+      if (payload.focus) {
+        nextStudio.activeDocumentId = payload.focus.documentId;
+        nextStudio.activePage = payload.focus.page;
+        nextStudio.activeClassificationId = payload.focus.classificationId;
+        nextStudio.tool = "select";
+      }
+      upsert({
+        ...payload.project,
+        studio: nextStudio,
       });
-      nextStudio.activeDocumentId = activeDoc.id;
-      await persistStudio(nextStudio);
-      show(pinCount
-        ? `Imported ${pinCount} AI count pin(s) onto the canvas — review in Select mode.`
-        : "AI ran but found no text tags. Tap Count to place pins manually.");
-      await refresh();
-    } catch {
-      setError("AI assist failed — keep taking off manually.");
+      setSaveState("saved");
+      setBlakeStep(payload.pinCount ? `Done — ${payload.pinCount} pin(s) placed.` : "Done — no tags found.");
+      await new Promise((resolve) => window.setTimeout(resolve, 700));
+      show(payload.message || "Blake finished.", 12000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Blake could not finish. Try again or mark up manually.");
     } finally {
+      window.clearInterval(stepTimer);
       setBusy(null);
+      setBlakeStep(null);
     }
   }
 
@@ -488,29 +484,48 @@ export default function TakeoffStudioPage() {
           <img src={resolveBrandLogoUrl(brand, "takeoffs")} alt={brand.companyName || "Errol Watson Group"} />
           <div>
             <strong>NeXa Takeoff</strong>
-            <span>AI takeoff studio · {brand.tradingName || "Errol Watson Group"}</span>
+            <span>Blake · {brand.tradingName || "Errol Watson Group"}</span>
           </div>
         </div>
-        <nav className="nexa-studio-modes" aria-label="Takeoff modes">
-          <Link href="/takeoff" className="on">Studio</Link>
-          <Link href="/takeoff/routes">Pipe routes</Link>
-          <Link href="/takeoff/skill">Skill board</Link>
-          <Link href="/">Core</Link>
-        </nav>
+        <div className="nexa-studio-flow" aria-hidden="true">
+          <span>Upload</span>
+          <span>Scale</span>
+          <span className="on">Blake</span>
+          <span>Mark</span>
+          <span>Push</span>
+        </div>
         <div className="nexa-studio-top-actions">
+          <Link href="/" className="nexa-studio-core-pill">Core</Link>
           <span className={`pill save-${saveState}`}>
             {saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Saved"}
           </span>
-          {authName ? <span className="pill">{authName}</span> : null}
+          {authName ? <span className="pill muted-pill">{authName}</span> : null}
           <button type="button" className="nexa-studio-ai" disabled={busy === "ai" || !selected} onClick={() => void runAiAssist()}>
             {busy === "ai" ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
-            Run NeXa AI
+            Ask Blake
           </button>
         </div>
       </header>
 
+      {blakeStep ? (
+        <div className="nexa-studio-blake-overlay" role="status" aria-live="polite">
+          <div className="nexa-studio-blake-card">
+            <Sparkles size={22} />
+            <strong>Blake is working</strong>
+            <p>{blakeStep}</p>
+            <Loader2 className="spin" size={20} />
+          </div>
+        </div>
+      ) : null}
+
       {(notice || error) ? (
         <div className={`nexa-studio-banner ${error ? "error" : "ok"}`}>{error || notice}</div>
+      ) : null}
+
+      {selected && activeDoc && !studio.scales.some((row) => row.documentId === activeDoc.id && row.page === (studio.activePage || 1)) ? (
+        <div className="nexa-studio-banner warn">
+          Set scale before measuring lengths or areas — use a <strong>1:N</strong> chip if Blake finds one on the sheet, or tap <strong>Scale</strong>, two points, enter metres.
+        </div>
       ) : null}
 
       <div className="nexa-studio-body">
@@ -576,24 +591,43 @@ export default function TakeoffStudioPage() {
                   <h2>Classifications</h2>
                 </header>
                 <div className="nexa-studio-class-list">
-                  {studio.classifications.map((cls) => (
-                    <button
-                      key={cls.id}
-                      type="button"
-                      className={cls.id === studio.activeClassificationId ? "on" : undefined}
-                      onClick={() => void persistStudio({
-                        ...studio,
-                        activeClassificationId: cls.id,
-                        tool: cls.kind,
-                      })}
-                    >
-                      <i style={{ background: cls.colour }} />
-                      <span>
-                        <strong>{cls.name}</strong>
-                        <small>{cls.kind}</small>
-                      </span>
-                    </button>
-                  ))}
+                  {studio.classifications.map((cls) => {
+                    const qty = quantities.find((row) => row.classificationId === cls.id);
+                    return (
+                      <div
+                        key={cls.id}
+                        className={`nexa-studio-class-row${cls.id === studio.activeClassificationId ? " on" : ""}`}
+                      >
+                        <button
+                          type="button"
+                          className="nexa-studio-class-pick"
+                          onClick={() => void persistStudio({
+                            ...studio,
+                            activeClassificationId: cls.id,
+                            tool: cls.kind,
+                          })}
+                        >
+                          <i style={{ background: cls.colour }} />
+                          <span>
+                            <strong>{cls.name}</strong>
+                            <small>{cls.kind} · {qty?.pieces || 0} item{(qty?.pieces || 0) === 1 ? "" : "s"}</small>
+                          </span>
+                          <em>
+                            {qty && qty.quantity > 0 ? `${qty.quantity} ${qty.unit}` : "—"}
+                          </em>
+                        </button>
+                        <button
+                          type="button"
+                          className="nexa-studio-class-delete"
+                          aria-label={`Delete ${cls.name}`}
+                          title="Delete classification"
+                          onClick={() => deleteClassification(cls.id)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
                 <div className="nexa-studio-create class">
                   <select value={newClassKind} onChange={(e) => setNewClassKind(e.target.value as StudioClassKind)}>
@@ -604,23 +638,9 @@ export default function TakeoffStudioPage() {
                   <input value={newClassName} onChange={(e) => setNewClassName(e.target.value)} placeholder="Name" />
                   <button type="button" className="ghost" onClick={addClassification}>Add</button>
                 </div>
-              </section>
-
-              <section>
-                <header>
-                  <h2>Quantities</h2>
-                </header>
-                <div className="nexa-studio-qty">
-                  {quantities.map((row) => (
-                    <div key={row.classificationId}>
-                      <i style={{ background: row.colour }} />
-                      <span>{row.name}</span>
-                      <strong>
-                        {row.quantity} {row.unit}
-                      </strong>
-                    </div>
-                  ))}
-                </div>
+                <p className="muted nexa-studio-hint">
+                  Pick a classification, then draw. Green <strong>Ask Blake</strong> auto-counts PDF text tags onto the sheet.
+                </p>
               </section>
 
               <section className="nexa-studio-core-link">
@@ -679,7 +699,7 @@ export default function TakeoffStudioPage() {
           ) : (
             <div className="nexa-studio-empty-main">
               <h1>Start a NeXa takeoff</h1>
-              <p>Create a project, upload drawings, set scale, then Count / Linear / Area — or run NeXa AI.</p>
+              <p>Create a project, upload drawings, set scale, then Count / Linear / Area — or Ask Blake.</p>
             </div>
           )}
         </main>
