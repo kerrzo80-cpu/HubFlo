@@ -1,0 +1,186 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { CheckCircle2, Loader2, XCircle } from "lucide-react";
+
+type PortalInvoice = {
+  id: string;
+  ref: string;
+  customer: string;
+  title: string;
+  status: string;
+  issuedDate?: string;
+  dueDate?: string;
+  chargeTotal: number;
+  vat: number;
+  grandTotal: number;
+  paymentStatus: string;
+  paidAmount: number;
+  owed: number;
+  viewedAt?: string;
+};
+
+const gbp = new Intl.NumberFormat("en-GB", {
+  style: "currency",
+  currency: "GBP",
+  maximumFractionDigits: 2,
+});
+
+function money(value: number) {
+  return gbp.format(Number.isFinite(value) ? value : 0);
+}
+
+export default function ClientInvoicePortal({ params }: { params: Promise<{ token: string }> }) {
+  const [token, setToken] = useState("");
+  const [invoice, setInvoice] = useState<PortalInvoice | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    params.then(({ token: nextToken }) => {
+      if (!cancelled) setToken(nextToken);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [params]);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    async function loadInvoice() {
+      setIsLoading(true);
+      setError("");
+      try {
+        const response = await fetch(`/api/invoice-portal/${token}`, { cache: "no-store" });
+        if (!response.ok) throw new Error("This invoice link could not be found.");
+        const loaded = (await response.json()) as PortalInvoice;
+        if (!cancelled) setInvoice(loaded);
+      } catch (caught) {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : "Unable to load invoice.");
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+    loadInvoice();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  async function reportPaymentSent() {
+    if (!token || isSaving) return;
+    setIsSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch(`/api/invoice-portal/${token}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "payment-intent",
+          note: "Customer marked bank payment as sent.",
+        }),
+      });
+      if (!response.ok) throw new Error("Unable to notify the office. Please call us.");
+      const result = (await response.json()) as { invoice: PortalInvoice; message?: string };
+      setInvoice(result.invoice);
+      setMessage(result.message || "The office has been notified.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to save.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  const paid = invoice && (invoice.paymentStatus === "Paid" || invoice.owed <= 0);
+
+  return (
+    <main className="client-portal-shell">
+      <section className="client-portal-card">
+        <header>
+          <span className="verrova-client-lockup">
+            <img src="/ewg-logo.png" alt="" aria-hidden="true" />
+            <strong>EWG</strong>
+          </span>
+          <span>Online invoice</span>
+        </header>
+
+        {isLoading ? (
+          <div className="client-portal-state">
+            <Loader2 className="spin" size={28} />
+            <p>Loading your invoice...</p>
+          </div>
+        ) : error && !invoice ? (
+          <div className="client-portal-state error">
+            <XCircle size={30} />
+            <p>{error}</p>
+          </div>
+        ) : invoice ? (
+          <>
+            <div className="client-portal-heading">
+              <span>{invoice.ref}</span>
+              <h1>{invoice.title || "Invoice"}</h1>
+              <p>{invoice.customer}</p>
+            </div>
+
+            <div className="client-portal-total">
+              <span>Amount due</span>
+              <strong>{money(invoice.owed)}</strong>
+              <small>
+                Total {money(invoice.grandTotal)}
+                {invoice.paidAmount > 0 ? ` · Paid ${money(invoice.paidAmount)}` : ""}
+                {invoice.dueDate ? ` · Due ${invoice.dueDate}` : ""}
+              </small>
+            </div>
+
+            <div className="portal-status-grid" style={{ marginBottom: 16 }}>
+              <div>
+                <span>Status</span>
+                <strong>{invoice.status}</strong>
+              </div>
+              <div>
+                <span>Payment</span>
+                <strong>{invoice.paymentStatus}</strong>
+              </div>
+              <div>
+                <span>Issued</span>
+                <strong>{invoice.issuedDate || "—"}</strong>
+              </div>
+            </div>
+
+            {paid ? (
+              <div className="client-portal-confirmation">
+                <CheckCircle2 size={24} />
+                <div>
+                  <strong>Paid</strong>
+                  <span>Thank you — this invoice is marked paid.</span>
+                </div>
+              </div>
+            ) : (
+              <div className="client-portal-actions">
+                <button type="button" className="primary-button" disabled={isSaving} onClick={reportPaymentSent}>
+                  {isSaving ? "Saving..." : "I've paid by bank transfer"}
+                </button>
+              </div>
+            )}
+
+            {message ? (
+              <div className="client-portal-confirmation" style={{ marginTop: 16 }}>
+                <CheckCircle2 size={22} />
+                <div>
+                  <strong>Noted</strong>
+                  <span>{message}</span>
+                </div>
+              </div>
+            ) : null}
+            {error ? <p style={{ color: "#b42318", marginTop: 12 }}>{error}</p> : null}
+          </>
+        ) : null}
+      </section>
+    </main>
+  );
+}

@@ -136,6 +136,12 @@ import {
   type FormDocumentLayout,
   type FormDocumentTemplate,
 } from "@/lib/form-document-chrome";
+import {
+  buildReportsBoardPackPdf,
+  buildReportsExcelXml,
+  downloadBlob,
+  type ReportPackRow,
+} from "@/lib/reports-board-pack";
 import { SetupPersonalisingPanel } from "@/components/SetupPersonalisingPanel";
 import { OpenAiKeyCard } from "./OpenAiKeyCard";
 import { DashboardOverview } from "./DashboardOverview";
@@ -1135,6 +1141,9 @@ type Invoice = {
   lastChasedTo?: string;
   lastChaseMessageId?: string;
   simproInvoiceId?: string;
+  /** Public client portal token for /client/invoices/[token]. */
+  portalToken?: string;
+  portalViewedAt?: string;
 };
 
 /** Promote wrongly-Draft simPRO imports into Sent so Unpaid/Overdue folders work from due date. */
@@ -7491,6 +7500,32 @@ function makeQuotePortalToken(quote: Quote) {
   return `${quote.ref.toLowerCase()}-${quote.id.slice(0, 8)}`;
 }
 
+function makeInvoicePortalToken(invoice: { id: string; ref: string }) {
+  return `${invoice.ref.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${invoice.id.slice(0, 8)}`;
+}
+
+function invoicePortalLink(invoice: { id: string; ref: string; portalToken?: string }) {
+  const baseUrl = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
+  const token = invoice.portalToken || makeInvoicePortalToken(invoice);
+  return `${baseUrl}/client/invoices/${token}`;
+}
+
+async function copyTextToClipboard(value: string) {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const area = document.createElement("textarea");
+  area.value = value;
+  area.setAttribute("readonly", "true");
+  area.style.position = "absolute";
+  area.style.left = "-9999px";
+  document.body.appendChild(area);
+  area.select();
+  document.execCommand("copy");
+  document.body.removeChild(area);
+}
+
 function workflowTimestamp() {
   return new Date()
     .toLocaleString("en-GB", {
@@ -13302,27 +13337,93 @@ export default function Dashboard() {
     return insights.slice(0, 6);
   }, [reportExecutive, reportInvoiceRows, reportJobRows, reportScheduleClashes]);
 
-  function downloadReportsCsv() {
-    if (typeof window === "undefined") return;
-    const rows = [
-      ["Section", "Metric", "Value", "Detail"],
+  function buildReportPackRows(): ReportPackRow[] {
+    return [
       ["Executive", "Revenue", reportExecutive.visibleRevenue, reportDateRangeLabel],
       ["Executive", "Gross profit", reportExecutive.grossProfit, `${reportExecutive.grossMargin}% margin`],
       ["Executive", "Net profit", reportExecutive.netProfit, `${reportExecutive.netMargin}% margin`],
       ["Executive", "Cash owed", reportExecutive.cashOwed, `${reportInvoiceRows.filter((row) => row.owed > 0).length} invoices`],
-      ...reportJobRows.map((row) => ["Jobs", row.job.ref, row.profit, `${row.job.customer} · ${row.margin}% margin`]),
-      ...engineerProductivityRows.map((row) => ["Engineers", row.name, row.workedHours, `${row.utilisation}% utilisation · ${currency(row.profit)} profit`]),
-      ...supplierReportRows.map((row) => ["Purchasing", row.supplier, row.spend, `${row.orders} orders · ${currency(row.outstanding)} outstanding`]),
+      ...reportJobRows.map(
+        (row): ReportPackRow => ["Jobs", row.job.ref, row.profit, `${row.job.customer} · ${row.margin}% margin`],
+      ),
+      ...engineerProductivityRows.map(
+        (row): ReportPackRow => [
+          "Engineers",
+          row.name,
+          row.workedHours,
+          `${row.utilisation}% utilisation · ${currency(row.profit)} profit`,
+        ],
+      ),
+      ...supplierReportRows.map(
+        (row): ReportPackRow => [
+          "Purchasing",
+          row.supplier,
+          row.spend,
+          `${row.orders} orders · ${currency(row.outstanding)} outstanding`,
+        ],
+      ),
     ];
+  }
+
+  function downloadReportsCsv() {
+    if (typeof window === "undefined") return;
+    const rows = [["Section", "Metric", "Value", "Detail"], ...buildReportPackRows()];
     const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `nexa-reports-${currentOperatingDate}.csv`;
-    link.click();
-    window.URL.revokeObjectURL(url);
+    downloadBlob(`ewg-reports-${currentOperatingDate}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }));
     showNotice("Reports CSV downloaded.");
+  }
+
+  async function downloadReportsPdf() {
+    if (typeof window === "undefined") return;
+    try {
+      const bytes = await buildReportsBoardPackPdf({
+        companyName: businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group",
+        title: "Reports board pack",
+        dateLabel: reportDateRangeLabel,
+        rows: buildReportPackRows(),
+      });
+      downloadBlob(
+        `ewg-reports-${currentOperatingDate}.pdf`,
+        new Blob([bytes], { type: "application/pdf" }),
+      );
+      showNotice("Reports PDF board pack downloaded.");
+    } catch {
+      showNotice("Could not build the PDF board pack. Try CSV instead.");
+    }
+  }
+
+  function downloadReportsExcel() {
+    if (typeof window === "undefined") return;
+    const xml = buildReportsExcelXml({
+      companyName: businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group",
+      dateLabel: reportDateRangeLabel,
+      rows: buildReportPackRows(),
+    });
+    downloadBlob(
+      `ewg-reports-${currentOperatingDate}.xls`,
+      new Blob([xml], { type: "application/vnd.ms-excel;charset=utf-8" }),
+    );
+    showNotice("Reports Excel workbook downloaded.");
+  }
+
+  function ensureInvoicePortalToken(invoice: Invoice): Invoice {
+    if (invoice.portalToken) return invoice;
+    const portalToken = makeInvoicePortalToken(invoice);
+    const next = invoices.map((row) => (row.id === invoice.id ? { ...row, portalToken } : row));
+    setInvoices(next);
+    saveHubDetailStateWithInvoices(next, "Could not save invoice portal token.");
+    return { ...invoice, portalToken };
+  }
+
+  async function copyInvoicePortalLink(invoice: Invoice) {
+    const withToken = ensureInvoicePortalToken(invoice);
+    const link = invoicePortalLink(withToken);
+    try {
+      await copyTextToClipboard(link);
+      showNotice(`Invoice portal link copied: ${link}`);
+    } catch {
+      showNotice(`Copy failed — link is ${link}`);
+    }
   }
 
   function moveSchedulePeriod(direction: -1 | 1) {
@@ -32379,11 +32480,11 @@ export default function Dashboard() {
               </section>
 
               <div className="reports-export-bar">
-                <button className="secondary-button" type="button" onClick={() => showNotice("PDF export will render the selected report tab as a branded board pack.")}>
+                <button className="secondary-button" type="button" onClick={() => void downloadReportsPdf()}>
                   <FileText size={15} />
                   PDF
                 </button>
-                <button className="secondary-button" type="button" onClick={() => showNotice("Excel export will include each report tab as a worksheet.")}>
+                <button className="secondary-button" type="button" onClick={downloadReportsExcel}>
                   <FileSpreadsheet size={15} />
                   Excel
                 </button>
@@ -32391,9 +32492,20 @@ export default function Dashboard() {
                   <Download size={15} />
                   CSV
                 </button>
-                <button className="secondary-button" type="button" onClick={() => showNotice("Shareable dashboards will use secure, role-based links when live sharing is enabled.")}>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() =>
+                    void copyTextToClipboard(
+                      `${businessSettings.tradingName || "EWG"} reports · ${reportDateRangeLabel}\nRevenue ${currency(reportExecutive.visibleRevenue)} · Cash owed ${currency(reportExecutive.cashOwed)}`,
+                    ).then(
+                      () => showNotice("Report snapshot copied — paste into Teams/email."),
+                      () => showNotice("Could not copy report snapshot."),
+                    )
+                  }
+                >
                   <Share2 size={15} />
-                  Share dashboard
+                  Share snapshot
                 </button>
               </div>
 
@@ -34808,7 +34920,16 @@ export default function Dashboard() {
                             </div>
                           </div>
                           <div className="portal-actions">
-                            <button className="secondary-button" type="button" onClick={() => showNotice("Client portal link copied ready for the Outlook email.")}>
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() =>
+                                void copyTextToClipboard(quotePortalLink(selectedQuote)).then(
+                                  () => showNotice("Client portal link copied ready for the Outlook email."),
+                                  () => showNotice("Could not copy portal link."),
+                                )
+                              }
+                            >
                               Copy portal link
                             </button>
                             <button className="secondary-button" type="button" onClick={logQuotePortalViewed}>
@@ -40169,6 +40290,32 @@ export default function Dashboard() {
 
                 {activeInvoiceTab === "summary" ? (
                   <section className="quote-record-panel">
+                    <section className="client-portal-panel" style={{ marginBottom: 16 }}>
+                      <div>
+                        <span className="permission-heading">Client portal</span>
+                        <h2>Online invoice link</h2>
+                        <p>{invoicePortalLink(selectedInvoice)}</p>
+                      </div>
+                      <div className="portal-status-grid">
+                        <div>
+                          <span>Payment</span>
+                          <strong>{selectedInvoice.paymentStatus || "Unpaid"}</strong>
+                        </div>
+                        <div>
+                          <span>Paid</span>
+                          <strong>{currency(selectedInvoice.paidAmount || 0)}</strong>
+                        </div>
+                        <div>
+                          <span>Portal views</span>
+                          <strong>{selectedInvoice.portalViewedAt ? "Viewed" : "Not opened"}</strong>
+                        </div>
+                      </div>
+                      <div className="portal-actions">
+                        <button className="secondary-button" type="button" onClick={() => void copyInvoicePortalLink(selectedInvoice)}>
+                          Copy portal link
+                        </button>
+                      </div>
+                    </section>
                     <div className="client-overview-grid">
                       <article className="client-info-card">
                         <span className="permission-heading">Invoice details</span>

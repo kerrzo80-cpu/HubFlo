@@ -1,0 +1,70 @@
+# Path to 10/10 — EWG Core / NeXa
+
+Honest target: **10/10 for EWG-shaped plumbing & heating operations**, then close remaining gaps vs Jobber / Fergus / simPRO / ServiceTitan as a market product.
+
+Baseline (Aug 2026 audit): **~6.5/10 for EWG ops · ~4/10 vs category leaders**.
+
+---
+
+## Scoreboard targets
+
+| Phase | EWG ops score | Market peer score | Outcome |
+|-------|--------------:|------------------:|---------|
+| **0 — Baseline** | 6.5 | 4 | Live suite with uneven maturity |
+| **1 — Trust the spine** *(this branch)* | **8.0** | 5.5 | Offline Field, Heat Design saved, board-pack reports, invoice portal |
+| **2 — Commercial close** | **9.0** | 7 | Payments, full client portal, manager reports that match bank, stock/PO trust |
+| **3 — Category peer** | **9.5** | 8.5 | Native Field feel, offline SW, BI exports, recurring/PPM depth, multi-user Heat Design |
+| **4 — 10/10** | **10** | 9–10 | Payments + portal + dispatch polish + specialist add-ons “good enough to stop buying Heat Engineer / PlanSwift for EWG work” |
+
+True ServiceTitan parity (multi-tenant SaaS, plant GPS, full accounting) is optional and **out of Phase 1–3** unless you decide to productise for other firms.
+
+---
+
+## Phase 1 — Trust the spine *(in progress)*
+
+1. **Heat Design server projects** — firm register, not browser-only lab  
+2. **Field offline outbox** — checklist / daywork / photos queue + sync  
+3. **Reports board pack PDF + Excel** — managers can download what they see  
+4. **Invoice customer portal** — view balance / mark paid intent / public token (quote portal already exists)  
+5. **Public `/client/*` routes** — portals work without pilot login  
+
+**Done when:** health shows `heatDesignPersistence`, `fieldOfflineOutbox`, `reportsBoardPack`, `invoicePortal`; iPad Field survives airplane mode for checklist/daywork; Heat Design projects survive browser clear; Reports → PDF downloads a branded pack.
+
+---
+
+## Phase 2 — Commercial close
+
+1. **Stripe / payment links** on invoices (or Xero pay-by-link if preferred)  
+2. Expand client portal: open invoices, variations, simple job status  
+3. WIP / cash report that reconciles to Xero payments pull  
+4. PO receive → stock movement closed loop  
+5. Recurring / PPM generate next visit + draft invoice  
+
+---
+
+## Phase 3 — Category peer
+
+1. Field service worker + asset cache (true offline shell)  
+2. Dispatch: run sheets, clash warnings, travel buffers  
+3. Scheduled email report packs (Mon morning board pack)  
+4. Takeoff Studio reliability for scanned drawings (human-confirm AI counts)  
+5. Heat Design MCS-style printable design pack + audit trail  
+
+---
+
+## Phase 4 — 10/10 for EWG
+
+1. No simPRO required for daily path (optional sync only)  
+2. Customer can accept quote, approve variation, pay invoice online  
+3. Engineer completes day offline and syncs without office rescue  
+4. Manager trusts Reports numbers enough to stop building Excel side-books  
+5. Survey → Takeoff → Heat Design → Quote → Job → Field → Invoice is one continuous chain  
+
+---
+
+## What we will not pretend is required for *your* 10/10
+
+- Multi-tenant SaaS billing for other companies  
+- Replacing Bluebeam for multi-trade document control  
+- Full GL / bank feeds inside NeXa (Xero remains system of record)  
+- Native App Store Field binary (PWA + offline can reach 10 for EWG if polish is high)

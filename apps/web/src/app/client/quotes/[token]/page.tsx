@@ -143,7 +143,7 @@ export default function ClientQuotePortal({ params }: { params: Promise<{ token:
                 <CheckCircle2 size={24} />
                 <div>
                   <strong>Quote accepted</strong>
-                  <span>{jobRef ? `NeXa has created pending job ${jobRef}.` : "The office has been notified."}</span>
+                  <span>{jobRef ? `Pending job ${jobRef} has been created.` : "The office has been notified."}</span>
                 </div>
               </div>
             ) : quote.status === "Declined" ? (
