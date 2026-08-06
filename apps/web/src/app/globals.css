@@ -22926,10 +22926,14 @@ kbd,
 
 .brand-lockup .company-logo {
   display: block !important;
+  background: #fff !important;
+  border: 0 !important;
+  border-radius: 0 !important;
   height: 54px;
   max-width: none;
   object-fit: contain;
   object-position: left center;
+  padding: 0 !important;
   width: 184px;
 }
 
@@ -30266,7 +30270,11 @@ body {
 }
 
 .brand-lockup img {
-  border-radius: 14px;
+  border-radius: 0;
+}
+
+.brand-lockup .company-logo {
+  border-radius: 0 !important;
 }
 
 .global-search,
