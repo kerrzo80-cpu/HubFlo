@@ -22,6 +22,14 @@ const nextConfig: NextConfig = {
       // Field app stays at /field.
     ];
   },
+  async rewrites() {
+    // Rewrites (not redirects): Safari often ignores favicon redirects.
+    return [
+      { source: "/favicon.ico", destination: "/api/branding/favicon?size=32" },
+      { source: "/icon.png", destination: "/api/branding/favicon?size=32" },
+      { source: "/apple-icon.png", destination: "/api/branding/favicon?size=180" },
+    ];
+  },
 };
 
 export default nextConfig;
