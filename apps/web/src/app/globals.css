@@ -26001,6 +26001,7 @@ body:has([data-takeoff-mode="page"]) {
 }
 
 .takeoff-drawing-mode .takeoff-header,
+.takeoff-drawing-mode .takeoff-chrome,
 .takeoff-drawing-mode .takeoff-sidebar,
 .takeoff-drawing-mode .takeoff-project-hero,
 .takeoff-drawing-mode .estimate-flow-strip,
@@ -27523,6 +27524,7 @@ img.markup-document-preview {
 }
 
 .takeoff-app.takeoff-drawing-mode .takeoff-header,
+.takeoff-app.takeoff-drawing-mode .takeoff-chrome,
 .takeoff-app.takeoff-drawing-mode .takeoff-sidebar,
 .takeoff-app.takeoff-drawing-mode .takeoff-project-hero,
 .takeoff-app.takeoff-drawing-mode .estimate-flow-strip,

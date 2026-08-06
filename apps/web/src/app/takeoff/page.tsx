@@ -1,12 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import Link from "next/link";
 import {
-  ArrowLeft,
   Check,
   FileSpreadsheet,
-  FolderOpen,
   Loader2,
   Sparkles,
   Upload,
@@ -27,7 +24,7 @@ import {
 } from "@/lib/takeoff-skill";
 
 import TakeoffOverlayReview from "./TakeoffOverlayReview";
-import TakeoffModeNav from "./TakeoffModeNav";
+import TakeoffChrome from "./TakeoffChrome";
 import "./takeoff-skill.css";
 
 type QuoteOption = { id: string; ref: string; customer: string; site: string };
@@ -66,6 +63,7 @@ export default function TakeoffSkillPage() {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState({ name: "", customer: "", site: "", description: "", linkedQuoteId: "" });
   const [focusOptions, setFocusOptions] = useState<string[]>([]);
+  const [showCreate, setShowCreate] = useState(false);
   const [invokePrompt, setInvokePrompt] = useState(
     "Perform a quantity takeoff on the plumbing drawings — WCs, basins, baths, showers, sinks, hot & cold pipe + fittings, waste / soil. Output Excel BOQ + marked-up PDF.",
   );
@@ -199,6 +197,7 @@ export default function TakeoffSkillPage() {
       const project = await response.json() as TakeoffProject;
       upsertProject(project);
       setDraft({ name: "", customer: "", site: "", description: "", linkedQuoteId: "" });
+      setShowCreate(false);
       show(`Created ${project.reference}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Create failed");
@@ -359,136 +358,100 @@ export default function TakeoffSkillPage() {
   const assemblies = skill.assemblies;
 
   return (
-    <div className="takeoff-skill-shell">
-      <header className="takeoff-skill-topbar">
-        <div className="takeoff-skill-brand">
-          <Link href="/" className="takeoff-skill-back">
-            <ArrowLeft size={16} />
-            Core
-          </Link>
-          <div>
-            <strong>NeXa Takeoff</strong>
-            <span>Quantity takeoff · count fixtures on drawings</span>
-          </div>
-        </div>
-        <div className="takeoff-skill-top-actions">
-            <span className={`takeoff-skill-ai ${aiStatus?.connected ? "on" : "off"}`}>
-              <Sparkles size={14} />
-              {aiStatus?.connected
-                ? `Blake is connected · ${aiStatus.model || "ready"}`
-                : "Blake offline · text-tag mode"}
-            </span>
-            {authName ? <span className="takeoff-skill-ai on">{authName}</span> : null}
-        </div>
-      </header>
-      <TakeoffModeNav variant="skill" />
+    <div className="takeoff-v2">
+      <TakeoffChrome
+        subtitle="Count fixtures · build BOQ"
+        status={(
+          <span className={`takeoff-chrome-pill ${aiStatus?.connected ? "on" : ""}`}>
+            <Sparkles size={13} />
+            {aiStatus?.connected ? (aiStatus.model || "Blake ready") : "Text-tag mode"}
+          </span>
+        )}
+        actions={authName ? <span className="takeoff-chrome-pill on">{authName}</span> : null}
+      />
 
       {(notice || error) ? (
-        <div className={`takeoff-skill-banner ${error ? "error" : "ok"}`}>
+        <div className={`takeoff-v2-banner ${error ? "error" : "ok"}`}>
           {error || notice}
         </div>
       ) : null}
 
       {authState === "checking" ? (
-        <section className="takeoff-skill-auth">
+        <section className="takeoff-v2-gate">
           <h1>Opening Takeoff…</h1>
           <p>Checking your NeXa sign-in.</p>
         </section>
       ) : null}
 
       {authState === "signed-out" ? (
-        <section className="takeoff-skill-auth">
+        <section className="takeoff-v2-gate">
           <h1>Sign in to use Takeoff</h1>
-          <p>
-            Takeoff uses your Core login. Sign in first, then you’ll be able to create projects,
-            upload drawings, run the skill, and push a BOQ into a quote.
-          </p>
-          <p className="takeoff-skill-note">No special AI setup is required to start — vector PDF text-tag counts work without OpenAI.</p>
-          <a className="takeoff-skill-primary" href="/login?next=/takeoff">
-            Sign in to NeXa
-          </a>
+          <p>Use your Core login, then create a project, upload drawings, and run the skill.</p>
+          <a className="takeoff-skill-primary" href="/login?next=/takeoff">Sign in to NeXa</a>
         </section>
       ) : null}
 
       {authState === "signed-in" || authState === "pilot" ? (
-      <div className="takeoff-skill-layout">
-        <aside className="takeoff-skill-sidebar">
-          <div className="takeoff-skill-card">
-            <header>
-              <FolderOpen size={16} />
+        <div className="takeoff-v2-body">
+          <aside className="takeoff-v2-rail">
+            <div className="takeoff-v2-rail-head">
               <h2>Projects</h2>
-            </header>
-            <div className="takeoff-skill-project-list">
+              <button type="button" className="takeoff-v2-ghost" onClick={() => setShowCreate((v) => !v)}>
+                {showCreate ? "Cancel" : "New"}
+              </button>
+            </div>
+
+            {showCreate ? (
+              <div className="takeoff-v2-create">
+                <input value={draft.name} onChange={(e) => setDraft((c) => ({ ...c, name: e.target.value }))} placeholder="Project name" />
+                <input value={draft.customer} onChange={(e) => setDraft((c) => ({ ...c, customer: e.target.value }))} placeholder="Customer" />
+                <input value={draft.site} onChange={(e) => setDraft((c) => ({ ...c, site: e.target.value }))} placeholder="Site" />
+                <select value={draft.linkedQuoteId} onChange={(e) => setDraft((c) => ({ ...c, linkedQuoteId: e.target.value }))}>
+                  <option value="">Link quote (optional)</option>
+                  {quotes.map((quote) => (
+                    <option key={quote.id} value={quote.id}>{quote.ref} · {quote.customer}</option>
+                  ))}
+                </select>
+                <button className="takeoff-skill-primary" type="button" disabled={busy === "create"} onClick={() => void createProject()}>
+                  {busy === "create" ? <Loader2 className="spin" size={16} /> : null}
+                  Create
+                </button>
+              </div>
+            ) : null}
+
+            <div className="takeoff-v2-project-list">
               {projects.length ? projects.map((project) => (
                 <button
                   key={project.id}
                   type="button"
-                  className={project.id === selectedId ? "active" : ""}
+                  className={project.id === selectedId ? "on" : undefined}
                   onClick={() => setSelectedId(project.id)}
                 >
                   <strong>{project.reference}</strong>
                   <span>{project.name}</span>
-                  <small>{project.documents.length} drawings · {project.status}</small>
+                  <small>{project.documents.length} drawings</small>
                 </button>
               )) : (
-                <p className="takeoff-skill-empty">No projects yet — create one below.</p>
+                <p className="takeoff-skill-empty">No projects yet.</p>
               )}
             </div>
-          </div>
+          </aside>
 
-          <div className="takeoff-skill-card">
-            <header>
-              <h2>New project folder</h2>
-            </header>
-            <label>
-              Name
-              <input value={draft.name} onChange={(e) => setDraft((c) => ({ ...c, name: e.target.value }))} placeholder="Warehouse takeoff" />
-            </label>
-            <label>
-              Customer
-              <input value={draft.customer} onChange={(e) => setDraft((c) => ({ ...c, customer: e.target.value }))} />
-            </label>
-            <label>
-              Site
-              <input value={draft.site} onChange={(e) => setDraft((c) => ({ ...c, site: e.target.value }))} />
-            </label>
-            <label>
-              Link Core quote
-              <select value={draft.linkedQuoteId} onChange={(e) => setDraft((c) => ({ ...c, linkedQuoteId: e.target.value }))}>
-                <option value="">Optional</option>
-                {quotes.map((quote) => (
-                  <option key={quote.id} value={quote.id}>{quote.ref} · {quote.customer}</option>
-                ))}
-              </select>
-            </label>
-            <button className="takeoff-skill-primary" type="button" disabled={busy === "create"} onClick={() => void createProject()}>
-              {busy === "create" ? <Loader2 className="spin" size={16} /> : null}
-              Create project
-            </button>
-          </div>
-        </aside>
-
-        <main className="takeoff-skill-main">
-          {!selected ? (
-            <section className="takeoff-skill-empty-state">
-              <h1>Ready to take off</h1>
-              <p>
-                Create a project on the left, upload drawings, then run the skill prompt.
-                You can use it now — text-tag counting works without OpenAI. AI is optional for harder sheets.
-              </p>
-            </section>
-          ) : (
-            <>
-              <section className="takeoff-skill-hero">
-                <div>
-                  <p className="eyebrow">{selected.reference}</p>
-                  <h1>{selected.name}</h1>
-                  <p>{selected.customer} · {selected.site}</p>
-                  <p className="takeoff-skill-note">
-                    {selected.documents.length
-                      ? `${selected.documents.length} drawing file(s) · step ${stepIndex(currentStep) + 1} of ${TAKEOFF_SKILL_STEPS.length}`
-                      : "Upload drawings in step 1, then run the skill"}
-                  </p>
+          <main className="takeoff-v2-main">
+            {!selected ? (
+              <section className="takeoff-v2-gate inline">
+                <h1>Start a quantity takeoff</h1>
+                <p>Create or select a project, upload drawings, then follow the steps one at a time.</p>
+                <button className="takeoff-skill-primary" type="button" onClick={() => setShowCreate(true)}>New project</button>
+              </section>
+            ) : (
+              <>
+                <div className="takeoff-v2-projectbar">
+                  <div>
+                    <p className="eyebrow">{selected.reference}</p>
+                    <h1>{selected.name}</h1>
+                    <p>{[selected.customer, selected.site].filter(Boolean).join(" · ") || "No site set"}</p>
+                  </div>
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -498,51 +461,50 @@ export default function TakeoffSkillPage() {
                     hidden
                   />
                 </div>
-                <form
-                  className="takeoff-skill-invoke"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void (async () => {
-                      const result = await runSkill("invoke", { prompt: invokePrompt });
-                      if (result) show("Skill invoked — review the assembly plan, then approve to measure");
-                    })();
-                  }}
-                >
-                  <label>
-                    <span>Skill invoke</span>
-                    <textarea
-                      value={invokePrompt}
-                      onChange={(event) => setInvokePrompt(event.target.value)}
-                      rows={2}
-                      placeholder='e.g. "Perform a quantity takeoff on the architectural drawings — slab and floor area"'
-                    />
-                  </label>
-                  <button className="takeoff-skill-primary" type="submit" disabled={busy === "invoke" || !selected.documents.length}>
-                    {busy === "invoke" ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
-                    Run takeoff skill
-                  </button>
-                </form>
-                <div className="takeoff-skill-steps" aria-label="Takeoff skill steps">
+
+                <ol className="takeoff-v2-steps" aria-label="Takeoff steps">
                   {TAKEOFF_SKILL_STEPS.map((step, index) => {
                     const active = step.id === currentStep;
                     const done = stepIndex(currentStep) > index;
                     return (
-                      <button
-                        key={step.id}
-                        type="button"
-                        className={`${active ? "active" : ""} ${done ? "done" : ""}`}
-                        onClick={() => void runSkill("set-step", { step: step.id })}
-                      >
-                        <b>{index + 1}</b>
-                        <span>
-                          <strong>{step.label}</strong>
-                          <small>{step.detail}</small>
-                        </span>
-                      </button>
+                      <li key={step.id}>
+                        <button
+                          type="button"
+                          className={`${active ? "active" : ""} ${done ? "done" : ""}`}
+                          onClick={() => void runSkill("set-step", { step: step.id })}
+                        >
+                          <b>{index + 1}</b>
+                          <span>{step.label}</span>
+                        </button>
+                      </li>
                     );
                   })}
-                </div>
-              </section>
+                </ol>
+
+                {currentStep === "drawings" || currentStep === "analyse" ? (
+                  <details className="takeoff-v2-invoke">
+                    <summary>Optional AI skill prompt</summary>
+                    <form
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void (async () => {
+                          const result = await runSkill("invoke", { prompt: invokePrompt });
+                          if (result) show("Skill invoked — review the assembly plan, then approve to measure");
+                        })();
+                      }}
+                    >
+                      <textarea
+                        value={invokePrompt}
+                        onChange={(event) => setInvokePrompt(event.target.value)}
+                        rows={2}
+                      />
+                      <button className="takeoff-skill-secondary" type="submit" disabled={busy === "invoke" || !selected.documents.length}>
+                        {busy === "invoke" ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
+                        Run prompt
+                      </button>
+                    </form>
+                  </details>
+                ) : null}
 
               {currentStep === "drawings" ? (
                 <section className="takeoff-skill-panel">
@@ -980,10 +942,11 @@ export default function TakeoffSkillPage() {
                   ) : null}
                 </section>
               ) : null}
-            </>
-          )}
-        </main>
-      </div>
+
+              </>
+            )}
+          </main>
+        </div>
       ) : null}
     </div>
   );

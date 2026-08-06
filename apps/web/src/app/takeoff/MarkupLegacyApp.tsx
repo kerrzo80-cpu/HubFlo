@@ -31,8 +31,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { useBrand } from "@/components/BrandProvider";
-import { resolveBrandLogoUrl } from "@/lib/branding";
 import { roleHeaderName } from "@/lib/access";
 import { BuddyCharacter } from "@/lib/BuddyCharacter";
 import type { BlakeBoqReviewDraft } from "@/lib/blake-boq-review";
@@ -76,7 +74,7 @@ import {
   togglePackageChild,
 } from "@/lib/takeoff-markup-packages";
 import { sanitizeRemovalSectionTakeoffMaterials } from "@/lib/takeoff-removal-materials";
-import TakeoffModeNav from "./TakeoffModeNav";
+import TakeoffChrome from "./TakeoffChrome";
 import "./takeoff-skill.css";
 
 type TakeoffTab = "intake" | "markup" | "surveyor" | "survey" | "rooms" | "heat" | "runs" | "boq" | "review";
@@ -2201,7 +2199,6 @@ function mergeImportedRooms(existingRooms: TakeoffRoom[], importedRooms: Takeoff
 }
 
 export default function TakeoffPage() {
-  const brand = useBrand();
   const [projects, setProjects] = useState<TakeoffProject[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [clientSites, setClientSites] = useState<ClientSite[]>([]);
@@ -6768,24 +6765,24 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       className={takeoffAppClassName}
       data-takeoff-mode={takeoffDrawingMode ? "drawing" : "page"}
     >
-      <header className="takeoff-header">
-        <div className="takeoff-brand">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={resolveBrandLogoUrl(brand, "takeoffs")} alt={brand.takeoffsAppName} />
-          <span>{brand.takeoffsAppName}</span>
-        </div>
-        <div className="takeoff-header-actions">
-          <a className="takeoff-ghost-button" href="/">
-            <ArrowLeft size={16} />
-            Core
-          </a>
-          <button className="takeoff-ghost-button" type="button" onClick={() => loadData().catch(() => {})}>
-            <RefreshCw size={16} />
-            Refresh
-          </button>
-        </div>
-      </header>
-      <TakeoffModeNav variant="markup" />
+      <TakeoffChrome
+        subtitle="Draw pipe runs · BoQ handoff"
+        compact={takeoffDrawingMode}
+        status={(
+          <span className={`takeoff-chrome-pill ${aiStatus?.connected ? "on" : ""}`}>
+            <Sparkles size={13} />
+            {aiStatus?.connected ? (aiStatus.model || "Blake ready") : "AI optional"}
+          </span>
+        )}
+        actions={(
+          <>
+            <button className="takeoff-chrome-btn" type="button" onClick={() => loadData().catch(() => {})}>
+              <RefreshCw size={14} />
+              Refresh
+            </button>
+          </>
+        )}
+      />
 
       <div className="takeoff-shell">
         <aside className="takeoff-sidebar">
@@ -6942,54 +6939,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                 </div>
               ) : null}
 
-              <section className="estimate-flow-strip" aria-label="Route design workflow">
-                <a href="/survey">
-                  <span>1</span>
-                  <strong>Survey</strong>
-                  <small>Upload evidence and describe the works</small>
-                </a>
-                <button className={activeTab === "markup" || activeTab === "intake" ? "active" : ""} type="button" onClick={() => setActiveTab("markup")}>
-                  <span>2</span>
-                  <strong>Route design</strong>
-                  <small>Draw pipe runs, place fittings, calibrate scale</small>
-                </button>
-                <button className={activeTab === "boq" ? "active" : ""} type="button" onClick={() => setActiveTab("boq")}>
-                  <span>3</span>
-                  <strong>BoQ / RFQ</strong>
-                  <small>Route lengths + fittings into supplier requests</small>
-                </button>
-                <button className={activeTab === "review" ? "active" : ""} type="button" onClick={() => setActiveTab("review")}>
-                  <span>4</span>
-                  <strong>Handoff</strong>
-                  <small>Review then push to Core quote</small>
-                </button>
-              </section>
-
-              <section className="takeoff-simple-banner">
-                <div>
-                  <Sparkles size={18} />
-                  <span>
-                    <strong>Plumbing route design</strong>
-                    <small>
-                      Calibrate the drawing, draw hot/cold/waste/soil routes, auto-add elbows at bends, then push lengths into the BoQ
-                      {selectedQuote ? ` for ${selectedQuote.ref}` : ""}.
-                    </small>
-                  </span>
-                </div>
-                <div className={`takeoff-ai-status compact ${aiStatus?.connected ? "connected" : "missing"}`}>
-                  <Sparkles size={14} />
-                  <span>
-                    <strong>{aiStatus?.connected ? `AI ready · ${aiStatus.model}` : "AI key missing"}</strong>
-                    <small>
-                      {aiStatus?.connected
-                        ? "Survey packs and AI scan use this connection."
-                        : `Set ${aiStatus?.keyName || "OPENAI_API_KEY"} on Render → nexa-live, then redeploy.`}
-                    </small>
-                  </span>
-                </div>
-              </section>
-
-              <nav className="takeoff-tabs takeoff-tabs-simple" aria-label="Takeoff sections">
+              <nav className="takeoff-tabs takeoff-tabs-simple" aria-label="Route design sections">
                 {tabs.map((tab) => {
                   const Icon = tab.icon;
                   return (
