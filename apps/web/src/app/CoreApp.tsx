@@ -15,7 +15,7 @@ import {
 } from "react";
 import { CorePanelSkeleton } from "@/components/CorePanelSkeleton";
 import { downloadBlob } from "@/lib/download-blob";
-import { homeViewForPath } from "@/lib/core-routes";
+import { homeViewForPath, modulePathForHomeView, resolveHomeViewFromPathname } from "@/lib/core-routes";
 import {
   AlertTriangle,
   BarChart3,
@@ -7802,6 +7802,8 @@ function makeEstimateLabourLine(
 
 export default function CoreApp() {
   const pathname = usePathname() || "/";
+  /** Intended module path while a tab click is ahead of the address bar (history API, not router.replace). */
+  const pendingModulePathRef = useRef<string | null>(null);
   const [employees, setEmployees] = useState<EmployeeCard[]>(() => normalizeEmployeeCards(seedEmployees));
   const [dashboardLayouts, setDashboardLayouts] = useState<Record<string, DashboardLayout>>({});
   const [isDashboardCustomising, setIsDashboardCustomising] = useState(false);
@@ -11320,9 +11322,52 @@ export default function CoreApp() {
     refreshSelectedJobVariationPortalStatuses().catch(() => {});
   }, [hasHydratedLocalData, selectedJob?.id]);
 
-  // Module URL sync DISABLED — bidirectional router.replace/homeView updates were
-  // freezing taps on live (replace loop / effect fight). homeView is local UI state;
-  // initial view still comes from the URL via useState(homeViewForPath(pathname)).
+  // Desktop: open the blue context rail once. Mobile stays closed (default true).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.matchMedia("(min-width: 721px)").matches) {
+      setContextSidebarCollapsed(false);
+    }
+  }, []);
+
+  // Safe module URL sync via history.replaceState — no Next router.replace loops.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const targetPath = modulePathForHomeView(homeView);
+    if (window.location.pathname === targetPath) {
+      pendingModulePathRef.current = null;
+      return;
+    }
+    pendingModulePathRef.current = targetPath;
+    window.history.replaceState(window.history.state, "", targetPath);
+  }, [homeView]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onPopState = () => {
+      const nextPath = window.location.pathname || "/";
+      const resolved = resolveHomeViewFromPathname({
+        pathname: nextPath,
+        homeView,
+        pendingPath: null,
+      });
+      if (resolved.homeView) setHomeView(resolved.homeView as HomeView);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- popstate reads latest homeView via closure per event
+  }, [homeView]);
+
+  useEffect(() => {
+    const resolved = resolveHomeViewFromPathname({
+      pathname,
+      homeView,
+      pendingPath: pendingModulePathRef.current,
+    });
+    pendingModulePathRef.current = resolved.pendingPath;
+    if (resolved.homeView) setHomeView(resolved.homeView as HomeView);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pathname is the only external driver
+  }, [pathname]);
 
   useEffect(() => {
     if (!hasHydratedLocalData || handledInitialRoute || typeof window === "undefined") return;

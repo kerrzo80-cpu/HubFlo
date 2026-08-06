@@ -129,6 +129,8 @@ export default function HeatDesignLabPage() {
   const applyingServerSaveRef = useRef(false);
   const skipNextProjectSaveRef = useRef(false);
   const saveTimerRef = useRef<number | null>(null);
+  /** Bumps on every local edit so stale PUT responses cannot wipe newer rooms/walls. */
+  const saveGenerationRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -231,25 +233,57 @@ export default function HeatDesignLabPage() {
 
     if (!hydratedRef.current) return;
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    const generation = ++saveGenerationRef.current;
+    const payload = project;
     setSaveStatus((current) => (current === "offline" ? current : "saving"));
     saveTimerRef.current = window.setTimeout(async () => {
       try {
-        const res = await fetch(`/api/heat-design/projects/${encodeURIComponent(project.id)}`, {
+        const res = await fetch(`/api/heat-design/projects/${encodeURIComponent(payload.id)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(project),
+          body: JSON.stringify(payload),
         });
         if (!res.ok) throw new Error("Could not save heat design project");
         const saved = normaliseProject((await res.json()) as HeatDesignProject);
+        // A newer edit started after this PUT was queued — keep local truth.
+        if (generation !== saveGenerationRef.current) {
+          setProjects((current) => upsertProjectList(current, { ...saved, rooms: payload.rooms }));
+          setSaveStatus("saved");
+          return;
+        }
         setProjects((current) => upsertProjectList(current, saved));
         setProject((current) => {
-          if (current?.id !== saved.id) return current;
+          if (!current || current.id !== saved.id) return current;
+          // Never replace rooms/walls with an older server snapshot.
+          if (current.updatedAt.localeCompare(saved.updatedAt) > 0) {
+            applyingServerSaveRef.current = true;
+            return {
+              ...current,
+              revisions: saved.revisions ?? current.revisions,
+            };
+          }
+          if (current.rooms.length > saved.rooms.length) {
+            applyingServerSaveRef.current = true;
+            return {
+              ...current,
+              revisions: saved.revisions ?? current.revisions,
+            };
+          }
           applyingServerSaveRef.current = true;
-          return saved;
+          return {
+            ...saved,
+            // Prefer local geometry if timestamps tie but local has more detail.
+            rooms: current.rooms.length >= saved.rooms.length ? current.rooms : saved.rooms,
+            heatingLayout: current.heatingLayout?.updatedAt &&
+              (!saved.heatingLayout?.updatedAt ||
+                current.heatingLayout.updatedAt.localeCompare(saved.heatingLayout.updatedAt) > 0)
+              ? current.heatingLayout
+              : saved.heatingLayout,
+          };
         });
         setSaveStatus("saved");
       } catch {
-        setSaveStatus("offline");
+        if (generation === saveGenerationRef.current) setSaveStatus("offline");
       }
     }, 700);
 
@@ -385,23 +419,26 @@ export default function HeatDesignLabPage() {
   }
 
   function addRoom() {
+    let nextId: string | null = null;
     setProject((current) => {
       if (!current) return current;
       const room = makeBlankRoom(current.rooms.length, {
         floorLevel: current.activeFloor ?? "ground",
         withDefaultWindow: false,
       });
-      setSelectedRoomId(room.id);
+      nextId = room.id;
       return {
         ...current,
         rooms: autoMarkExteriorWalls([...current.rooms, room]),
         updatedAt: new Date().toISOString(),
       };
     });
+    if (nextId) setSelectedRoomId(nextId);
     setTab("plan");
   }
 
   function placeRoom(roomType: string, planX: number, planY: number, lengthM?: number, widthM?: number) {
+    let nextId: string | null = null;
     setProject((current) => {
       if (!current) return current;
       const room = makeBlankRoom(current.rooms.length, {
@@ -413,22 +450,25 @@ export default function HeatDesignLabPage() {
         floorLevel: current.activeFloor ?? "ground",
         withDefaultWindow: false,
       });
-      setSelectedRoomId(room.id);
+      nextId = room.id;
       return {
         ...current,
         rooms: autoMarkExteriorWalls([...current.rooms, room]),
         updatedAt: new Date().toISOString(),
       };
     });
+    if (nextId) setSelectedRoomId(nextId);
   }
 
   function removeRoom(roomId: string) {
+    let nextSelected: string | null = null;
     setProject((current) => {
       if (!current) return current;
       const rooms = autoMarkExteriorWalls(current.rooms.filter((room) => room.id !== roomId));
-      setSelectedRoomId(rooms[0]?.id ?? null);
+      nextSelected = rooms[0]?.id ?? null;
       return { ...current, rooms, updatedAt: new Date().toISOString() };
     });
+    setSelectedRoomId(nextSelected);
   }
 
   async function startBlankPlan() {

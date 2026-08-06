@@ -88,9 +88,14 @@ async function runOnce() {
             `/api/health fieldPhotoSync=${json?.deployment?.fieldPhotoSync}, expected bytes-v1`,
           );
         }
-        if (json?.deployment?.mobileNavFix !== "url-sync-off-v3") {
+        if (json?.deployment?.mobileNavFix !== "history-sync-v4") {
           throw new Error(
-            `/api/health mobileNavFix=${json?.deployment?.mobileNavFix}, expected url-sync-off-v3`,
+            `/api/health mobileNavFix=${json?.deployment?.mobileNavFix}, expected history-sync-v4`,
+          );
+        }
+        if (json?.deployment?.heatDesignPlan !== "save-race-walls-v1") {
+          throw new Error(
+            `/api/health heatDesignPlan=${json?.deployment?.heatDesignPlan}, expected save-race-walls-v1`,
           );
         }
       },
