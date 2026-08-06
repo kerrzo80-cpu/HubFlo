@@ -3931,17 +3931,34 @@ a,
 
 .module-link {
   align-items: center;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 0;
   border-radius: 10px;
+  box-shadow: none;
   color: var(--muted);
+  cursor: pointer;
   display: flex;
   flex: 0 0 auto;
+  font: inherit;
   font-size: 12.5px;
   font-weight: 600;
   gap: 6px;
   height: 34px;
+  margin: 0;
   padding: 0 11px;
   text-decoration: none;
   white-space: nowrap;
+}
+
+button.module-link {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: inherit;
 }
 
 .module-dropdown-trigger {
