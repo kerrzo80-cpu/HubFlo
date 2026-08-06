@@ -46,10 +46,12 @@
 
 .hd-brand-logo {
   display: block;
-  height: 40px;
+  height: 56px;
   margin: 0 0 0.35rem;
-  max-width: 160px;
+  max-width: 220px;
   object-fit: contain;
+  object-position: left center;
+  width: auto;
 }
 
 .hd-brand-kicker {
@@ -1610,7 +1612,7 @@
 }
 
 .ewg-report-logo {
-  width: 92px;
+  width: 140px;
   height: auto;
   object-fit: contain;
 }

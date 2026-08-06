@@ -50,10 +50,15 @@
 }
 
 .field-topbar img {
-  height: 40px;
-  width: auto;
-  max-width: 72px;
+  background: #fff;
+  border-radius: 10px;
+  display: block;
+  flex: 0 0 auto;
+  height: 56px;
+  max-width: 200px;
   object-fit: contain;
+  object-position: left center;
+  width: auto;
 }
 
 .field-topbar strong {
