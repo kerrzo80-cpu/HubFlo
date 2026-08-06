@@ -23978,9 +23978,16 @@ body:has([data-takeoff-mode="page"]) {
 .body-shell.sidebar-collapsed .sidebar-label,
 .body-shell.sidebar-collapsed .context-link span,
 .body-shell.sidebar-collapsed .context-link b,
-.body-shell.sidebar-collapsed .support-panel img,
 .body-shell.sidebar-collapsed .support-panel small {
   display: none;
+}
+
+.body-shell.sidebar-collapsed .support-panel img {
+  display: block;
+  height: 34px;
+  max-width: 34px;
+  object-fit: contain;
+  width: 34px;
 }
 
 .body-shell.sidebar-collapsed .context-sidebar nav {
@@ -24062,20 +24069,7 @@ body:has([data-takeoff-mode="page"]) {
   width: 100%;
 }
 
-.body-shell.sidebar-collapsed .support-panel::before {
-  align-items: center;
-  background-image: url("/brand/nexa-command-mark-rail.svg");
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: 82%;
-  border: 1px solid rgba(212, 175, 55, 0.35);
-  border-radius: 9px;
-  content: "";
-  display: inline-flex;
-  height: 34px;
-  justify-content: center;
-  width: 34px;
-}
+/* NeXa rail mark removed — collapsed sidebar shows the company logo only. */
 
 .record-directory {
   color: var(--ink);
@@ -30441,10 +30435,11 @@ body {
   border-radius: 12px !important;
 }
 
-.body-shell.sidebar-collapsed .support-panel::before {
-  background-color: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.35) !important;
-  border-radius: 14px !important;
+.body-shell.sidebar-collapsed .support-panel img {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 14px;
+  padding: 4px;
 }
 
 .workspace {

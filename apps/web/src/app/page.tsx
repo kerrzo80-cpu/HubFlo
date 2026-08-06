@@ -8110,6 +8110,7 @@ export default function Dashboard() {
   const [setupSaveStatus, setSetupSaveStatus] = useState<RecordSaveStatus>("saved");
   const [handledInitialRoute, setHandledInitialRoute] = useState(false);
   const noticeClearTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setupManualSaveInFlightRef = useRef(false);
   const lastLocalSetupEditAt = useRef(0);
   const lastLocalCostCentreEditAt = useRef(0);
   const lastLocalEmployeeEditAt = useRef(0);
@@ -10971,9 +10972,8 @@ export default function Dashboard() {
     const controller = new AbortController();
     const timer = setTimeout(() => {
       const payload = buildHubDetailStatePayload();
-      if (setupSaveIncludesRecentEdit || pendingSetupSaveRef.current) {
-        setSetupSaveStatus("saving");
-      }
+      // Background autosave must not flip the Save button to "Saving…" — that state
+      // was getting stuck when rapid Setup edits aborted in-flight requests.
 
       fetch("/api/hub-state", {
         method: "PUT",
@@ -10988,7 +10988,7 @@ export default function Dashboard() {
           setSectionError((current) =>
             current === "Could not save shared hub detail state, so local fallback is being used." ? null : current,
           );
-          if (setupSaveIncludesRecentEdit || pendingSetupSaveRef.current) {
+          if ((setupSaveIncludesRecentEdit || pendingSetupSaveRef.current) && !setupManualSaveInFlightRef.current) {
             pendingSetupSaveRef.current = false;
             setSetupSaveStatus("saved");
           }
@@ -11000,19 +11000,18 @@ export default function Dashboard() {
           }
         })
         .catch(() => {
-          if (!controller.signal.aborted) {
-            if (setupSaveIncludesRecentEdit || pendingSetupSaveRef.current) {
-              pendingSetupSaveRef.current = false;
-              setSetupSaveStatus("error");
-            }
-            if (costCentreSaveIncludesRecentEdit) {
-              pendingCostCentreSaveRef.current = false;
-            }
-            if (invoiceSaveIncludesRecentEdit) {
-              pendingInvoiceSaveRef.current = false;
-            }
-            setSectionError("Could not save shared hub detail state, so local fallback is being used.");
+          if (controller.signal.aborted) return;
+          if ((setupSaveIncludesRecentEdit || pendingSetupSaveRef.current) && !setupManualSaveInFlightRef.current) {
+            pendingSetupSaveRef.current = true;
+            setSetupSaveStatus("unsaved");
           }
+          if (costCentreSaveIncludesRecentEdit) {
+            pendingCostCentreSaveRef.current = false;
+          }
+          if (invoiceSaveIncludesRecentEdit) {
+            pendingInvoiceSaveRef.current = false;
+          }
+          setSectionError("Could not save shared hub detail state, so local fallback is being used.");
         });
     }, 700);
 
@@ -14738,7 +14737,9 @@ export default function Dashboard() {
     lastLocalSetupEditAt.current = Date.now();
     pendingSetupSaveRef.current = true;
     hasAppliedHubSetupState.current = true;
-    setSetupSaveStatus((current) => (current === "saving" ? current : "unsaved"));
+    if (!setupManualSaveInFlightRef.current) {
+      setSetupSaveStatus("unsaved");
+    }
   }
 
   async function saveSetupNow() {
@@ -14746,6 +14747,8 @@ export default function Dashboard() {
       showNotice("Setup is still loading — try again in a moment.");
       return;
     }
+    if (setupManualSaveInFlightRef.current) return;
+    setupManualSaveInFlightRef.current = true;
     setSetupSaveStatus("saving");
     lastLocalSetupEditAt.current = Date.now();
     pendingSetupSaveRef.current = true;
@@ -14761,19 +14764,22 @@ export default function Dashboard() {
       setSetupSaveStatus("saved");
       showNotice("Setup saved.");
     } catch (error) {
+      pendingSetupSaveRef.current = true;
       setSetupSaveStatus("error");
       showNotice(error instanceof Error ? error.message : "Could not save setup.");
+    } finally {
+      setupManualSaveInFlightRef.current = false;
     }
   }
 
   function renderSetupSaveControls() {
     const statusLabel =
       setupSaveStatus === "saving"
-        ? "Saving…"
+        ? "Saving to workspace…"
         : setupSaveStatus === "unsaved"
           ? "Unsaved changes"
           : setupSaveStatus === "error"
-            ? "Save failed"
+            ? "Save failed — tap Save setup"
             : "All changes saved";
     return (
       <div className="setup-save-controls">
@@ -14786,7 +14792,7 @@ export default function Dashboard() {
           disabled={setupSaveStatus === "saving"}
           onClick={() => void saveSetupNow()}
         >
-          {setupSaveStatus === "saving" ? "Saving…" : "Save setup"}
+          {setupSaveStatus === "saving" ? "Saving…" : setupSaveStatus === "saved" ? "Saved" : "Save setup"}
         </button>
       </div>
     );
@@ -30881,17 +30887,9 @@ export default function Dashboard() {
           </a>
 
           <div className="support-panel">
-            {businessSettings.hidePlatformName ? (
-              <>
-                <img src={businessSettings.logoUrl || "/ewg-logo.png"} alt={businessSettings.companyName} />
-                <small>{businessSettings.productName || businessSettings.companyName}</small>
-              </>
-            ) : (
-              <>
-                <img src="/brand/nexa-command-lockup-rail.svg" alt="NeXa - Bound into one command center" />
-                <small>Service command center</small>
-              </>
-            )}
+            {/* Owner brand only — no NeXa mark in the rail. */}
+            <img src={businessSettings.logoUrl || "/ewg-logo.png"} alt={businessSettings.companyName} />
+            <small>{businessSettings.productName || businessSettings.companyName}</small>
           </div>
         </aside>
 
