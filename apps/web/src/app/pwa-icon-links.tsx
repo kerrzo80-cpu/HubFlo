@@ -13,7 +13,7 @@ import {
 } from "@/lib/branding";
 import { useBrand } from "@/components/BrandProvider";
 
-const iconVersion = "20260806d";
+const iconVersion = "20260806e";
 
 type Profile = {
   app: BrandAppKey;
@@ -139,7 +139,8 @@ export function PwaIconLinks() {
     });
 
     upsertLink("apple-touch-icon", appleTouchHref, { sizes: "180x180", type: "image/png" });
-    upsertLink("icon", iconHref, { sizes: "512x512", type: "image/png" });
+    // Tab favicon: small dynamic /icon (owner branding), not the old NeXa /icon.png.
+    upsertLink("icon", withVersion("/icon"), { sizes: "32x32", type: "image/png" });
     upsertLink("manifest", profile.manifest);
   }, [brand, pathname]);
 

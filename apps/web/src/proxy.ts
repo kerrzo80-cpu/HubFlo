@@ -21,19 +21,17 @@ const userAuthPublicPaths = new Set([
 ]);
 const publicAssetPaths = new Set([
   "/ewg-logo.png",
+  "/ewg-mark.png",
   "/apple-icon.png",
+  "/apple-icon",
   "/icon.png",
+  "/icon",
+  "/favicon.ico",
   "/nexa-ai-first.html",
   "/manifest-core.json",
   "/manifest-estimator.json",
   "/manifest-field.json",
   "/manifest-takeoffs.json",
-  "/estimator/apple-icon.png",
-  "/estimator/icon.png",
-  "/survey/apple-icon.png",
-  "/survey/icon.png",
-  "/takeoff/apple-icon.png",
-  "/takeoff/icon.png",
 ]);
 
 function isPublicBrandingGet(request: NextRequest) {

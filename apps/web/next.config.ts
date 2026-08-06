@@ -20,6 +20,10 @@ const nextConfig: NextConfig = {
     return [
       // Keep /engineer app available for Core stop/go + gas service record trial.
       // Field app stays at /field.
+      // Legacy static NeXa favicon paths → dynamic owner branding.
+      { source: "/favicon.ico", destination: "/icon", permanent: false },
+      { source: "/icon.png", destination: "/icon", permanent: false },
+      { source: "/apple-icon.png", destination: "/apple-icon", permanent: false },
     ];
   },
 };

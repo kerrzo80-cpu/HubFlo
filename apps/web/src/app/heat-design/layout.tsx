@@ -19,8 +19,11 @@ export const metadata: Metadata = {
     title: "Heat Design",
   },
   icons: {
-    icon: [{ url: "/api/branding/assets/logo-heat-design", sizes: "512x512", type: "image/png" }],
-    apple: [{ url: "/api/branding/assets/logo-heat-design", sizes: "180x180", type: "image/png" }],
+    icon: [
+      { url: "/icon", sizes: "32x32", type: "image/png" },
+      { url: "/api/branding/assets/logo-heat-design?home=1&v=tab1", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/api/branding/assets/logo-heat-design?apple=1&v=tab1", sizes: "180x180", type: "image/png" }],
   },
 };
 

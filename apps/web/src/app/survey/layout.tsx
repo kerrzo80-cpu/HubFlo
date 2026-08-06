@@ -12,8 +12,11 @@ export const metadata: Metadata = {
     title: "Survey",
   },
   icons: {
-    icon: [{ url: "/api/branding/assets/logo-survey", sizes: "512x512", type: "image/png" }],
-    apple: [{ url: "/api/branding/assets/logo-survey", sizes: "180x180", type: "image/png" }],
+    icon: [
+      { url: "/icon", sizes: "32x32", type: "image/png" },
+      { url: "/api/branding/assets/logo-survey?home=1&v=tab1", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/api/branding/assets/logo-survey?apple=1&v=tab1", sizes: "180x180", type: "image/png" }],
   },
 };
 
