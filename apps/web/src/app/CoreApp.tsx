@@ -15,11 +15,7 @@ import {
 } from "react";
 import { CorePanelSkeleton } from "@/components/CorePanelSkeleton";
 import { downloadBlob } from "@/lib/download-blob";
-import {
-  homeViewForPath,
-  modulePathForHomeView,
-  resolveHomeViewFromPathname,
-} from "@/lib/core-routes";
+import { homeViewForPath, modulePathForHomeView } from "@/lib/core-routes";
 import {
   AlertTriangle,
   BarChart3,
@@ -7807,11 +7803,6 @@ function makeEstimateLabourLine(
 export default function CoreApp() {
   const pathname = usePathname() || "/";
   const router = useRouter();
-  /** Module path we intentionally navigated to; ignore stale pathname until the router catches up. */
-  const pendingModulePathRef = useRef<string | null>(null);
-  const lastHomeViewRef = useRef<HomeView>(
-    (homeViewForPath(pathname) as HomeView | null) ?? "dashboard",
-  );
   const [employees, setEmployees] = useState<EmployeeCard[]>(() => normalizeEmployeeCards(seedEmployees));
   const [dashboardLayouts, setDashboardLayouts] = useState<Record<string, DashboardLayout>>({});
   const [isDashboardCustomising, setIsDashboardCustomising] = useState(false);
@@ -11330,46 +11321,31 @@ export default function CoreApp() {
     refreshSelectedJobVariationPortalStatuses().catch(() => {});
   }, [hasHydratedLocalData, selectedJob?.id]);
 
-  // Desktop keeps the blue context rail available; mobile starts closed (state default).
+  // Desktop: open the context rail once. Do not listen for viewport changes — mobile
+  // browsers fire those during scroll and were fighting the drawer / eating taps.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const media = window.matchMedia("(min-width: 721px)");
-    const syncRail = () => {
-      if (media.matches) setContextSidebarCollapsed(false);
-      else setContextSidebarCollapsed(true);
-    };
-    syncRail();
-    media.addEventListener("change", syncRail);
-    return () => media.removeEventListener("change", syncRail);
+    if (window.matchMedia("(min-width: 721px)").matches) {
+      setContextSidebarCollapsed(false);
+    }
   }, []);
 
-  // Keep the address bar aligned with the top-level Core module (nested records stay under parent path).
+  // UI → address bar. Depend on homeView only so pathname updates do not re-enter this effect.
   useEffect(() => {
     const targetPath = modulePathForHomeView(homeView);
-    if (pathname === targetPath) {
-      pendingModulePathRef.current = null;
-      lastHomeViewRef.current = homeView;
-      return;
-    }
-    // Only push when homeView changed from the UI. If pathname moved first (back/forward), do not fight it.
-    if (lastHomeViewRef.current !== homeView) {
-      lastHomeViewRef.current = homeView;
-      pendingModulePathRef.current = targetPath;
-      router.replace(targetPath);
-    }
-  }, [homeView, pathname, router]);
+    if (pathname === targetPath) return;
+    router.replace(targetPath);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pathname read intentionally; must not re-run on pathname
+  }, [homeView, router]);
 
-  // Browser back/forward + hard loads on /jobs, /quotes, etc. drive homeView without remounting CoreApp.
-  // Intentionally depends on pathname only — homeView updates must not re-interpret a stale URL.
+  // Address bar → UI (back/forward / hard load). Never clobber nested record views on the same module.
   useEffect(() => {
-    const resolved = resolveHomeViewFromPathname({
-      pathname,
-      homeView,
-      pendingPath: pendingModulePathRef.current,
+    const fromPath = homeViewForPath(pathname);
+    if (!fromPath) return;
+    setHomeView((current) => {
+      if (modulePathForHomeView(current) === pathname) return current;
+      return fromPath as HomeView;
     });
-    pendingModulePathRef.current = resolved.pendingPath;
-    if (resolved.homeView) setHomeView(resolved.homeView as HomeView);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- pathname is the only external driver
   }, [pathname]);
 
   useEffect(() => {

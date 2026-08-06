@@ -16,31 +16,37 @@ function num(record: AnyRecord, key: string): number {
 }
 
 function useCountUp(target: number, duration = 750): number {
-  const [value, setValue] = useState(target);
-  const fromRef = useRef(target);
+  const safeTarget = Number.isFinite(target) ? target : 0;
+  const [value, setValue] = useState(safeTarget);
+  const fromRef = useRef(safeTarget);
   const mountedRef = useRef(false);
   useEffect(() => {
     if (!mountedRef.current) {
       mountedRef.current = true;
-      fromRef.current = target;
-      setValue(target);
+      fromRef.current = safeTarget;
+      setValue(safeTarget);
       return;
     }
-    if (fromRef.current === target) return;
+    if (fromRef.current === safeTarget) return;
     const from = fromRef.current;
     const start = performance.now();
     let raf = 0;
+    let cancelled = false;
     const tick = (now: number) => {
+      if (cancelled) return;
       const p = Math.min(1, (now - start) / duration);
       const eased = 1 - Math.pow(1 - p, 3);
-      const current = Math.round(from + (target - from) * eased);
+      const current = Math.round(from + (safeTarget - from) * eased);
       setValue(current);
       if (p < 1) raf = requestAnimationFrame(tick);
-      else fromRef.current = target;
+      else fromRef.current = safeTarget;
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [target, duration]);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [safeTarget, duration]);
   return value;
 }
 

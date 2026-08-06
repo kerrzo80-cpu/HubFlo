@@ -18042,13 +18042,17 @@ h1 {
     background: rgba(10, 26, 38, 0.38);
     border: 0;
     bottom: 0;
-    display: block;
+    display: none;
     left: 0;
     padding: 0;
     position: fixed;
     right: 0;
     top: 112px;
     z-index: 110;
+  }
+
+  .body-shell:not(.sidebar-collapsed) .context-sidebar-backdrop {
+    display: block;
   }
 
   .workspace {

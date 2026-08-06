@@ -45,7 +45,7 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
           const keys = await caches.keys();
           await Promise.all(
             keys
-              .filter((key) => key.startsWith("ewg-field-shell-") && key !== "ewg-field-shell-v3")
+              .filter((key) => key.startsWith("ewg-field-shell-") && key !== "ewg-field-shell-v4")
               .map((key) => caches.delete(key)),
           );
         }

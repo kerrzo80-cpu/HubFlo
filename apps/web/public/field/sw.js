@@ -1,7 +1,7 @@
 /* Field offline shell — scoped to /field/ only. Network-first for pages so
  * deploys never leave Ask Blake / Hours / Connect on stale JS.
  */
-const CACHE = "ewg-field-shell-v3";
+const CACHE = "ewg-field-shell-v4";
 const PRECACHE = [
   "/ewg-logo.png",
   "/manifest-field.json",
@@ -50,16 +50,16 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // All Field document / RSC navigations are network-first (including /field/settings).
+  // Document / App Router navigations only — do not treat every /field/* fetch as HTML.
   const isDocument =
     request.mode === "navigate" ||
     (request.headers.get("accept") || "").includes("text/html") ||
-    (request.headers.get("rsc") === "1") ||
-    (request.headers.get("next-router-prefetch") != null) ||
-    (request.headers.get("next-router-state-tree") != null) ||
     url.pathname === "/field" ||
     url.pathname === "/field/" ||
-    url.pathname.startsWith("/field/");
+    url.pathname.startsWith("/field/ask") ||
+    url.pathname.startsWith("/field/time-check") ||
+    url.pathname.startsWith("/field/settings") ||
+    url.pathname.startsWith("/field/jobs");
 
   if (isDocument) {
     event.respondWith(
