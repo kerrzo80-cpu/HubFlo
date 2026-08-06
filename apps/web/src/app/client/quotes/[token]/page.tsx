@@ -108,8 +108,8 @@ export default function ClientQuotePortal({ params }: { params: Promise<{ token:
       <section className="client-portal-card">
         <header>
           <span className="verrova-client-lockup">
-            <img src="/brand/nexa-command-mark.svg" alt="" aria-hidden="true" />
-            <strong>NeXa</strong>
+            <img src="/ewg-logo.png" alt="" aria-hidden="true" />
+            <strong>EWG</strong>
           </span>
           <span>Online quote review</span>
         </header>
