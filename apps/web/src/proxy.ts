@@ -20,6 +20,7 @@ const userAuthPublicPaths = new Set([
   "/api/auth/login",
   "/api/auth/me",
   "/api/health",
+  "/api/health/smoke",
   "/api/branding",
   "/api/postcode-lookup",
   "/ai-first",
@@ -82,7 +83,7 @@ function expectedPilotSessionValue() {
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (pathname === "/api/health") return NextResponse.next();
+  if (pathname === "/api/health" || pathname === "/api/health/smoke") return NextResponse.next();
   if (isPublicBrandingGet(request)) return NextResponse.next();
   if (
     publicAssetPaths.has(pathname) ||
