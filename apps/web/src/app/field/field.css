@@ -50,11 +50,11 @@
 }
 
 .field-topbar img {
-  background: #fff;
-  border-radius: 10px;
+  background: transparent;
+  border-radius: 8px;
   display: block;
   flex: 0 0 auto;
-  height: 56px;
+  height: 48px;
   max-width: 200px;
   object-fit: contain;
   object-position: left center;
@@ -931,12 +931,13 @@
 
 .field-app .field-job-address {
   color: var(--steel);
-  display: block !important;
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   font-size: 13px;
   line-height: 1.35;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .field-app .field-job-chevron {

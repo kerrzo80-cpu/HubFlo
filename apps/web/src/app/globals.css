@@ -2374,12 +2374,14 @@ button:disabled {
 }
 
 .brand-lockup img {
-  background: #fff;
-  border: 1px solid rgba(27, 77, 100, 0.16);
+  background: transparent;
+  border: 0;
   height: 52px;
   object-fit: contain;
-  padding: 4px 8px;
-  width: 94px;
+  object-position: left center;
+  padding: 0;
+  width: auto;
+  max-width: 220px;
 }
 
 .product-name {
@@ -12260,6 +12262,24 @@ h1 {
   font-weight: 900;
   padding: 7px 10px;
   white-space: nowrap;
+}
+
+.setup-subpage-status.is-mockup {
+  background: #fff7ed;
+  border-color: rgba(180, 83, 9, 0.28);
+  color: #b54708;
+}
+
+.setup-readiness-grid article.setup-readiness-action {
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+}
+
+.setup-readiness-grid article.setup-readiness-action:hover {
+  border-color: rgba(56, 161, 206, 0.45);
+  box-shadow: 0 10px 24px rgba(23, 105, 143, 0.1);
+  transform: translateY(-1px);
 }
 
 .setup-subpage-focus {
@@ -22928,13 +22948,14 @@ kbd,
 
 .support-panel img {
   background: #fff;
-  border-radius: 6px;
+  border-radius: 10px;
   display: block;
   height: auto;
-  max-width: 180px;
+  max-width: 168px;
   object-fit: contain;
-  padding: 4px;
-  width: 100%;
+  object-position: left center;
+  padding: 6px 8px;
+  width: auto;
 }
 
 .support-panel small {
@@ -23035,12 +23056,23 @@ kbd,
   color: var(--nexa-slate);
 }
 
-.verrova-client-lockup img,
-.engineer-brand-bar img {
+.verrova-client-lockup img {
   border-radius: 8px;
   height: 34px;
   object-fit: contain;
   width: 34px;
+}
+
+.engineer-brand-bar img {
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  height: 38px;
+  max-width: 160px;
+  object-fit: contain;
+  object-position: left center;
+  padding: 0;
+  width: auto;
 }
 
 .client-portal-shell,
@@ -23087,11 +23119,11 @@ kbd,
 
 .brand-lockup .company-logo {
   display: block !important;
-  background: #fff !important;
+  background: transparent !important;
   border: 0 !important;
-  border-radius: 0 !important;
-  height: 64px;
-  max-width: 240px;
+  border-radius: 8px !important;
+  height: 56px;
+  max-width: 220px;
   object-fit: contain;
   object-position: left center;
   padding: 0 !important;
@@ -30609,10 +30641,10 @@ body {
 }
 
 .body-shell.sidebar-collapsed .support-panel img {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 14px;
-  padding: 4px;
+  background: #fff;
+  border: 0;
+  border-radius: 10px;
+  padding: 4px 6px;
 }
 
 .workspace {
@@ -37724,12 +37756,39 @@ body {
 .flow-progress-panel,
 .profile-hero-panel,
 .profile-calendar-panel,
-.support-panel,
 .lead-schedule-panel {
   border: 1px solid var(--line);
   border-radius: 18px;
   background: var(--surface);
   box-shadow: var(--shadow);
+}
+
+/* Support logo sits on the blue rail — never wrap it in a second white card. */
+.support-panel {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.context-sidebar .support-panel {
+  background: transparent !important;
+  border: 0 !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.28) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  margin-top: 8px;
+  padding-top: 16px;
+}
+
+.context-sidebar .support-panel img {
+  background: #fff;
+  border: 0;
+  border-radius: 10px;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12);
+  max-width: 156px;
+  padding: 6px 8px;
+  width: auto;
 }
 
 .panel-header h2,
@@ -37810,10 +37869,11 @@ body {
   border-radius: 10px;
 }
 
-/* Left context sidebar — clean surface */
+/* Left context sidebar — brand blue rail (do not flatten to surface). */
 .context-sidebar {
-  background: var(--surface);
-  border-right: 1px solid var(--line);
+  background: #17698f;
+  border-right: 1px solid rgba(23, 105, 143, 0.35);
+  color: #fff;
 }
 
 /* Give the dashboard grid more breathing room */

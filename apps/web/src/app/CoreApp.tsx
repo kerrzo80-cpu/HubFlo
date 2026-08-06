@@ -130,6 +130,7 @@ import {
   normalizeBusinessBranding,
   operationsLabel,
   platformLabel,
+  resolveBrandChromeLogoUrl,
   resolveBrandLogoUrl,
   type BusinessBrandingSettings,
 } from "@/lib/branding";
@@ -3250,9 +3251,9 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "tax-codes", label: "Tax codes", detail: "VAT treatments mapped for Xero" },
   { key: "email-templates", label: "Email templates", detail: "Quote, invoice, PO and follow-up wording" },
   { key: "security", label: "Security groups", detail: "Role permission templates for employee cards" },
-  { key: "integrations", label: "Integrations", detail: "NeXa AI, simPRO, Xero and live system sync", subItems: ["NeXa AI", "simPRO", "Xero", "Import from simPRO"] },
+  { key: "integrations", label: "Integrations", detail: "NeXa AI, simPRO, Xero, SumUp and live system sync", subItems: ["NeXa AI", "simPRO", "Xero", "Import from simPRO"] },
   { key: "communications", label: "Communications", detail: "Outlook, WhatsApp and supplier doorway settings", subItems: ["Outlook", "WhatsApp", "Supplier emails"] },
-  { key: "finance", label: "Finance", detail: "Invoices, VAT, payment terms and approval gates", subItems: ["Invoices", "Valuations", "PO approvals"] },
+  { key: "finance", label: "Finance", detail: "Invoices, VAT, payment terms, Xero connection and approval gates", subItems: ["Invoices", "Valuations", "PO approvals", "Xero"] },
 ];
 
 const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string; focus: string[]; status: string }>> = {
@@ -3526,6 +3527,11 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       summary: "Set purchase order approval thresholds used when POs need office sign-off before send.",
       focus: ["Approval thresholds", "Workflow gate messaging", "Supplier PO issue rules"],
       status: "Editable now",
+    },
+    Xero: {
+      summary: "Connect Xero from Finance when you are looking for accounts — same OAuth connection as Integrations. Day-to-day export queues stay in the Xero left-nav module.",
+      focus: ["OAuth tenant", "Export queues in Xero module", "Also listed under Integrations"],
+      status: "Opens connection setup",
     },
   },
 };
@@ -18995,11 +19001,25 @@ export default function CoreApp() {
     }
   }
 
+  function openXeroConnectionSetup() {
+    setHomeView("settings");
+    setActiveSetupCategory("integrations");
+    setActiveSetupSubItem("Xero");
+    void refreshIntegrationConnectionStatus({ silent: true });
+    scrollWorkspaceToTop();
+  }
+
   function handleSetupSubItemClick(category: (typeof setupCategories)[number], item: string) {
+    // Finance → Xero is a dual-link: people look under money settings; connection lives with integrations.
+    if (category.key === "finance" && item === "Xero") {
+      openXeroConnectionSetup();
+      return;
+    }
+
     setActiveSetupCategory(category.key);
     setActiveSetupSubItem(item);
 
-    if (category.key === "communications") {
+    if (category.key === "communications" || category.key === "integrations") {
       void refreshIntegrationConnectionStatus({ silent: true });
     }
 
@@ -19799,7 +19819,7 @@ export default function CoreApp() {
       importance: "high",
     });
     setActiveInvoiceFolderKey("unpaid");
-    showNotice(`${applicationRef} approved. Invoice ${nextRef} created and marked unpaid. Xero export is not enabled yet.`);
+    showNotice(`${applicationRef} approved. Invoice ${nextRef} created and marked unpaid — export from the Xero module when ready.`);
   }
 
   function createRetentionReleaseInvoice() {
@@ -30770,7 +30790,7 @@ export default function CoreApp() {
           <div className="brand-lockup">
             <img
               className="company-logo"
-              src={businessSettings.logoUrl || "/ewg-logo.png"}
+              src={resolveBrandChromeLogoUrl(businessSettings, "core")}
               alt={businessSettings.companyName || "EWG"}
             />
           </div>
@@ -30917,7 +30937,7 @@ export default function CoreApp() {
       ) : null}
       <header className="global-header">
         <div className="brand-lockup">
-          <img className="company-logo" src={resolveBrandLogoUrl(businessSettings, "core")} alt={businessSettings.companyName} />
+          <img className="company-logo" src={resolveBrandChromeLogoUrl(businessSettings, "core")} alt={businessSettings.companyName} />
         </div>
 
         <label className="global-search">
@@ -31433,8 +31453,8 @@ export default function CoreApp() {
           </a>
 
           <div className="support-panel">
-            {/* Owner brand only — no NeXa mark in the rail. */}
-            <img src={resolveBrandLogoUrl(businessSettings, "core")} alt={businessSettings.companyName} />
+            {/* Wide company wordmark — square CORE marks look cut-boxed on the blue rail. */}
+            <img src={resolveBrandChromeLogoUrl(businessSettings, "core")} alt={businessSettings.companyName} />
             <small>{businessSettings.productName || businessSettings.companyName}</small>
           </div>
         </aside>
@@ -42188,7 +42208,11 @@ export default function CoreApp() {
                         <h2>{activeSetupSubItem}</h2>
                         <p>{activeSetupSubItemMeta.summary}</p>
                       </div>
-                      <div className="setup-subpage-status">{activeSetupSubItemMeta.status}</div>
+                      <div
+                        className={`setup-subpage-status${/mockup|coming later|not live/i.test(activeSetupSubItemMeta.status) ? " is-mockup" : ""}`}
+                      >
+                        {activeSetupSubItemMeta.status}
+                      </div>
                       <div className="setup-subpage-focus">
                         {activeSetupSubItemMeta.focus.map((focusItem) => (
                           <span key={focusItem}>{focusItem}</span>
@@ -44338,10 +44362,21 @@ export default function CoreApp() {
                           <strong>{financeSettings.accountName}</strong>
                           <small>{financeSettings.bankName} · {financeSettings.sortCode} · {financeSettings.accountNumber}</small>
                         </article>
-                        <article>
+                        <article
+                          className="setup-readiness-action"
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => openXeroConnectionSetup()}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              openXeroConnectionSetup();
+                            }
+                          }}
+                        >
                           <span>Accounts connector</span>
                           <strong>Xero · {integrationSettings.xeroMode}</strong>
-                          <small>Invoices and agreed progress claims export via OAuth/live token or CSV pack. Connect Xero from Setup when credentials are on Render; payment reconciliation is the next accounts step.</small>
+                          <small>Open to connect Xero (also under Setup → Integrations). Day-to-day invoice and bill export queues stay in the Xero module in the top nav.</small>
                         </article>
                         <article>
                           <span>simPRO bridge</span>
