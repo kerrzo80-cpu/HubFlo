@@ -119,6 +119,7 @@ export async function GET() {
       recurringStockEdit: "edit-remove-v1",
       resetWorkflowRemoved: "no-accidental-wipe-v1",
       dashboardLayout: "pipeline-gantt-v3",
+      coreUiPerf: "lazy-panels-boot-shell-v1",
       takeoffSkill: "drawing-first-v8-routes-page",
       takeoffAiConfirm: "overlay-review-v1",
       recurringServices: "upcoming-4w-v1",

@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import {
   useEffect,
   useMemo,
@@ -11,6 +12,8 @@ import {
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { CorePanelSkeleton } from "@/components/CorePanelSkeleton";
+import { downloadBlob } from "@/lib/download-blob";
 import {
   AlertTriangle,
   BarChart3,
@@ -119,8 +122,6 @@ import {
   type DirectoryAlphabetLetter,
 } from "@/lib/directory-list-filter";
 import { makeTimelineEntry, sortTimelineEntries, type TimelineEntry, type TimelineStage } from "@/lib/record-timeline";
-import { RecurringOpsPanel, SiteAssetsPanel, StockOpsPanel } from "@/lib/OpsPanels";
-import { SetupConfigPanel, SetupStockLocationsPanel, SetupPrebuildsPanel } from "@/lib/SetupExtraPanels";
 import {
   applyBrandCssVariables,
   defaultBusinessBrandingSettings,
@@ -136,15 +137,7 @@ import {
   type FormDocumentLayout,
   type FormDocumentTemplate,
 } from "@/lib/form-document-chrome";
-import {
-  buildReportsBoardPackPdf,
-  buildReportsExcelXml,
-  downloadBlob,
-  type ReportPackRow,
-} from "@/lib/reports-board-pack";
-import { SetupPersonalisingPanel } from "@/components/SetupPersonalisingPanel";
-import { OpenAiKeyCard } from "./OpenAiKeyCard";
-import { SumUpKeyCard } from "@/components/SumUpKeyCard";
+import type { ReportPackRow } from "@/lib/reports-board-pack";
 import { DashboardOverview } from "./DashboardOverview";
 import { DashboardWeeklyGantt, computeDashboardGanttNowMarker } from "./DashboardWeeklyGantt";
 import {
@@ -154,12 +147,6 @@ import {
   scheduleBookingChipDetail,
   scheduleBookingChipLabel,
 } from "@/lib/scheduler-availability";
-import { JobFieldLivePanel } from "@/components/JobFieldLivePanel";
-import { GasSafeLgsrCertificate } from "@/components/GasSafeLgsrCertificate";
-import { DayworkAccountForm } from "@/components/DayworkAccountForm";
-import { DayworkSheetForm } from "@/components/field/DayworkSheetForm";
-import { SignatureImage } from "@/components/SignaturePad";
-import { SimproDescriptionEditor } from "@/components/SimproDescriptionEditor";
 import { stripSimproHtml } from "@/lib/simpro-text";
 import type { GasServiceRecord } from "@/lib/engineer-flow";
 import {
@@ -170,6 +157,69 @@ import {
   totalDayworkLabourHours,
   type DayworkAccountRecord,
 } from "@/lib/daywork-account-form";
+
+const panelSkeleton = (label: string) => <CorePanelSkeleton label={label} />;
+
+const RecurringOpsPanel = dynamic(
+  () => import("@/lib/OpsPanels").then((mod) => mod.RecurringOpsPanel),
+  { ssr: false, loading: () => panelSkeleton("Loading recurring…") },
+);
+const SiteAssetsPanel = dynamic(
+  () => import("@/lib/OpsPanels").then((mod) => mod.SiteAssetsPanel),
+  { ssr: false, loading: () => panelSkeleton("Loading assets…") },
+);
+const StockOpsPanel = dynamic(
+  () => import("@/lib/OpsPanels").then((mod) => mod.StockOpsPanel),
+  { ssr: false, loading: () => panelSkeleton("Loading stock…") },
+);
+const SetupConfigPanel = dynamic(
+  () => import("@/lib/SetupExtraPanels").then((mod) => mod.SetupConfigPanel),
+  { ssr: false, loading: () => panelSkeleton("Loading setup…") },
+);
+const SetupStockLocationsPanel = dynamic(
+  () => import("@/lib/SetupExtraPanels").then((mod) => mod.SetupStockLocationsPanel),
+  { ssr: false, loading: () => panelSkeleton("Loading setup…") },
+);
+const SetupPrebuildsPanel = dynamic(
+  () => import("@/lib/SetupExtraPanels").then((mod) => mod.SetupPrebuildsPanel),
+  { ssr: false, loading: () => panelSkeleton("Loading setup…") },
+);
+const SetupPersonalisingPanel = dynamic(
+  () => import("@/components/SetupPersonalisingPanel").then((mod) => mod.SetupPersonalisingPanel),
+  { ssr: false, loading: () => panelSkeleton("Loading branding…") },
+);
+const OpenAiKeyCard = dynamic(() => import("./OpenAiKeyCard").then((mod) => mod.OpenAiKeyCard), {
+  ssr: false,
+  loading: () => panelSkeleton("Loading integrations…"),
+});
+const SumUpKeyCard = dynamic(() => import("@/components/SumUpKeyCard").then((mod) => mod.SumUpKeyCard), {
+  ssr: false,
+  loading: () => panelSkeleton("Loading SumUp…"),
+});
+const JobFieldLivePanel = dynamic(
+  () => import("@/components/JobFieldLivePanel").then((mod) => mod.JobFieldLivePanel),
+  { ssr: false, loading: () => panelSkeleton("Loading Field live…") },
+);
+const GasSafeLgsrCertificate = dynamic(
+  () => import("@/components/GasSafeLgsrCertificate").then((mod) => mod.GasSafeLgsrCertificate),
+  { ssr: false, loading: () => panelSkeleton("Loading gas certificate…") },
+);
+const DayworkAccountForm = dynamic(
+  () => import("@/components/DayworkAccountForm").then((mod) => mod.DayworkAccountForm),
+  { ssr: false, loading: () => panelSkeleton("Loading daywork…") },
+);
+const DayworkSheetForm = dynamic(
+  () => import("@/components/field/DayworkSheetForm").then((mod) => mod.DayworkSheetForm),
+  { ssr: false, loading: () => panelSkeleton("Loading daywork…") },
+);
+const SignatureImage = dynamic(
+  () => import("@/components/SignaturePad").then((mod) => mod.SignatureImage),
+  { ssr: false },
+);
+const SimproDescriptionEditor = dynamic(
+  () => import("@/components/SimproDescriptionEditor").then((mod) => mod.SimproDescriptionEditor),
+  { ssr: false, loading: () => panelSkeleton("Loading editor…") },
+);
 
 const invoiceReadiness = checkInvoiceReadiness({
   requiredTasks: { complete: 7, total: 8 },
@@ -10969,8 +11019,9 @@ export default function Dashboard() {
   }, [hasHydratedLocalData, jobEstimateCostCentres, quoteCostCentres]);
 
   useEffect(() => {
+    // Integrations are Setup/Xero concern — defer until those views or idle after hydrate.
     if (!hasHydratedLocalData) return;
-
+    const needsNow = homeView === "settings" || homeView === "xero" || homeView === "addons";
     let stopped = false;
 
     const loadIntegrationStatuses = async () => {
@@ -11007,12 +11058,30 @@ export default function Dashboard() {
       }
     };
 
-    loadIntegrationStatuses().catch(() => {});
+    let idleHandle: number | undefined;
+    if (needsNow) {
+      void loadIntegrationStatuses().catch(() => {});
+    } else if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      idleHandle = window.requestIdleCallback(() => {
+        void loadIntegrationStatuses().catch(() => {});
+      }, { timeout: 4000 });
+    } else {
+      idleHandle = window.setTimeout(() => {
+        void loadIntegrationStatuses().catch(() => {});
+      }, 1200) as unknown as number;
+    }
 
     return () => {
       stopped = true;
+      if (idleHandle !== undefined) {
+        if (typeof window !== "undefined" && "cancelIdleCallback" in window) {
+          window.cancelIdleCallback(idleHandle);
+        } else {
+          window.clearTimeout(idleHandle);
+        }
+      }
     };
-  }, [hasHydratedLocalData, requestHeaders]);
+  }, [hasHydratedLocalData, requestHeaders, homeView]);
 
   useEffect(() => {
     if (!hasHydratedLocalData) return;
@@ -11358,7 +11427,8 @@ export default function Dashboard() {
   }, [hasHydratedLocalData]);
 
   useEffect(() => {
-    if (!hasHydratedLocalData) return;
+    // Stock cost rollup only matters for Reports / Stock — don't compete with hub hydrate.
+    if (!hasHydratedLocalData || (homeView !== "reports" && homeView !== "stock")) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -11393,33 +11463,45 @@ export default function Dashboard() {
   }, [hasHydratedLocalData, requestHeaders, homeView]);
 
   useEffect(() => {
-    if (!hasHydratedLocalData) return;
+    // Due assets feed dashboard actions — load after paint / when on dashboard.
+    if (!hasHydratedLocalData || homeView !== "dashboard") return;
     let cancelled = false;
-    void (async () => {
-      try {
-        const response = await fetch("/api/site-assets?due=1&withinDays=30", { headers: requestHeaders });
-        const body = await response.json().catch(() => null) as {
-          assets?: Array<{
-            id: string;
-            siteId: string;
-            clientId?: string;
-            type: string;
-            name: string;
-            nextServiceDate?: string;
-            certificateExpiresAt?: string;
-            make?: string;
-            model?: string;
-          }>;
-        } | null;
-        if (!cancelled && response.ok) {
-          setDueSiteAssetRows(body?.assets || []);
+    const run = () => {
+      void (async () => {
+        try {
+          const response = await fetch("/api/site-assets?due=1&withinDays=30", { headers: requestHeaders });
+          const body = await response.json().catch(() => null) as {
+            assets?: Array<{
+              id: string;
+              siteId: string;
+              clientId?: string;
+              type: string;
+              name: string;
+              nextServiceDate?: string;
+              certificateExpiresAt?: string;
+              make?: string;
+              model?: string;
+            }>;
+          } | null;
+          if (!cancelled && response.ok) {
+            setDueSiteAssetRows(body?.assets || []);
+          }
+        } catch {
+          // dashboard panel is best-effort
         }
-      } catch {
-        // dashboard panel is best-effort
-      }
-    })();
+      })();
+    };
+    const idle =
+      typeof window !== "undefined" && "requestIdleCallback" in window
+        ? window.requestIdleCallback(run, { timeout: 1800 })
+        : window.setTimeout(run, 400);
     return () => {
       cancelled = true;
+      if (typeof window !== "undefined" && "cancelIdleCallback" in window && typeof idle === "number") {
+        window.cancelIdleCallback(idle);
+      } else {
+        window.clearTimeout(idle as number);
+      }
     };
   }, [hasHydratedLocalData, requestHeaders, homeView]);
 
@@ -13418,6 +13500,7 @@ export default function Dashboard() {
   async function downloadReportsPdf() {
     if (typeof window === "undefined") return;
     try {
+      const { buildReportsBoardPackPdf } = await import("@/lib/reports-board-pack");
       const bytes = await buildReportsBoardPackPdf({
         companyName: businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group",
         title: "Reports board pack",
@@ -13434,18 +13517,23 @@ export default function Dashboard() {
     }
   }
 
-  function downloadReportsExcel() {
+  async function downloadReportsExcel() {
     if (typeof window === "undefined") return;
-    const xml = buildReportsExcelXml({
-      companyName: businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group",
-      dateLabel: reportDateRangeLabel,
-      rows: buildReportPackRows(),
-    });
-    downloadBlob(
-      `ewg-reports-${currentOperatingDate}.xls`,
-      new Blob([xml], { type: "application/vnd.ms-excel;charset=utf-8" }),
-    );
-    showNotice("Reports Excel workbook downloaded.");
+    try {
+      const { buildReportsExcelXml } = await import("@/lib/reports-board-pack");
+      const xml = buildReportsExcelXml({
+        companyName: businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group",
+        dateLabel: reportDateRangeLabel,
+        rows: buildReportPackRows(),
+      });
+      downloadBlob(
+        `ewg-reports-${currentOperatingDate}.xls`,
+        new Blob([xml], { type: "application/vnd.ms-excel;charset=utf-8" }),
+      );
+      showNotice("Reports Excel workbook downloaded.");
+    } catch {
+      showNotice("Could not build the Excel board pack. Try CSV instead.");
+    }
   }
 
   function ensureInvoicePortalToken(invoice: Invoice): Invoice {
@@ -30605,6 +30693,10 @@ export default function Dashboard() {
 
         {!isDashboardCustomising ? (
           <DashboardOverview
+            jobs={jobs}
+            quotes={quotes}
+            leads={leads}
+            loaded={hasLoadedHubDetailState || jobs.length > 0}
             onOpenJobs={() => {
               setActiveJobFolderKey("pending");
               setHomeView("jobs");
@@ -30646,11 +30738,41 @@ export default function Dashboard() {
 
   if (!hasHydratedLocalData || serverAuthMode === "checking") {
     return (
-      <div className="employee-login-shell">
-        <section className="employee-login-card loading">
-          <img src={businessSettings.logoUrl || "/ewg-logo.png"} alt={businessSettings.companyName} />
-          <strong>Loading {businessSettings.workspaceName || "workspace"}...</strong>
-        </section>
+      <div className="platform core-boot-shell" aria-busy="true">
+        <header className="global-header core-boot-header">
+          <div className="brand-lockup">
+            <img
+              className="company-logo"
+              src={businessSettings.logoUrl || "/ewg-logo.png"}
+              alt={businessSettings.companyName || "EWG"}
+            />
+          </div>
+          <div className="core-boot-search-skel" aria-hidden="true" />
+          <div className="core-boot-actions-skel" aria-hidden="true" />
+        </header>
+        <div className="core-boot-body">
+          <aside className="core-boot-rail" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+            <span />
+            <span />
+          </aside>
+          <main className="core-boot-main">
+            <p className="core-boot-status">
+              {serverAuthMode === "checking"
+                ? "Signing you in…"
+                : `Loading ${businessSettings.workspaceName || "workspace"}…`}
+            </p>
+            <div className="core-boot-kpi-grid" aria-hidden="true">
+              <div />
+              <div />
+              <div />
+              <div />
+            </div>
+            <div className="core-boot-gantt-skel" aria-hidden="true" />
+          </main>
+        </div>
       </div>
     );
   }
@@ -32717,7 +32839,7 @@ export default function Dashboard() {
                   <FileText size={15} />
                   PDF
                 </button>
-                <button className="secondary-button" type="button" onClick={downloadReportsExcel}>
+                <button className="secondary-button" type="button" onClick={() => void downloadReportsExcel()}>
                   <FileSpreadsheet size={15} />
                   Excel
                 </button>

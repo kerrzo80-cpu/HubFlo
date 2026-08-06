@@ -14,6 +14,8 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: "50mb",
     },
+    // Tree-shake lucide icon imports in the Core mega-page.
+    optimizePackageImports: ["lucide-react"],
   },
   transpilePackages: ["@hubflo/domain"],
   async redirects() {
