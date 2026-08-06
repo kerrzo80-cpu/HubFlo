@@ -66,6 +66,7 @@ export type QuoteConversionHandoffResult = {
   depositInvoice: Record<string, unknown> | null;
   jobValueUpdated: boolean;
   communicationLogged: boolean;
+  firstVisitDraftCreated: boolean;
 };
 
 export type QuoteConversionServerResult = QuoteConversionResult & {
@@ -261,6 +262,68 @@ function asQuoteCostCentres(hubState: ReturnType<typeof getHubDetailState>, quot
   if (!map || typeof map !== "object" || Array.isArray(map)) return [] as QuoteCostCentreRecord[];
   const centres = (map as Record<string, unknown>)[quoteId];
   return Array.isArray(centres) ? (centres as QuoteCostCentreRecord[]) : [];
+}
+
+/** Customer-facing quote portal summary (no costs — sell only). */
+export function getQuotePortalLineSummary(quoteId: string) {
+  const centres = asQuoteCostCentres(getHubDetailState(), quoteId).filter(
+    (centre) => !centre.isOption || centre.optionStatus === "Selected",
+  );
+  return centres.map((centre) => {
+    const totals = quoteCostCentreTotals(centre);
+    return {
+      id: centre.id,
+      name: String(centre.name || "Package"),
+      description: String(centre.clientDescription || "").trim(),
+      sell: roundCurrency(totals.totalSell),
+    };
+  });
+}
+
+function isoDatePlusDays(days: number) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+/** Unassigned first-visit draft so Schedules/Field chain starts without office rescue. */
+export function maybeCreateFirstVisitDraft(job: Job, centres: EstimateCostCentreRecord[]) {
+  const hubState = getHubDetailState();
+  const plansByJob = {
+    ...((hubState.jobSchedulePlans && typeof hubState.jobSchedulePlans === "object"
+      ? hubState.jobSchedulePlans
+      : {}) as Record<string, unknown>),
+  };
+  const existing = plansByJob[job.id];
+  if (Array.isArray(existing) && existing.length > 0) return false;
+
+  const centre = centres[0];
+  const startDate = isoDatePlusDays(1);
+  const assignment = {
+    id: `${job.id}-plan-accept-${Date.now()}`,
+    jobId: job.id,
+    costCentreId: centre?.id || `${job.id}-section-main`,
+    costCentreName: centre?.name || "First visit",
+    employeeId: "",
+    employeeName: "Office to assign",
+    startDate,
+    startTime: "09:00",
+    endDate: startDate,
+    endTime: "11:00",
+    plannedHours: 2,
+    notes: "Draft visit created when the customer accepted the quote online. Assign an engineer in Schedules.",
+  };
+
+  plansByJob[job.id] = [assignment];
+  saveHubDetailState({
+    ...hubState,
+    jobSchedulePlans: plansByJob,
+  });
+  updateJob(job.id, {
+    scheduledDate: startDate,
+    next: `${job.next ? `${job.next} ` : ""}First visit draft ${startDate} — assign engineer in Schedules.`,
+  });
+  return true;
 }
 
 function asJobCostCentresMap(hubState: ReturnType<typeof getHubDetailState>) {
@@ -501,12 +564,15 @@ export function applyQuoteConversionHandoff(
     communicationLogged = true;
   }
 
+  const firstVisitDraftCreated = maybeCreateFirstVisitDraft(job, centres);
+
   return {
     costCentresCopied: copied,
     jobCostCentres: centres,
     depositInvoice,
     jobValueUpdated,
     communicationLogged,
+    firstVisitDraftCreated,
   };
 }
 

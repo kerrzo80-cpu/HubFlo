@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { appendAuditEvent } from "@/lib/people-data";
-import { convertQuoteToJobServer } from "@/lib/quote-conversion-handoff";
+import { convertQuoteToJobServer, getQuotePortalLineSummary } from "@/lib/quote-conversion-handoff";
 import { getQuotes, updateQuote, type QuoteStatus } from "@/lib/workflow-data";
 
 type RouteContext = {
@@ -35,15 +35,19 @@ export async function GET(_request: Request, context: RouteContext) {
     });
   }
 
+  const centres = getQuotePortalLineSummary(updated.id);
+  const centresSell = centres.reduce((sum, centre) => sum + centre.sell, 0);
+
   return NextResponse.json({
     id: updated.id,
     ref: updated.ref,
     customer: updated.customer,
     description: updated.description,
     status: updated.status,
-    value: updated.value,
+    value: centresSell > 0 ? centresSell : updated.value,
     viewedAt: updated.viewedAt,
     respondedAt: updated.respondedAt,
+    centres,
     job: updated.convertedJobId
       ? {
           id: updated.convertedJobId,

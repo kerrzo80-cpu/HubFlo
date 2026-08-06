@@ -56,18 +56,18 @@ True ServiceTitan parity (multi-tenant SaaS, plant GPS, full accounting) is opti
 
 ---
 
-## Phase 4 — 10/10 for EWG *(in progress / shipped on this branch)*
+## Phase 4 — 10/10 for EWG *(shipped)*
 
 1. **Unified manager board pack** — `buildManagerBoardPackRows()` shared with Monday cron; cash owed, ready-to-invoice, WIP, variations portal, payment split, `asAt` timestamp, overhead label  
 2. **Cash reconcile period mark** — `POST/GET /api/reports/cash-reconcile` + Reports → WIP button  
-3. **Chain continuity** — Takeoff push creates quote when no `linkedQuoteId`; Field Complete → Draft invoice claim; quote `metadata` chain ids (takeoff / survey / heat design)  
-4. No simPRO required for daily path (optional sync only)  
-5. Customer can accept quote, approve variation, pay invoice online  
-6. Engineer completes day offline and syncs without office rescue  
-7. Manager trusts Reports numbers enough to stop building Excel side-books  
+3. **Chain continuity** — Takeoff push creates quote when no `linkedQuoteId`; quote accept → centres + deposit + first-visit draft; Field Complete → Draft invoice; quote `metadata` chain ids  
+4. **simPRO optional** — daily path works with mode `Not connected`; Send to simPRO hidden unless push/sync enabled  
+5. **Customer online loop** — accept quote (line summary + centres handoff), approve variation (hub write + email link), pay invoice (SumUp)  
+6. **Field offline day** — outbox for outcome / notes / PO / hours + job pack cache  
+7. **Manager-trusted reports** — shared board pack + period reconcile mark  
 8. Survey → Takeoff → Heat Design → Quote → Job → Field → Invoice is one continuous chain  
 
-**Done when:** health shows `tenOfTenPlan: phase-4-ten-of-ten-v1`, `reportsTrustPack`, `opsChainContinuity`, `portalHandoffAuthority`, `fieldOfflineDayComplete`, `dailyPathSimproOptional`; cron board pack uses manager rows; cash reconcile period can be marked; takeoff push can create quote; Field complete seeds draft invoice.
+**Done when:** health shows `tenOfTenPlan: phase-4-ten-of-ten-v1`, `reportsTrustPack`, `opsChainContinuity`, `portalHandoffAuthority`, `fieldOfflineDayComplete`, `dailyPathSimproOptional`.
 
 ### Phase 4 checklist
 
@@ -82,9 +82,10 @@ True ServiceTitan parity (multi-tenant SaaS, plant GPS, full accounting) is opti
 - [x] Field Complete → `maybeCreateDraftInvoiceOnJobComplete`
 - [x] Quote `metadata` chain ids on takeoff/heat push
 - [x] Unit tests for board pack builder + cash reconcile store
-- [ ] Daily path without simPRO (optional sync only) — sibling / ongoing
-- [ ] Customer online quote / variation / pay flows — largely shipped in Phase 2–3
-- [ ] End-to-end chain polish in UI (all portals hand off without office rescue)
+- [x] Quote portal accept copies centres + deposit + first-visit draft
+- [x] Variation portal approve patches hub; create emails portal link
+- [x] Field outbox: outcome / notes / PO / hours + job pack cache
+- [x] Daily path without simPRO (Send to simPRO gated; sync optional in Setup)
 
 ---
 

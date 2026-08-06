@@ -36996,14 +36996,17 @@ export default function Dashboard() {
                           <button className="record-text-link" type="button" onClick={() => setActiveJobTab("documents")}>
                             Attachments
                           </button>
-                          <button
-                            className="record-text-link"
-                            type="button"
-                            onClick={() => void sendSelectedJobToSimpro()}
-                            disabled={isSendingJobToSimpro}
-                          >
-                            {isSendingJobToSimpro ? "Sending..." : "Send to simPRO"}
-                          </button>
+                          {integrationSettings.simproMode !== "Not connected" &&
+                          integrationSettings.simproMode !== "Queued handoff" ? (
+                            <button
+                              className="record-text-link"
+                              type="button"
+                              onClick={() => void sendSelectedJobToSimpro()}
+                              disabled={isSendingJobToSimpro}
+                            >
+                              {isSendingJobToSimpro ? "Sending..." : "Send to simPRO"}
+                            </button>
+                          ) : null}
                         </div>
                       </section>
                     </div>
