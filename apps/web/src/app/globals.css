@@ -23026,12 +23026,6 @@ body:has(.platform) {
   overflow: hidden;
 }
 
-html.nexa-survey-scroll,
-html.nexa-survey-scroll body,
-html:has(.survey-simple-app),
-body:has(.survey-simple-app),
-html:has(.survey-simple-loading),
-body:has(.survey-simple-loading),
 html:has(.guided-survey-app),
 body:has(.guided-survey-app),
 /* Markup / drawing only — lock the document and use the fullscreen canvas viewport. */
@@ -36559,6 +36553,20 @@ body {
 
 
 /* NeXa simple survey workspace */
+/* Survey uses native document scroll (Core locks html/body — unlock below). */
+html:has(.survey-simple-app),
+body:has(.survey-simple-app),
+html:has(.survey-simple-loading),
+body:has(.survey-simple-loading),
+html.nexa-survey-scroll,
+html.nexa-survey-scroll body {
+  height: auto !important;
+  max-height: none !important;
+  overflow: auto !important;
+  overscroll-behavior-y: auto;
+  touch-action: auto;
+}
+
 .survey-simple-app {
   --survey-ink: #173344;
   --survey-muted: #647985;
@@ -36569,18 +36577,9 @@ body {
     radial-gradient(circle at top left, rgba(25, 152, 207, 0.16), transparent 34%),
     linear-gradient(180deg, #eef6f9 0%, #f7fbfd 42%, #f2f7f9 100%);
   color: var(--survey-ink);
-  /* Independent scrollport — Core keeps html/body overflow locked. */
-  bottom: 0;
-  left: 0;
+  min-height: 100vh;
   overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
   padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px));
-  position: fixed;
-  right: 0;
-  top: 0;
-  -webkit-overflow-scrolling: touch;
-  z-index: 1;
 }
 
 .survey-simple-loading {
@@ -36588,19 +36587,12 @@ body {
   background:
     radial-gradient(circle at top left, rgba(25, 152, 207, 0.16), transparent 34%),
     linear-gradient(180deg, #eef6f9 0%, #f7fbfd 42%, #f2f7f9 100%);
-  bottom: 0;
   color: var(--survey-muted, #647985);
   display: grid;
   gap: 12px;
   justify-items: center;
-  left: 0;
-  overflow-y: auto;
+  min-height: 100vh;
   place-content: center;
-  position: fixed;
-  right: 0;
-  top: 0;
-  -webkit-overflow-scrolling: touch;
-  z-index: 1;
 }
 
 .survey-simple-topbar {

@@ -10439,17 +10439,33 @@ export default function Dashboard() {
       let hasOfflineFallback = false;
       try {
         const [clientsResponse, clientSitesResponse, leadsResponse, jobsResponse, quotesResponse, purchaseResponse, auditResponse, hubStateResponse] = await Promise.all([
-          fetch("/api/clients", { headers: requestHeaders }),
-          fetch("/api/client-sites", { headers: requestHeaders }),
-          fetch("/api/leads", { headers: requestHeaders }),
-          fetch("/api/jobs", { headers: requestHeaders }),
-          fetch("/api/quotes", { headers: requestHeaders }),
-          fetch("/api/purchase-requests", { headers: requestHeaders }),
-          fetch("/api/audit", { headers: requestHeaders }),
-          fetch("/api/hub-state", { headers: requestHeaders }),
+          fetch("/api/clients", { headers: requestHeaders, credentials: "same-origin" }),
+          fetch("/api/client-sites", { headers: requestHeaders, credentials: "same-origin" }),
+          fetch("/api/leads", { headers: requestHeaders, credentials: "same-origin" }),
+          fetch("/api/jobs", { headers: requestHeaders, credentials: "same-origin" }),
+          fetch("/api/quotes", { headers: requestHeaders, credentials: "same-origin" }),
+          fetch("/api/purchase-requests", { headers: requestHeaders, credentials: "same-origin" }),
+          fetch("/api/audit", { headers: requestHeaders, credentials: "same-origin" }),
+          fetch("/api/hub-state", { headers: requestHeaders, credentials: "same-origin" }),
         ]);
 
         if (stopped) return;
+
+        const liveResponses = [
+          clientsResponse,
+          clientSitesResponse,
+          leadsResponse,
+          jobsResponse,
+          quotesResponse,
+          purchaseResponse,
+          auditResponse,
+          hubStateResponse,
+        ];
+        if (serverWorkspaceMode === "live" && liveResponses.some((response) => response.status === 401)) {
+          const next = `${window.location.pathname}${window.location.search}`;
+          window.location.assign(`/login?next=${encodeURIComponent(next || "/")}`);
+          return;
+        }
 
         if (clientsResponse.ok) {
           setClients((await clientsResponse.json()) as ClientRecord[]);
@@ -10466,7 +10482,7 @@ export default function Dashboard() {
         if (leadsResponse.ok) {
           const nextLeads = (await leadsResponse.json()) as Lead[];
           setLeads(nextLeads);
-        } else {
+        } else if (serverWorkspaceMode !== "live") {
           hasOfflineFallback = true;
         }
 
@@ -10486,13 +10502,13 @@ export default function Dashboard() {
 
         if (purchaseResponse.ok) {
           setPurchaseRequests((await purchaseResponse.json()) as PurchaseRequest[]);
-        } else {
+        } else if (serverWorkspaceMode !== "live") {
           hasOfflineFallback = true;
         }
 
         if (auditResponse.ok) {
           setAuditEvents((await auditResponse.json()) as AuditEvent[]);
-        } else {
+        } else if (serverWorkspaceMode !== "live") {
           hasOfflineFallback = true;
         }
 
@@ -10794,9 +10810,14 @@ export default function Dashboard() {
     fetch("/api/hub-state", {
       method: "PUT",
       headers: { ...requestHeaders, "Content-Type": "application/json" },
+      credentials: "same-origin",
       body: JSON.stringify({ ...buildHubDetailStatePayload(), invoices: nextInvoices }),
     })
       .then((response) => {
+        if (response.status === 401) {
+          window.location.assign(`/login?next=${encodeURIComponent(`${window.location.pathname}${window.location.search}` || "/")}`);
+          return;
+        }
         if (!response.ok) throw new Error("Invoice save failed");
         pendingInvoiceSaveRef.current = false;
         setSectionError((current) => (current === failureMessage ? null : current));
@@ -11015,10 +11036,15 @@ export default function Dashboard() {
       fetch("/api/hub-state", {
         method: "PUT",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify(payload),
         signal: controller.signal,
       })
         .then((response) => {
+          if (response.status === 401) {
+            window.location.assign(`/login?next=${encodeURIComponent(`${window.location.pathname}${window.location.search}` || "/")}`);
+            return;
+          }
           if (!response.ok) {
             throw new Error(`Hub state save failed with ${response.status}`);
           }
@@ -14052,7 +14078,7 @@ export default function Dashboard() {
       fetch("/api/quotes", { headers: requestHeaders }),
       fetch("/api/leads", { headers: requestHeaders }),
       fetch("/api/audit", { headers: requestHeaders }),
-      fetch("/api/hub-state", { headers: requestHeaders }),
+      fetch("/api/hub-state", { headers: requestHeaders, credentials: "same-origin" }),
     ]);
 
     // Apply hub hierarchy BEFORE jobs/quotes so autosave cannot wipe a fresh import with empty client maps.
@@ -14794,6 +14820,7 @@ export default function Dashboard() {
       const response = await fetch("/api/hub-state", {
         method: "PUT",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify(buildHubDetailStatePayload()),
       });
       if (!response.ok) throw new Error(`Setup save failed (${response.status}).`);
@@ -15649,8 +15676,13 @@ export default function Dashboard() {
           const response = await fetch("/api/hub-state", {
             method: "PUT",
             headers: { ...requestHeaders, "Content-Type": "application/json" },
+            credentials: "same-origin",
             body: JSON.stringify({ ...buildHubDetailStatePayload(), employees: nextEmployees }),
           });
+          if (response.status === 401) {
+            window.location.assign(`/login?next=${encodeURIComponent(`${window.location.pathname}${window.location.search}` || "/")}`);
+            return;
+          }
           if (!response.ok) throw new Error("Employee cards could not be saved to the shared workspace.");
           setEmployees(nextEmployees);
           pendingEmployeeSaveRef.current = false;
@@ -15786,8 +15818,13 @@ export default function Dashboard() {
           const response = await fetch("/api/hub-state", {
             method: "PUT",
             headers: { ...requestHeaders, "Content-Type": "application/json" },
+            credentials: "same-origin",
             body: JSON.stringify({ ...buildHubDetailStatePayload(), suppliers: nextSuppliers }),
           });
+          if (response.status === 401) {
+            window.location.assign(`/login?next=${encodeURIComponent(`${window.location.pathname}${window.location.search}` || "/")}`);
+            return;
+          }
           if (!response.ok) throw new Error("Suppliers could not be saved to the shared workspace.");
           setSuppliers(nextSuppliers);
           pendingSetupSaveRef.current = false;
@@ -16065,8 +16102,13 @@ export default function Dashboard() {
           const response = await fetch("/api/hub-state", {
             method: "PUT",
             headers: { ...requestHeaders, "Content-Type": "application/json" },
+            credentials: "same-origin",
             body: JSON.stringify({ ...buildHubDetailStatePayload(), invoices: nextInvoices }),
           });
+          if (response.status === 401) {
+            window.location.assign(`/login?next=${encodeURIComponent(`${window.location.pathname}${window.location.search}` || "/")}`);
+            return;
+          }
           if (!response.ok) throw new Error("Invoices could not be saved to the shared workspace.");
           setInvoices(nextInvoices);
         }
@@ -18153,6 +18195,7 @@ export default function Dashboard() {
       const response = await fetch("/api/hub-state", {
         method: "PUT",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify(buildHubDetailStatePayload()),
       });
       if (!response.ok) throw new Error("The shared NeXa record details could not be saved.");
@@ -26644,6 +26687,7 @@ export default function Dashboard() {
       const hubResponse = await fetch("/api/hub-state", {
         method: "PUT",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ ...buildHubDetailStatePayload(), employees: nextEmployees }),
       });
       if (!hubResponse.ok) throw new Error("The employee card could not be saved to the shared workspace.");

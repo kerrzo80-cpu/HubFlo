@@ -3,7 +3,7 @@ import { SurveyScrollUnlock } from "./survey-scroll-unlock";
 
 export const metadata: Metadata = {
   title: "Survey",
-  description: "Guided site capture, Blake assistance and AI estimate packs.",
+  description: "Site capture, Blake assistance and AI estimate packs.",
   applicationName: "Survey",
   manifest: "/api/manifest/survey",
   appleWebApp: {

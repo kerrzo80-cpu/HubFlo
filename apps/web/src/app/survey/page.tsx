@@ -10,6 +10,19 @@ const requestHeaders: HeadersInit = {
   "x-hubflo-role": "Office",
 };
 
+async function surveyApiFetch(input: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers || {});
+  for (const [key, value] of Object.entries(requestHeaders)) {
+    if (!headers.has(key) && typeof value === "string") headers.set(key, value);
+  }
+  const response = await fetch(input, { ...init, credentials: "same-origin", headers });
+  if (response.status === 401 && typeof window !== "undefined") {
+    const next = `${window.location.pathname}${window.location.search}`;
+    window.location.assign(`/login?next=${encodeURIComponent(next || "/survey")}`);
+  }
+  return response;
+}
+
 type CoreQuote = {
   id: string;
   ref: string;
@@ -159,7 +172,7 @@ export default function SurveyDirectoryPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/surveys${includeArchived ? "?includeArchived=1" : ""}`, { headers: requestHeaders, credentials: "same-origin" });
+      const response = await surveyApiFetch(`/api/surveys${includeArchived ? "?includeArchived=1" : ""}`, { headers: requestHeaders, credentials: "same-origin" });
       if (!response.ok) throw new Error("Unable to load surveys.");
       setSurveys((await response.json()) as SurveyRecord[]);
     } catch (loadError) {
@@ -172,10 +185,10 @@ export default function SurveyDirectoryPage() {
   async function loadCoreRecords() {
     try {
       const [quotesRes, leadsRes, jobsRes, sitesRes] = await Promise.all([
-        fetch("/api/quotes", { headers: requestHeaders, credentials: "same-origin" }),
-        fetch("/api/leads", { headers: requestHeaders, credentials: "same-origin" }),
-        fetch("/api/jobs", { headers: requestHeaders, credentials: "same-origin" }),
-        fetch("/api/client-sites", { headers: requestHeaders, credentials: "same-origin" }),
+        surveyApiFetch("/api/quotes", { headers: requestHeaders, credentials: "same-origin" }),
+        surveyApiFetch("/api/leads", { headers: requestHeaders, credentials: "same-origin" }),
+        surveyApiFetch("/api/jobs", { headers: requestHeaders, credentials: "same-origin" }),
+        surveyApiFetch("/api/client-sites", { headers: requestHeaders, credentials: "same-origin" }),
       ]);
       if (quotesRes.ok) setQuotes((await quotesRes.json()) as CoreQuote[]);
       if (leadsRes.ok) setLeads((await leadsRes.json()) as CoreLead[]);
@@ -203,7 +216,7 @@ export default function SurveyDirectoryPage() {
       const jobLink: SurveyJobLink | undefined = choice
         ? { type: choice.type, id: choice.id, reference: choice.reference }
         : undefined;
-      const response = await fetch("/api/surveys", {
+      const response = await surveyApiFetch("/api/surveys", {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" }, credentials: "same-origin",
         body: JSON.stringify({
@@ -311,7 +324,7 @@ export default function SurveyDirectoryPage() {
     setError("");
     setNotice("");
     try {
-      const response = await fetch(`/api/surveys/${encodeURIComponent(survey.id)}?mode=archive&expectedVersion=${survey.version}`, {
+      const response = await surveyApiFetch(`/api/surveys/${encodeURIComponent(survey.id)}?mode=archive&expectedVersion=${survey.version}`, {
         method: "DELETE",
         headers: requestHeaders,
       });
@@ -332,7 +345,7 @@ export default function SurveyDirectoryPage() {
     setError("");
     setNotice("");
     try {
-      const response = await fetch(`/api/surveys/${encodeURIComponent(survey.id)}?mode=delete`, {
+      const response = await surveyApiFetch(`/api/surveys/${encodeURIComponent(survey.id)}?mode=delete`, {
         method: "DELETE",
         headers: requestHeaders,
       });

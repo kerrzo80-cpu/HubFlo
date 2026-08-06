@@ -27,6 +27,19 @@ const requestHeaders: HeadersInit = {
   "x-hubflo-role": "Office",
 };
 
+async function surveyApiFetch(input: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers || {});
+  for (const [key, value] of Object.entries(requestHeaders)) {
+    if (!headers.has(key) && typeof value === "string") headers.set(key, value);
+  }
+  const response = await fetch(input, { ...init, credentials: "same-origin", headers });
+  if (response.status === 401 && typeof window !== "undefined") {
+    const next = `${window.location.pathname}${window.location.search}`;
+    window.location.assign(`/login?next=${encodeURIComponent(next || "/survey")}`);
+  }
+  return response;
+}
+
 type SaveState = "Saved" | "Unsaved" | "Saving" | "Error";
 
 type AiStatus = {
@@ -146,7 +159,7 @@ export default function SimpleSurveyWorkspacePage() {
   useEffect(() => {
     async function loadAiStatus() {
       try {
-        const response = await fetch("/api/takeoff-ai/status", { headers: requestHeaders, credentials: "same-origin" });
+        const response = await surveyApiFetch("/api/takeoff-ai/status", { headers: requestHeaders, credentials: "same-origin" });
         if (!response.ok) return;
         setAiStatus((await response.json()) as AiStatus);
       } catch {
@@ -160,10 +173,10 @@ export default function SimpleSurveyWorkspacePage() {
     async function loadCore() {
       try {
         const [quotesRes, leadsRes, jobsRes, sitesRes] = await Promise.all([
-          fetch("/api/quotes", { headers: requestHeaders, credentials: "same-origin" }),
-          fetch("/api/leads", { headers: requestHeaders, credentials: "same-origin" }),
-          fetch("/api/jobs", { headers: requestHeaders, credentials: "same-origin" }),
-          fetch("/api/client-sites", { headers: requestHeaders, credentials: "same-origin" }),
+          surveyApiFetch("/api/quotes", { headers: requestHeaders, credentials: "same-origin" }),
+          surveyApiFetch("/api/leads", { headers: requestHeaders, credentials: "same-origin" }),
+          surveyApiFetch("/api/jobs", { headers: requestHeaders, credentials: "same-origin" }),
+          surveyApiFetch("/api/client-sites", { headers: requestHeaders, credentials: "same-origin" }),
         ]);
         if (quotesRes.ok) setQuotes((await quotesRes.json()) as CoreQuote[]);
         if (leadsRes.ok) setLeads((await leadsRes.json()) as CoreLead[]);
@@ -186,13 +199,13 @@ export default function SimpleSurveyWorkspacePage() {
     async function load() {
       setError("");
       try {
-        const response = await fetch(`/api/surveys/${encodeURIComponent(surveyId)}`, { headers: requestHeaders, credentials: "same-origin" });
+        const response = await surveyApiFetch(`/api/surveys/${encodeURIComponent(surveyId)}`, { headers: requestHeaders, credentials: "same-origin" });
         if (!response.ok) throw new Error("Unable to open this survey.");
         const loaded = await response.json() as SurveyRecord;
         setSurvey(loaded);
         surveyRef.current = loaded;
         if (loaded.estimateId) {
-          const estimateResponse = await fetch(`/api/estimates/${encodeURIComponent(loaded.estimateId)}`, { headers: requestHeaders, credentials: "same-origin" });
+          const estimateResponse = await surveyApiFetch(`/api/estimates/${encodeURIComponent(loaded.estimateId)}`, { headers: requestHeaders, credentials: "same-origin" });
           if (estimateResponse.ok) {
             const estimate = await estimateResponse.json() as {
               scopeOfWorks?: string[];
@@ -263,7 +276,7 @@ export default function SimpleSurveyWorkspacePage() {
     pendingPatchRef.current = {};
     setSaveState("Saving");
     try {
-      const response = await fetch(`/api/surveys/${encodeURIComponent(current.id)}`, {
+      const response = await surveyApiFetch(`/api/surveys/${encodeURIComponent(current.id)}`, {
         method: "PATCH",
         headers: { ...requestHeaders, "Content-Type": "application/json" }, credentials: "same-origin",
         body: JSON.stringify({ expectedVersion: current.version, patch }),
@@ -417,7 +430,7 @@ export default function SimpleSurveyWorkspacePage() {
         formData.append("caption", file.name || "Site photo");
         formData.append("surveySection", "Evidence");
         formData.append("expectedVersion", String(surveyRef.current?.version || latest.version));
-        const response = await fetch(`/api/surveys/${encodeURIComponent(latest.id)}/photos`, {
+        const response = await surveyApiFetch(`/api/surveys/${encodeURIComponent(latest.id)}/photos`, {
           method: "POST",
           headers: requestHeaders,
           credentials: "same-origin",
@@ -451,7 +464,7 @@ export default function SimpleSurveyWorkspacePage() {
     setError("");
     setNotice("");
     try {
-      const response = await fetch(`/api/surveys/${encodeURIComponent(current.id)}/quick-pack`, {
+      const response = await surveyApiFetch(`/api/surveys/${encodeURIComponent(current.id)}/quick-pack`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" }, credentials: "same-origin",
         body: JSON.stringify({ expectedVersion: current.version }),
@@ -517,10 +530,10 @@ export default function SimpleSurveyWorkspacePage() {
     setError("");
     setNotice("");
     try {
-      const estimateResponse = await fetch(`/api/estimates/${encodeURIComponent(estimateId)}`, { headers: requestHeaders, credentials: "same-origin" });
+      const estimateResponse = await surveyApiFetch(`/api/estimates/${encodeURIComponent(estimateId)}`, { headers: requestHeaders, credentials: "same-origin" });
       const estimateBody = await readJsonResponse<{ version?: number; error?: string }>(estimateResponse);
       if (!estimateResponse.ok) throw new Error(estimateBody.error || "Unable to load the estimate pack.");
-      const response = await fetch(`/api/estimates/${encodeURIComponent(estimateId)}/push-to-quote`, {
+      const response = await surveyApiFetch(`/api/estimates/${encodeURIComponent(estimateId)}/push-to-quote`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" }, credentials: "same-origin",
         body: JSON.stringify({ expectedVersion: estimateBody.version }),

@@ -484,30 +484,19 @@ export default function TakeoffSkillPage() {
                   <p className="eyebrow">{selected.reference}</p>
                   <h1>{selected.name}</h1>
                   <p>{selected.customer} · {selected.site}</p>
-                  <div className="takeoff-skill-hero-actions">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      accept="application/pdf,image/*,.pdf,.png,.jpg,.jpeg,.webp,.dwg"
-                      onChange={(e) => void uploadDrawings(e)}
-                      hidden
-                    />
-                    <button
-                      className="takeoff-skill-primary"
-                      type="button"
-                      disabled={busy === "upload"}
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      {busy === "upload" ? <Loader2 className="spin" size={16} /> : <Upload size={16} />}
-                      Upload drawings
-                    </button>
-                    <span className="takeoff-skill-note">
-                      {selected.documents.length
-                        ? `${selected.documents.length} file(s) in folder`
-                        : "PDF preferred · selectable text works best"}
-                    </span>
-                  </div>
+                  <p className="takeoff-skill-note">
+                    {selected.documents.length
+                      ? `${selected.documents.length} drawing file(s) · step ${stepIndex(currentStep) + 1} of ${TAKEOFF_SKILL_STEPS.length}`
+                      : "Upload drawings in step 1, then run the skill"}
+                  </p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="application/pdf,image/*,.pdf,.png,.jpg,.jpeg,.webp,.dwg"
+                    onChange={(e) => void uploadDrawings(e)}
+                    hidden
+                  />
                 </div>
                 <form
                   className="takeoff-skill-invoke"
