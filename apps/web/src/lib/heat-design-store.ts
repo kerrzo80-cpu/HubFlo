@@ -113,7 +113,8 @@ export function getHeatDesignProject(id: string) {
 export function saveHeatDesignProject(project: Partial<HeatDesignProject>) {
   const saved = withProjectDefaults(project);
   const index = store.projects.findIndex((item) => item.id === saved.id);
-  const priorRevisions = index >= 0 ? (store.projects[index].revisions ?? []) : (saved.revisions ?? []);
+  const existing = index >= 0 ? store.projects[index] : undefined;
+  const priorRevisions = existing?.revisions ?? saved.revisions ?? [];
   saved.revisions = appendRevision(saved, priorRevisions);
   if (index >= 0) {
     store.projects[index] = saved;

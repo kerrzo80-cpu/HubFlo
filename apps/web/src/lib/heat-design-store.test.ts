@@ -70,7 +70,9 @@ test("save appends heat design revisions", () => {
   assert.equal(firstSave.revisions?.length, 1);
   assert.equal(secondSave.revisions?.length, 2);
   assert.equal(revisions.length, 2);
-  assert.equal(revisions[0].id, secondSave.revisions?.[0]?.id);
-  assert.match(revisions[0].summary, /^Saved 0 rooms · 0 W heat loss$/);
-  assert.ok(revisions[0].snapshotHash);
+  const latestRevision = revisions[0];
+  assert.ok(latestRevision);
+  assert.equal(latestRevision.id, secondSave.revisions?.[0]?.id);
+  assert.match(latestRevision.summary, /^Saved 0 rooms · 0 W heat loss$/);
+  assert.ok(latestRevision.snapshotHash);
 });
