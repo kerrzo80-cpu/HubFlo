@@ -137,7 +137,7 @@ import {
   type FormDocumentLayout,
   type FormDocumentTemplate,
 } from "@/lib/form-document-chrome";
-import type { ReportPackRow } from "@/lib/reports-board-pack";
+type ReportPackRow = [string, string, string | number, string];
 import { DashboardOverview } from "./DashboardOverview";
 import { DashboardWeeklyGantt, computeDashboardGanttNowMarker } from "./DashboardWeeklyGantt";
 import {
