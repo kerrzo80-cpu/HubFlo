@@ -40377,13 +40377,6 @@ export default function Dashboard() {
                         <button className="secondary-button" type="button" onClick={() => void copyInvoicePortalLink(selectedInvoice)}>
                           Copy portal link
                         </button>
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          onClick={() => void copyClientHubPortalLink(selectedInvoice.customer, selectedInvoice.clientId)}
-                        >
-                          Copy customer hub link
-                        </button>
                       </div>
                     </section>
                     <div className="client-overview-grid">
@@ -44575,13 +44568,6 @@ export default function Dashboard() {
                             }}
                           >
                             Save customer
-                          </button>
-                          <button
-                            className="secondary-button"
-                            type="button"
-                            onClick={() => void copyClientHubPortalLink(activeClient.name, activeClient.id)}
-                          >
-                            Copy client hub link
                           </button>
                           <button
                             className="secondary-button"
