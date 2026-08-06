@@ -47,7 +47,7 @@ export async function GET() {
       invoicePortal: "public-token-v1",
       clientPortalHub: "v1",
       tenOfTenPlan: "phase-2-commercial-v1",
-      stripePayLinks: "checkout-v1",
+      sumupPayLinks: "hosted-checkout-v1",
       cashReconcile: "xero-filter-pull-v1",
       photoCompressBuild: "shrink-v1",
       blakeAccent: "picker-v1",

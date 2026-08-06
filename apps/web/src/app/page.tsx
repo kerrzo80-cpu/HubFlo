@@ -144,7 +144,7 @@ import {
 } from "@/lib/reports-board-pack";
 import { SetupPersonalisingPanel } from "@/components/SetupPersonalisingPanel";
 import { OpenAiKeyCard } from "./OpenAiKeyCard";
-import { StripeKeyCard } from "@/components/StripeKeyCard";
+import { SumUpKeyCard } from "@/components/SumUpKeyCard";
 import { DashboardOverview } from "./DashboardOverview";
 import { DashboardWeeklyGantt, computeDashboardGanttNowMarker } from "./DashboardWeeklyGantt";
 import {
@@ -1047,7 +1047,7 @@ type InvoicePaymentRecord = {
   reference?: string;
   note?: string;
   actor?: string;
-  source?: "manual" | "xero" | "stripe" | "adjustment";
+  source?: "manual" | "xero" | "sumup" | "stripe" | "adjustment";
   sourcePaymentId?: string;
   sourceInvoiceId?: string;
   importedAt?: string;
@@ -13291,7 +13291,8 @@ export default function Dashboard() {
         .reduce((total, row) => total + (Number(row.payment.amount) || 0), 0);
     const ledgerPaid = reportInvoiceRows.reduce((total, row) => total + (Number(row.invoice.paidAmount) || 0), 0);
     const xeroPaid = sumBy("xero");
-    const stripePaid = sumBy("stripe");
+    const sumupPaid = sumBy("sumup");
+    const stripePaid = sumBy("stripe"); // legacy ledger rows only
     const manualPaid =
       sumBy("manual") +
       sumBy("adjustment") +
@@ -13304,6 +13305,7 @@ export default function Dashboard() {
       nexaOwed,
       ledgerPaid,
       xeroPaid,
+      sumupPaid,
       stripePaid,
       manualPaid,
       linkedToXero,
@@ -32765,7 +32767,7 @@ export default function Dashboard() {
                     <header>
                       <div>
                         <span className="permission-heading">Cash reconcile</span>
-                        <h3>NeXa ledger versus Xero / Stripe payments</h3>
+                        <h3>NeXa ledger versus Xero / SumUp payments</h3>
                       </div>
                       <button
                         className="secondary-button"
@@ -32793,10 +32795,10 @@ export default function Dashboard() {
                         <small>{reportCashReconcile.linkedToXero} invoices linked to Xero</small>
                       </article>
                       <article>
-                        <span>Stripe / manual</span>
-                        <strong>{currency(reportCashReconcile.stripePaid + reportCashReconcile.manualPaid)}</strong>
+                        <span>SumUp / manual</span>
+                        <strong>{currency(reportCashReconcile.sumupPaid + reportCashReconcile.manualPaid)}</strong>
                         <small>
-                          Stripe {currency(reportCashReconcile.stripePaid)} · Manual {currency(reportCashReconcile.manualPaid)}
+                          SumUp {currency(reportCashReconcile.sumupPaid)} · Manual {currency(reportCashReconcile.manualPaid)}
                         </small>
                       </article>
                     </div>
@@ -41974,7 +41976,7 @@ export default function Dashboard() {
                   {activeSetupCategory === "integrations" ? (
                     <>
                       <OpenAiKeyCard />
-                      <StripeKeyCard />
+                      <SumUpKeyCard />
                     </>
                   ) : null}
 

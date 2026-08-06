@@ -18,7 +18,7 @@ type PortalInvoice = {
   paidAmount: number;
   owed: number;
   viewedAt?: string;
-  stripeEnabled?: boolean;
+  sumupEnabled?: boolean;
 };
 
 const gbp = new Intl.NumberFormat("en-GB", {
@@ -34,7 +34,7 @@ function money(value: number) {
 export default function ClientInvoicePortal({ params }: { params: Promise<{ token: string }> }) {
   const [token, setToken] = useState("");
   const [invoice, setInvoice] = useState<PortalInvoice | null>(null);
-  const [stripeEnabled, setStripeEnabled] = useState(false);
+  const [sumupEnabled, setSumupEnabled] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isPaying, setIsPaying] = useState(false);
@@ -52,11 +52,49 @@ export default function ClientInvoicePortal({ params }: { params: Promise<{ toke
   }, [params]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (!token || typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("paid") === "1") setMessage("Payment received — thank you. The office ledger will update shortly.");
-    if (params.get("cancelled") === "1") setError("Card payment was cancelled. You can try again or pay by bank transfer.");
-  }, []);
+    if (params.get("cancelled") === "1") {
+      setError("Card payment was cancelled. You can try again or pay by bank transfer.");
+      return;
+    }
+    if (params.get("paid") !== "1") return;
+
+    let cancelled = false;
+    async function confirmPaid() {
+      setMessage("Confirming SumUp payment…");
+      try {
+        const checkoutId = params.get("checkout") || undefined;
+        const response = await fetch(`/api/invoice-portal/${token}/confirm`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ checkoutId }),
+        });
+        const body = (await response.json().catch(() => null)) as {
+          ok?: boolean;
+          message?: string;
+          error?: string;
+          result?: { invoice?: PortalInvoice; ok?: boolean };
+        } | null;
+        if (!cancelled) {
+          if (body?.result && "invoice" in body.result && body.result.invoice) {
+            setInvoice((current) => ({ ...(current || ({} as PortalInvoice)), ...body.result!.invoice! }));
+          }
+          setMessage(
+            body?.ok
+              ? "Payment received — thank you."
+              : body?.message || body?.error || "If you paid, the office ledger will update shortly.",
+          );
+        }
+      } catch {
+        if (!cancelled) setMessage("If you paid on SumUp, the office ledger will update shortly.");
+      }
+    }
+    void confirmPaid();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   useEffect(() => {
     if (!token) return;
@@ -70,7 +108,7 @@ export default function ClientInvoicePortal({ params }: { params: Promise<{ toke
         const loaded = (await invoiceRes.json()) as PortalInvoice;
         if (!cancelled) {
           setInvoice(loaded);
-          setStripeEnabled(Boolean(loaded.stripeEnabled));
+          setSumupEnabled(Boolean(loaded.sumupEnabled));
         }
       } catch (caught) {
         if (!cancelled) setError(caught instanceof Error ? caught.message : "Unable to load invoice.");
@@ -190,10 +228,10 @@ export default function ClientInvoicePortal({ params }: { params: Promise<{ toke
               </div>
             ) : (
               <div className="client-portal-actions">
-                {stripeEnabled ? (
+                {sumupEnabled ? (
                   <button type="button" className="primary-button" disabled={isPaying} onClick={() => void payOnline()}>
                     <CreditCard size={16} />
-                    {isPaying ? "Opening secure pay…" : "Pay online"}
+                    {isPaying ? "Opening SumUp…" : "Pay online"}
                   </button>
                 ) : null}
                 <button type="button" className="secondary-button" disabled={isSaving} onClick={() => void reportPaymentSent()}>

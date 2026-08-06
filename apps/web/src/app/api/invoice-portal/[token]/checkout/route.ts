@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
-import { isStripeConfigured } from "@/lib/stripe-key-store";
-import { getStripeClient, invoiceOwed } from "@/lib/stripe-payments";
+import { rememberSumUpCheckout } from "@/lib/sumup-checkout-store";
+import { isSumUpConfigured } from "@/lib/sumup-key-store";
+import { createSumUpHostedCheckout, invoiceOwed } from "@/lib/sumup-payments";
 
 export const runtime = "nodejs";
 
@@ -41,16 +42,11 @@ function findInvoiceByToken(token: string) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
-  if (!isStripeConfigured()) {
+  if (!isSumUpConfigured()) {
     return NextResponse.json(
       { error: "Online card pay is not configured yet. Use bank transfer or ask the office." },
       { status: 503 },
     );
-  }
-
-  const stripe = getStripeClient();
-  if (!stripe) {
-    return NextResponse.json({ error: "Stripe is not available." }, { status: 503 });
   }
 
   const { token } = await context.params;
@@ -64,7 +60,6 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "This invoice is already paid." }, { status: 400 });
   }
 
-  // Ensure portal token exists for return URLs / webhook matching.
   let portalToken = invoice.portalToken;
   if (!portalToken) {
     portalToken = `${invoice.ref.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${invoice.id.slice(0, 8)}`;
@@ -74,48 +69,31 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   const origin = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || new URL(request.url).origin;
-  const amountPence = Math.round(owed * 100);
-  if (amountPence < 30) {
-    return NextResponse.json({ error: "Amount is too small for card payment." }, { status: 400 });
-  }
 
   try {
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      success_url: `${origin}/client/invoices/${portalToken}?paid=1`,
-      cancel_url: `${origin}/client/invoices/${portalToken}?cancelled=1`,
-      customer_email: undefined,
-      line_items: [
-        {
-          quantity: 1,
-          price_data: {
-            currency: "gbp",
-            unit_amount: amountPence,
-            product_data: {
-              name: `${invoice.ref} — ${invoice.title || "Invoice"}`,
-              description: `Payment to ${invoice.customer}`,
-            },
-          },
-        },
-      ],
-      metadata: {
-        invoiceId: invoice.id,
-        invoiceRef: invoice.ref,
-        portalToken,
-      },
-      payment_intent_data: {
-        metadata: {
-          invoiceId: invoice.id,
-          invoiceRef: invoice.ref,
-          portalToken,
-        },
-      },
+    const session = await createSumUpHostedCheckout({
+      invoice,
+      portalToken,
+      amount: owed,
+      origin,
     });
 
-    return NextResponse.json({ url: session.url, sessionId: session.id });
+    rememberSumUpCheckout({
+      checkoutId: session.checkoutId,
+      invoiceId: invoice.id,
+      portalToken,
+      amount: owed,
+      createdAt: new Date().toISOString(),
+    });
+
+    return NextResponse.json({
+      url: session.url,
+      checkoutId: session.checkoutId,
+      provider: "sumup",
+    });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unable to start Stripe Checkout." },
+      { error: error instanceof Error ? error.message : "Unable to start SumUp checkout." },
       { status: 502 },
     );
   }
