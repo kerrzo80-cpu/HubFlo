@@ -9,7 +9,8 @@ import {
 import { normalizeBusinessBranding } from "@/lib/branding";
 import { sendEmailMessage } from "@/lib/email-integration-store";
 import { getHubDetailState } from "@/lib/hub-detail-store";
-import { buildManagerBoardPackRows, buildReportsBoardPackPdf } from "@/lib/reports-board-pack";
+import { buildReportsBoardPackPdf } from "@/lib/reports-board-pack";
+import { loadManagerBoardPackRows } from "@/lib/reports-board-pack-server";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -43,7 +44,7 @@ async function sendBoardPackNow(force = false) {
     month: "long",
     year: "numeric",
   });
-  const pack = buildManagerBoardPackRows();
+  const pack = loadManagerBoardPackRows();
   const pdf = await buildReportsBoardPackPdf({
     companyName: company,
     title: pack.title,
