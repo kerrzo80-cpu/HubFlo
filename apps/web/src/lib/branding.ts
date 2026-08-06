@@ -268,11 +268,19 @@ export function resolveBrandLogoUrl(brand: PublicBranding | BusinessBrandingSett
   return brand.logoUrl || defaultBusinessBrandingSettings.logoUrl;
 }
 
+/** Append home=1 so /api/branding/assets/* returns the composed home-screen icon. */
+function withHomeIconParam(url: string): string {
+  const trimmed = trimLogoUrl(url);
+  if (!trimmed.includes("/api/branding/assets/")) return trimmed;
+  if (/[?&]home=1(?:&|$)/.test(trimmed) || /[?&]apple=1(?:&|$)/.test(trimmed)) return trimmed;
+  return trimmed.includes("?") ? `${trimmed}&home=1` : `${trimmed}?home=1`;
+}
+
 /** Home-screen / PWA icon for an app (per-app → shared app icon → company logo). */
 export function resolveBrandIconUrl(brand: PublicBranding | BusinessBrandingSettings, app?: BrandAppKey): string {
   if (app) {
     const specific = trimLogoUrl(brand[brandAppLogoField(app)]);
-    if (specific) return specific;
+    if (specific) return withHomeIconParam(specific);
   }
-  return brand.appIconUrl || brand.logoUrl || defaultBusinessBrandingSettings.logoUrl;
+  return withHomeIconParam(brand.appIconUrl || brand.logoUrl || defaultBusinessBrandingSettings.logoUrl);
 }

@@ -13,7 +13,7 @@ import {
 } from "@/lib/branding";
 import { useBrand } from "@/components/BrandProvider";
 
-const iconVersion = "20260806a";
+const iconVersion = "20260806c";
 
 type Profile = {
   app: BrandAppKey;
@@ -26,6 +26,16 @@ type Profile = {
 function withVersion(path: string) {
   const joiner = path.includes("?") ? "&" : "?";
   return `${path}${joiner}v=${iconVersion}`;
+}
+
+/** Swap home=1 → apple=1 for 180×180 apple-touch derivatives. */
+function toAppleTouchHref(iconPath: string) {
+  if (!iconPath.includes("/api/branding/assets/")) return iconPath;
+  const [base, query = ""] = iconPath.split("?");
+  const params = new URLSearchParams(query);
+  params.delete("home");
+  params.set("apple", "1");
+  return `${base}?${params.toString()}`;
 }
 
 function upsertMeta(name: string, content: string) {
@@ -112,9 +122,10 @@ export function PwaIconLinks() {
     upsertMeta("theme-color", profile.themeColor);
 
     const iconHref = withVersion(profile.icon);
+    const appleTouchHref = withVersion(toAppleTouchHref(profile.icon));
 
     document.head.querySelectorAll<HTMLLinkElement>('link[rel="apple-touch-icon"]').forEach((link) => {
-      link.href = iconHref;
+      link.href = appleTouchHref;
       link.sizes = "180x180";
       link.type = "image/png";
     });
@@ -127,7 +138,7 @@ export function PwaIconLinks() {
       link.href = profile.manifest;
     });
 
-    upsertLink("apple-touch-icon", iconHref, { sizes: "180x180", type: "image/png" });
+    upsertLink("apple-touch-icon", appleTouchHref, { sizes: "180x180", type: "image/png" });
     upsertLink("icon", iconHref, { sizes: "512x512", type: "image/png" });
     upsertLink("manifest", profile.manifest);
   }, [brand, pathname]);

@@ -5,6 +5,7 @@ import { ImagePlus, Palette, Smartphone } from "lucide-react";
 
 import {
   resolveBrandIconUrl,
+  resolveBrandLogoUrl,
   type BrandAppKey,
   type BrandAppLogoField,
   type BusinessBrandingSettings,
@@ -368,16 +369,16 @@ export function SetupPersonalisingPanel({
             <div>
               <strong>App names & logos</strong>
               <small>
-                Each app can have its own logo for headers (and as the home-screen icon). Uploads keep the
-                original shape — wide logos stay wide so they fill the app top bar. Leave blank to use the
-                company logo / default icon.
+                Each app can have its own logo for headers. Uploads keep the original shape — wide logos stay
+                wide in the top bar. Home-screen icons are auto-built as a square mark from that logo. Leave
+                blank to use the company logo / default icon.
               </small>
             </div>
           </div>
 
           <div className="personalising-app-logo-grid">
             {APP_LOGO_ROWS.map((app) => {
-              const preview = resolveBrandIconUrl(businessSettings, app.key);
+              const preview = resolveBrandLogoUrl(businessSettings, app.key);
               const nameValue = String(businessSettings[app.nameField] ?? "");
               const logoValue = businessSettings[app.field];
               return (
