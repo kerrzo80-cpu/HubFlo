@@ -45,6 +45,7 @@ export async function GET() {
       fieldOfflineOutbox: "v1",
       reportsBoardPack: "pdf-excel-v1",
       invoicePortal: "public-token-v1",
+      clientPortalHub: "v1",
       tenOfTenPlan: "phase-1-spine-v1",
       photoCompressBuild: "shrink-v1",
       blakeAccent: "picker-v1",
