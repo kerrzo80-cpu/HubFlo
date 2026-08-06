@@ -37,7 +37,11 @@ const publicAssetPaths = new Set([
 function isPublicBrandingGet(request: NextRequest) {
   if (request.method !== "GET" && request.method !== "HEAD") return false;
   const { pathname } = request.nextUrl;
-  return pathname === "/api/branding" || pathname.startsWith("/api/branding/assets/");
+  return (
+    pathname === "/api/branding" ||
+    pathname === "/api/branding/favicon" ||
+    pathname.startsWith("/api/branding/assets/")
+  );
 }
 
 function parseBasicAuth(value: string | null) {

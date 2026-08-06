@@ -139,8 +139,8 @@ export function PwaIconLinks() {
     });
 
     upsertLink("apple-touch-icon", appleTouchHref, { sizes: "180x180", type: "image/png" });
-    // Tab favicon: small dynamic /icon (owner branding), not the old NeXa /icon.png.
-    upsertLink("icon", withVersion("/icon"), { sizes: "32x32", type: "image/png" });
+    // Tab favicon: direct PNG URL (Safari often ignores favicon redirects).
+    upsertLink("icon", withVersion("/api/branding/favicon?size=32"), { sizes: "32x32", type: "image/png" });
     upsertLink("manifest", profile.manifest);
   }, [brand, pathname]);
 

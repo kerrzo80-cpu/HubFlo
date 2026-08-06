@@ -4,8 +4,8 @@ import path from "node:path";
 import sharp from "sharp";
 
 import { normalizeBusinessBranding, type BrandAppKey } from "@/lib/branding";
-import { readBrandingAsset, type BrandingAssetKind } from "@/lib/branding-assets";
-import { ensureSquareAppIcon } from "@/lib/branding-icon-square";
+import { readBrandingAsset, readHomeIconAsset, type BrandingAssetKind } from "@/lib/branding-assets";
+import { APP_ICON_COMPOSE_VERSION, ensureSquareAppIcon } from "@/lib/branding-icon-square";
 import { getHubDetailState } from "@/lib/hub-detail-store";
 
 function kindForApp(app?: BrandAppKey): BrandingAssetKind {
@@ -66,6 +66,14 @@ export async function getBrandingFaviconPng(size: number, app?: BrandAppKey): Pr
     })
       .png()
       .toBuffer();
+  }
+
+  // Prefer the already-composed home-screen cache when present (fast path for tabs).
+  const cachedHome = kind.startsWith("logo-")
+    ? readHomeIconAsset(kind, APP_ICON_COMPOSE_VERSION)
+    : null;
+  if (cachedHome) {
+    return sharp(cachedHome.buffer, { failOn: "none" }).resize(size, size, { fit: "fill" }).png().toBuffer();
   }
 
   const brand = normalizeBusinessBranding(getHubDetailState().businessSettings);

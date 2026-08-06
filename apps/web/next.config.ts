@@ -20,10 +20,14 @@ const nextConfig: NextConfig = {
     return [
       // Keep /engineer app available for Core stop/go + gas service record trial.
       // Field app stays at /field.
-      // Legacy static NeXa favicon paths → dynamic owner branding.
-      { source: "/favicon.ico", destination: "/icon", permanent: false },
-      { source: "/icon.png", destination: "/icon", permanent: false },
-      { source: "/apple-icon.png", destination: "/apple-icon", permanent: false },
+    ];
+  },
+  async rewrites() {
+    // Rewrites (not redirects): Safari often ignores favicon redirects.
+    return [
+      { source: "/favicon.ico", destination: "/api/branding/favicon?size=32" },
+      { source: "/icon.png", destination: "/api/branding/favicon?size=32" },
+      { source: "/apple-icon.png", destination: "/api/branding/favicon?size=180" },
     ];
   },
 };

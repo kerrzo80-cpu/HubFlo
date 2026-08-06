@@ -66,7 +66,7 @@ export async function GET() {
       simproEodRefresh: "weekday-1800-utc-cron-v1",
       actionAlertsRouting: "folders-and-daywork-signoff-v1",
       personalisingBranding: "square-app-icons-v4-fullbleed",
-      browserTabFavicon: "owner-branding-v1",
+      browserTabFavicon: "owner-branding-v2-noredirect",
       deployFix: "duplicate-messagecircle-import-v1",
       customiseForms: "delete-copy-colour-all-v1",
       uiModuleBarIpad: "scroll-and-pin-setup-v1",
