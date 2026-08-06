@@ -1,10 +1,12 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Clock3, MessageCircle } from "lucide-react";
+import { CalendarDays, Clock3, MessageCircle, RefreshCw } from "lucide-react";
 import { useBrand } from "@/components/BrandProvider";
 import { resolveBrandLogoUrl } from "@/lib/branding";
+import { flushOutbox, subscribeOutbox } from "@/lib/field/offline-outbox";
 import { FIELD_BASE, fieldPath } from "@/lib/field/routes";
 
 const links = [
@@ -16,6 +18,23 @@ const links = [
 export function AppChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const brand = useBrand();
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = subscribeOutbox((items) => setPendingSyncCount(items.length));
+    void flushOutbox();
+    return unsubscribe;
+  }, []);
+
+  async function syncNow() {
+    setSyncing(true);
+    try {
+      await flushOutbox();
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   return (
     <div
@@ -38,6 +57,15 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
           <strong>{brand.fieldAppName}</strong>
           <span>{brand.companyName}</span>
         </div>
+        {pendingSyncCount > 0 ? (
+          <div className="field-sync-pill" role="status" aria-live="polite">
+            <span>{pendingSyncCount} pending sync</span>
+            <button type="button" disabled={syncing} onClick={() => void syncNow()}>
+              <RefreshCw size={13} />
+              {syncing ? "Syncing" : "Sync now"}
+            </button>
+          </div>
+        ) : null}
       </header>
       {children}
       <nav className="field-tabbar" aria-label="Field app">

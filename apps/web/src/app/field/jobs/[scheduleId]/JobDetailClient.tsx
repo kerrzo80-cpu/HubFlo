@@ -23,6 +23,11 @@ import { DayworkSheetForm } from "@/components/field/DayworkSheetForm";
 import { useNexaClient } from "@/lib/field/nexa";
 import { toggleMockRequirement } from "@/lib/field/nexa/mock-data";
 import {
+  enqueueOutboxItem,
+  isBrowserOnline,
+  isOfflineOrNetworkError,
+} from "@/lib/field/offline-outbox";
+import {
   dayworkSheetListLabel,
   formatFieldDayworkEvidenceSummary,
   isDayworkRequirement,
@@ -76,6 +81,8 @@ type FieldWorkflowState = {
   poRequests: FieldWorkflowPoRequest[];
   outcome: FieldWorkflowOutcome | null;
 };
+
+const FIELD_OFFLINE_NOTICE = "Saved offline — will sync when online";
 
 function requirementsLookLikeDaywork(requirements: FieldRequirement[]) {
   return requirements.some((item) => isDayworkRequirement(item));
@@ -411,15 +418,59 @@ export default function JobDetailPage() {
     setWorkflowBusy(true);
     setError("");
     setNotice("");
+    const path = `/api/field/jobs/${encodeURIComponent(job.scheduleId)}/workflow`;
+    const requestBody = {
+      action,
+      payload: { ...payload, createdBy: job.engineerName },
+    };
+    const queueOfflinePhotos = () => {
+      enqueueOutboxItem({
+        kind: "photo",
+        jobId: job.jobId || job.scheduleId,
+        path,
+        method: "POST",
+        body: requestBody,
+      });
+      const files = Array.isArray(payload.files)
+        ? (payload.files as Array<{ name?: string; type?: FieldAttachment["type"] }>)
+        : [];
+      const uploadedAt = "Pending sync";
+      const offlinePhotos = files.map((file, index): FieldAttachment => ({
+        id: `offline-photo-${Date.now()}-${index}`,
+        name: String(file.name || `Upload ${index + 1}`),
+        type: file.type || "Photo",
+        uploadedBy: job.engineerName,
+        uploadedAt,
+      }));
+      if (offlinePhotos.length) {
+        setWorkflow((current) => ({
+          ...current,
+          photos: [...offlinePhotos, ...current.photos],
+        }));
+        setJob((current) =>
+          current
+            ? {
+                ...current,
+                photos: [
+                  ...offlinePhotos.filter((photo) => photo.type === "Photo" || photo.type === "Video"),
+                  ...current.photos,
+                ],
+              }
+            : current,
+        );
+      }
+      setNotice(FIELD_OFFLINE_NOTICE);
+      return true;
+    };
     try {
-      const response = await fetch(`/api/field/jobs/${encodeURIComponent(job.scheduleId)}/workflow`, {
+      if (action === "add_photos" && !isBrowserOnline()) {
+        return queueOfflinePhotos();
+      }
+      const response = await fetch(path, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action,
-          payload: { ...payload, createdBy: job.engineerName },
-        }),
+        body: JSON.stringify(requestBody),
       });
       const body = (await response.json().catch(() => ({}))) as FieldWorkflowState & { error?: string };
       if (!response.ok) throw new Error(body.error || "Could not update job.");
@@ -449,6 +500,9 @@ export default function JobDetailPage() {
       setNotice(successMessage);
       return true;
     } catch (workflowError) {
+      if (action === "add_photos" && isOfflineOrNetworkError(workflowError)) {
+        return queueOfflinePhotos();
+      }
       setError(workflowError instanceof Error ? workflowError.message : "Could not update job.");
       return false;
     } finally {
@@ -839,21 +893,40 @@ export default function JobDetailPage() {
             : item,
         ),
       });
+      const path = `/api/field/jobs/${encodeURIComponent(job.scheduleId)}/requirements`;
+      const requestBody = {
+        requirementId,
+        text: normalizedDraft.text,
+        numberValue: normalizedDraft.numberValue,
+        photoName: normalizedDraft.photoName,
+        createdBy: job.engineerName,
+      };
+      const queueOfflineRequirement = () => {
+        enqueueOutboxItem({
+          kind: "checklist",
+          jobId: job.jobId || job.scheduleId,
+          path,
+          method: "POST",
+          body: requestBody,
+        });
+        setDraftByRequirement((current) => {
+          const next = { ...current };
+          delete next[requirementId];
+          return next;
+        });
+        setEditingId("");
+        setNotice(FIELD_OFFLINE_NOTICE);
+      };
       try {
-        const response = await fetch(
-          `/api/field/jobs/${encodeURIComponent(job.scheduleId)}/requirements`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              requirementId,
-              text: normalizedDraft.text,
-              numberValue: normalizedDraft.numberValue,
-              photoName: normalizedDraft.photoName,
-              createdBy: job.engineerName,
-            }),
-          },
-        );
+        if (!isBrowserOnline()) {
+          queueOfflineRequirement();
+          return;
+        }
+        const response = await fetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        });
         if (!response.ok) {
           const failed = (await response.json().catch(() => ({}))) as { error?: string };
           throw new Error(failed.error || "Could not save checklist item.");
@@ -870,6 +943,10 @@ export default function JobDetailPage() {
         setEditingId("");
         setNotice("Saved.");
       } catch (saveError) {
+        if (isOfflineOrNetworkError(saveError)) {
+          queueOfflineRequirement();
+          return;
+        }
         setJob(job);
         setError(saveError instanceof Error ? saveError.message : "Could not save checklist item.");
       } finally {
@@ -1174,7 +1251,7 @@ export default function JobDetailPage() {
               initialRecord={dayworkRecord}
               locked={isDayworkSubmittedToCore(dayworkRecord)}
               onCancel={() => void backToJobChecklist()}
-              onSaved={(record) => {
+              onSaved={(record, context) => {
                 setDayworkRecord(record);
                 setDayworkSheets((current) => {
                   const costCentreId = dayworkCostCentreId || `${job.jobId}-daywork-account`;
@@ -1185,7 +1262,9 @@ export default function JobDetailPage() {
                   ];
                 });
                 setNotice(
-                  isDayworkSubmittedToCore(record)
+                  context?.offline
+                    ? FIELD_OFFLINE_NOTICE
+                    : isDayworkSubmittedToCore(record)
                     ? "Submitted to Core and locked on Field. Office can edit in Core → Variations → Daywork account. Tap New Daywork sheet for another."
                     : "Saved to Core — open this job → Cost centres → Variations → Daywork account.",
                 );

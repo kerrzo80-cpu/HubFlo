@@ -41,6 +41,7 @@ export async function GET() {
       heatDesignBuild: "remove-core-heat-calc-tab-v1",
       fieldApp: "/field",
       fieldCoreLinked: true,
+      fieldOfflineOutbox: "v1",
       photoCompressBuild: "shrink-v1",
       blakeAccent: "picker-v1",
       blakePeerEngineer: "v1",
