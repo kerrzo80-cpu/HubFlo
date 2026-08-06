@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 
 import { employeeHeaderName, getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
-import { getServerStoreDirectory } from "@/lib/server-store";
+import { readTakeoffDocumentBuffer } from "@/lib/takeoff-document-file";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
 import {
   getTakeoffProject,
@@ -76,13 +74,8 @@ function makeId(prefix: string) {
 }
 
 async function readDocumentBytes(document: TakeoffDocument): Promise<Buffer | null> {
-  if (!document.storageKey) return null;
-  try {
-    const full = path.join(getServerStoreDirectory(), document.storageKey);
-    return await readFile(full);
-  } catch {
-    return null;
-  }
+  const file = await readTakeoffDocumentBuffer(document);
+  return file.ok ? file.buffer : null;
 }
 
 async function pdfDrawingIndex(project: TakeoffProject): Promise<TakeoffSkillWorkflow["drawingIndex"]> {

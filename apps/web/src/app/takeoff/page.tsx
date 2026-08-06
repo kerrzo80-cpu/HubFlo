@@ -25,6 +25,7 @@ import {
   type StudioClassification,
   type StudioState,
 } from "@/lib/takeoff-studio";
+import { extractTakeoffPdfInBrowser } from "@/lib/takeoff-pdf-browser";
 
 import StudioCanvas from "./studio/StudioCanvas";
 import "./studio/studio.css";
@@ -376,10 +377,33 @@ export default function TakeoffStudioPage() {
       setBlakeStep(steps[stepIndex] || "Blake is working…");
     }, 2200);
     try {
+      setBlakeStep("Reading text from the open PDF…");
+      const clientExtracts = [];
+      for (const drawing of drawingDocs.slice(0, 4)) {
+        try {
+          const extracted = await extractTakeoffPdfInBrowser(selected.id, drawing.id, drawing.fileName);
+          clientExtracts.push({
+            documentId: drawing.id,
+            fileName: drawing.fileName,
+            pages: extracted.pages,
+          });
+        } catch (extractError) {
+          // Keep going for other drawings; server may still recover.
+          if (drawing.id === doc.id && clientExtracts.length === 0) {
+            const message = extractError instanceof Error ? extractError.message : "Unable to read PDF text.";
+            // Hard stop only when the active drawing itself cannot be opened in the browser.
+            if (/missing from storage|empty|Unable to open drawing/i.test(message)) {
+              throw extractError;
+            }
+          }
+        }
+      }
+
+      setBlakeStep("Blake is analysing your drawings…");
       const response = await apiFetch(`/api/takeoff-projects/${selected.id}/blake-run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ clientExtracts }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
