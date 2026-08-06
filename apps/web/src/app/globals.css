@@ -11730,6 +11730,40 @@ h1 {
   z-index: 80;
 }
 
+/* Stable accordion list — no hover flyout / overflow clipping. */
+.setup-category-submenu-inline {
+  display: grid;
+  gap: 4px;
+  margin: 2px 0 8px;
+  padding: 0 0 0 8px;
+}
+
+.setup-category-submenu-inline .setup-submenu-option {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--nexa-slate);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  padding: 8px 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.setup-category-submenu-inline .setup-submenu-option:hover,
+.setup-category-submenu-inline .setup-submenu-option:focus-visible {
+  background: var(--nexa-verdigris-soft);
+  border-color: rgba(46, 140, 125, 0.2);
+}
+
+.setup-category-submenu-inline .setup-submenu-option.active {
+  background: rgba(46, 140, 125, 0.14);
+  border-color: rgba(46, 140, 125, 0.28);
+  color: var(--nexa-navy);
+  font-weight: 700;
+}
+
 .setup-category-item:hover .setup-category-submenu,
 .setup-category-item:focus-within .setup-category-submenu {
   display: grid;
@@ -12030,7 +12064,7 @@ h1 {
 
   .setup-category-nav {
     max-height: calc(100dvh - 160px);
-    overflow-x: hidden;
+    overflow-x: visible;
     overflow-y: auto;
     position: sticky;
     top: 0;
@@ -12047,12 +12081,12 @@ h1 {
 
   .setup-category-nav {
     display: flex;
-    flex-direction: row;
+    flex-direction: column;
     flex-wrap: nowrap;
     gap: 6px;
     max-height: none;
     overflow-x: auto;
-    overflow-y: hidden;
+    overflow-y: visible;
     padding: 8px;
     position: static;
     -webkit-overflow-scrolling: touch;
