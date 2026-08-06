@@ -53,6 +53,13 @@ const appConfig: Record<
     shortFallback: "Heat Design",
     description: "Floor plan, emitters and heat kit linked to quotes and jobs.",
   },
+  trainer: {
+    key: "trainer",
+    startUrl: "/train",
+    scope: "/train",
+    shortFallback: "Trainer",
+    description: "Voice-first staff trainer with role-aware modules and checks.",
+  },
 };
 
 /** Dynamic PWA manifest using owner Personalising settings. */
@@ -80,22 +87,22 @@ export async function GET(_request: Request, { params }: Params) {
     lang: "en-GB",
     icons: [
       {
-        src: icon,
+        src: icon.includes("?") ? `${icon}&square=1` : `${icon}?square=1`,
         sizes: "512x512",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: icon,
+        src: icon.includes("?") ? `${icon}&square=1` : `${icon}?square=1`,
         sizes: "192x192",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: icon,
-        sizes: "any",
+        src: icon.includes("?") ? `${icon}&square=1` : `${icon}?square=1`,
+        sizes: "512x512",
         type: "image/png",
-        purpose: "any",
+        purpose: "maskable",
       },
     ],
   };
