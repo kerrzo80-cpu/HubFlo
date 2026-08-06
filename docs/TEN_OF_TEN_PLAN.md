@@ -11,8 +11,8 @@ Baseline (Aug 2026 audit): **~6.5/10 for EWG ops · ~4/10 vs category leaders**.
 | Phase | EWG ops score | Market peer score | Outcome |
 |-------|--------------:|------------------:|---------|
 | **0 — Baseline** | 6.5 | 4 | Live suite with uneven maturity |
-| **1 — Trust the spine** *(this branch)* | **8.0** | 5.5 | Offline Field, Heat Design saved, board-pack reports, invoice portal |
-| **2 — Commercial close** | **9.0** | 7 | Payments, full client portal, manager reports that match bank, stock/PO trust |
+| **1 — Trust the spine** | **8.0** | 5.5 | Offline Field, Heat Design saved, board-pack reports, invoice portal |
+| **2 — Commercial close** *(this branch)* | **9.0** | 7 | Stripe pay links, client hub, cash↔Xero reconcile, PO stock idempotent, server recurring generate |
 | **3 — Category peer** | **9.5** | 8.5 | Native Field feel, offline SW, BI exports, recurring/PPM depth, multi-user Heat Design |
 | **4 — 10/10** | **10** | 9–10 | Payments + portal + dispatch polish + specialist add-ons “good enough to stop buying Heat Engineer / PlanSwift for EWG work” |
 
@@ -32,13 +32,15 @@ True ServiceTitan parity (multi-tenant SaaS, plant GPS, full accounting) is opti
 
 ---
 
-## Phase 2 — Commercial close
+## Phase 2 — Commercial close *(shipped)*
 
-1. **Stripe / payment links** on invoices (or Xero pay-by-link if preferred)  
-2. Expand client portal: open invoices, variations, simple job status  
-3. WIP / cash report that reconciles to Xero payments pull  
-4. PO receive → stock movement closed loop  
-5. Recurring / PPM generate next visit + draft invoice  
+1. **Stripe Checkout pay links** on invoice portal + Setup → Integrations key card + webhook  
+2. **Client hub** `/client/hub/[token]` — open quotes, invoices, variations, job status  
+3. **Cash reconcile** on Reports → WIP — NeXa owed vs Xero/Stripe/manual + batch Xero pull  
+4. **PO receive → stock** idempotent `receiptKey` (no double-stock)  
+5. **Server recurring generate** — `POST /api/recurring` `generate` / `generate-due`
+
+**Done when:** health shows `tenOfTenPlan: phase-2-commercial-v1`, `stripePayLinks`, `clientPortalHub`, `cashReconcile`, `poStockReceive`, `recurringGenerate`. Add Stripe keys in Setup (or env) to enable Pay online.  
 
 ---
 

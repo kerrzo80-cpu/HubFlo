@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, CreditCard, Loader2, XCircle } from "lucide-react";
 
 type PortalInvoice = {
   id: string;
@@ -18,6 +18,7 @@ type PortalInvoice = {
   paidAmount: number;
   owed: number;
   viewedAt?: string;
+  stripeEnabled?: boolean;
 };
 
 const gbp = new Intl.NumberFormat("en-GB", {
@@ -33,8 +34,10 @@ function money(value: number) {
 export default function ClientInvoicePortal({ params }: { params: Promise<{ token: string }> }) {
   const [token, setToken] = useState("");
   const [invoice, setInvoice] = useState<PortalInvoice | null>(null);
+  const [stripeEnabled, setStripeEnabled] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isPaying, setIsPaying] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -49,16 +52,26 @@ export default function ClientInvoicePortal({ params }: { params: Promise<{ toke
   }, [params]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("paid") === "1") setMessage("Payment received — thank you. The office ledger will update shortly.");
+    if (params.get("cancelled") === "1") setError("Card payment was cancelled. You can try again or pay by bank transfer.");
+  }, []);
+
+  useEffect(() => {
     if (!token) return;
     let cancelled = false;
     async function loadInvoice() {
       setIsLoading(true);
       setError("");
       try {
-        const response = await fetch(`/api/invoice-portal/${token}`, { cache: "no-store" });
-        if (!response.ok) throw new Error("This invoice link could not be found.");
-        const loaded = (await response.json()) as PortalInvoice;
-        if (!cancelled) setInvoice(loaded);
+        const invoiceRes = await fetch(`/api/invoice-portal/${token}`, { cache: "no-store" });
+        if (!invoiceRes.ok) throw new Error("This invoice link could not be found.");
+        const loaded = (await invoiceRes.json()) as PortalInvoice;
+        if (!cancelled) {
+          setInvoice(loaded);
+          setStripeEnabled(Boolean(loaded.stripeEnabled));
+        }
       } catch (caught) {
         if (!cancelled) setError(caught instanceof Error ? caught.message : "Unable to load invoice.");
       } finally {
@@ -93,6 +106,21 @@ export default function ClientInvoicePortal({ params }: { params: Promise<{ toke
       setError(caught instanceof Error ? caught.message : "Unable to save.");
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function payOnline() {
+    if (!token || isPaying) return;
+    setIsPaying(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/invoice-portal/${token}/checkout`, { method: "POST" });
+      const body = (await response.json().catch(() => null)) as { url?: string; error?: string } | null;
+      if (!response.ok || !body?.url) throw new Error(body?.error || "Unable to start card payment.");
+      window.location.href = body.url;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to start card payment.");
+      setIsPaying(false);
     }
   }
 
@@ -162,7 +190,13 @@ export default function ClientInvoicePortal({ params }: { params: Promise<{ toke
               </div>
             ) : (
               <div className="client-portal-actions">
-                <button type="button" className="primary-button" disabled={isSaving} onClick={reportPaymentSent}>
+                {stripeEnabled ? (
+                  <button type="button" className="primary-button" disabled={isPaying} onClick={() => void payOnline()}>
+                    <CreditCard size={16} />
+                    {isPaying ? "Opening secure pay…" : "Pay online"}
+                  </button>
+                ) : null}
+                <button type="button" className="secondary-button" disabled={isSaving} onClick={() => void reportPaymentSent()}>
                   {isSaving ? "Saving..." : "I've paid by bank transfer"}
                 </button>
               </div>

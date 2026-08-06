@@ -144,6 +144,7 @@ import {
 } from "@/lib/reports-board-pack";
 import { SetupPersonalisingPanel } from "@/components/SetupPersonalisingPanel";
 import { OpenAiKeyCard } from "./OpenAiKeyCard";
+import { StripeKeyCard } from "@/components/StripeKeyCard";
 import { DashboardOverview } from "./DashboardOverview";
 import { DashboardWeeklyGantt, computeDashboardGanttNowMarker } from "./DashboardWeeklyGantt";
 import {
@@ -1046,7 +1047,7 @@ type InvoicePaymentRecord = {
   reference?: string;
   note?: string;
   actor?: string;
-  source?: "manual" | "xero" | "adjustment";
+  source?: "manual" | "xero" | "stripe" | "adjustment";
   sourcePaymentId?: string;
   sourceInvoiceId?: string;
   importedAt?: string;
@@ -13277,6 +13278,40 @@ export default function Dashboard() {
     };
   }, [invoices, reportAssignments, reportInvoiceRows, reportJobRows, reportQuoteRows]);
 
+  const reportCashReconcile = useMemo(() => {
+    const payments = reportInvoiceRows.flatMap((row) =>
+      (row.invoice.payments || []).map((payment) => ({
+        invoice: row.invoice,
+        payment,
+      })),
+    );
+    const sumBy = (source: InvoicePaymentRecord["source"]) =>
+      payments
+        .filter((row) => (row.payment.source || "manual") === source)
+        .reduce((total, row) => total + (Number(row.payment.amount) || 0), 0);
+    const ledgerPaid = reportInvoiceRows.reduce((total, row) => total + (Number(row.invoice.paidAmount) || 0), 0);
+    const xeroPaid = sumBy("xero");
+    const stripePaid = sumBy("stripe");
+    const manualPaid =
+      sumBy("manual") +
+      sumBy("adjustment") +
+      payments
+        .filter((row) => !row.payment.source)
+        .reduce((total, row) => total + (Number(row.payment.amount) || 0), 0);
+    const nexaOwed = reportInvoiceRows.reduce((total, row) => total + row.owed, 0);
+    const linkedToXero = reportInvoiceRows.filter((row) => row.invoice.xeroInvoiceId).length;
+    return {
+      nexaOwed,
+      ledgerPaid,
+      xeroPaid,
+      stripePaid,
+      manualPaid,
+      linkedToXero,
+      invoiceCount: reportInvoiceRows.length,
+      paymentRows: payments.slice(0, 40),
+    };
+  }, [reportInvoiceRows]);
+
   const reportInsights = useMemo(() => {
     const insights: Array<{ id: string; tone: ReportTone; title: string; detail: string; action: string }> = [];
     const lossJob = reportExecutive.lossMakingJobs[0];
@@ -20459,6 +20494,89 @@ export default function Dashboard() {
       );
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to pull payments from Xero.");
+    } finally {
+      setIsPullingXeroPayments(false);
+    }
+  }
+
+  /** Pull Xero payments for every invoice currently in the Reports filter (cash reconcile). */
+  async function pullFilteredInvoicePaymentsFromXero() {
+    const targets = reportInvoiceRows
+      .map((row) => row.invoice)
+      .filter((invoice) => invoice.status !== "Draft" && invoice.status !== "Cancelled" && invoice.claimType !== "valuation");
+    if (!targets.length) {
+      showNotice("No invoices in the current report filter to reconcile.");
+      return;
+    }
+    setIsPullingXeroPayments(true);
+    let added = 0;
+    let failed = 0;
+    try {
+      let nextInvoices = [...invoices];
+      for (const invoice of targets.slice(0, 40)) {
+        try {
+          const response = await fetch("/api/integrations/xero/payments", {
+            method: "POST",
+            headers: { ...requestHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              invoice: {
+                id: invoice.id,
+                ref: invoice.ref,
+                chargeTotal: invoice.chargeTotal,
+                vatRate: invoice.vatRate,
+                status: invoice.status,
+                claimType: invoice.claimType,
+                payments: invoice.payments || [],
+                paidAmount: invoice.paidAmount ?? 0,
+                xeroInvoiceId: invoice.xeroInvoiceId,
+              },
+            }),
+          });
+          const body = (await response.json().catch(() => null)) as {
+            error?: string;
+            addedCount?: number;
+            payments?: InvoicePaymentRecord[];
+            paidAmount?: number;
+            paymentStatus?: InvoicePaymentStatus;
+            status?: InvoiceStatus;
+            xeroInvoiceId?: string;
+            xeroInvoiceNumber?: string;
+          } | null;
+          if (!response.ok || !body?.payments) {
+            failed += 1;
+            continue;
+          }
+          added += body.addedCount ?? 0;
+          nextInvoices = nextInvoices.map((row) =>
+            row.id === invoice.id
+              ? {
+                  ...row,
+                  payments: body.payments,
+                  paidAmount: body.paidAmount ?? row.paidAmount,
+                  paymentStatus: body.paymentStatus ?? row.paymentStatus,
+                  status: body.status ?? row.status,
+                  ...(body.xeroInvoiceId
+                    ? {
+                        xeroInvoiceId: body.xeroInvoiceId,
+                        xeroInvoiceNumber: body.xeroInvoiceNumber || row.xeroInvoiceNumber || row.ref,
+                      }
+                    : {}),
+                }
+              : row,
+          );
+        } catch {
+          failed += 1;
+        }
+      }
+      markInvoiceEdited();
+      setInvoices(nextInvoices);
+      saveHubDetailStateWithInvoices(nextInvoices, "Could not save reconciled invoices.");
+      showNotice(
+        `Cash reconcile: ${added} payment(s) imported from Xero across ${Math.min(targets.length, 40)} invoice(s)` +
+          (failed ? ` · ${failed} failed or not linked` : "") +
+          (targets.length > 40 ? " · capped at 40 per run" : "") +
+          ".",
+      );
     } finally {
       setIsPullingXeroPayments(false);
     }
@@ -32646,6 +32764,46 @@ export default function Dashboard() {
                   <section className="report-card wide">
                     <header>
                       <div>
+                        <span className="permission-heading">Cash reconcile</span>
+                        <h3>NeXa ledger versus Xero / Stripe payments</h3>
+                      </div>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={isPullingXeroPayments}
+                        onClick={() => void pullFilteredInvoicePaymentsFromXero()}
+                      >
+                        {isPullingXeroPayments ? "Pulling…" : "Pull Xero payments (filter)"}
+                      </button>
+                    </header>
+                    <div className="report-kpi-list">
+                      <article>
+                        <span>NeXa cash owed</span>
+                        <strong>{currency(reportCashReconcile.nexaOwed)}</strong>
+                        <small>{reportCashReconcile.invoiceCount} invoices in filter</small>
+                      </article>
+                      <article>
+                        <span>Ledger paid to date</span>
+                        <strong>{currency(reportCashReconcile.ledgerPaid)}</strong>
+                        <small>All payment sources on filtered invoices</small>
+                      </article>
+                      <article>
+                        <span>From Xero</span>
+                        <strong>{currency(reportCashReconcile.xeroPaid)}</strong>
+                        <small>{reportCashReconcile.linkedToXero} invoices linked to Xero</small>
+                      </article>
+                      <article>
+                        <span>Stripe / manual</span>
+                        <strong>{currency(reportCashReconcile.stripePaid + reportCashReconcile.manualPaid)}</strong>
+                        <small>
+                          Stripe {currency(reportCashReconcile.stripePaid)} · Manual {currency(reportCashReconcile.manualPaid)}
+                        </small>
+                      </article>
+                    </div>
+                  </section>
+                  <section className="report-card wide">
+                    <header>
+                      <div>
                         <span className="permission-heading">Work in progress</span>
                         <h3>Open jobs costed versus billed</h3>
                       </div>
@@ -41813,7 +41971,12 @@ export default function Dashboard() {
                     </section>
                   ) : null}
 
-                  {activeSetupCategory === "integrations" ? <OpenAiKeyCard /> : null}
+                  {activeSetupCategory === "integrations" ? (
+                    <>
+                      <OpenAiKeyCard />
+                      <StripeKeyCard />
+                    </>
+                  ) : null}
 
                   {activeSetupCategory === "overview" ? (
                     <section className="setup-panel setup-readiness">

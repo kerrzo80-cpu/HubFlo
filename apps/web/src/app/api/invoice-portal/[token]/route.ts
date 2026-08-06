@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { appendAuditEvent } from "@/lib/people-data";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
+import { isStripeConfigured } from "@/lib/stripe-key-store";
 
 type RouteContext = {
   params: Promise<{ token: string }>;
@@ -103,7 +104,10 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 
   const fresh = findInvoiceByToken(token) ?? invoice;
-  return NextResponse.json(publicInvoice(fresh));
+  return NextResponse.json({
+    ...publicInvoice(fresh),
+    stripeEnabled: isStripeConfigured(),
+  });
 }
 
 /** Client can acknowledge payment intent (bank transfer) — office still confirms ledger. */
