@@ -7,7 +7,8 @@ services:
     autoDeploy: true
     healthCheckPath: /api/health
     buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile --filter @hubflo/web... && NODE_OPTIONS=--max-old-space-size=3072 pnpm --filter @hubflo/web build
-    startCommand: corepack enable && pnpm --filter @hubflo/web start --hostname 0.0.0.0 --port $PORT
+    # Starter = 512MB — keep runtime heap small; large NODE_OPTIONS env caused OOM/ECONNRESET.
+    startCommand: corepack enable && NODE_OPTIONS=--max-old-space-size=384 pnpm --filter @hubflo/web exec next start --hostname 0.0.0.0 --port $PORT
     disk:
       name: nexa-pilot-data
       mountPath: /var/data
@@ -15,8 +16,6 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 24.14.0
-      - key: NODE_OPTIONS
-        value: --max-old-space-size=3072
       - key: NEXA_STORE_PATH
         value: /var/data/nexa-pilot.sqlite
       - key: NEXA_STORE_DIR
