@@ -30466,6 +30466,17 @@ export default function Dashboard() {
             </span>
             <ChevronDown size={14} />
           </button>
+          {visibleModules.some((module) => module.label === "Setup") ? (
+            <button
+              className={homeView === "settings" ? "header-icon setup-header-button is-active" : "header-icon setup-header-button"}
+              type="button"
+              aria-label="Setup"
+              title="Setup"
+              onClick={() => navigateToModule("Setup")}
+            >
+              <Settings size={18} strokeWidth={1.9} />
+            </button>
+          ) : null}
           <button className="header-icon sign-out-button" aria-label="Sign out" title="Sign out" onClick={signOutEmployee}>
             <LogOut size={18} />
             <span className="sign-out-label">Sign out</span>
@@ -30768,19 +30779,6 @@ export default function Dashboard() {
               );
             })}
         </div>
-        {visibleModules.some((module) => module.label === "Setup") ? (
-          <a
-            href="#"
-            className={homeView === "settings" ? "module-link module-link-setup active" : "module-link module-link-setup"}
-            onClick={(event) => {
-              event.preventDefault();
-              navigateToModule("Setup");
-            }}
-          >
-            <Settings size={16} strokeWidth={1.8} />
-            <span>Setup</span>
-          </a>
-        ) : null}
       </nav>
 
       {openWorkspaceTabs.length ? (
