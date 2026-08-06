@@ -2,11 +2,12 @@ import { appendAuditEvent, getClientSites, type AuditEvent } from "@/lib/people-
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { useDemoSeedData } from "@/lib/workspace-mode";
-import { getQuotes, updateQuote, type Quote } from "@/lib/workflow-data";
+import { createQuote, getQuotes, updateQuote, type Quote } from "@/lib/workflow-data";
 import {
   createDefaultTakeoffSkill,
   type TakeoffSkillWorkflow,
 } from "@/lib/takeoff-skill";
+import type { StudioState } from "@/lib/takeoff-studio";
 
 export type TakeoffStatus = "Draft" | "In review" | "Approved" | "Pushed";
 export type TakeoffDocumentKind = "Drawing" | "Marked-up drawing" | "Specification" | "Contractor BOQ" | "Survey note" | "Survey photo" | "LiDAR scan";
@@ -446,6 +447,8 @@ export type TakeoffProject = {
   servicesMarkup?: TakeoffServicesMarkup;
   /** AI construction takeoff skill workflow (primary/secondary quantities). */
   skill?: TakeoffSkillWorkflow;
+  /** NeXa Takeoff Studio (Togal-style area / linear / count canvas). */
+  studio?: StudioState;
   review: TakeoffReview;
   extraction?: TakeoffExtractionSummary;
   createdAt: string;
@@ -1602,6 +1605,29 @@ function quoteDescriptionFromProject(project: TakeoffProject, quote: Quote) {
   return scope;
 }
 
+function mergeQuoteChainMetadata(quote: Quote, project: TakeoffProject, source: "survey" | "takeoff") {
+  const metadata = { ...(quote.metadata ?? {}) };
+  metadata.takeoffProjectId = project.id;
+  if (source === "survey") {
+    metadata.surveyProjectId = project.id;
+  }
+  updateQuote(quote.id, { metadata });
+}
+
+function createQuoteFromTakeoffProject(project: TakeoffProject, actor: string) {
+  const due = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+  return createQuote({
+    customer: project.customer || "Takeoff customer",
+    description: project.description || `${project.name} — Takeoff output`,
+    owner: actor,
+    status: "Draft",
+    value: 0,
+    next: `Review ${project.reference} Takeoff / BOQ output`,
+    due,
+    metadata: { takeoffProjectId: project.id },
+  });
+}
+
 function applyProjectCostCentresToQuote(
   project: TakeoffProject,
   quote: Quote,
@@ -1647,6 +1673,8 @@ function applyProjectCostCentresToQuote(
       ? `Review ${project.reference} survey-built cost centres`
       : `Review ${project.reference} Takeoff / BOQ output`,
   }) ?? quote;
+
+  mergeQuoteChainMetadata(updatedQuote, project, source);
 
   const label = source === "survey" ? "Survey" : "Takeoff / BOQ";
   const sourceLabel = source === "survey" ? "survey assistant" : "takeoff add-on";
@@ -2419,6 +2447,7 @@ export function createTakeoffProject(payload: Partial<TakeoffProject>): TakeoffP
       scopeNotes: payload.description?.trim() || "",
     }),
     skill: payload.skill ?? createDefaultTakeoffSkill(),
+    studio: payload.studio,
     review: payload.review ?? { officeNotes: "", riskFlags: [] },
     createdAt,
     updatedAt: createdAt,
@@ -2639,14 +2668,19 @@ export function runTakeoffDraftExtraction(
 
 export function pushTakeoffProjectToQuote(
   projectId: string,
-  quoteId: string,
+  quoteId?: string,
   actor = "NeXa Takeoff",
+  options?: { createNew?: boolean },
 ): TakeoffPushResult | null {
   refreshTakeoffStore();
   const project = takeoffStore.projects.find((item) => item.id === projectId);
   if (!project) return null;
 
-  const quote = getQuotes().find((item) => item.id === quoteId);
+  const createNew = Boolean(options?.createNew) || !quoteId;
+  let quote = quoteId ? getQuotes().find((item) => item.id === quoteId) : undefined;
+  if (!quote && createNew) {
+    quote = createQuoteFromTakeoffProject(project, actor);
+  }
   if (!quote) return null;
 
   if (project.status !== "Approved" && project.status !== "Pushed") {

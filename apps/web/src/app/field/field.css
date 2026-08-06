@@ -50,10 +50,15 @@
 }
 
 .field-topbar img {
-  height: 40px;
-  width: auto;
-  max-width: 72px;
+  background: #fff;
+  border-radius: 10px;
+  display: block;
+  flex: 0 0 auto;
+  height: 56px;
+  max-width: 200px;
   object-fit: contain;
+  object-position: left center;
+  width: auto;
 }
 
 .field-topbar strong {
@@ -68,6 +73,45 @@
   color: var(--steel);
   font-size: 12px;
   font-weight: 500;
+}
+
+.field-sync-pill {
+  align-items: center;
+  background: #fff7e0;
+  border: 1px solid rgba(196, 140, 40, 0.35);
+  border-radius: 999px;
+  color: #704a05;
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  padding: 4px 6px 4px 10px;
+}
+
+.field-sync-pill span {
+  color: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.field-sync-pill button {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid rgba(196, 140, 40, 0.35);
+  border-radius: 999px;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 700;
+  gap: 4px;
+  min-height: 28px;
+  padding: 4px 8px;
+}
+
+.field-sync-pill button:disabled {
+  cursor: progress;
+  opacity: 0.7;
 }
 
 .field-tabbar {

@@ -20,7 +20,6 @@ function useCountUp(target: number, duration = 750): number {
   const fromRef = useRef(target);
   const mountedRef = useRef(false);
   useEffect(() => {
-    // Skip the first mount animation reset when target is already known — avoids flicker.
     if (!mountedRef.current) {
       mountedRef.current = true;
       fromRef.current = target;
@@ -53,10 +52,6 @@ const HEALTH_COLORS = {
 
 const BAR_PALETTE = ["#006eb8", "#2e8c7d", "#f79009", "#7a5af8", "#f04438", "#12b76a", "#2e90fa"];
 
-function asArray(value: unknown): AnyRecord[] {
-  return Array.isArray(value) ? (value as AnyRecord[]) : [];
-}
-
 function str(record: AnyRecord, key: string): string {
   const value = record[key];
   return typeof value === "string" ? value : "";
@@ -69,6 +64,11 @@ function countBy(records: AnyRecord[], key: string): Array<{ label: string; valu
     map.set(label, (map.get(label) ?? 0) + 1);
   }
   return [...map.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+}
+
+function asRecords(value: unknown): AnyRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is AnyRecord => Boolean(item) && typeof item === "object" && !Array.isArray(item));
 }
 
 function Donut({ segments, total }: { segments: Array<{ value: number; color: string }>; total: number }) {
@@ -140,17 +140,24 @@ function Bars({ data, money = false }: { data: Array<{ label: string; value: num
 }
 
 type DashboardOverviewProps = {
+  /** Prefer parent hub data — avoids a second jobs/quotes/leads fetch on first paint. */
+  jobs?: unknown[];
+  quotes?: unknown[];
+  leads?: unknown[];
+  loaded?: boolean;
   onOpenJobs?: () => void;
   onOpenQuotes?: () => void;
   onOpenLeads?: () => void;
   onOpenInvoices?: () => void;
-  /** Ops widgets rendered in the same aligned grid (Jobs / Actions / Upcoming). */
   opsCards?: ReactNode;
-  /** Invoices KPI card (replaces Workload). */
   invoicesCard?: ReactNode;
 };
 
 export function DashboardOverview({
+  jobs: jobsProp,
+  quotes: quotesProp,
+  leads: leadsProp,
+  loaded: loadedProp,
   onOpenJobs,
   onOpenQuotes,
   onOpenLeads,
@@ -158,38 +165,10 @@ export function DashboardOverview({
   opsCards,
   invoicesCard,
 }: DashboardOverviewProps = {}) {
-  const [jobs, setJobs] = useState<AnyRecord[]>([]);
-  const [quotes, setQuotes] = useState<AnyRecord[]>([]);
-  const [leads, setLeads] = useState<AnyRecord[]>([]);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    async function load() {
-      const endpoints: Array<[string, (v: AnyRecord[]) => void]> = [
-        ["/api/jobs", setJobs],
-        ["/api/quotes", setQuotes],
-        ["/api/leads", setLeads],
-      ];
-      await Promise.all(
-        endpoints.map(async ([url, setter]) => {
-          try {
-            const res = await fetch(url);
-            if (!res.ok) return;
-            const data = await res.json();
-            if (active) setter(asArray(data));
-          } catch {
-            /* leave empty on failure */
-          }
-        }),
-      );
-      if (active) setLoaded(true);
-    }
-    void load();
-    return () => {
-      active = false;
-    };
-  }, []);
+  const jobs = useMemo(() => asRecords(jobsProp), [jobsProp]);
+  const quotes = useMemo(() => asRecords(quotesProp), [quotesProp]);
+  const leads = useMemo(() => asRecords(leadsProp), [leadsProp]);
+  const loaded = loadedProp ?? (jobs.length > 0 || quotes.length > 0 || leads.length > 0);
 
   const health = useMemo(() => {
     const counts = { green: 0, amber: 0, red: 0 };
@@ -204,12 +183,11 @@ export function DashboardOverview({
   const quotesByStatus = useMemo(() => countBy(quotes, "status"), [quotes]);
 
   const pipeline = useMemo(() => {
-    const rows = [
+    return [
       { label: "Leads", value: leads.length },
       { label: "Quotes", value: quotes.length },
       { label: "Jobs", value: jobs.length },
     ];
-    return rows;
   }, [leads, quotes, jobs]);
 
   const value = useMemo(() => {
@@ -275,7 +253,6 @@ export function DashboardOverview({
         </div>
       </Card>
 
-      {/* Jobs / Actions / Upcoming */}
       {opsCards}
 
       <Card

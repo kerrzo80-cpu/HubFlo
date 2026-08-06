@@ -18,23 +18,33 @@ type DesignReportProps = {
   design: SystemDesignResult;
   options: SystemOptionResult[];
   className?: string;
+  companyName?: string;
 };
 
-export function DesignReport({ project, design, options, className }: DesignReportProps) {
+export function DesignReport({ project, design, options, className, companyName }: DesignReportProps) {
   const recommended = options.find((row) => row.recommended) ?? options[0] ?? null;
+  const reportCompanyName = companyName?.trim() || ewgCompany.tradingName;
   const prepared = new Date(project.updatedAt || Date.now()).toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "long",
     year: "numeric",
   });
+  const savedAt = new Date(project.updatedAt || Date.now()).toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const revisionCount = project.revisions?.length ?? 0;
 
   return (
     <article className={`ewg-report ${className ?? ""}`.trim()} id="hd-print-report">
       <header className="ewg-report-letterhead">
         <div className="ewg-report-brand">
-          <img src={ewgCompany.logoUrl} alt={ewgCompany.tradingName} className="ewg-report-logo" />
+          <img src={ewgCompany.logoUrl} alt={reportCompanyName} className="ewg-report-logo" />
           <div>
-            <strong>{ewgCompany.tradingName}</strong>
+            <strong>{reportCompanyName}</strong>
             <p>
               {ewgCompany.address}
               <br />
@@ -45,11 +55,19 @@ export function DesignReport({ project, design, options, className }: DesignRepo
           </div>
         </div>
         <div className="ewg-report-docmeta">
-          <p className="ewg-report-doctype">Heating options report</p>
+          <p className="ewg-report-doctype">Design pack — not an MCS certificate</p>
           <p>Prepared {prepared}</p>
-          <p>Ref: {project.id.slice(-8).toUpperCase()}</p>
+          <p>Saved {savedAt}</p>
+          <p>Project ID: {project.id}</p>
+          <p>
+            Ref: {project.id.slice(-8).toUpperCase()} · Revision{revisionCount === 1 ? "" : "s"} {revisionCount}
+          </p>
         </div>
       </header>
+
+      <div className="ewg-report-cert-banner">
+        Design pack only — this is not an MCS certificate, formal quotation or DNO application.
+      </div>
 
       <section className="ewg-report-section">
         <h2>Client & property</h2>
@@ -296,12 +314,15 @@ export function DesignReport({ project, design, options, className }: DesignRepo
 
       <footer className="ewg-report-footer">
         <p>
-          This document is an indicative design options report prepared by {ewgCompany.tradingName}. It is not an MCS
+          Project ID {project.id} · Saved {savedAt} · Revision count {revisionCount}
+        </p>
+        <p>
+          This document is an indicative design options report prepared by {reportCompanyName}. It is not an MCS
           certificate, formal quotation or DNO application. Final proposals require site survey, accurate tariffs and
           manufacturer data.
         </p>
         <p>
-          {ewgCompany.tradingName} · {ewgCompany.website} · {ewgCompany.email} · {ewgCompany.phone}
+          {reportCompanyName} · {ewgCompany.website} · {ewgCompany.email} · {ewgCompany.phone}
         </p>
       </footer>
     </article>
