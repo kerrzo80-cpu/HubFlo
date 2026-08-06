@@ -17760,8 +17760,16 @@ h1 {
     padding: 0 6px;
   }
 
+  .module-bar.is-menu-open {
+    overflow: visible;
+  }
+
   .module-bar-scroll {
     overflow-x: auto;
+  }
+
+  .module-bar.is-menu-open .module-bar-scroll {
+    overflow: visible;
   }
 
   .open-record-tabs {
