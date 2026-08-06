@@ -1079,9 +1079,28 @@ export default function JobDetailPage() {
           const failed = (await response.json().catch(() => ({}))) as { error?: string };
           throw new Error(failed.error || "Could not save checklist item.");
         }
-        const body = (await response.json()) as { requirements?: FieldRequirement[] };
+        const body = (await response.json()) as {
+          requirements?: FieldRequirement[];
+          photos?: FieldAttachment[];
+        };
         if (body.requirements) {
-          setJob((current) => (current ? { ...current, requirements: body.requirements! } : current));
+          setJob((current) =>
+            current
+              ? {
+                  ...current,
+                  requirements: body.requirements!,
+                  photos: body.photos?.length
+                    ? [
+                        ...body.photos.filter((photo) => photo.type === "Photo" || photo.type === "Video"),
+                        ...current.photos.filter((photo) => !(body.photos ?? []).some((item) => item.id === photo.id)),
+                      ]
+                    : current.photos,
+                }
+              : current,
+          );
+        }
+        if (body.photos?.length) {
+          setWorkflow((current) => ({ ...current, photos: body.photos! }));
         }
         setDraftByRequirement((current) => {
           const next = { ...current };
@@ -1089,7 +1108,9 @@ export default function JobDetailPage() {
           return next;
         });
         setEditingId("");
-        setNotice("Saved.");
+        setNotice(
+          normalizedDraft.photoContentBase64 ? "Saved — photo synced to Core." : "Saved.",
+        );
       } catch (saveError) {
         if (isOfflineOrNetworkError(saveError)) {
           queueOfflineRequirement();
