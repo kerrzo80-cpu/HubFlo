@@ -27,6 +27,15 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+    // Script is at /sw-field.js (public). Default scope "/" is required —
+    // browsers reject scope "/field" unless the script lives under that path.
+    void navigator.serviceWorker.register("/sw-field.js").catch(() => {
+      // Private mode / unsupported — Field still works online with outbox.
+    });
+  }, []);
+
   async function syncNow() {
     setSyncing(true);
     try {

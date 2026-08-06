@@ -31639,7 +31639,42 @@ export default function Dashboard() {
                     <Download size={16} />
                     Export CSV
                   </button>
-                  <button className="primary-button" onClick={() => showNotice("Scheduled report emails will use the report filters once the mail connector is switched on.")}>
+                  <button
+                    className="primary-button"
+                    onClick={() => {
+                      const to = window.prompt(
+                        "Email address for the Monday morning board pack (UTC 08:00 / ~09:00 UK):",
+                        businessSettings.contactEmail || "",
+                      );
+                      if (to === null) return;
+                      void (async () => {
+                        try {
+                          const response = await fetch("/api/reports/board-pack/schedule", {
+                            method: "POST",
+                            headers: { ...requestHeaders, "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              enabled: Boolean(to.trim()),
+                              to: to.trim(),
+                              weekday: 1,
+                              hourUtc: 8,
+                            }),
+                          });
+                          const body = (await response.json().catch(() => null)) as {
+                            error?: string;
+                            schedule?: { enabled?: boolean; to?: string };
+                          } | null;
+                          if (!response.ok) throw new Error(body?.error || "Unable to save schedule.");
+                          showNotice(
+                            body?.schedule?.enabled
+                              ? `Monday board pack scheduled to ${body.schedule.to}. Requires company email connector.`
+                              : "Board pack email schedule disabled.",
+                          );
+                        } catch (error) {
+                          showNotice(error instanceof Error ? error.message : "Unable to schedule board pack email.");
+                        }
+                      })();
+                    }}
+                  >
                     <Send size={16} />
                     Schedule email
                   </button>

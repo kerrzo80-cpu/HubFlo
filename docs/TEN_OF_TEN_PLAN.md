@@ -12,15 +12,15 @@ Baseline (Aug 2026 audit): **~6.5/10 for EWG ops · ~4/10 vs category leaders**.
 |-------|--------------:|------------------:|---------|
 | **0 — Baseline** | 6.5 | 4 | Live suite with uneven maturity |
 | **1 — Trust the spine** | **8.0** | 5.5 | Offline Field, Heat Design saved, board-pack reports, invoice portal |
-| **2 — Commercial close** *(this branch)* | **9.0** | 7 | SumUp pay links, client hub, cash↔Xero reconcile, PO stock idempotent, server recurring generate |
-| **3 — Category peer** | **9.5** | 8.5 | Native Field feel, offline SW, BI exports, recurring/PPM depth, multi-user Heat Design |
-| **4 — 10/10** | **10** | 9–10 | Payments + portal + dispatch polish + specialist add-ons “good enough to stop buying Heat Engineer / PlanSwift for EWG work” |
+| **2 — Commercial close** | **9.0** | 7 | SumUp pay links, client hub, cash↔Xero reconcile, PO stock idempotent, server recurring generate |
+| **3 — Category peer** *(this branch)* | **9.5** | 8.5 | Field SW shell, run sheets + travel buffer, Mon board-pack email, Takeoff AI confirm, Heat Design audit |
+| **4 — 10/10** | **10** | 9–10 | End-to-end chain polish, no office rescue paths, manager-trusted numbers daily |
 
 True ServiceTitan parity (multi-tenant SaaS, plant GPS, full accounting) is optional and **out of Phase 1–3** unless you decide to productise for other firms.
 
 ---
 
-## Phase 1 — Trust the spine *(in progress)*
+## Phase 1 — Trust the spine *(shipped)*
 
 1. **Heat Design server projects** — firm register, not browser-only lab  
 2. **Field offline outbox** — checklist / daywork / photos queue + sync  
@@ -44,13 +44,15 @@ True ServiceTitan parity (multi-tenant SaaS, plant GPS, full accounting) is opti
 
 ---
 
-## Phase 3 — Category peer
+## Phase 3 — Category peer *(shipped)*
 
-1. Field service worker + asset cache (true offline shell)  
-2. Dispatch: run sheets, clash warnings, travel buffers  
-3. Scheduled email report packs (Mon morning board pack)  
-4. Takeoff Studio reliability for scanned drawings (human-confirm AI counts)  
-5. Heat Design MCS-style printable design pack + audit trail  
+1. **Field service worker** `/sw-field.js` — caches Field shell; outbox still handles writes  
+2. **Dispatch run sheets** `/api/dispatch/run-sheet` with **20m travel buffer** clash warnings  
+3. **Monday board pack email** — Reports → Schedule email + `/api/reports/board-pack/cron`  
+4. **Takeoff AI confirm** — OverlayReview before Core push (`takeoffAiConfirm`)  
+5. **Heat Design audit** — revision history + design pack labelling (`heatDesignAudit`)  
+
+**Done when:** health shows `tenOfTenPlan: phase-3-category-peer-v1`, `fieldServiceWorker`, `dispatchRunSheet`, `boardPackEmail`, `takeoffAiConfirm`, `heatDesignAudit`.
 
 ---
 
