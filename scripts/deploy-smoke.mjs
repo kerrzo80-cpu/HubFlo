@@ -88,6 +88,11 @@ async function runOnce() {
             `/api/health fieldPhotoSync=${json?.deployment?.fieldPhotoSync}, expected bytes-v1`,
           );
         }
+        if (json?.deployment?.mobileNavFix !== "field-tabs-core-rail-v1") {
+          throw new Error(
+            `/api/health mobileNavFix=${json?.deployment?.mobileNavFix}, expected field-tabs-core-rail-v1`,
+          );
+        }
       },
     }),
   );

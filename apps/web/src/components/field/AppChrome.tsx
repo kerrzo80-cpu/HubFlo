@@ -44,7 +44,9 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
         if ("caches" in window) {
           const keys = await caches.keys();
           await Promise.all(
-            keys.filter((key) => key === "ewg-field-shell-v1").map((key) => caches.delete(key)),
+            keys
+              .filter((key) => key.startsWith("ewg-field-shell-") && key !== "ewg-field-shell-v3")
+              .map((key) => caches.delete(key)),
           );
         }
         await navigator.serviceWorker.register("/field/sw.js", { scope: "/field/" });

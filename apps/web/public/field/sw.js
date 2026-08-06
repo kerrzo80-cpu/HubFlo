@@ -1,7 +1,7 @@
 /* Field offline shell — scoped to /field/ only. Network-first for pages so
- * deploys never leave Ask Blake / Hours on stale JS. Soft-cache icons/manifest.
+ * deploys never leave Ask Blake / Hours / Connect on stale JS.
  */
-const CACHE = "ewg-field-shell-v2";
+const CACHE = "ewg-field-shell-v3";
 const PRECACHE = [
   "/ewg-logo.png",
   "/manifest-field.json",
@@ -9,6 +9,7 @@ const PRECACHE = [
   "/field",
   "/field/ask",
   "/field/time-check",
+  "/field/settings",
 ];
 
 self.addEventListener("install", (event) => {
@@ -49,21 +50,22 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // All Field document / RSC navigations are network-first (including /field/settings).
   const isDocument =
     request.mode === "navigate" ||
     (request.headers.get("accept") || "").includes("text/html") ||
+    (request.headers.get("rsc") === "1") ||
+    (request.headers.get("next-router-prefetch") != null) ||
+    (request.headers.get("next-router-state-tree") != null) ||
     url.pathname === "/field" ||
     url.pathname === "/field/" ||
-    url.pathname.startsWith("/field/ask") ||
-    url.pathname.startsWith("/field/time-check") ||
-    url.pathname.startsWith("/field/jobs");
+    url.pathname.startsWith("/field/");
 
   if (isDocument) {
-    // Network-first so tab routes always get the current deploy.
     event.respondWith(
       fetch(request)
         .then(async (response) => {
-          if (response && response.ok) {
+          if (response && response.ok && request.mode === "navigate") {
             const cache = await caches.open(CACHE);
             await cache.put(request, response.clone());
           }
@@ -76,7 +78,8 @@ self.addEventListener("fetch", (event) => {
             (await cache.match("/field")) ||
             (await cache.match("/field/")) ||
             (await cache.match("/field/ask")) ||
-            (await cache.match("/field/time-check"));
+            (await cache.match("/field/time-check")) ||
+            (await cache.match("/field/settings"));
           return (
             cached ||
             new Response("Offline — open Field again when you have signal.", {

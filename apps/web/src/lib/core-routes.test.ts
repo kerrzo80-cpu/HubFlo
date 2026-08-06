@@ -6,6 +6,7 @@ import {
   isCoreModulePath,
   modulePathForHomeView,
   normalizeCorePath,
+  resolveHomeViewFromPathname,
 } from "@/lib/core-routes";
 
 describe("core-routes", () => {
@@ -35,5 +36,39 @@ describe("core-routes", () => {
     assert.equal(normalizeCorePath("/quotes?x=1"), "/quotes");
     assert.equal(isCoreModulePath("/reports"), true);
     assert.equal(isCoreModulePath("/takeoff"), false);
+  });
+
+  it("does not reset homeView to dashboard while a tab navigation is in flight", () => {
+    const midClick = resolveHomeViewFromPathname({
+      pathname: "/",
+      homeView: "jobs",
+      pendingPath: "/jobs",
+    });
+    assert.equal(midClick.homeView, null);
+    assert.equal(midClick.pendingPath, "/jobs");
+
+    const landed = resolveHomeViewFromPathname({
+      pathname: "/jobs",
+      homeView: "jobs",
+      pendingPath: "/jobs",
+    });
+    assert.equal(landed.homeView, null);
+    assert.equal(landed.pendingPath, null);
+  });
+
+  it("preserves nested record views when pathname already matches the module", () => {
+    const nested = resolveHomeViewFromPathname({
+      pathname: "/jobs",
+      homeView: "job-record",
+      pendingPath: null,
+    });
+    assert.equal(nested.homeView, null);
+
+    const back = resolveHomeViewFromPathname({
+      pathname: "/",
+      homeView: "jobs",
+      pendingPath: null,
+    });
+    assert.equal(back.homeView, "dashboard");
   });
 });

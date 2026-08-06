@@ -15,7 +15,11 @@ import {
 } from "react";
 import { CorePanelSkeleton } from "@/components/CorePanelSkeleton";
 import { downloadBlob } from "@/lib/download-blob";
-import { homeViewForPath, modulePathForHomeView } from "@/lib/core-routes";
+import {
+  homeViewForPath,
+  modulePathForHomeView,
+  resolveHomeViewFromPathname,
+} from "@/lib/core-routes";
 import {
   AlertTriangle,
   BarChart3,
@@ -7803,7 +7807,11 @@ function makeEstimateLabourLine(
 export default function CoreApp() {
   const pathname = usePathname() || "/";
   const router = useRouter();
-  const syncingHomeViewFromUrlRef = useRef(false);
+  /** Module path we intentionally navigated to; ignore stale pathname until the router catches up. */
+  const pendingModulePathRef = useRef<string | null>(null);
+  const lastHomeViewRef = useRef<HomeView>(
+    (homeViewForPath(pathname) as HomeView | null) ?? "dashboard",
+  );
   const [employees, setEmployees] = useState<EmployeeCard[]>(() => normalizeEmployeeCards(seedEmployees));
   const [dashboardLayouts, setDashboardLayouts] = useState<Record<string, DashboardLayout>>({});
   const [isDashboardCustomising, setIsDashboardCustomising] = useState(false);
@@ -7957,7 +7965,8 @@ export default function CoreApp() {
   const [createMenuPosition, setCreateMenuPosition] = useState({ left: 0, top: 0 });
   const [openModuleMenu, setOpenModuleMenu] = useState<string | null>(null);
   const [openDirectoryActionMenu, setOpenDirectoryActionMenu] = useState<{ scope: DirectoryRecordScope; id: string } | null>(null);
-  const [contextSidebarCollapsed, setContextSidebarCollapsed] = useState(false);
+  // Mobile-first: blue context rail starts closed so it does not cover the workspace.
+  const [contextSidebarCollapsed, setContextSidebarCollapsed] = useState(true);
   const [homeView, setHomeView] = useState<HomeView>(
     () => (homeViewForPath(pathname) as HomeView | null) ?? "dashboard",
   );
@@ -11321,25 +11330,47 @@ export default function CoreApp() {
     refreshSelectedJobVariationPortalStatuses().catch(() => {});
   }, [hasHydratedLocalData, selectedJob?.id]);
 
+  // Desktop keeps the blue context rail available; mobile starts closed (state default).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(min-width: 721px)");
+    const syncRail = () => {
+      if (media.matches) setContextSidebarCollapsed(false);
+      else setContextSidebarCollapsed(true);
+    };
+    syncRail();
+    media.addEventListener("change", syncRail);
+    return () => media.removeEventListener("change", syncRail);
+  }, []);
+
   // Keep the address bar aligned with the top-level Core module (nested records stay under parent path).
   useEffect(() => {
     const targetPath = modulePathForHomeView(homeView);
-    if (pathname === targetPath) return;
-    if (syncingHomeViewFromUrlRef.current) return;
-    router.replace(targetPath);
+    if (pathname === targetPath) {
+      pendingModulePathRef.current = null;
+      lastHomeViewRef.current = homeView;
+      return;
+    }
+    // Only push when homeView changed from the UI. If pathname moved first (back/forward), do not fight it.
+    if (lastHomeViewRef.current !== homeView) {
+      lastHomeViewRef.current = homeView;
+      pendingModulePathRef.current = targetPath;
+      router.replace(targetPath);
+    }
   }, [homeView, pathname, router]);
 
   // Browser back/forward + hard loads on /jobs, /quotes, etc. drive homeView without remounting CoreApp.
+  // Intentionally depends on pathname only — homeView updates must not re-interpret a stale URL.
   useEffect(() => {
-    const fromPath = homeViewForPath(pathname);
-    if (!fromPath) return;
-    if (modulePathForHomeView(homeView) === pathname) return;
-    syncingHomeViewFromUrlRef.current = true;
-    setHomeView(fromPath as HomeView);
-    queueMicrotask(() => {
-      syncingHomeViewFromUrlRef.current = false;
+    const resolved = resolveHomeViewFromPathname({
+      pathname,
+      homeView,
+      pendingPath: pendingModulePathRef.current,
     });
-  }, [pathname, homeView]);
+    pendingModulePathRef.current = resolved.pendingPath;
+    if (resolved.homeView) setHomeView(resolved.homeView as HomeView);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pathname is the only external driver
+  }, [pathname]);
 
   useEffect(() => {
     if (!hasHydratedLocalData || handledInitialRoute || typeof window === "undefined") return;

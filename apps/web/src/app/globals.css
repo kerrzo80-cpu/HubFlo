@@ -17995,8 +17995,10 @@ h1 {
   }
 
   .body-shell.sidebar-collapsed .context-sidebar {
-    display: flex;
-    transform: translateX(calc(-100% - 18px));
+    display: none !important;
+    pointer-events: none !important;
+    transform: none !important;
+    visibility: hidden !important;
   }
 
   .body-shell:not(.sidebar-collapsed) .context-sidebar {
@@ -31485,8 +31487,10 @@ body {
   }
 
   .body-shell.sidebar-collapsed .context-sidebar {
+    display: none !important;
     pointer-events: none !important;
-    transform: translateX(calc(-100% - 24px)) !important;
+    transform: none !important;
+    visibility: hidden !important;
   }
 
   .body-shell:not(.sidebar-collapsed) .context-sidebar {

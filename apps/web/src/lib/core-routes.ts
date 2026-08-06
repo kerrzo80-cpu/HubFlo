@@ -139,3 +139,31 @@ export function normalizeCorePath(pathname: string): CoreModulePath | null {
 export function isCoreModulePath(pathname: string): boolean {
   return normalizeCorePath(pathname) !== null;
 }
+
+/**
+ * Decide whether a pathname change should overwrite local homeView.
+ * Used to stop UI tab clicks (homeView ahead of router) from flashing back to dashboard.
+ */
+export function resolveHomeViewFromPathname(input: {
+  pathname: string;
+  homeView: string;
+  pendingPath: string | null;
+}): { homeView: CoreHomeView | null; pendingPath: string | null } {
+  const pendingPath = input.pendingPath;
+  if (pendingPath) {
+    if (input.pathname === pendingPath) {
+      // Navigation caught up — keep the UI view (including nested records under this module).
+      return { homeView: null, pendingPath: null };
+    }
+    // Stale URL while a module navigation is in flight — ignore.
+    return { homeView: null, pendingPath };
+  }
+
+  const fromPath = homeViewForPath(input.pathname);
+  if (!fromPath) return { homeView: null, pendingPath: null };
+  if (modulePathForHomeView(input.homeView) === input.pathname) {
+    // Already on this module (directory or nested record) — do not clobber nested views.
+    return { homeView: null, pendingPath: null };
+  }
+  return { homeView: fromPath, pendingPath: null };
+}
