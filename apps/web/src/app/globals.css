@@ -12085,8 +12085,7 @@ h1 {
     flex-wrap: nowrap;
     gap: 6px;
     max-height: none;
-    overflow-x: auto;
-    overflow-y: visible;
+    overflow: visible;
     padding: 8px;
     position: static;
     -webkit-overflow-scrolling: touch;
