@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
+import { useBrand } from "@/components/BrandProvider";
+import { resolveBrandLogoUrl } from "@/lib/branding";
 
 type PortalCentre = {
   id: string;
@@ -45,6 +47,7 @@ function money(value: number) {
 }
 
 export default function ClientQuotePortal({ params }: { params: Promise<{ token: string }> }) {
+  const brand = useBrand();
   const [token, setToken] = useState("");
   const [quote, setQuote] = useState<PortalQuote | null>(null);
   const [jobRef, setJobRef] = useState<string | null>(null);
@@ -116,8 +119,8 @@ export default function ClientQuotePortal({ params }: { params: Promise<{ token:
       <section className="client-portal-card">
         <header>
           <span className="verrova-client-lockup">
-            <img src="/ewg-logo.png" alt="" aria-hidden="true" />
-            <strong>EWG</strong>
+            <img src={resolveBrandLogoUrl(brand)} alt="" aria-hidden="true" />
+            <strong>{brand.companyName}</strong>
           </span>
           <span>Online quote review</span>
         </header>

@@ -1404,6 +1404,13 @@ export default function HeatDesignLabPage() {
                       type="button"
                       className="hd-btn hd-btn-primary"
                       disabled={linkBusy || !design.kit.length || !project.chosenSystemId}
+                      title={
+                        !project.chosenSystemId
+                          ? "Design a system on plan first"
+                          : !design.kit.length
+                            ? "Kit is empty — run Design on plan"
+                            : undefined
+                      }
                       onClick={() => void pushKitToCore()}
                     >
                       {linkBusy
@@ -1417,6 +1424,16 @@ export default function HeatDesignLabPage() {
                             : "Create job + push materials"}
                     </button>
                   </div>
+                  {!linkBusy && !project.chosenSystemId ? (
+                    <p className="hd-lead" style={{ marginTop: 8 }}>
+                      Push is disabled until you design a system on plan — the kit must match gas / ASHP / oil etc.
+                    </p>
+                  ) : !linkBusy && !design.kit.length ? (
+                    <p className="hd-lead" style={{ marginTop: 8 }}>
+                      Push is disabled — kit is empty. Open System, run Design on plan, then return here to push
+                      materials.
+                    </p>
+                  ) : null}
                   {!project.customerName.trim() ? (
                     <p className="hd-lead" style={{ marginTop: 8 }}>
                       Tip: fill customer name on the Project tab before creating a new quote or job.
@@ -1424,9 +1441,6 @@ export default function HeatDesignLabPage() {
                   ) : null}
                 </div>
 
-                {!project.chosenSystemId ? (
-                  <p className="hd-lead">Design a system on plan first so the kit matches gas / ASHP / oil etc.</p>
-                ) : null}
                 <div className="hd-extras">
                   {kitExtraOptions.map((extra) => {
                     const on = project.kitExtras.includes(extra.id);

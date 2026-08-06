@@ -122,6 +122,7 @@ export async function GET() {
       coreUiPerf: "lazy-panels-boot-shell-v1",
       coreRoutes: "url-modules-v1",
       visualQa: "logo-rail-xero-finance-v1",
+      platformPolish: "fifteen-pass-v1",
       deploySmoke: "health-smoke-cron-v1",
       takeoffSkill: "drawing-first-v8-routes-page",
       takeoffAiConfirm: "overlay-review-v1",

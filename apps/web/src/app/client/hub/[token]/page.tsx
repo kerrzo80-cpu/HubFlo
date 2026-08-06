@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, XCircle } from "lucide-react";
+import { useBrand } from "@/components/BrandProvider";
+import { resolveBrandLogoUrl } from "@/lib/branding";
 
 type HubLinkRecord = {
   id: string;
@@ -60,6 +62,7 @@ function portalUrl(path: string) {
 }
 
 export default function ClientHubPortal({ params }: { params: Promise<{ token: string }> }) {
+  const brand = useBrand();
   const [token, setToken] = useState("");
   const [hub, setHub] = useState<ClientHubPayload | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -110,8 +113,8 @@ export default function ClientHubPortal({ params }: { params: Promise<{ token: s
       <section className="client-portal-card client-hub-card">
         <header>
           <span className="verrova-client-lockup">
-            <img src="/ewg-logo.png" alt="" aria-hidden="true" />
-            <strong>EWG</strong>
+            <img src={resolveBrandLogoUrl(brand)} alt="" aria-hidden="true" />
+            <strong>{brand.companyName}</strong>
           </span>
           <span>Customer hub</span>
         </header>

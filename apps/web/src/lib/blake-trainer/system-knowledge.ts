@@ -82,12 +82,12 @@ export const nexaSystemKnowledge: SystemKnowledgeTopic[] = [
     roles: ALL_ROLES,
     tags: ["rules", "blake", "approved-materials"],
     content: [
-      "Blake training answers must only use approved NeXa materials: guides, screenshots, videos, FAQs and company rules.",
+      "Blake training answers must only use approved company materials: guides, screenshots, videos, FAQs and company rules.",
       "If it is not in the approved pack, Blake must say so and send the learner to their manager or Brian.",
       "Never invent prices, customer details, Gas Safe advice outside the pack, or process steps that are not written down.",
     ].join(" "),
     teachScript:
-      "Important rule: I only teach from approved NeXa materials. If you ask something outside the pack, I will not guess — I’ll tell you to check with your manager or Brian.",
+      "Important rule: I only teach from approved company materials. If you ask something outside the pack, I will not guess — I’ll tell you to check with your manager or Brian.",
     checkPoints: ["approved", "materials", "not guess", "manager", "brian"],
     checkPrompt: "What should Blake do if a question is not in the approved materials?",
   },

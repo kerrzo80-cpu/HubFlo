@@ -19,7 +19,10 @@ export type OutboxItem = {
   createdAt: string;
   attempts: number;
   lastError?: string;
+  dead?: boolean;
 };
+
+const MAX_OUTBOX_ATTEMPTS = 5;
 
 type OutboxListener = (items: OutboxItem[]) => void;
 
@@ -75,7 +78,16 @@ function normaliseItem(item: Partial<OutboxItem>): OutboxItem | null {
     createdAt: String(item.createdAt || new Date().toISOString()),
     attempts: Number.isFinite(item.attempts) ? Number(item.attempts) : 0,
     lastError: item.lastError ? String(item.lastError) : undefined,
+    dead: Boolean(item.dead) || Number(item.attempts) >= MAX_OUTBOX_ATTEMPTS,
   };
+}
+
+export function isOutboxItemDead(item: OutboxItem) {
+  return item.dead || item.attempts >= MAX_OUTBOX_ATTEMPTS;
+}
+
+export function countPendingOutbox(items: OutboxItem[]) {
+  return items.filter((item) => !isOutboxItemDead(item)).length;
 }
 
 function readOutboxItems(): OutboxItem[] {
@@ -168,6 +180,7 @@ async function flushOutboxItems() {
 
   let remaining = readOutboxItems();
   for (const item of [...remaining]) {
+    if (isOutboxItemDead(item)) continue;
     try {
       const response = await fetch(item.path, {
         method: item.method,
@@ -178,15 +191,27 @@ async function flushOutboxItems() {
       });
       if (!response.ok) {
         const failed = (await response.json().catch(() => ({}))) as { error?: string };
-        throw new Error(failed.error || `Sync failed (${response.status})`);
+        const message = failed.error || `Sync failed (${response.status})`;
+        const attempts = item.attempts + 1;
+        const clientError = response.status >= 400 && response.status < 500 && response.status !== 401;
+        const dead = clientError || attempts >= MAX_OUTBOX_ATTEMPTS;
+        remaining = remaining.map((queued) =>
+          queued.id === item.id
+            ? { ...queued, attempts, lastError: message, dead }
+            : queued,
+        );
+        writeOutboxItems(remaining);
+        continue;
       }
       remaining = remaining.filter((queued) => queued.id !== item.id);
       writeOutboxItems(remaining);
     } catch (flushError) {
       const message = flushError instanceof Error ? flushError.message : "Could not sync offline change.";
+      const attempts = item.attempts + 1;
+      const dead = attempts >= MAX_OUTBOX_ATTEMPTS;
       remaining = remaining.map((queued) =>
         queued.id === item.id
-          ? { ...queued, attempts: queued.attempts + 1, lastError: message }
+          ? { ...queued, attempts, lastError: message, dead }
           : queued,
       );
       writeOutboxItems(remaining);

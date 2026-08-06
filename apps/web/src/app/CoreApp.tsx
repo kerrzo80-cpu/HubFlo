@@ -1530,7 +1530,7 @@ function invoiceOutstandingBalance(invoice: Pick<Invoice, "chargeTotal" | "vatRa
   return Math.max(0, invoiceGrossTotal(invoice) - (invoice.paidAmount ?? 0));
 }
 
-function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "NeXa"): InvoiceEmailDraft {
+function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "Errol Watson Group"): InvoiceEmailDraft {
   const contactName = client?.primaryContact?.split(" ")[0] || "there";
   const totalDue = currency(invoiceGrossTotal(invoice));
   const outstanding = currency(invoiceOutstandingBalance(invoice));
@@ -2468,10 +2468,9 @@ const modules: ModuleItem[] = [
 const sideNavigation: Array<{
   label: string;
   icon: typeof Gauge;
-  active?: boolean;
   badge?: string | number;
 }> = [
-  { label: "Overview", icon: Gauge, active: true },
+  { label: "Overview", icon: Gauge },
   { label: "My work", icon: ListChecks },
   { label: "Reports", icon: BarChart3 },
 ];
@@ -3251,7 +3250,7 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "tax-codes", label: "Tax codes", detail: "VAT treatments mapped for Xero" },
   { key: "email-templates", label: "Email templates", detail: "Quote, invoice, PO and follow-up wording" },
   { key: "security", label: "Security groups", detail: "Role permission templates for employee cards" },
-  { key: "integrations", label: "Integrations", detail: "NeXa AI, simPRO, Xero, SumUp and live system sync", subItems: ["NeXa AI", "simPRO", "Xero", "Import from simPRO"] },
+  { key: "integrations", label: "Integrations", detail: "Blake AI, simPRO, Xero, SumUp and live system sync", subItems: ["Blake AI", "simPRO", "Xero", "SumUp", "Import from simPRO"] },
   { key: "communications", label: "Communications", detail: "Outlook, WhatsApp and supplier doorway settings", subItems: ["Outlook", "WhatsApp", "Supplier emails"] },
   { key: "finance", label: "Finance", detail: "Invoices, VAT, payment terms, Xero connection and approval gates", subItems: ["Invoices", "Valuations", "PO approvals", "Xero"] },
 ];
@@ -3474,13 +3473,13 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
   "email-templates": {},
   security: {},
   integrations: {
-    "NeXa AI": {
-      summary: "Connect OpenAI once here to power Blake across Takeoff, Survey, the Field app and the NeXa Assistant — no redeploy needed.",
+    "Blake AI": {
+      summary: "Connect OpenAI once here to power Blake across Takeoff, Survey, Field and the assistant — no redeploy needed.",
       focus: ["Paste your OpenAI API key", "Powers every AI feature", "Environment key still takes precedence"],
       status: "Set up in seconds",
     },
     simPRO: {
-      summary: "Check the live simPRO connection, keep the downstream bridge healthy and confirm NeXa can keep pushing records across.",
+      summary: "Check the live simPRO connection, keep the downstream bridge healthy and confirm Core can keep pushing records across.",
       focus: ["Connection status", "One-way quote and job push", "Scheduler handoff readiness"],
       status: "Working bridge",
     },
@@ -3489,8 +3488,13 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       focus: ["OAuth tenant", "Export queues", "Mark exported"],
       status: "Setup area ready",
     },
+    SumUp: {
+      summary: "Connect SumUp for hosted checkout on the invoice portal. Merchant code and API key live here.",
+      focus: ["API key", "Merchant code", "Pay online on invoice portal"],
+      status: "Editable now",
+    },
     "Import from simPRO": {
-      summary: "Optional inbound tools for controlled migration only. Leave this off during normal day-to-day use while NeXa stays the front end.",
+      summary: "Optional inbound tools for controlled migration only. Leave this off during normal day-to-day use while Core stays the front end.",
       focus: ["Migration-only preview", "Controlled backfill", "Conflict review"],
       status: "Use only when needed",
     },
@@ -3519,14 +3523,14 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Editable now",
     },
     Valuations: {
-      summary: "Raise applications for payment and progress claims from jobs with billed-to-date remaining controls.",
-      focus: ["Application for payment", "Progress claims", "Remaining contract value"],
-      status: "Editable now",
+      summary: "Applications for payment and progress claims use Finance VAT/bank defaults. Raise them from the Invoices module on a job.",
+      focus: ["Application for payment", "Progress claims", "Invoice module for live valuations"],
+      status: "Uses invoice defaults below",
     },
     "PO approvals": {
-      summary: "Set purchase order approval thresholds used when POs need office sign-off before send.",
-      focus: ["Approval thresholds", "Workflow gate messaging", "Supplier PO issue rules"],
-      status: "Editable now",
+      summary: "PO approval threshold is edited under Workflow rules → Approvals. Finance holds invoice/bank defaults used when POs bill through.",
+      focus: ["Open Workflow rules for threshold", "Invoice VAT and bank defaults", "Supplier PO issue"],
+      status: "Threshold in Workflow rules",
     },
     Xero: {
       summary: "Connect Xero from Finance when you are looking for accounts — same OAuth connection as Integrations. Day-to-day export queues stay in the Xero left-nav module.",
@@ -4307,7 +4311,7 @@ const quoteStatuses: QuoteStatus[] = [
 
 const leadSources: LeadSource[] = ["Phone call", "Checkatrade", "Email", "Website", "Referral"];
 const leadStatuses: LeadStatus[] = ["New enquiry", "Needs scheduling", "Survey booked", "Quoted", "Lost"];
-const surveyorOptions = ["Brian Kerr", "Errol Watson", "Chris Lawson"];
+const seedSurveyorOptions = ["Brian Kerr", "Errol Watson", "Chris Lawson"];
 const surveyDurationMinutes = 60;
 const currentOperatingDate = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Europe/London",
@@ -5067,7 +5071,7 @@ const blankLead: LeadDraft = {
   address: "",
   description: "",
   status: "Needs scheduling",
-  surveyor: surveyorOptions[0] ?? "Errol Watson",
+  surveyor: seedSurveyorOptions[0] ?? "Errol Watson",
   surveyDate: "",
   surveyTime: "",
   createdBy: "Carol",
@@ -7512,7 +7516,7 @@ function numericSetting(value: string | number, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "NeXa"): QuoteEmailDraft {
+function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "Errol Watson Group"): QuoteEmailDraft {
   const contactName = client?.primaryContact?.split(" ")[0] || "there";
   const vars = {
     ref: quote.ref,
@@ -7823,6 +7827,14 @@ export default function CoreApp() {
   const [jobs, setJobs] = useState<Job[]>(demoJobs);
   const [quotes, setQuotes] = useState<Quote[]>(demoQuotes);
   const [leads, setLeads] = useState<Lead[]>(demoLeads);
+  const surveyorOptions = useMemo(() => {
+    const fromPeople = employees
+      .filter((employee) => employee.name.trim() && !(employee as { archived?: boolean }).archived)
+      .map((employee) => employee.name.trim());
+    return Array.from(new Set([...fromPeople, ...seedSurveyorOptions])).sort((left, right) =>
+      left.localeCompare(right, undefined, { sensitivity: "base" }),
+    );
+  }, [employees]);
   const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>(demoInvoices);
   const [search, setSearch] = useState("");
@@ -8839,9 +8851,15 @@ export default function CoreApp() {
   const selectedQuoteEmailDraft = useMemo(
     () =>
       selectedQuote
-        ? quoteEmailDrafts[selectedQuote.id] ?? makeQuoteEmailDraft(selectedQuote, selectedQuoteClient)
+        ? quoteEmailDrafts[selectedQuote.id] ??
+          makeQuoteEmailDraft(
+            selectedQuote,
+            selectedQuoteClient,
+            null,
+            businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group",
+          )
         : null,
-    [quoteEmailDrafts, selectedQuote, selectedQuoteClient],
+    [businessSettings.companyName, businessSettings.tradingName, quoteEmailDrafts, selectedQuote, selectedQuoteClient],
   );
 
   const selectedJobClient = useMemo(
@@ -9644,9 +9662,15 @@ export default function CoreApp() {
   const selectedInvoiceEmailDraft = useMemo(
     () =>
       selectedInvoice
-        ? invoiceEmailDrafts[selectedInvoice.id] ?? makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient)
+        ? invoiceEmailDrafts[selectedInvoice.id] ??
+          makeInvoiceEmailDraft(
+            selectedInvoice,
+            selectedInvoiceClient,
+            null,
+            businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group",
+          )
         : null,
-    [invoiceEmailDrafts, selectedInvoice, selectedInvoiceClient],
+    [businessSettings.companyName, businessSettings.tradingName, invoiceEmailDrafts, selectedInvoice, selectedInvoiceClient],
   );
 
   const selectedInvoiceSite = useMemo(
@@ -14898,7 +14922,7 @@ export default function CoreApp() {
       if (result?.reconnect) setSimproReconnectStatus(result.reconnect);
       if (result?.sync) setSimproSyncStatus(result.sync);
       await refreshIntegrationConnectionStatus();
-      showNotice("simPRO reconnected. The live token has been refreshed in NeXa.");
+      showNotice("simPRO reconnected. The live token has been refreshed in Core.");
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to reconnect simPRO.");
     } finally {
@@ -22754,7 +22778,11 @@ export default function CoreApp() {
       ));
     }
 
-    showNotice(recordUpdateWarning ? `Quote email sent, but ${recordUpdateWarning}` : "Quote sent from NeXa and captured against the quote.");
+    showNotice(
+      recordUpdateWarning
+        ? `Quote email sent, but ${recordUpdateWarning}`
+        : "Quote sent and captured against the quote record.",
+    );
     setIsSendingLiveEmail(false);
     return true;
   }
@@ -22905,12 +22933,12 @@ export default function CoreApp() {
       return;
     }
     logAuditEvent({
-      actor: selectedQuoteClient?.primaryContact ?? selectedQuote.customer,
+      actor: activeEmployee?.name ?? "Office user",
       action: status === "Accepted" ? "accepted" : "declined",
       recordType: "quote",
       recordId: selectedQuote.id,
-      summary: `${selectedQuote.ref} was ${status.toLowerCase()} online via the client portal.`,
-      source: "client portal",
+      summary: `${selectedQuote.ref} was marked ${status.toLowerCase()} by the office (not the client portal).`,
+      source: "office quote response",
       importance: status === "Accepted" ? "high" : "normal",
     });
     if (status === "Accepted" && !updatedQuote.convertedJobId) {
@@ -22918,10 +22946,14 @@ export default function CoreApp() {
       return;
     }
     if (status === "Accepted" && updatedQuote.convertedJobId) {
-      showNotice("Variation quote accepted. Open the linked job and choose which section should receive the cost centre.");
+      showNotice("Variation quote marked accepted. Open the linked job and choose which section should receive the cost centre.");
       return;
     }
-    showNotice(status === "Accepted" ? "Quote accepted online and logged." : "Quote declined online and logged.");
+    showNotice(
+      status === "Accepted"
+        ? "Quote marked accepted and logged. Use Copy portal link when the customer should accept online."
+        : "Quote marked declined and logged.",
+    );
   }
 
   function returnToQuoteRecord() {
@@ -30899,7 +30931,7 @@ export default function CoreApp() {
               ))}
             </div>
             <small className="employee-login-hint">
-              Default pilot password is EWG2026 unless it has been changed on the employee card. On iPhone, save the password to iCloud Keychain to use Face ID autofill.
+              Use the username and password from your employee card. On iPhone, save the password to iCloud Keychain to use Face ID autofill.
             </small>
           </div>
         </section>
@@ -31208,9 +31240,9 @@ export default function CoreApp() {
               const Icon = module.icon;
               const isActiveModule =
                 (module.label === "Dashboard" && homeView === "dashboard") ||
-                (module.label === "Leads" && ["leads", "lead-record"].includes(homeView)) ||
-                (module.label === "Quotes" && ["quotes", "quote-record", "quote-cost-centre-record"].includes(homeView)) ||
-                (module.label === "Jobs" && ["jobs", "job-record", "cost-centre-record"].includes(homeView)) ||
+                (module.label === "Leads" && ["leads", "lead-create", "lead-record"].includes(homeView)) ||
+                (module.label === "Quotes" && ["quotes", "quote-create", "quote-record", "quote-cost-centre-record"].includes(homeView)) ||
+                (module.label === "Jobs" && ["jobs", "job-create", "job-record", "cost-centre-record"].includes(homeView)) ||
                 (module.label === "Schedules" && homeView === "schedule") ||
                 (module.label === "Invoices" && ["invoices", "invoice-record", "invoice-create"].includes(homeView)) ||
                 (module.label === "POs" && ["purchase-orders", "purchase-order-record"].includes(homeView)) ||
@@ -31218,6 +31250,7 @@ export default function CoreApp() {
                 (module.label === "Recurring" && homeView === "recurring") ||
                 (module.label === "Reports" && homeView === "reports") ||
                 (module.label === "Stock" && homeView === "stock") ||
+                (module.label === "Setup" && ["settings", "addons"].includes(homeView)) ||
                 (module.label === "Xero" && homeView === "xero");
 
               if (module.subItems?.length) {
@@ -31408,10 +31441,14 @@ export default function CoreApp() {
             </a>
             {visibleSideNav.map((item) => {
               const Icon = item.icon;
+              const isActiveSide =
+                (item.label === "Overview" && homeView === "dashboard") ||
+                (item.label === "My work" && homeView === "profile") ||
+                (item.label === "Reports" && homeView === "reports");
               return (
                 <a
                   href="#"
-                  className={item.active ? "context-link active" : "context-link"}
+                  className={isActiveSide ? "context-link active" : "context-link"}
                   key={item.label}
                   aria-label={item.label}
                   data-tooltip={item.label}
@@ -32862,10 +32899,6 @@ export default function CoreApp() {
                     <span className="permission-heading">AI insights</span>
                     <h3>Plain-English nudges</h3>
                   </div>
-                  <button className="secondary-button" type="button" onClick={() => showNotice("Predictive alerts will learn from completed jobs, timesheets, PO variance and quote history as the pilot data grows.")}>
-                    <Sparkles size={15} />
-                    Prediction roadmap
-                  </button>
                 </header>
                 <div className="report-insight-grid">
                   {reportInsights.map((insight) => (
@@ -32879,6 +32912,16 @@ export default function CoreApp() {
                     </article>
                   ))}
                 </div>
+                <article className="report-insight amber" style={{ marginTop: 12 }}>
+                  <Sparkles size={17} />
+                  <div>
+                    <strong>Prediction roadmap</strong>
+                    <span>
+                      Next: alerts that learn from completed jobs, timesheets, PO variance and quote history as pilot data grows.
+                    </span>
+                    <small>Live insights above already use today’s Core numbers — no toast-only button.</small>
+                  </div>
+                </article>
               </section>
 
               <div className="reports-export-bar">
@@ -33931,14 +33974,14 @@ export default function CoreApp() {
               <div className="addon-hero">
                 <div>
                   <span className="permission-heading">Product suite</span>
-                  <h2>NeXa Core stays the hub</h2>
+                  <h2>{businessSettings.coreAppName || "Core"} stays the hub</h2>
                   <p>
                     Specialist add-ons can do the heavy work, then push clean leads, quotes, cost centres,
                     job events, documents and audit logs back into Core.
                   </p>
                 </div>
                 <div className="addon-core-badge">
-                  <strong>Core</strong>
+                  <strong>{businessSettings.productName || "Core"}</strong>
                   <span>Clients · Leads · Quotes · Jobs · Invoices</span>
                 </div>
               </div>
@@ -33965,9 +34008,18 @@ export default function CoreApp() {
                 <a className="addon-product-card" href="/estimator">
                   <span className="addon-icon"><FileText size={20} /></span>
                   <div>
-                    <strong>{businessSettings.surveyAppName}</strong>
+                    <strong>Estimator</strong>
                     <p>Review AI-built materials and labour, then push a Core quote.</p>
                     <small>Outputs editable estimates, RFQs and simPRO-ready quote lines.</small>
+                  </div>
+                  <ChevronRight size={17} />
+                </a>
+                <a className="addon-product-card" href="/heat-design">
+                  <span className="addon-icon"><Flame size={20} /></span>
+                  <div>
+                    <strong>{businessSettings.heatDesignAppName}</strong>
+                    <p>Floor plans, emitters and heat-loss kits linked back to a quote or job.</p>
+                    <small>Outputs design packs, emitter schedules and kit lines for Core.</small>
                   </div>
                   <ChevronRight size={17} />
                 </a>
@@ -33983,7 +34035,7 @@ export default function CoreApp() {
                 <a className="addon-product-card" href="/train">
                   <span className="addon-icon"><Sparkles size={20} /></span>
                   <div>
-                    <strong>Blake Trainer</strong>
+                    <strong>{businessSettings.trainerAppName || "Blake Trainer"}</strong>
                     <p>Voice-first staff training with role-aware modules and understanding checks.</p>
                     <small>Answers only from approved guides, screenshots, videos, FAQs and company rules.</small>
                   </div>
@@ -33992,7 +34044,7 @@ export default function CoreApp() {
                 <a className="addon-product-card" href="/office/whatsapp-pilot">
                   <span className="addon-icon"><Inbox size={20} /></span>
                   <div>
-                    <strong>{businessSettings.hidePlatformName ? `${businessSettings.productName} Connect` : "NeXa Connect"}</strong>
+                    <strong>{`${businessSettings.productName || "EWG"} Connect`}</strong>
                     <p>Outlook, WhatsApp, suppliers, Checkatrade, accounting and API intake.</p>
                     <small>Outputs communications, approvals, supplier costs and audit events.</small>
                   </div>
@@ -35399,11 +35451,39 @@ export default function CoreApp() {
                             <button className="secondary-button" type="button" onClick={logQuotePortalViewed}>
                               Simulate customer viewed
                             </button>
-                            <button className="primary-button" type="button" onClick={() => respondToQuoteOnline("Accepted")}>
-                              Accept online
+                            <button
+                              className="primary-button"
+                              type="button"
+                              title="Office mark-accepted (phone / email). Client portal accept is separate."
+                              onClick={() => {
+                                if (
+                                  typeof window !== "undefined" &&
+                                  !window.confirm(
+                                    `Mark ${selectedQuote.ref} as Accepted from the office? This can create the job. Prefer the client portal link when the customer is accepting online.`,
+                                  )
+                                ) {
+                                  return;
+                                }
+                                void respondToQuoteOnline("Accepted");
+                              }}
+                            >
+                              Mark accepted
                             </button>
-                            <button className="secondary-button" type="button" onClick={() => respondToQuoteOnline("Declined")}>
-                              Decline online
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              title="Office mark-declined. Client portal decline is separate."
+                              onClick={() => {
+                                if (
+                                  typeof window !== "undefined" &&
+                                  !window.confirm(`Mark ${selectedQuote.ref} as Declined from the office?`)
+                                ) {
+                                  return;
+                                }
+                                void respondToQuoteOnline("Declined");
+                              }}
+                            >
+                              Mark declined
                             </button>
                           </div>
                         </section>
@@ -35420,7 +35500,19 @@ export default function CoreApp() {
                         <span className="permission-heading">Quote history</span>
                         <h2>Logs</h2>
                       </div>
-                      <button className="secondary-button" type="button" onClick={() => showNotice("Outlook sync will refresh quote emails here once connected.")}>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => {
+                          // Logs are hub audit events already in memory — force a light re-render/notice.
+                          setAuditEvents((current) => [...current]);
+                          showNotice(
+                            selectedQuote
+                              ? `Showing ${selectedQuote.ref} history from Core. Outlook mailbox sync appears here when the employee mailbox is connected in Setup.`
+                              : "Quote history refreshed from Core.",
+                          );
+                        }}
+                      >
                         Refresh logs
                       </button>
                     </header>
@@ -38505,7 +38597,29 @@ export default function CoreApp() {
                                     <button
                                       className="simpro-grey-button"
                                       type="button"
-                                      onClick={() => showNotice(`${variation.reference} variation quote preview opened.`)}
+                                      onClick={() => {
+                                        if (variation.id.startsWith("daywork-") || variation.reason === "Daywork account") {
+                                          if (selectedJob) openDayworkAccountRecord(selectedJob.id);
+                                          return;
+                                        }
+                                        if (variation.portalToken) {
+                                          window.open(`/client/variations/${variation.portalToken}`, "_blank", "noopener,noreferrer");
+                                          return;
+                                        }
+                                        const linkedQuote = quotes.find(
+                                          (quote) =>
+                                            quote.ref === variation.reference ||
+                                            quote.title === variation.title ||
+                                            (selectedJob && quote.convertedJobId === selectedJob.id && /variation/i.test(quote.title)),
+                                        );
+                                        if (linkedQuote) {
+                                          openQuoteDrawer(linkedQuote.id);
+                                          return;
+                                        }
+                                        showNotice(
+                                          `${variation.reference} has no portal link yet — send for approval first, or open the Daywork form if this is a daywork account.`,
+                                        );
+                                      }}
                                     >
                                       Preview
                                     </button>
@@ -41725,24 +41839,30 @@ export default function CoreApp() {
                             );
                           })}
                         </div>
-                        <p>When the appointment is booked, NeXa logs it and notifies the assigned surveyor with the customer, address, source and description.</p>
+                        <p>
+                          When the appointment is booked, {platformLabel(businessSettings)} logs it. Email/WhatsApp notify
+                          the surveyor when their mailbox or WhatsApp is connected in Setup → Communications.
+                        </p>
                         <button
                           className="secondary-button"
                           disabled={selectedLead.status !== "Survey booked"}
+                          title="Logs a reminder on the lead. Live email/WhatsApp needs Setup → Communications."
                           onClick={() => {
                             logAuditEvent({
-                              actor: "NeXa",
+                              actor: activeEmployee?.name ?? platformLabel(businessSettings),
                               action: "notified",
                               recordType: "lead",
                               recordId: selectedLead.id,
-                              summary: `${selectedLead.surveyor} notified for ${selectedLead.ref}.`,
+                              summary: `Reminder logged for ${selectedLead.surveyor} on ${selectedLead.ref} (customer, address, source, description).`,
                               source: "lead scheduler",
                               importance: "high",
                             });
-                            showNotice(`${selectedLead.surveyor} notified for ${selectedLead.ref}.`);
+                            showNotice(
+                              `Reminder logged for ${selectedLead.surveyor}. Connect Outlook/WhatsApp in Setup to send live messages.`,
+                            );
                           }}
                         >
-                          Send notification again
+                          Log reminder again
                         </button>
                       </article>
                     </div>
@@ -42221,11 +42341,13 @@ export default function CoreApp() {
                     </section>
                   ) : null}
 
-                  {activeSetupCategory === "integrations" ? (
-                    <>
-                      <OpenAiKeyCard />
-                      <SumUpKeyCard />
-                    </>
+                  {activeSetupCategory === "integrations" &&
+                  (!activeSetupSubItem || activeSetupSubItem === "Blake AI" || activeSetupSubItem === "NeXa AI") ? (
+                    <OpenAiKeyCard />
+                  ) : null}
+                  {activeSetupCategory === "integrations" &&
+                  (!activeSetupSubItem || activeSetupSubItem === "SumUp") ? (
+                    <SumUpKeyCard />
                   ) : null}
 
                   {activeSetupCategory === "overview" ? (
@@ -42624,7 +42746,8 @@ export default function CoreApp() {
                     </section>
                   ) : null}
 
-                  {activeSetupCategory === "documents" ? (
+                  {activeSetupCategory === "documents" &&
+                  (!activeSetupSubItem || activeSetupSubItem === "Folders") ? (
                     <section className="setup-panel">
                       <div className="documents-toolbar">
                         <div>
@@ -42695,7 +42818,9 @@ export default function CoreApp() {
                     </section>
                   ) : null}
 
-                  {activeSetupCategory === "cost-centres" ? (
+                  {activeSetupCategory === "cost-centres" &&
+                  (!activeSetupSubItem ||
+                    !["Boiler", "Bathroom", "Reactive"].includes(activeSetupSubItem)) ? (
                     <section className="setup-panel">
                       <div className="documents-toolbar">
                         <div>
@@ -43367,18 +43492,39 @@ export default function CoreApp() {
 	                    </section>
 	                  ) : null}
 
-	                  {activeSetupCategory === "rates" ? (
+	                  {activeSetupCategory === "rates" && activeSetupSubItem === "Supplier pricing" ? (
 	                    <section className="setup-panel">
 	                      <div className="documents-toolbar">
 	                        <div>
 	                          <span className="permission-heading">Rates & markups</span>
-	                          <h2>Default commercial pricing</h2>
+	                          <h2>Supplier pricing</h2>
+	                          <p>Supplier-specific price books land here next. Until then, use catalogue preferred suppliers and the markups on Labour rates / Default markups.</p>
+	                        </div>
+	                      </div>
+	                    </section>
+	                  ) : null}
+
+	                  {activeSetupCategory === "rates" &&
+	                  (!activeSetupSubItem ||
+	                    activeSetupSubItem === "Labour rates" ||
+	                    activeSetupSubItem === "Default markups") ? (
+	                    <section className="setup-panel">
+	                      <div className="documents-toolbar">
+	                        <div>
+	                          <span className="permission-heading">Rates & markups</span>
+	                          <h2>
+	                            {activeSetupSubItem === "Default markups"
+	                              ? "Default markups"
+	                              : "Default commercial pricing"}
+	                          </h2>
 	                          <p>Changes autosave and feed new quote/job labour and material lines.</p>
 	                        </div>
+	                        {!activeSetupSubItem || activeSetupSubItem === "Labour rates" ? (
 	                        <button className="primary-button" type="button" onClick={addLabourRateSetting}>
 	                          <Plus size={15} />
 	                          Add labour rate
 	                        </button>
+	                        ) : null}
 	                      </div>
 
 	                      <div className="setup-form-grid">
@@ -43503,12 +43649,24 @@ export default function CoreApp() {
                     <SetupConfigPanel requestHeaders={requestHeaders} onNotice={showNotice} mode="security" />
                   ) : null}
 
-	                  {activeSetupCategory === "integrations" ? (
+	                  {activeSetupCategory === "integrations" &&
+	                  (!activeSetupSubItem ||
+	                    activeSetupSubItem === "simPRO" ||
+	                    activeSetupSubItem === "Xero" ||
+	                    activeSetupSubItem === "Import from simPRO") ? (
 	                    <section className="setup-panel">
 	                      <div className="documents-toolbar">
 	                        <div>
 	                          <span className="permission-heading">Live connections</span>
-	                          <h2>simPRO and Xero</h2>
+	                          <h2>
+	                            {activeSetupSubItem === "Xero"
+	                              ? "Xero"
+	                              : activeSetupSubItem === "Import from simPRO"
+	                                ? "Import from simPRO"
+	                                : activeSetupSubItem === "simPRO"
+	                                  ? "simPRO"
+	                                  : "simPRO and Xero"}
+	                          </h2>
 	                          <p>Use this before day-to-day work to check connections, keep one-way simPRO handoffs healthy and prepare accounts export.</p>
 	                        </div>
 	                        <div className="setup-template-actions">
@@ -44043,12 +44201,47 @@ export default function CoreApp() {
                     </section>
                   ) : null}
 
-                  {activeSetupCategory === "finance" ? (
+                  {activeSetupCategory === "finance" && activeSetupSubItem === "PO approvals" ? (
                     <section className="setup-panel">
                       <div className="documents-toolbar">
                         <div>
                           <span className="permission-heading">Finance</span>
-                          <h2>Invoices, valuations and approval gates</h2>
+                          <h2>PO approvals</h2>
+                          <p>
+                            Purchase orders over £{workflowRules.poApprovalThreshold || "0"} need office sign-off.
+                            Edit the threshold under Workflow rules → Approvals.
+                          </p>
+                        </div>
+                        <button
+                          className="primary-button"
+                          type="button"
+                          onClick={() => {
+                            setActiveSetupCategory("workflow-rules");
+                            setActiveSetupSubItem("Approvals");
+                          }}
+                        >
+                          Open Workflow rules
+                        </button>
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {activeSetupCategory === "finance" &&
+                  (!activeSetupSubItem ||
+                    activeSetupSubItem === "Invoices" ||
+                    activeSetupSubItem === "Valuations") ? (
+                    <section className="setup-panel">
+                      <div className="documents-toolbar">
+                        <div>
+                          <span className="permission-heading">Finance</span>
+                          <h2>
+                            {activeSetupSubItem === "Valuations"
+                              ? "Valuations defaults"
+                              : "Invoices, valuations and approval gates"}
+                          </h2>
+                          {activeSetupSubItem === "Valuations" ? (
+                            <p>Applications for payment use these VAT, bank and numbering defaults. Raise live valuations from the Invoices module on a job.</p>
+                          ) : null}
                         </div>
                         <span className="setup-status-label">{financeSettings.vatRate}% VAT</span>
                       </div>

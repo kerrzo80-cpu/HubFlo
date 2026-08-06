@@ -2,7 +2,14 @@
  * deploys never leave Ask Blake / Hours on stale JS. Soft-cache icons/manifest.
  */
 const CACHE = "ewg-field-shell-v2";
-const PRECACHE = ["/ewg-logo.png", "/manifest-field.json", "/api/manifest/field"];
+const PRECACHE = [
+  "/ewg-logo.png",
+  "/manifest-field.json",
+  "/api/manifest/field",
+  "/field",
+  "/field/ask",
+  "/field/time-check",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -55,12 +62,23 @@ self.addEventListener("fetch", (event) => {
     // Network-first so tab routes always get the current deploy.
     event.respondWith(
       fetch(request)
-        .then((response) => response)
+        .then(async (response) => {
+          if (response && response.ok) {
+            const cache = await caches.open(CACHE);
+            await cache.put(request, response.clone());
+          }
+          return response;
+        })
         .catch(async () => {
           const cache = await caches.open(CACHE);
-          return (
+          const cached =
+            (await cache.match(request)) ||
             (await cache.match("/field")) ||
             (await cache.match("/field/")) ||
+            (await cache.match("/field/ask")) ||
+            (await cache.match("/field/time-check"));
+          return (
+            cached ||
             new Response("Offline — open Field again when you have signal.", {
               status: 503,
               headers: { "Content-Type": "text/plain; charset=utf-8" },

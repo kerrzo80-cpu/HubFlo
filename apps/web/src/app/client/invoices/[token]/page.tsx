@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { CheckCircle2, CreditCard, Loader2, XCircle } from "lucide-react";
+import { useBrand } from "@/components/BrandProvider";
+import { resolveBrandLogoUrl } from "@/lib/branding";
 
 type PortalInvoice = {
   id: string;
@@ -32,6 +34,7 @@ function money(value: number) {
 }
 
 export default function ClientInvoicePortal({ params }: { params: Promise<{ token: string }> }) {
+  const brand = useBrand();
   const [token, setToken] = useState("");
   const [invoice, setInvoice] = useState<PortalInvoice | null>(null);
   const [sumupEnabled, setSumupEnabled] = useState(false);
@@ -101,7 +104,11 @@ export default function ClientInvoicePortal({ params }: { params: Promise<{ toke
     let cancelled = false;
     async function loadInvoice() {
       setIsLoading(true);
-      setError("");
+      const cancelledNotice =
+        typeof window !== "undefined" && new URLSearchParams(window.location.search).get("cancelled") === "1"
+          ? "Card payment was cancelled. You can try again or pay by bank transfer."
+          : "";
+      if (!cancelled) setError(cancelledNotice);
       try {
         const invoiceRes = await fetch(`/api/invoice-portal/${token}`, { cache: "no-store" });
         if (!invoiceRes.ok) throw new Error("This invoice link could not be found.");
@@ -169,8 +176,8 @@ export default function ClientInvoicePortal({ params }: { params: Promise<{ toke
       <section className="client-portal-card">
         <header>
           <span className="verrova-client-lockup">
-            <img src="/ewg-logo.png" alt="" aria-hidden="true" />
-            <strong>EWG</strong>
+            <img src={resolveBrandLogoUrl(brand)} alt="" aria-hidden="true" />
+            <strong>{brand.companyName}</strong>
           </span>
           <span>Online invoice</span>
         </header>

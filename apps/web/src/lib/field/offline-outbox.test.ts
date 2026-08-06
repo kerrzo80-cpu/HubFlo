@@ -98,3 +98,71 @@ test("enqueueOutboxItem rejects invalid kinds", async () => {
     /invalid outbox item/i,
   );
 });
+
+test("flushOutbox marks items dead on 4xx except 401", async () => {
+  installBrowserMocks();
+  storage.clear();
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ error: "Bad request" }), { status: 400 });
+
+  const { enqueueOutboxItem, flushOutbox, listOutbox, isOutboxItemDead, countPendingOutbox } =
+    await import("./offline-outbox");
+
+  enqueueOutboxItem({
+    kind: "note",
+    jobId: "job-1",
+    path: "/api/field/jobs/sch-1/workflow",
+    method: "POST",
+    body: { action: "add_note", payload: { text: "test" } },
+  });
+
+  await flushOutbox();
+  const items = listOutbox();
+  assert.equal(items.length, 1);
+  assert.equal(isOutboxItemDead(items[0]!), true);
+  assert.equal(items[0]?.lastError, "Bad request");
+  assert.equal(countPendingOutbox(items), 0);
+
+  globalThis.fetch = originalFetch;
+});
+
+test("flushOutbox stops retrying after five failed attempts", async () => {
+  installBrowserMocks();
+  storage.clear();
+
+  let fetchCount = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    return new Response(JSON.stringify({ error: "Server error" }), { status: 500 });
+  };
+
+  const { enqueueOutboxItem, flushOutbox, listOutbox, isOutboxItemDead } = await import("./offline-outbox");
+
+  enqueueOutboxItem({
+    kind: "hours",
+    jobId: "eng-1",
+    path: "/api/field/time-check",
+    method: "POST",
+    body: { action: "submit", payload: {} },
+  });
+
+  await flushOutbox();
+  await flushOutbox();
+  await flushOutbox();
+  await flushOutbox();
+  await flushOutbox();
+  const items = listOutbox();
+  assert.equal(items.length, 1);
+  assert.equal(items[0]?.attempts, 5);
+  assert.equal(isOutboxItemDead(items[0]!), true);
+  assert.equal(fetchCount, 5);
+
+  fetchCount = 0;
+  await flushOutbox();
+  assert.equal(fetchCount, 0);
+
+  globalThis.fetch = originalFetch;
+});

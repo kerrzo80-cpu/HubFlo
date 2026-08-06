@@ -7192,13 +7192,16 @@ h1 {
   gap: 10px;
 }
 
-.simpro-main-tabs {
+.simpro-main-tabs,
+.simpro-sub-tabs {
   align-items: flex-end;
   background: #f3f9fb;
   border-bottom: 1px solid var(--line);
   display: flex;
   min-height: 50px;
+  overflow-x: auto;
   padding: 8px 18px 0;
+  scrollbar-width: thin;
 }
 
 .simpro-tab {
@@ -17738,13 +17741,16 @@ h1 {
     grid-template-columns: minmax(210px, 2.1fr) minmax(86px, 0.7fr) 68px 72px minmax(112px, 1fr);
   }
 
-  .lead-row {
-    grid-template-columns: 36px minmax(220px, 1fr);
+  .lead-row,
+  .lead-workspace .lead-row {
+    grid-template-columns: 36px minmax(220px, 1fr) !important;
   }
 
   .lead-row > :nth-child(n + 3),
-  .lead-row.table-header {
-    display: none;
+  .lead-row.table-header,
+  .lead-workspace .lead-row > :nth-child(n + 3),
+  .lead-workspace .lead-row.table-header {
+    display: none !important;
   }
 
   .description-grid,
