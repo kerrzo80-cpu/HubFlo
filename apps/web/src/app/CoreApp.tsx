@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import {
+  startTransition,
   useEffect,
   useMemo,
   useRef,
@@ -15,7 +16,7 @@ import {
 } from "react";
 import { CorePanelSkeleton } from "@/components/CorePanelSkeleton";
 import { downloadBlob } from "@/lib/download-blob";
-import { homeViewForPath, modulePathForHomeView, resolveHomeViewFromPathname } from "@/lib/core-routes";
+import { homeViewForPath } from "@/lib/core-routes";
 import {
   AlertTriangle,
   BarChart3,
@@ -7802,8 +7803,6 @@ function makeEstimateLabourLine(
 
 export default function CoreApp() {
   const pathname = usePathname() || "/";
-  /** Intended module path while a tab click is ahead of the address bar (history API, not router.replace). */
-  const pendingModulePathRef = useRef<string | null>(null);
   const [employees, setEmployees] = useState<EmployeeCard[]>(() => normalizeEmployeeCards(seedEmployees));
   const [dashboardLayouts, setDashboardLayouts] = useState<Record<string, DashboardLayout>>({});
   const [isDashboardCustomising, setIsDashboardCustomising] = useState(false);
@@ -8525,6 +8524,10 @@ export default function CoreApp() {
     }),
     [activeEmployee],
   );
+  const requestHeadersRef = useRef(requestHeaders);
+  requestHeadersRef.current = requestHeaders;
+  /** Stable boot fingerprint — avoids restarting the live fetch when employee object identity changes. */
+  const bootAuthFingerprint = `${activeEmployee?.id ?? ""}:${activeEmployee?.role ?? ""}`;
 
   const employeeAccessForEditor = useMemo(
     () => getAccessProfile(employeeRoleDraft, employeePermissionDraft),
@@ -10573,15 +10576,16 @@ export default function CoreApp() {
     const loadLiveData = async () => {
       let hasOfflineFallback = false;
       try {
+        const headers = requestHeadersRef.current;
         const [clientsResponse, clientSitesResponse, leadsResponse, jobsResponse, quotesResponse, purchaseResponse, auditResponse, hubStateResponse] = await Promise.all([
-          fetch("/api/clients", { headers: requestHeaders, credentials: "same-origin" }),
-          fetch("/api/client-sites", { headers: requestHeaders, credentials: "same-origin" }),
-          fetch("/api/leads", { headers: requestHeaders, credentials: "same-origin" }),
-          fetch("/api/jobs", { headers: requestHeaders, credentials: "same-origin" }),
-          fetch("/api/quotes", { headers: requestHeaders, credentials: "same-origin" }),
-          fetch("/api/purchase-requests", { headers: requestHeaders, credentials: "same-origin" }),
-          fetch("/api/audit", { headers: requestHeaders, credentials: "same-origin" }),
-          fetch("/api/hub-state", { headers: requestHeaders, credentials: "same-origin" }),
+          fetch("/api/clients", { headers, credentials: "same-origin" }),
+          fetch("/api/client-sites", { headers, credentials: "same-origin" }),
+          fetch("/api/leads", { headers, credentials: "same-origin" }),
+          fetch("/api/jobs", { headers, credentials: "same-origin" }),
+          fetch("/api/quotes", { headers, credentials: "same-origin" }),
+          fetch("/api/purchase-requests", { headers, credentials: "same-origin" }),
+          fetch("/api/audit", { headers, credentials: "same-origin" }),
+          fetch("/api/hub-state", { headers, credentials: "same-origin" }),
         ]);
 
         if (stopped) return;
@@ -10602,53 +10606,54 @@ export default function CoreApp() {
           return;
         }
 
-        if (clientsResponse.ok) {
-          setClients((await clientsResponse.json()) as ClientRecord[]);
-        } else {
-          hasOfflineFallback = true;
-        }
+        // Parse everything before applying — sequential setState between awaits was freezing tabs.
+        const [
+          clientsPayload,
+          clientSitesPayload,
+          leadsPayload,
+          jobsPayload,
+          quotesPayload,
+          purchasePayload,
+          auditPayload,
+          hubState,
+        ] = await Promise.all([
+          clientsResponse.ok ? (clientsResponse.json() as Promise<ClientRecord[]>) : Promise.resolve(null),
+          clientSitesResponse.ok ? (clientSitesResponse.json() as Promise<ClientSite[]>) : Promise.resolve(null),
+          leadsResponse.ok ? (leadsResponse.json() as Promise<Lead[]>) : Promise.resolve(null),
+          jobsResponse.ok ? (jobsResponse.json() as Promise<Job[]>) : Promise.resolve(null),
+          quotesResponse.ok ? (quotesResponse.json() as Promise<Quote[]>) : Promise.resolve(null),
+          purchaseResponse.ok ? (purchaseResponse.json() as Promise<PurchaseRequest[]>) : Promise.resolve(null),
+          auditResponse.ok ? (auditResponse.json() as Promise<AuditEvent[]>) : Promise.resolve(null),
+          hubStateResponse.ok
+            ? (hubStateResponse.json() as Promise<HubDetailStatePayload>)
+            : Promise.resolve(null),
+        ]);
 
-        if (clientSitesResponse.ok) {
-          setClientSites((await clientSitesResponse.json()) as ClientSite[]);
-        } else {
-          hasOfflineFallback = true;
-        }
+        if (stopped) return;
 
-        if (leadsResponse.ok) {
-          const nextLeads = (await leadsResponse.json()) as Lead[];
-          setLeads(nextLeads);
-        } else if (serverWorkspaceMode !== "live") {
-          hasOfflineFallback = true;
-        }
+        if (!clientsPayload) hasOfflineFallback = true;
+        if (!clientSitesPayload) hasOfflineFallback = true;
+        if (!leadsPayload && serverWorkspaceMode !== "live") hasOfflineFallback = true;
+        if (!jobsPayload) hasOfflineFallback = true;
+        if (!quotesPayload) hasOfflineFallback = true;
+        if (!purchasePayload && serverWorkspaceMode !== "live") hasOfflineFallback = true;
+        if (!auditPayload && serverWorkspaceMode !== "live") hasOfflineFallback = true;
+        if (!hubState) hasOfflineFallback = true;
 
-        if (jobsResponse.ok) {
-          const nextJobs = (await jobsResponse.json()) as Job[];
-          setJobs(nextJobs);
-        } else {
-          hasOfflineFallback = true;
-        }
+        startTransition(() => {
+          if (clientsPayload) setClients(clientsPayload);
+          if (clientSitesPayload) setClientSites(clientSitesPayload);
+          if (leadsPayload) setLeads(leadsPayload);
+          if (jobsPayload) setJobs(jobsPayload);
+          if (quotesPayload) {
+            setQuotes(quotesPayload.map((quote) => quoteWithCostCentreValue(quote, quoteCostCentresRef.current)));
+          }
+          if (purchasePayload) setPurchaseRequests(purchasePayload);
+          if (auditPayload) setAuditEvents(auditPayload);
+        });
 
-        if (quotesResponse.ok) {
-          const nextQuotes = (await quotesResponse.json()) as Quote[];
-          setQuotes(nextQuotes.map((quote) => quoteWithCostCentreValue(quote, quoteCostCentresRef.current)));
-        } else {
-          hasOfflineFallback = true;
-        }
-
-        if (purchaseResponse.ok) {
-          setPurchaseRequests((await purchaseResponse.json()) as PurchaseRequest[]);
-        } else if (serverWorkspaceMode !== "live") {
-          hasOfflineFallback = true;
-        }
-
-        if (auditResponse.ok) {
-          setAuditEvents((await auditResponse.json()) as AuditEvent[]);
-        } else if (serverWorkspaceMode !== "live") {
-          hasOfflineFallback = true;
-        }
-
-        if (hubStateResponse.ok) {
-          const hubState = (await hubStateResponse.json()) as HubDetailStatePayload;
+        if (hubState) {
+          // Keep hub apply outside the first transition so lists paint first.
           const hasRecentLocalSetupEdit = Date.now() - lastLocalSetupEditAt.current < SETUP_SERVER_SYNC_HOLD_MS;
           const hasRecentLocalCostCentreEdit = Date.now() - lastLocalCostCentreEditAt.current < COST_CENTRE_SERVER_SYNC_HOLD_MS;
           const hasRecentLocalEmployeeEdit = Date.now() - lastLocalEmployeeEditAt.current < SETUP_SERVER_SYNC_HOLD_MS;
@@ -10827,7 +10832,9 @@ export default function CoreApp() {
           setHasLoadedHubDetailState(true);
 
           try {
-            const documentsResponse = await fetch("/api/record-documents", { headers: requestHeaders });
+            const documentsResponse = await fetch("/api/record-documents", {
+              headers: requestHeadersRef.current,
+            });
             if (documentsResponse.ok) {
               const payload = (await documentsResponse.json()) as {
                 documents?: Array<{
@@ -10863,8 +10870,6 @@ export default function CoreApp() {
           } catch {
             // Documents stay empty until next successful load.
           }
-        } else {
-          hasOfflineFallback = true;
         }
 
         if (stopped) return;
@@ -10892,7 +10897,8 @@ export default function CoreApp() {
       stopped = true;
       clearInterval(timer);
     };
-  }, [hasHydratedLocalData, requestHeaders, serverWorkspaceMode]);
+    // bootAuthFingerprint — not requestHeaders object — so employee object churn does not restart boot.
+  }, [hasHydratedLocalData, bootAuthFingerprint, serverWorkspaceMode]);
 
   function buildHubDetailStatePayload(): HubDetailStatePayload {
     const savedEmployees = removeRetiredPilotEmployeeWhenReplaced(
@@ -11330,44 +11336,9 @@ export default function CoreApp() {
     }
   }, []);
 
-  // Safe module URL sync via history.replaceState — no Next router.replace loops.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const targetPath = modulePathForHomeView(homeView);
-    if (window.location.pathname === targetPath) {
-      pendingModulePathRef.current = null;
-      return;
-    }
-    pendingModulePathRef.current = targetPath;
-    window.history.replaceState(window.history.state, "", targetPath);
-  }, [homeView]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onPopState = () => {
-      const nextPath = window.location.pathname || "/";
-      const resolved = resolveHomeViewFromPathname({
-        pathname: nextPath,
-        homeView,
-        pendingPath: null,
-      });
-      if (resolved.homeView) setHomeView(resolved.homeView as HomeView);
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- popstate reads latest homeView via closure per event
-  }, [homeView]);
-
-  useEffect(() => {
-    const resolved = resolveHomeViewFromPathname({
-      pathname,
-      homeView,
-      pendingPath: pendingModulePathRef.current,
-    });
-    pendingModulePathRef.current = resolved.pendingPath;
-    if (resolved.homeView) setHomeView(resolved.homeView as HomeView);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- pathname is the only external driver
-  }, [pathname]);
+  // Module URL sync stays OFF — Next 16 patches history.replaceState into App Router
+  // restores, which froze tab clicks for up to a minute after sign-in while hub data loads.
+  // Initial homeView still comes from the URL via useState(homeViewForPath(pathname)).
 
   useEffect(() => {
     if (!hasHydratedLocalData || handledInitialRoute || typeof window === "undefined") return;
@@ -30869,7 +30840,9 @@ export default function CoreApp() {
     { label: "New job", icon: Wrench, onClick: createJobFromMenu },
   ];
 
-  if (!hasHydratedLocalData || serverAuthMode === "checking") {
+  // Only block chrome while auth mode is unknown. Do not wait for hub hydrate —
+  // that was leaving tabs dead for ~1 minute after sign-in on live.
+  if (serverAuthMode === "checking") {
     return (
       <div className="platform core-boot-shell" aria-busy="true">
         <header className="global-header core-boot-header">
@@ -30892,11 +30865,7 @@ export default function CoreApp() {
             <span />
           </aside>
           <main className="core-boot-main">
-            <p className="core-boot-status">
-              {serverAuthMode === "checking"
-                ? "Signing you in…"
-                : `Loading ${businessSettings.workspaceName || "workspace"}…`}
-            </p>
+            <p className="core-boot-status">Signing you in…</p>
             <div className="core-boot-kpi-grid" aria-hidden="true">
               <div />
               <div />
@@ -43756,19 +43725,34 @@ export default function CoreApp() {
 	                                  ? "simPRO"
 	                                  : "simPRO and Xero"}
 	                          </h2>
-	                          <p>Use this before day-to-day work to check connections, keep one-way simPRO handoffs healthy and prepare accounts export.</p>
+	                          <p>
+	                            {activeSetupSubItem === "Xero"
+	                              ? "Connect Xero and check accounts export readiness."
+	                              : activeSetupSubItem === "Import from simPRO"
+	                                ? "Preview and import from simPRO into this workspace."
+	                                : activeSetupSubItem === "simPRO"
+	                                  ? "Check the simPRO connection and one-way handoffs."
+	                                  : "Choose simPRO or Xero from the left — each opens on its own."}
+	                          </p>
 	                        </div>
 	                        <div className="setup-template-actions">
 	                          <button className="secondary-button" type="button" onClick={() => void refreshIntegrationConnectionStatus()}>
 	                            Refresh status
 	                          </button>
 	                          <span className="setup-status-label">
-	                            simPRO {simproBridgeStatus.configured ? `push ready (${simproBridgeStatus.mode})` : "needs setup"} · Xero {xeroModeLabel(xeroConnectionStatus)}
+	                            {activeSetupSubItem === "Xero"
+	                              ? `Xero ${xeroModeLabel(xeroConnectionStatus)}`
+	                              : activeSetupSubItem === "simPRO" || activeSetupSubItem === "Import from simPRO"
+	                                ? `simPRO ${simproBridgeStatus.configured ? `push ready (${simproBridgeStatus.mode})` : "needs setup"}`
+	                                : `simPRO ${simproBridgeStatus.configured ? `push ready (${simproBridgeStatus.mode})` : "needs setup"} · Xero ${xeroModeLabel(xeroConnectionStatus)}`}
 	                          </span>
 	                        </div>
 	                      </div>
 
 	                      <div className="setup-integration-grid">
+	                        {!activeSetupSubItem ||
+	                        activeSetupSubItem === "simPRO" ||
+	                        activeSetupSubItem === "Import from simPRO" ? (
 	                        <article className="setup-integration-card">
 	                          <header>
 	                            <div>
@@ -43961,7 +43945,9 @@ export default function CoreApp() {
 	                            renderSimproSyncLog(80)
 	                          ) : null}
 	                        </article>
+	                        ) : null}
 
+	                        {!activeSetupSubItem || activeSetupSubItem === "Xero" ? (
 	                        <article className="setup-integration-card">
 	                          <header>
 	                            <div>
@@ -44064,6 +44050,7 @@ export default function CoreApp() {
 	                            </article>
 	                          </div>
 	                        </article>
+	                        ) : null}
 	                      </div>
 	                    </section>
 	                  ) : null}

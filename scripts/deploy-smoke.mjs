@@ -88,14 +88,24 @@ async function runOnce() {
             `/api/health fieldPhotoSync=${json?.deployment?.fieldPhotoSync}, expected bytes-v1`,
           );
         }
-        if (json?.deployment?.mobileNavFix !== "history-sync-v4") {
+        if (json?.deployment?.mobileNavFix !== "url-sync-off-v5") {
           throw new Error(
-            `/api/health mobileNavFix=${json?.deployment?.mobileNavFix}, expected history-sync-v4`,
+            `/api/health mobileNavFix=${json?.deployment?.mobileNavFix}, expected url-sync-off-v5`,
           );
         }
         if (json?.deployment?.heatDesignPlan !== "save-race-walls-v1") {
           throw new Error(
             `/api/health heatDesignPlan=${json?.deployment?.heatDesignPlan}, expected save-race-walls-v1`,
+          );
+        }
+        if (json?.deployment?.setupIndependent !== "integrations-one-panel-v1") {
+          throw new Error(
+            `/api/health setupIndependent=${json?.deployment?.setupIndependent}, expected integrations-one-panel-v1`,
+          );
+        }
+        if (json?.deployment?.bootTabsReady !== "auth-only-v1") {
+          throw new Error(
+            `/api/health bootTabsReady=${json?.deployment?.bootTabsReady}, expected auth-only-v1`,
           );
         }
       },
