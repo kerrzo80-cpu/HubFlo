@@ -3,7 +3,13 @@ import nodemailer from "nodemailer";
 
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
-export type EmailProvider = "Outlook" | "Gmail";
+export type EmailProvider = "Outlook" | "Gmail" | "iCloud";
+
+export const emailProviderSmtpDefaults: Record<EmailProvider, { host: string; port: number; secure: boolean }> = {
+  Outlook: { host: "smtp.office365.com", port: 587, secure: false },
+  Gmail: { host: "smtp.gmail.com", port: 465, secure: true },
+  iCloud: { host: "smtp.mail.me.com", port: 587, secure: false },
+};
 
 export type EmailIntegrationInput = {
   provider: EmailProvider;
@@ -62,10 +68,7 @@ export type EmailIntegrationStatus = {
   lastError?: string;
 };
 
-const defaultProviderHosts: Record<EmailProvider, { host: string; port: number; secure: boolean }> = {
-  Outlook: { host: "smtp.office365.com", port: 587, secure: false },
-  Gmail: { host: "smtp.gmail.com", port: 465, secure: true },
-};
+const defaultProviderHosts = emailProviderSmtpDefaults;
 
 const emptyStore: EmailIntegrationStore = {
   provider: "Outlook",

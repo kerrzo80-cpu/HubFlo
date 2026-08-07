@@ -1961,7 +1961,7 @@ type PeopleDirectoryDraft =
 
 type EmailIntegrationStatus = {
   configured: boolean;
-  provider: "Outlook" | "Gmail";
+  provider: "Outlook" | "Gmail" | "iCloud";
   senderEmail: string;
   username: string;
   smtpHost: string;
@@ -1977,7 +1977,7 @@ type EmailIntegrationStatus = {
 };
 
 type LiveEmailDelivery = {
-  provider: "Outlook" | "Gmail";
+  provider: "Outlook" | "Gmail" | "iCloud";
   from: string;
   source?: "employee" | "company";
   employeeId?: string;
@@ -1988,7 +1988,7 @@ type LiveEmailDelivery = {
 };
 
 type EmailIntegrationDraft = {
-  provider: "Outlook" | "Gmail";
+  provider: "Outlook" | "Gmail" | "iCloud";
   senderEmail: string;
   username: string;
   secret: string;
@@ -2000,7 +2000,7 @@ type EmailIntegrationDraft = {
 type EmployeeMailboxStatus = {
   employeeId: string;
   configured: boolean;
-  provider: "Outlook" | "Gmail";
+  provider: "Outlook" | "Gmail" | "iCloud";
   senderEmail: string;
   username: string;
   smtpHost: string;
@@ -2017,7 +2017,7 @@ type EmployeeMailboxStatus = {
 };
 
 type EmployeeMailboxDraft = {
-  provider: "Outlook" | "Gmail";
+  provider: "Outlook" | "Gmail" | "iCloud";
   senderEmail: string;
   username: string;
   secret: string;
@@ -3443,7 +3443,7 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "email-templates", label: "Email templates", detail: "Quote, invoice, PO and follow-up wording" },
   { key: "security", label: "Security groups", detail: "Role permission templates for employee cards" },
   { key: "integrations", label: "Integrations", detail: "API keys and software bridges that connect tools into NeXa", subItems: ["Blake AI", "simPRO", "SumUp", "Import from simPRO"] },
-  { key: "communications", label: "Communications", detail: "Outlook, WhatsApp and supplier doorway settings", subItems: ["Outlook", "WhatsApp", "Supplier emails"] },
+  { key: "communications", label: "Communications", detail: "Mailbox (Outlook / Gmail / iCloud), WhatsApp and supplier doorway settings", subItems: ["Outlook", "WhatsApp", "Supplier emails"] },
   { key: "finance", label: "Finance", detail: "Invoices, VAT, payment terms, Xero accounts and approval gates", subItems: ["Invoices", "Valuations", "PO approvals", "Xero"] },
 ];
 
@@ -3703,8 +3703,8 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
   },
   communications: {
     Outlook: {
-      summary: "Choose Outlook or Gmail for the signed-in employee. NeXa sends from the email on their employee card — no separate sender address to type.",
-      focus: ["Pick Outlook or Gmail", "Uses employee card email", "App password only"],
+      summary: "Choose Outlook, Gmail, or iCloud for the signed-in employee. NeXa sends from the email on their employee card — no separate sender address to type.",
+      focus: ["Pick Outlook / Gmail / iCloud", "Uses employee card email", "App password only"],
       status: "Connect your mailbox",
     },
     WhatsApp: {
@@ -14840,7 +14840,7 @@ export default function CoreApp() {
       return;
     }
     if (!employeeMailboxDraft.secret.trim() && !employeeMailboxStatus?.secretStored) {
-      showNotice("Paste the Outlook or Gmail app password to connect this mailbox.");
+      showNotice("Paste the Outlook, Gmail, or iCloud app password to connect this mailbox.");
       return;
     }
     setIsSavingEmployeeMailbox(true);
@@ -15021,11 +15021,11 @@ export default function CoreApp() {
       return;
     }
     if (!cardEmail) {
-      showNotice("Add the email on the employee Details tab before connecting Outlook or Gmail.");
+      showNotice("Add the email on the employee Details tab before connecting Outlook, Gmail, or iCloud.");
       return;
     }
     if (!employeeMailboxDraft.secret.trim() && !employeeMailboxStatus?.secretStored) {
-      showNotice("Paste the Outlook or Gmail app password to connect this mailbox.");
+      showNotice("Paste the Outlook, Gmail, or iCloud app password to connect this mailbox.");
       return;
     }
     setIsSavingEmployeeMailbox(true);
@@ -44684,7 +44684,7 @@ export default function CoreApp() {
                             </div>
                           </header>
                           <small>
-                            Choose Outlook or Gmail. NeXa always sends from the email on your employee card
+                            Choose Outlook, Gmail, or iCloud. NeXa always sends from the email on your employee card
                             ({activeEmployee?.profile?.email?.trim() || "no email on card yet"}). Add or change that address under People → employee → Details.
                           </small>
                           <div className="setup-form-grid">
@@ -44696,7 +44696,12 @@ export default function CoreApp() {
                                   setEmployeeMailboxDraft((current) => ({
                                     ...current,
                                     provider: event.target.value as EmployeeMailboxDraft["provider"],
-                                    smtpHost: event.target.value === "Gmail" ? "smtp.gmail.com" : "smtp.office365.com",
+                                    smtpHost:
+                                      event.target.value === "Gmail"
+                                        ? "smtp.gmail.com"
+                                        : event.target.value === "iCloud"
+                                          ? "smtp.mail.me.com"
+                                          : "smtp.office365.com",
                                     smtpPort: event.target.value === "Gmail" ? "465" : "587",
                                     secure: event.target.value === "Gmail",
                                   }))
@@ -44704,6 +44709,7 @@ export default function CoreApp() {
                               >
                                 <option value="Outlook">Outlook / Microsoft 365</option>
                                 <option value="Gmail">Gmail</option>
+                                <option value="iCloud">iCloud (Apple)</option>
                               </select>
                             </label>
                             <label>
@@ -44720,7 +44726,7 @@ export default function CoreApp() {
                                 type="password"
                                 value={employeeMailboxDraft.secret}
                                 onChange={(event) => setEmployeeMailboxDraft((current) => ({ ...current, secret: event.target.value }))}
-                                placeholder={employeeMailboxStatus?.secretStored ? "Stored securely — paste only to change it" : "Paste Outlook/Gmail app password"}
+                                placeholder={employeeMailboxStatus?.secretStored ? "Stored securely — paste only to change it" : "Paste Outlook / Gmail / iCloud app password"}
                               />
                             </label>
                           </div>
@@ -44747,7 +44753,9 @@ export default function CoreApp() {
                               <small>
                                 {employeeMailboxDraft.provider === "Gmail"
                                   ? "Uses smtp.gmail.com with an app password."
-                                  : "Uses smtp.office365.com with an Outlook app password."}
+                                  : employeeMailboxDraft.provider === "iCloud"
+                                    ? "Uses smtp.mail.me.com with an Apple app-specific password. Put your iCloud address on the employee card first."
+                                    : "Uses smtp.office365.com with an Outlook app password."}
                               </small>
                             </article>
                             <article>
@@ -46666,7 +46674,7 @@ export default function CoreApp() {
                       <div className="employee-section-heading">
                         <span className="permission-heading">Personal mailbox</span>
                         <span className="employee-access-note">
-                          Choose Outlook or Gmail. NeXa sends from the email on this employee card ({activeEditingEmployee.profile?.email || employeeProfileDraft.email || "add email on Details first"}).
+                          Choose Outlook, Gmail, or iCloud. NeXa sends from the email on this employee card ({activeEditingEmployee.profile?.email || employeeProfileDraft.email || "add email on Details first"}).
                         </span>
                       </div>
                       <div className="setup-form-grid">
@@ -46678,7 +46686,12 @@ export default function CoreApp() {
                               setEmployeeMailboxDraft((current) => ({
                                 ...current,
                                 provider: event.target.value as EmployeeMailboxDraft["provider"],
-                                smtpHost: event.target.value === "Gmail" ? "smtp.gmail.com" : "smtp.office365.com",
+                                smtpHost:
+                                  event.target.value === "Gmail"
+                                    ? "smtp.gmail.com"
+                                    : event.target.value === "iCloud"
+                                      ? "smtp.mail.me.com"
+                                      : "smtp.office365.com",
                                 smtpPort: event.target.value === "Gmail" ? "465" : "587",
                                 secure: event.target.value === "Gmail",
                               }))
@@ -46686,6 +46699,7 @@ export default function CoreApp() {
                           >
                             <option value="Outlook">Outlook / Microsoft 365</option>
                             <option value="Gmail">Gmail</option>
+                            <option value="iCloud">iCloud (Apple)</option>
                           </select>
                         </label>
                         <label>
@@ -46738,7 +46752,7 @@ export default function CoreApp() {
                             {employeeMailboxStatus?.lastError
                               || (!(employeeProfileDraft.email.trim() || activeEditingEmployee.profile?.email)
                                 ? "Add the email on the Details tab first."
-                                : "Connect Outlook or Gmail with an app password.")}
+                                : "Connect Outlook, Gmail, or iCloud with an app password.")}
                           </small>
                         </article>
                         <article>
