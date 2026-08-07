@@ -16,6 +16,7 @@ import {
 } from "react";
 import { CorePanelSkeleton } from "@/components/CorePanelSkeleton";
 import { downloadBlob } from "@/lib/download-blob";
+import type { SimpleDocumentPdfInput } from "@/lib/simple-document-pdf";
 import { homeViewForPath } from "@/lib/core-routes";
 import {
   AlertTriangle,
@@ -2065,7 +2066,7 @@ type CommunicationRecord = {
   recordId: string;
   relatedJobId?: string;
   direction: CommunicationDirection;
-  channel: "Outlook" | "Client portal" | "WhatsApp";
+  channel: "Outlook" | "Client portal" | "WhatsApp" | "Note";
   subject: string;
   body: string;
   from: string;
@@ -2073,7 +2074,7 @@ type CommunicationRecord = {
   cc?: string;
   createdAt: string;
   messageId?: string;
-  status: "Sent" | "Received" | "Captured";
+  status: "Sent" | "Received" | "Captured" | "Logged";
 };
 
 type CommunicationDraft = {
@@ -15280,18 +15281,7 @@ export default function CoreApp() {
     cc?: string;
     subject: string;
     text: string;
-    document?: {
-      filename: string;
-      title: string;
-      businessName: string;
-      reference: string;
-      recipient: string;
-      subject: string;
-      rows: Array<{ description: string; detail?: string; value: string }>;
-      subtotal: string;
-      vat: string;
-      total: string;
-    };
+    document?: SimpleDocumentPdfInput;
     extraAttachments?: Array<{
       filename: string;
       contentBase64: string;
@@ -15312,6 +15302,25 @@ export default function CoreApp() {
       throw new Error(result?.error || `Email provider returned HTTP ${response.status}`);
     }
     return result.delivery;
+  }
+
+  /** Build/download commercial PDFs without mailbox — collections keep moving while IT sets up email. */
+  async function downloadSimpleDocumentPdf(document: SimpleDocumentPdfInput) {
+    const response = await fetch("/api/documents/simple-pdf", {
+      method: "POST",
+      headers: { ...requestHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ document }),
+    });
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(body?.error || `PDF download failed (HTTP ${response.status})`);
+    }
+    const blob = await response.blob();
+    const filename =
+      document.filename?.toLowerCase().endsWith(".pdf")
+        ? document.filename
+        : `${document.filename || document.reference || "nexa-document"}.pdf`;
+    downloadBlob(filename, blob);
   }
 
   async function submitSimproReconnect() {
@@ -20588,6 +20597,68 @@ export default function CoreApp() {
     }
   }
 
+  function buildSelectedInvoiceRemittanceDocument(
+    payment: InvoicePaymentRecord,
+    overrides?: { paidAmount?: number; outstanding?: number },
+  ): SimpleDocumentPdfInput | null {
+    if (!selectedInvoice) return null;
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const outstanding = overrides?.outstanding ?? invoiceOutstandingBalance(selectedInvoice);
+    const paidToDate = overrides?.paidAmount ?? selectedInvoice.paidAmount ?? 0;
+    return {
+      filename: `${selectedInvoice.ref}-remittance.pdf`,
+      title: "Remittance advice",
+      businessName: companyName,
+      reference: selectedInvoice.ref,
+      recipient: selectedInvoice.customer,
+      subject: `Payment of ${currency(payment.amount)} allocated`,
+      rows: [
+        {
+          description: `Payment received · ${payment.paidAt}`,
+          detail: `${payment.method}${payment.reference ? ` · ${payment.reference}` : ""}`,
+          value: currency(payment.amount),
+        },
+        {
+          description: "Paid to date",
+          detail: selectedInvoice.title,
+          value: currency(paidToDate),
+        },
+        {
+          description: "Outstanding balance",
+          detail: `Invoice total ${currency(selectedInvoiceFinancials.grandTotal)}`,
+          value: currency(outstanding),
+        },
+      ],
+      subtotal: currency(payment.amount),
+      vat: currency(0),
+      total: currency(payment.amount),
+    };
+  }
+
+  async function downloadSelectedInvoiceRemittancePdf(paymentId?: string) {
+    if (!selectedInvoice) return;
+    if (selectedInvoice.claimType === "valuation" || selectedInvoice.claimType === "credit-note") {
+      showNotice("Remittance advice is for collectible invoices, not valuations or credit notes.");
+      return;
+    }
+    const payments = selectedInvoice.payments || [];
+    const payment = paymentId
+      ? payments.find((item) => item.id === paymentId) ?? payments[payments.length - 1]
+      : payments[payments.length - 1];
+    if (!payment) {
+      showNotice("Record a payment before downloading remittance advice.");
+      return;
+    }
+    try {
+      const document = buildSelectedInvoiceRemittanceDocument(payment);
+      if (!document) return;
+      await downloadSimpleDocumentPdf(document);
+      showNotice(`${selectedInvoice.ref}: remittance PDF downloaded.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to download remittance PDF.");
+    }
+  }
+
   async function sendSelectedInvoiceRemittanceAdvice(
     paymentId?: string,
     overrides?: { payment?: InvoicePaymentRecord; paidAmount?: number; outstanding?: number },
@@ -20667,40 +20738,18 @@ export default function CoreApp() {
       // keep defaults
     }
 
+    const document = buildSelectedInvoiceRemittanceDocument(payment, {
+      paidAmount: paidToDate,
+      outstanding,
+    });
+
     setIsSendingInvoiceRemittance(true);
     try {
       const delivery = await sendThroughLiveOutbox({
         to,
         subject,
         text: bodyText,
-        document: {
-          filename: `${selectedInvoice.ref}-remittance.pdf`,
-          title: "Remittance advice",
-          businessName: companyName,
-          reference: selectedInvoice.ref,
-          recipient: selectedInvoice.customer,
-          subject: `Payment of ${currency(payment.amount)} allocated`,
-          rows: [
-            {
-              description: `Payment received · ${payment.paidAt}`,
-              detail: `${payment.method}${payment.reference ? ` · ${payment.reference}` : ""}`,
-              value: currency(payment.amount),
-            },
-            {
-              description: "Paid to date",
-              detail: selectedInvoice.title,
-              value: currency(paidToDate),
-            },
-            {
-              description: "Outstanding balance",
-              detail: `Invoice total ${currency(selectedInvoiceFinancials.grandTotal)}`,
-              value: currency(outstanding),
-            },
-          ],
-          subtotal: currency(payment.amount),
-          vat: currency(0),
-          total: currency(payment.amount),
-        },
+        document: document || undefined,
       });
 
       logAuditEvent({
@@ -21624,12 +21673,131 @@ export default function CoreApp() {
       }));
       showNotice(
         template
-          ? `Loaded “${template.name}” chase wording. Review and send.`
-          : "Chase draft ready. Review and send.",
+          ? `Loaded “${template.name}” chase wording. Review and send, or download PDF / record chase without email.`
+          : "Chase draft ready. Review and send, or download PDF / record chase without email.",
       );
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to prepare payment chase.");
     }
+  }
+
+  function buildSelectedInvoiceChaseDocument(): SimpleDocumentPdfInput | null {
+    if (!selectedInvoice) return null;
+    const outstanding = invoiceOutstandingBalance(selectedInvoice);
+    const daysOverdue = Math.max(0, daysSinceDate(selectedInvoice.dueDate) ?? 0);
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    return {
+      filename: `${selectedInvoice.ref}-payment-chase.pdf`,
+      title: "Invoice payment reminder",
+      businessName: companyName,
+      reference: selectedInvoice.ref,
+      recipient: selectedInvoice.customer,
+      subject: selectedInvoice.title,
+      rows: [
+        {
+          description: "Outstanding balance",
+          detail: `Due ${selectedInvoice.dueDate}${daysOverdue > 0 ? ` · ${daysOverdue} days overdue` : " · not yet overdue"}`,
+          value: currency(outstanding),
+        },
+        {
+          description: "Invoice total (inc VAT)",
+          detail: `Paid to date ${currency(selectedInvoice.paidAmount ?? 0)}`,
+          value: currency(selectedInvoiceFinancials.grandTotal),
+        },
+        ...selectedInvoice.lines.map((line) => ({
+          description: line.description,
+          detail: line.note,
+          value: currency(line.chargeToClient),
+        })),
+      ],
+      subtotal: currency(selectedInvoice.chargeTotal),
+      vat: currency(selectedInvoiceFinancials.vatAmount),
+      total: currency(outstanding),
+    };
+  }
+
+  async function downloadSelectedInvoiceChasePdf() {
+    if (!selectedInvoice) return;
+    if (selectedInvoice.claimType === "valuation") {
+      showNotice("Valuations use Submit valuation, not payment chase.");
+      return;
+    }
+    const outstanding = invoiceOutstandingBalance(selectedInvoice);
+    if (outstanding <= 0.009) {
+      showNotice(`${selectedInvoice.ref} has no outstanding balance to chase.`);
+      return;
+    }
+    try {
+      const document = buildSelectedInvoiceChaseDocument();
+      if (!document) return;
+      await downloadSimpleDocumentPdf(document);
+      showNotice(`${selectedInvoice.ref}: chase PDF downloaded.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to download chase PDF.");
+    }
+  }
+
+  function recordSelectedInvoicePaymentChase() {
+    if (!selectedInvoice) return;
+    if (selectedInvoice.claimType === "valuation") {
+      showNotice("Valuations use Submit valuation, not payment chase.");
+      return;
+    }
+    if (selectedInvoice.status === "Draft" || selectedInvoice.status === "Cancelled") {
+      showNotice("Draft or cancelled invoices cannot be chased.");
+      return;
+    }
+    const outstanding = invoiceOutstandingBalance(selectedInvoice);
+    if (outstanding <= 0.009) {
+      showNotice(`${selectedInvoice.ref} has no outstanding balance to chase.`);
+      return;
+    }
+    const daysOverdue = Math.max(0, daysSinceDate(selectedInvoice.dueDate) ?? 0);
+    const chasedAt = currentOperatingDate;
+    const chaseCount = (selectedInvoice.chaseCount ?? 0) + 1;
+    const chasedTo =
+      selectedInvoiceEmailDraft?.to?.trim() ||
+      selectedInvoiceClient?.email?.trim() ||
+      selectedInvoice.sentTo?.trim() ||
+      "printed / handed over";
+    markInvoiceEdited();
+    setInvoices((current) => {
+      const next = current.map((invoice) =>
+        invoice.id === selectedInvoice.id
+          ? {
+              ...invoice,
+              chaseCount,
+              lastChasedAt: chasedAt,
+              lastChasedTo: chasedTo,
+              status: invoice.status === "Draft" ? "Sent" : invoice.status,
+            }
+          : invoice,
+      );
+      saveHubDetailStateWithInvoices(next, "Could not save chase record.");
+      return next;
+    });
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "payment chase recorded",
+      recordType: "invoice",
+      recordId: selectedInvoice.id,
+      summary: `${selectedInvoice.ref} payment chase #${chaseCount} recorded (no email) · outstanding ${currency(outstanding)} · ${daysOverdue}d overdue · to ${chasedTo}.`,
+      source: "web",
+      importance: "high",
+    });
+    addCommunicationRecord({
+      recordType: "invoice",
+      recordId: selectedInvoice.id,
+      relatedJobId: selectedInvoice.sourceType === "job" ? selectedInvoice.sourceId : undefined,
+      direction: "outbound",
+      channel: "Note",
+      subject: selectedInvoiceEmailDraft?.subject || `Payment chase · ${selectedInvoice.ref}`,
+      body: selectedInvoiceEmailDraft?.body || `Chase recorded offline / printed. Outstanding ${currency(outstanding)}.`,
+      from: activeEmployee?.name ?? "NeXa user",
+      to: chasedTo,
+      status: "Logged",
+    });
+    showNotice(`${selectedInvoice.ref}: chase #${chaseCount} recorded (email not required).`);
   }
 
   async function sendSelectedInvoicePaymentChase() {
@@ -21667,22 +21835,7 @@ export default function CoreApp() {
         subject: selectedInvoiceEmailDraft.subject,
         text: selectedInvoiceEmailDraft.body,
         document: selectedInvoiceEmailDraft.attachPdf
-          ? {
-              filename: `${selectedInvoice.ref}-payment-chase.pdf`,
-              title: "Invoice payment reminder",
-              businessName: businessSettings.tradingName || businessSettings.companyName,
-              reference: selectedInvoice.ref,
-              recipient: selectedInvoice.customer,
-              subject: selectedInvoice.title,
-              rows: selectedInvoice.lines.map((line) => ({
-                description: line.description,
-                detail: line.note,
-                value: currency(line.chargeToClient),
-              })),
-              subtotal: currency(selectedInvoice.chargeTotal),
-              vat: currency(selectedInvoiceFinancials.vatAmount),
-              total: currency(selectedInvoiceFinancials.grandTotal),
-            }
+          ? buildSelectedInvoiceChaseDocument() || undefined
           : undefined,
       });
     } catch (error) {
@@ -28254,17 +28407,8 @@ export default function CoreApp() {
     return result.client;
   }
 
-  async function sendActiveClientStatement() {
-    if (!activeClient) return;
-    if (!activeClient.email?.trim().includes("@")) {
-      showNotice("Add a customer email before sending a statement.");
-      return;
-    }
-    if (!activeClientOutstandingInvoices.length) {
-      showNotice(`${activeClient.name} has no outstanding invoices to statement.`);
-      return;
-    }
-
+  function buildActiveClientStatementDocument(): { document: SimpleDocumentPdfInput; totalOutstanding: number; invoiceCount: number } | null {
+    if (!activeClient || !activeClientOutstandingInvoices.length) return null;
     const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
     const asAt = currentOperatingDate;
     const rows = activeClientOutstandingInvoices.map((invoice) => {
@@ -28273,12 +28417,65 @@ export default function CoreApp() {
       return {
         invoice,
         outstanding,
-        daysOverdue,
         description: `${invoice.ref} · due ${invoice.dueDate}${daysOverdue > 0 ? ` · ${daysOverdue}d overdue` : ""}`,
         value: currency(outstanding),
       };
     });
     const totalOutstanding = rows.reduce((sum, row) => sum + row.outstanding, 0);
+    return {
+      invoiceCount: rows.length,
+      totalOutstanding,
+      document: {
+        filename: `${activeClient.accountReference || activeClient.name}-statement.pdf`,
+        title: "Customer statement",
+        businessName: companyName,
+        reference: `STMT-${asAt}`,
+        recipient: activeClient.name,
+        subject: `Outstanding balance as at ${asAt}`,
+        rows: rows.map((row) => ({
+          description: row.description,
+          detail: row.invoice.title,
+          value: row.value,
+        })),
+        subtotal: currency(totalOutstanding),
+        vat: currency(0),
+        total: currency(totalOutstanding),
+      },
+    };
+  }
+
+  async function downloadActiveClientStatementPdf() {
+    if (!activeClient) return;
+    const built = buildActiveClientStatementDocument();
+    if (!built) {
+      showNotice(`${activeClient.name} has no outstanding invoices to statement.`);
+      return;
+    }
+    try {
+      await downloadSimpleDocumentPdf(built.document);
+      showNotice(
+        `Statement PDF downloaded · ${currency(built.totalOutstanding)} across ${built.invoiceCount} invoice(s).`,
+      );
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to download statement PDF.");
+    }
+  }
+
+  async function sendActiveClientStatement() {
+    if (!activeClient) return;
+    if (!activeClient.email?.trim().includes("@")) {
+      showNotice("Add a customer email before sending a statement.");
+      return;
+    }
+    const built = buildActiveClientStatementDocument();
+    if (!built) {
+      showNotice(`${activeClient.name} has no outstanding invoices to statement.`);
+      return;
+    }
+
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const asAt = currentOperatingDate;
+    const totalOutstanding = built.totalOutstanding;
     const contactName = activeClient.primaryContact?.split(" ")[0] || "there";
 
     let subject = `Account statement from ${companyName} · ${asAt}`;
@@ -28308,22 +28505,7 @@ export default function CoreApp() {
         to: activeClient.email.trim(),
         subject,
         text: bodyText,
-        document: {
-          filename: `${activeClient.accountReference || activeClient.name}-statement.pdf`,
-          title: "Customer statement",
-          businessName: companyName,
-          reference: `STMT-${asAt}`,
-          recipient: activeClient.name,
-          subject: `Outstanding balance as at ${asAt}`,
-          rows: rows.map((row) => ({
-            description: row.description,
-            detail: row.invoice.title,
-            value: row.value,
-          })),
-          subtotal: currency(totalOutstanding),
-          vat: currency(0),
-          total: currency(totalOutstanding),
-        },
+        document: built.document,
       });
 
       const sentAt = delivery.sentAt;
@@ -28336,7 +28518,7 @@ export default function CoreApp() {
         action: "statement sent",
         recordType: "client",
         recordId: activeClient.id,
-        summary: `${activeClient.name} statement emailed to ${activeClient.email.trim()} · ${rows.length} invoice(s) · ${currency(totalOutstanding)} outstanding.`,
+        summary: `${activeClient.name} statement emailed to ${activeClient.email.trim()} · ${built.invoiceCount} invoice(s) · ${currency(totalOutstanding)} outstanding.`,
         source: "outlook draft",
         importance: "high",
       });
@@ -28352,7 +28534,7 @@ export default function CoreApp() {
         messageId: delivery.messageId,
         status: "Sent",
       });
-      showNotice(`Statement sent to ${activeClient.email.trim()} · ${currency(totalOutstanding)} across ${rows.length} invoice(s).`);
+      showNotice(`Statement sent to ${activeClient.email.trim()} · ${currency(totalOutstanding)} across ${built.invoiceCount} invoice(s).`);
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to send customer statement.");
     } finally {
@@ -42060,15 +42242,32 @@ export default function CoreApp() {
                             <button
                               className="secondary-button"
                               type="button"
+                              disabled={!(selectedInvoice.payments || []).length || !access.canEditInvoice}
+                              title={
+                                (selectedInvoice.payments || []).length
+                                  ? "Download remittance PDF (no email needed)"
+                                  : "Record a payment first"
+                              }
+                              onClick={() => void downloadSelectedInvoiceRemittancePdf()}
+                            >
+                              <Download size={15} />
+                              Download remittance
+                            </button>
+                            <button
+                              className="secondary-button"
+                              type="button"
                               disabled={
                                 isSendingInvoiceRemittance ||
                                 !(selectedInvoice.payments || []).length ||
-                                !access.canEditInvoice
+                                !access.canEditInvoice ||
+                                !emailIntegrationStatus?.lastTestMessageId
                               }
                               title={
-                                (selectedInvoice.payments || []).length
-                                  ? "Email remittance advice for the latest allocated payment"
-                                  : "Record a payment first"
+                                !(selectedInvoice.payments || []).length
+                                  ? "Record a payment first"
+                                  : !emailIntegrationStatus?.lastTestMessageId
+                                    ? "Test email in Setup first — or download remittance PDF"
+                                    : "Email remittance advice for the latest allocated payment"
                               }
                               onClick={() => void sendSelectedInvoiceRemittanceAdvice()}
                             >
@@ -42232,10 +42431,39 @@ export default function CoreApp() {
                               <button
                                 className="secondary-button"
                                 type="button"
+                                disabled={invoiceOutstandingBalance(selectedInvoice) <= 0.009}
+                                title="Download chase PDF without email"
+                                onClick={() => void downloadSelectedInvoiceChasePdf()}
+                              >
+                                <Download size={15} />
+                                Download chase PDF
+                              </button>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={
+                                  !access.canEditInvoice ||
+                                  invoiceOutstandingBalance(selectedInvoice) <= 0.009 ||
+                                  selectedInvoice.status === "Draft" ||
+                                  selectedInvoice.status === "Cancelled"
+                                }
+                                title="Log a chase without sending email (print/hand over)"
+                                onClick={() => recordSelectedInvoicePaymentChase()}
+                              >
+                                Record chase
+                              </button>
+                              <button
+                                className="secondary-button"
+                                type="button"
                                 disabled={
                                   isSendingLiveEmail ||
                                   !emailIntegrationStatus?.lastTestMessageId ||
                                   invoiceOutstandingBalance(selectedInvoice) <= 0.009
+                                }
+                                title={
+                                  !emailIntegrationStatus?.lastTestMessageId
+                                    ? "Test email in Setup first — or download / record chase"
+                                    : "Email payment chase"
                                 }
                                 onClick={() => void sendSelectedInvoicePaymentChase()}
                               >
@@ -45995,6 +46223,20 @@ export default function CoreApp() {
                           <button
                             className="secondary-button"
                             type="button"
+                            disabled={!activeClientOutstandingInvoices.length}
+                            title={
+                              !activeClientOutstandingInvoices.length
+                                ? "No outstanding invoices"
+                                : "Download statement PDF (no email needed)"
+                            }
+                            onClick={() => void downloadActiveClientStatementPdf()}
+                          >
+                            <Download size={15} />
+                            {`Download statement (${activeClientOutstandingInvoices.length})`}
+                          </button>
+                          <button
+                            className="secondary-button"
+                            type="button"
                             disabled={
                               isSendingClientStatement ||
                               !emailIntegrationStatus?.lastTestMessageId ||
@@ -46004,7 +46246,7 @@ export default function CoreApp() {
                               !activeClientOutstandingInvoices.length
                                 ? "No outstanding invoices"
                                 : !emailIntegrationStatus?.lastTestMessageId
-                                  ? "Test email integration in Setup first"
+                                  ? "Test email in Setup first — or download statement PDF"
                                   : "Email outstanding invoice statement"
                             }
                             onClick={() => void sendActiveClientStatement()}
