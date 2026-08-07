@@ -136,9 +136,13 @@ import {
   type BusinessBrandingSettings,
 } from "@/lib/branding";
 import {
+  FORM_PRESENTATION_OPTIONS,
+  isGasSafeFormLayout,
   normalizeFormDocumentTemplate,
   resolveFormDocumentChrome,
+  resolveFormPresentation,
   type FormDocumentLayout,
+  type FormDocumentPresentation,
   type FormDocumentTemplate,
 } from "@/lib/form-document-chrome";
 type ReportPackRow = [string, string, string | number, string];
@@ -1224,6 +1228,8 @@ type InvoiceEmailDraft = {
   subject: string;
   body: string;
   attachPdf: boolean;
+  /** Customise-forms template used for the attached PDF. */
+  templateId: string;
 };
 
 type JobReviewKey = "site" | "commercial" | "finance";
@@ -1560,6 +1566,7 @@ function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null, t
       ? `${fillEmailTemplate(template.body, vars)}${vatNote}`
       : `Hi ${contactName},\n\nPlease find attached invoice ${invoice.ref} for ${invoice.title}.\n\nTotal due including VAT: ${totalDue}.${vatNote}\n\nKind regards,\n${companyName}`,
     attachPdf: true,
+    templateId: invoice.claimType === "valuation" ? "form-template-application-payment" : "form-template-invoice",
   };
 }
 
@@ -2034,6 +2041,8 @@ type QuoteEmailDraft = {
   subject: string;
   body: string;
   layout: QuoteDocumentLayout;
+  /** Customise-forms template used for preview + attached PDF. */
+  templateId: string;
   attachPdf: boolean;
 };
 
@@ -2588,7 +2597,9 @@ const documentLayouts: Array<{ key: QuoteDocumentLayout; label: string; detail: 
   { key: "invoice", label: "Invoice", detail: "Final billing layout using approved job or quote totals." },
   { key: "purchase-order", label: "Purchase order", detail: "Supplier-facing order, delivery reference, line items and totals." },
   { key: "daywork-account", label: "Daywork", detail: "Daywork Account sheet — labour, materials, plant and dual sign-off." },
-  { key: "gas-safe-lgsr", label: "Gas Safe", detail: "Landlord’s Gas Safety Record / CP12 office review layout." },
+  { key: "gas-safe-lgsr", label: "Gas Safe LGSR", detail: "Landlord’s Gas Safety Record / CP12 — link to boiler / service cost centres." },
+  { key: "gas-safe-warning-notice", label: "Gas warning notice", detail: "Warning / advice notice for unsafe or at-risk appliances." },
+  { key: "gas-safe-installation", label: "Gas installation cert", detail: "Installation / commissioning certificate for new gas work." },
 ];
 
 const defaultBusinessSettings: BusinessSettings = defaultBusinessBrandingSettings;
@@ -2607,34 +2618,92 @@ const defaultFormTemplates: FormTemplate[] = [
   {
     id: "form-template-quote",
     layout: "quote",
-    name: "Standard client quote",
+    name: "Quote · cost centres",
     title: "Quotation",
     intro: "Thank you for asking us to price the following works. This quote sets out the agreed scope, options and total for online acceptance.",
     footer: "This quote is valid for 30 days unless stated otherwise.",
     terms: "Works are subject to access, material availability and our standard terms and conditions.",
     defaultAudience: "Client",
+    presentation: "cost-centres",
     includeCostCentreBreakdown: true,
     includePnl: false,
     includeAcceptance: true,
     includeBankDetails: false,
+    linkedCostCentreTypes: [],
     ...formChromeDefaults,
     headerNote: "Client quotation",
   },
   {
+    id: "form-template-quote-description",
+    layout: "quote",
+    name: "Quote · description",
+    title: "Quotation",
+    intro: "Thank you for asking us to price the following works. This quote summarises the agreed scope and total.",
+    footer: "This quote is valid for 30 days unless stated otherwise.",
+    terms: "Works are subject to access, material availability and our standard terms and conditions.",
+    defaultAudience: "Client",
+    presentation: "description",
+    includeCostCentreBreakdown: false,
+    includePnl: false,
+    includeAcceptance: true,
+    includeBankDetails: false,
+    linkedCostCentreTypes: [],
+    ...formChromeDefaults,
+    headerNote: "Summary quotation",
+  },
+  {
+    id: "form-template-quote-itemised",
+    layout: "quote",
+    name: "Quote · itemised",
+    title: "Quotation",
+    intro: "Thank you for asking us to price the following works. Line items below set out materials and labour.",
+    footer: "This quote is valid for 30 days unless stated otherwise.",
+    terms: "Works are subject to access, material availability and our standard terms and conditions.",
+    defaultAudience: "Client",
+    presentation: "itemised",
+    includeCostCentreBreakdown: false,
+    includePnl: false,
+    includeAcceptance: true,
+    includeBankDetails: false,
+    linkedCostCentreTypes: [],
+    ...formChromeDefaults,
+    headerNote: "Itemised quotation",
+  },
+  {
     id: "form-template-job-sheet",
     layout: "job-sheet",
-    name: "Engineer job sheet",
+    name: "Job sheet · cost centres",
     title: "Job Sheet",
     intro: "Engineer pack containing site details, cost centre scope, required checks and public documents.",
     footer: "Capture required evidence before leaving site.",
     terms: "Office-only financial information is hidden from field users.",
     defaultAudience: "Engineer",
+    presentation: "cost-centres",
     includeCostCentreBreakdown: true,
     includePnl: false,
     includeAcceptance: false,
     includeBankDetails: false,
+    linkedCostCentreTypes: [],
     ...formChromeDefaults,
     headerNote: "Engineer pack",
+  },
+  {
+    id: "form-template-job-description",
+    layout: "job-sheet",
+    name: "Job sheet · description",
+    title: "Job Sheet",
+    intro: "Engineer pack with a single job description and key site notes.",
+    footer: "Capture required evidence before leaving site.",
+    terms: "Office-only financial information is hidden from field users.",
+    defaultAudience: "Engineer",
+    presentation: "description",
+    includeCostCentreBreakdown: false,
+    includePnl: false,
+    includeAcceptance: false,
+    includeBankDetails: false,
+    linkedCostCentreTypes: [],
+    ...formChromeDefaults,
+    headerNote: "Summary job pack",
   },
   {
     id: "form-template-application-payment",
@@ -2645,44 +2714,86 @@ const defaultFormTemplates: FormTemplate[] = [
     footer: "Supporting evidence and valuation notes are attached where applicable.",
     terms: "Payment due in line with agreed contract terms.",
     defaultAudience: "Client",
+    presentation: "cost-centres",
     includeCostCentreBreakdown: true,
     includePnl: false,
     includeAcceptance: false,
     includeBankDetails: true,
+    linkedCostCentreTypes: [],
     ...formChromeDefaults,
     headerNote: "Commercial valuation",
   },
   {
     id: "form-template-invoice",
     layout: "invoice",
-    name: "Standard invoice",
+    name: "Invoice · itemised",
     title: "Invoice",
     intro: "Invoice for completed and approved works.",
     footer: "Please use the invoice reference when making payment.",
     terms: "Payment due within stated payment terms.",
     defaultAudience: "Client",
+    presentation: "itemised",
     includeCostCentreBreakdown: false,
     includePnl: false,
     includeAcceptance: false,
     includeBankDetails: true,
+    linkedCostCentreTypes: [],
     ...formChromeDefaults,
     headerNote: "Tax invoice",
   },
   {
+    id: "form-template-invoice-description",
+    layout: "invoice",
+    name: "Invoice · description",
+    title: "Invoice",
+    intro: "Invoice for completed and approved works.",
+    footer: "Please use the invoice reference when making payment.",
+    terms: "Payment due within stated payment terms.",
+    defaultAudience: "Client",
+    presentation: "description",
+    includeCostCentreBreakdown: false,
+    includePnl: false,
+    includeAcceptance: false,
+    includeBankDetails: true,
+    linkedCostCentreTypes: [],
+    ...formChromeDefaults,
+    headerNote: "Summary invoice",
+  },
+  {
     id: "form-template-purchase-order",
     layout: "purchase-order",
-    name: "Standard purchase order",
+    name: "PO · itemised",
     title: "Purchase Order",
     intro: "Please supply the items listed below against this purchase order number.",
     footer: "Quote this purchase order number on all delivery notes and invoices.",
     terms: "Items and charges not shown on this order require office approval before supply.",
     defaultAudience: "Supplier",
+    presentation: "itemised",
     includeCostCentreBreakdown: false,
     includePnl: false,
     includeAcceptance: false,
     includeBankDetails: false,
+    linkedCostCentreTypes: [],
     ...formChromeDefaults,
     headerNote: "Supplier order",
+  },
+  {
+    id: "form-template-purchase-order-description",
+    layout: "purchase-order",
+    name: "PO · description",
+    title: "Purchase Order",
+    intro: "Please supply the goods or services summarised below against this purchase order number.",
+    footer: "Quote this purchase order number on all delivery notes and invoices.",
+    terms: "Items and charges not shown on this order require office approval before supply.",
+    defaultAudience: "Supplier",
+    presentation: "description",
+    includeCostCentreBreakdown: false,
+    includePnl: false,
+    includeAcceptance: false,
+    includeBankDetails: false,
+    linkedCostCentreTypes: [],
+    ...formChromeDefaults,
+    headerNote: "Summary supplier order",
   },
   {
     id: "form-template-daywork",
@@ -2693,28 +2804,68 @@ const defaultFormTemplates: FormTemplate[] = [
     footer: "Signed Daywork Accounts support applications for payment.",
     terms: "Rates and material prices are completed by the office after Field sign-off.",
     defaultAudience: "Client",
+    presentation: "description",
     includeCostCentreBreakdown: false,
     includePnl: false,
     includeAcceptance: false,
     includeBankDetails: false,
+    linkedCostCentreTypes: [],
     ...formChromeDefaults,
     headerNote: "Variation sheet",
   },
   {
     id: "form-template-gas-safe",
     layout: "gas-safe-lgsr",
-    name: "Gas Safe LGSR",
+    name: "Gas Safe · Landlord LGSR",
     title: "Landlord’s Gas Safety Record",
     intro: "CP12 / LGSR layout completed from Field stop/go on boiler servicing.",
     footer: "Office review copy of the Gas Safe / LGSR record completed from Field.",
     terms: "Statutory Gas Safe requirements remain the engineer’s responsibility on site.",
     defaultAudience: "Office",
+    presentation: "description",
     includeCostCentreBreakdown: false,
     includePnl: false,
     includeAcceptance: false,
     includeBankDetails: false,
+    linkedCostCentreTypes: ["Boiler servicing", "Boiler service", "Boiler"],
     ...formChromeDefaults,
     headerNote: "Gas Safe Register style record",
+  },
+  {
+    id: "form-template-gas-warning",
+    layout: "gas-safe-warning-notice",
+    name: "Gas Safe · Warning notice",
+    title: "Gas Warning / Advice Notice",
+    intro: "Warning or advice notice for an appliance that is unsafe or at risk.",
+    footer: "Office copy of the warning / advice notice raised from Field.",
+    terms: "Statutory Gas Safe requirements remain the engineer’s responsibility on site.",
+    defaultAudience: "Office",
+    presentation: "description",
+    includeCostCentreBreakdown: false,
+    includePnl: false,
+    includeAcceptance: false,
+    includeBankDetails: false,
+    linkedCostCentreTypes: ["Reactive", "Boiler"],
+    ...formChromeDefaults,
+    headerNote: "Warning / advice notice",
+  },
+  {
+    id: "form-template-gas-installation",
+    layout: "gas-safe-installation",
+    name: "Gas Safe · Installation cert",
+    title: "Gas Installation / Commissioning Certificate",
+    intro: "Installation and commissioning certificate for new or replacement gas appliances.",
+    footer: "Office copy of the installation / commissioning certificate from Field.",
+    terms: "Statutory Gas Safe requirements remain the engineer’s responsibility on site.",
+    defaultAudience: "Office",
+    presentation: "description",
+    includeCostCentreBreakdown: false,
+    includePnl: false,
+    includeAcceptance: false,
+    includeBankDetails: false,
+    linkedCostCentreTypes: ["Boiler replacement", "Bathroom"],
+    ...formChromeDefaults,
+    headerNote: "Installation / commissioning",
   },
 ];
 
@@ -2724,23 +2875,35 @@ function isBuiltInFormTemplate(template: Pick<FormTemplate, "id">) {
   return defaultFormTemplateIds.has(template.id);
 }
 
-/** Keep built-in layouts plus any duplicated templates (by unique id). */
+/** Keep built-in form variants plus any duplicated templates (by unique id). */
 function normalizeFormTemplates(templates: FormTemplate[]) {
   const validTemplates = Array.isArray(templates) ? templates : [];
   const consumedIds = new Set<string>();
+  const defaultsForLayout = (layout: QuoteDocumentLayout) =>
+    defaultFormTemplates.filter((template) => template.layout === layout).length;
   const normalisedDefaults = defaultFormTemplates.map((defaultTemplate) => {
     const byId = validTemplates.find((template) => template.id === defaultTemplate.id);
-    const byLayout = validTemplates.find(
-      (template) => template.layout === defaultTemplate.layout && !consumedIds.has(template.id),
-    );
-    const source = byId || byLayout;
-    if (source) consumedIds.add(source.id);
-    return normalizeFormDocumentTemplate(
-      source
-        ? { ...source, id: defaultTemplate.id, layout: defaultTemplate.layout }
-        : defaultTemplate,
-      defaultTemplate,
-    );
+    if (byId) {
+      consumedIds.add(byId.id);
+      return normalizeFormDocumentTemplate(
+        { ...byId, id: defaultTemplate.id, layout: defaultTemplate.layout },
+        defaultTemplate,
+      );
+    }
+    // Only migrate legacy single-layout storage when this layout has one built-in default.
+    if (defaultsForLayout(defaultTemplate.layout) === 1) {
+      const byLayout = validTemplates.find(
+        (template) => template.layout === defaultTemplate.layout && !consumedIds.has(template.id),
+      );
+      if (byLayout) {
+        consumedIds.add(byLayout.id);
+        return normalizeFormDocumentTemplate(
+          { ...byLayout, id: defaultTemplate.id, layout: defaultTemplate.layout },
+          defaultTemplate,
+        );
+      }
+    }
+    return normalizeFormDocumentTemplate(defaultTemplate, defaultTemplate);
   });
   const extras = validTemplates
     .filter((template) => !consumedIds.has(template.id) && !defaultFormTemplateIds.has(template.id))
@@ -3236,7 +3399,7 @@ const costCentreTemplates = [
 const setupCategories: Array<{ key: SetupCategory; label: string; detail: string; subItems?: string[] }> = [
   { key: "overview", label: "Overview", detail: "System readiness and live setup position" },
   { key: "business", label: "Business profile", detail: "Company details, personalising, logos and colours across all apps", subItems: ["Company", "Personalising", "Portal"] },
-  { key: "forms", label: "Customise forms", detail: "Headers, logos and wording for quotes, jobs, invoices, POs, dayworks and Gas Safe", subItems: ["Quote", "Job sheet", "Application for payment", "Invoice", "Purchase order", "Daywork", "Gas Safe"] },
+  { key: "forms", label: "Customise forms", detail: "Headers, logos and wording for quotes, jobs, invoices, POs, dayworks and Gas Safe certs", subItems: ["Quote", "Job sheet", "Application for payment", "Invoice", "Purchase order", "Daywork", "Gas Safe", "Gas warning notice", "Gas installation cert"] },
   { key: "documents", label: "Documents", detail: "Default folders, visibility and record scopes", subItems: ["Folders", "Visibility", "Engineer pack"] },
   { key: "cost-centres", label: "Cost centre types", detail: "Default categories and assigned engineer checklists", subItems: ["Types", "Boiler", "Bathroom", "Reactive"] },
   { key: "engineer-checklists", label: "Engineer checklists", detail: "Stop/go flows used inside cost centres", subItems: ["Boiler service", "Boiler replacement", "General works"] },
@@ -3307,8 +3470,18 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Editable now",
     },
     "Gas Safe": {
-      summary: "Customise the Landlord Gas Safety Record header, logo and office review wording.",
-      focus: ["Header and logo", "LGSR title", "Office footer notes"],
+      summary: "Customise the Landlord Gas Safety Record header, logo and office review wording. Link to boiler / service cost centre types.",
+      focus: ["Header and logo", "LGSR title", "Cost centre links"],
+      status: "Editable now",
+    },
+    "Gas warning notice": {
+      summary: "Warning / advice notice for unsafe or at-risk appliances. Link to the cost centre types that should use it.",
+      focus: ["Header and logo", "Notice title", "Cost centre links"],
+      status: "Editable now",
+    },
+    "Gas installation cert": {
+      summary: "Installation / commissioning certificate for new gas work. Link to replacement / install cost centre types.",
+      focus: ["Header and logo", "Certificate title", "Cost centre links"],
       status: "Editable now",
     },
   },
@@ -3457,13 +3630,13 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
   prebuilds: {},
   rates: {
     "Labour rates": {
-      summary: "Set the standard labour cost, markup and sell rates used when new quote or job labour lines are added.",
-      focus: ["Engineer labour rates", "Survey and review rates", "Cost to us versus client charge"],
+      summary: "Create and edit labour types (Engineer, Apprentice, Manager, Joiner, Painter, etc.) with cost, markup and sell rates.",
+      focus: ["Add or rename labour types", "Cost / markup / sell per hour", "Feeds quote and job labour lines"],
       status: "Editable now",
     },
     "Default markups": {
-      summary: "Set fallback markup percentages for one-off materials, plant, subcontractors and returned supplier prices.",
-      focus: ["Material markups", "Plant markups", "Subcontractor markups"],
+      summary: "Set fallback markup percentages for one-off materials, plant, subcontractors and newly added labour types.",
+      focus: ["Material markups", "Plant markups", "Subcontractor markups", "New labour markup"],
       status: "Editable now",
     },
     "Supplier pricing": {
@@ -4341,15 +4514,15 @@ const defaultWorkflowRules: WorkflowRulesSettings = {
 };
 
 const defaultLabourRateSettings: LabourRateSetting[] = [
-  { id: "labour-engineer", name: "Engineer labour", costRate: "40", markupPercent: "30", sellRate: "52" },
-  { id: "labour-apprentice", name: "Apprentice labour", costRate: "22", markupPercent: "30", sellRate: "28.6" },
-  { id: "labour-manager", name: "Survey / manager review", costRate: "45", markupPercent: "30", sellRate: "58.5" },
+  { id: "labour-engineer", name: "Engineer", costRate: "40", markupPercent: "30", sellRate: "52" },
+  { id: "labour-apprentice", name: "Apprentice", costRate: "22", markupPercent: "30", sellRate: "28.6" },
+  { id: "labour-manager", name: "Manager", costRate: "45", markupPercent: "30", sellRate: "58.5" },
 ];
 const defaultLabourRateIds = new Set(defaultLabourRateSettings.map((rate) => rate.id));
 
 const fallbackLabourRateSetting: LabourRateSetting = {
   id: "labour-engineer",
-  name: "Engineer labour",
+  name: "Engineer",
   costRate: "40",
   markupPercent: "30",
   sellRate: "52",
@@ -6047,6 +6220,104 @@ function quoteCostCentreTotals(centre: QuoteCostCentre) {
   };
 }
 
+function buildCommercialDocumentRows(options: {
+  presentation: FormDocumentPresentation;
+  description: string;
+  totalLabel: string;
+  costCentres?: Array<{
+    id: string;
+    name: string;
+    clientDescription?: string;
+    engineerDescription?: string;
+    lines?: QuoteCostLine[];
+    materials?: EstimateMaterialLine[];
+    labour?: EstimateLabourLine[];
+  }>;
+  invoiceLines?: Array<{ id: string; description: string; note?: string; chargeToClient: number }>;
+  poLines?: Array<{ id: string; description: string; quantity?: number; estimatedCost?: number; actualCost?: number }>;
+  formatMoney: (value: number) => string;
+}): PdfDocumentRow[] {
+  const { presentation, description, totalLabel, costCentres = [], invoiceLines, poLines, formatMoney } = options;
+  if (presentation === "description") {
+    return [{ id: "description-row", description, detail: "Works as described.", value: totalLabel }];
+  }
+  if (invoiceLines) {
+    if (presentation === "itemised" || presentation === "cost-centres") {
+      return invoiceLines.map((line) => ({
+        id: line.id,
+        description: line.description,
+        detail: line.note,
+        value: formatMoney(line.chargeToClient),
+      }));
+    }
+  }
+  if (poLines) {
+    if (presentation === "itemised") {
+      return poLines.map((line) => {
+        const qty = Math.max(1, Number(line.quantity) || 1);
+        const total = Number(line.actualCost ?? line.estimatedCost) || 0;
+        return {
+          id: line.id,
+          description: line.description,
+          quantity: String(qty),
+          unitRate: formatMoney(total / qty),
+          value: formatMoney(total),
+        };
+      });
+    }
+    const total = poLines.reduce((sum, line) => sum + (Number(line.actualCost ?? line.estimatedCost) || 0), 0);
+    return [{ id: "po-description", description, detail: `${poLines.length} line(s)`, value: formatMoney(total) }];
+  }
+  if (presentation === "itemised") {
+    const rows: PdfDocumentRow[] = [];
+    for (const centre of costCentres) {
+      if (centre.lines?.length) {
+        for (const line of centre.lines) {
+          rows.push({
+            id: line.id,
+            description: line.description,
+            detail: centre.name,
+            value: formatMoney(quoteLineSell(line)),
+          });
+        }
+      } else {
+        for (const line of centre.materials ?? []) {
+          const sell = line.unitCost * line.quantity * (1 + (line.markupPercent || 0) / 100);
+          rows.push({
+            id: line.id,
+            description: line.description,
+            detail: `${centre.name} · material`,
+            value: formatMoney(sell),
+          });
+        }
+        for (const line of centre.labour ?? []) {
+          const sell = line.costRate * line.hours * (1 + (line.markupPercent || 0) / 100);
+          rows.push({
+            id: line.id,
+            description: line.role,
+            detail: `${centre.name} · ${line.hours}h`,
+            value: formatMoney(sell),
+          });
+        }
+      }
+    }
+    if (rows.length) return rows;
+  }
+  return costCentres.map((centre) => {
+    const sell = centre.lines?.length
+      ? quoteCostCentreTotals(centre as QuoteCostCentre).totalSell
+      : estimateCostCentreTotals(centre as EstimateCostCentre).totalSell;
+    return {
+      id: centre.id,
+      description: centre.name,
+      detail:
+        stripSimproHtml(centre.clientDescription || centre.engineerDescription || "") ||
+        "Scope description to be confirmed before issue.",
+      value: formatMoney(sell),
+    };
+  });
+}
+
 function surveyPackSummary(centres: SurveyPackCentre[]) {
   const assets = centres.flatMap((centre) =>
     (centre.surveyAssets ?? []).map((asset) => ({
@@ -7542,6 +7813,7 @@ function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null, templat
       ? `${fillEmailTemplate(template.body, vars)}\n\nView and respond online:\n${quotePortalLink(quote)}`
       : `Hi ${contactName},\n\nPlease find attached our quote for ${quote.description}.\n\nYou can review and respond online here:\n${quotePortalLink(quote)}\n\nKind regards,\n${companyName}`,
     layout: "quote",
+    templateId: "form-template-quote",
     attachPdf: true,
   };
 }
@@ -8094,6 +8366,8 @@ export default function CoreApp() {
   const [selectedJobMaterialLineIds, setSelectedJobMaterialLineIds] = useState<Record<string, string[]>>({});
   const [checkedQuoteReviewQuestions, setCheckedQuoteReviewQuestions] = useState<Record<string, boolean>>({});
   const [quoteEmailDrafts, setQuoteEmailDrafts] = useState<Record<string, QuoteEmailDraft>>({});
+  const [jobFormTemplateIdByJob, setJobFormTemplateIdByJob] = useState<Record<string, string>>({});
+  const [purchaseOrderFormTemplateIdByPo, setPurchaseOrderFormTemplateIdByPo] = useState<Record<string, string>>({});
   const [invoiceEmailDrafts, setInvoiceEmailDrafts] = useState<Record<string, InvoiceEmailDraft>>({});
   const [jobInvoiceDraft, setJobInvoiceDraft] = useState<JobInvoiceDraft | null>(null);
   const [manualRecordDocuments, setManualRecordDocuments] = useState<ManualRecordDocuments>({});
@@ -8462,6 +8736,40 @@ export default function CoreApp() {
       formTemplates.find((template) => template.layout === layout) ??
       defaultFormTemplates.find((template) => template.layout === layout) ??
       defaultFormTemplates[0]!
+    );
+  }
+
+  function formTemplateById(templateId: string | undefined | null, fallbackLayout: QuoteDocumentLayout = "quote") {
+    if (templateId) {
+      const match = formTemplates.find((template) => template.id === templateId);
+      if (match) return match;
+    }
+    return formTemplateForLayout(fallbackLayout);
+  }
+
+  function formTemplatesForLayout(layout: QuoteDocumentLayout) {
+    const matches = formTemplates.filter((template) => template.layout === layout);
+    return matches.length ? matches : [formTemplateForLayout(layout)];
+  }
+
+  function formTemplatesForLayouts(layouts: QuoteDocumentLayout[]) {
+    const allowed = new Set(layouts);
+    const matches = formTemplates.filter((template) => allowed.has(template.layout));
+    return matches.length ? matches : layouts.map((layout) => formTemplateForLayout(layout));
+  }
+
+  function gasSafeTemplateForCostCentreType(typeName: string | undefined | null) {
+    const needle = (typeName || "").trim().toLowerCase();
+    const gasTemplates = formTemplates.filter((template) => isGasSafeFormLayout(template.layout));
+    if (!needle) return gasTemplates[0] ?? formTemplateForLayout("gas-safe-lgsr");
+    const linked = gasTemplates.find((template) =>
+      (template.linkedCostCentreTypes || []).some((item) => item.trim().toLowerCase() === needle),
+    );
+    return (
+      linked ??
+      gasTemplates.find((template) => template.layout === "gas-safe-lgsr") ??
+      gasTemplates[0] ??
+      formTemplateForLayout("gas-safe-lgsr")
     );
   }
 
@@ -15330,7 +15638,7 @@ export default function CoreApp() {
     const costRate = 40;
     const labourRate: LabourRateSetting = {
       id: `labour-custom-${Date.now()}`,
-      name: "New labour rate",
+      name: "New type (e.g. Joiner)",
       costRate: String(costRate),
       markupPercent: String(fallbackMarkup),
       sellRate: String(roundCurrencyValue(lineSellFromMarkup(costRate, fallbackMarkup))),
@@ -15340,7 +15648,7 @@ export default function CoreApp() {
       const normalized = normalizeFinanceSettings(current);
       return normalizeFinanceSettings({ ...normalized, labourRates: [...normalized.labourRates, labourRate] });
     });
-    showNotice("New labour rate added. Rename it and set the cost/markup.");
+    showNotice("Labour type added — rename it (Joiner, Painter, etc.) and set cost / markup / sell.");
   }
 
   function removeLabourRateSetting(rateId: string) {
@@ -19070,6 +19378,9 @@ export default function CoreApp() {
         "Purchase order": "purchase-order",
         Daywork: "daywork-account",
         "Gas Safe": "gas-safe-lgsr",
+        "Gas Safe LGSR": "gas-safe-lgsr",
+        "Gas warning notice": "gas-safe-warning-notice",
+        "Gas installation cert": "gas-safe-installation",
       };
       const layout = layoutByItem[item];
       const template = layout ? formTemplates.find((candidate) => candidate.layout === layout) : undefined;
@@ -20930,6 +21241,18 @@ export default function CoreApp() {
       showNotice("Add a recipient before sending the invoice.");
       return;
     }
+    const formTemplate = formTemplateById(
+      selectedInvoiceEmailDraft.templateId,
+      selectedInvoice.claimType === "valuation" ? "application-payment" : "invoice",
+    );
+    const presentation = resolveFormPresentation(formTemplate);
+    const documentRows = buildCommercialDocumentRows({
+      presentation,
+      description: selectedInvoice.title,
+      totalLabel: currency(selectedInvoice.chargeTotal),
+      invoiceLines: selectedInvoice.lines,
+      formatMoney: currency,
+    });
     setIsSendingLiveEmail(true);
     let delivery: LiveEmailDelivery;
     try {
@@ -20941,15 +21264,23 @@ export default function CoreApp() {
         document: selectedInvoiceEmailDraft.attachPdf
           ? {
               filename: `${selectedInvoice.ref}.pdf`,
-              title: selectedInvoice.claimType === "valuation" ? "Application for payment" : selectedInvoice.claimType === "retention-release" ? "Retention release" : selectedInvoice.claimType === "credit-note" ? "Credit note" : "Invoice",
+              title:
+                formTemplate.title ||
+                (selectedInvoice.claimType === "valuation"
+                  ? "Application for payment"
+                  : selectedInvoice.claimType === "retention-release"
+                    ? "Retention release"
+                    : selectedInvoice.claimType === "credit-note"
+                      ? "Credit note"
+                      : "Invoice"),
               businessName: businessSettings.tradingName || businessSettings.companyName,
               reference: selectedInvoice.ref,
               recipient: selectedInvoice.customer,
               subject: selectedInvoice.title,
-              rows: selectedInvoice.lines.map((line) => ({
-                description: line.description,
-                detail: line.note,
-                value: currency(line.chargeToClient),
+              rows: documentRows.map((row) => ({
+                description: row.description,
+                detail: row.detail,
+                value: row.value || "",
               })),
               subtotal: currency(selectedInvoice.chargeTotal),
               vat: currency(selectedInvoiceFinancials.vatAmount),
@@ -22693,10 +23024,19 @@ export default function CoreApp() {
     const portalUrl = quote.portalUrl ?? `${portalBaseUrl}/client/quotes/${portalToken}`;
     const emailText = `${draft.body}\n\nView and accept your quote online: ${portalUrl}`;
     const costCentres = quoteCostCentres[quote.id] ?? [];
+    const formTemplate = formTemplateById(draft.templateId, draft.layout || "quote");
+    const presentation = resolveFormPresentation(formTemplate);
     const subtotal = costCentres.length
       ? costCentres.reduce((sum, centre) => sum + quoteCostCentreTotals(centre).totalSell, 0)
       : quote.value;
     const vatAmount = subtotal * (numberFromSetting(normalizedFinanceSettings.vatRate, 20) / 100);
+    const documentRows = buildCommercialDocumentRows({
+      presentation,
+      description: quote.description,
+      totalLabel: currency(subtotal),
+      costCentres,
+      formatMoney: currency,
+    });
     setIsSendingLiveEmail(true);
     let delivery: LiveEmailDelivery;
     try {
@@ -22708,18 +23048,16 @@ export default function CoreApp() {
         document: draft.attachPdf
           ? {
               filename: `${quote.ref}.pdf`,
-              title: "Quotation",
+              title: formTemplate.title || "Quotation",
               businessName: businessSettings.tradingName || businessSettings.companyName,
               reference: quote.ref,
               recipient: quote.customer,
               subject: quote.description,
-                  rows: costCentres.length
-                ? costCentres.map((centre) => ({
-                    description: centre.name,
-                    detail: stripSimproHtml(centre.clientDescription || ""),
-                    value: currency(quoteCostCentreTotals(centre).totalSell),
-                  }))
-                : [{ description: quote.description, value: currency(subtotal) }],
+              rows: documentRows.map((row) => ({
+                description: row.description,
+                detail: row.detail,
+                value: row.value || "",
+              })),
               subtotal: currency(subtotal),
               vat: currency(vatAmount),
               total: currency(subtotal + vatAmount),
@@ -29093,10 +29431,73 @@ export default function CoreApp() {
   }
 
   async function sendPurchaseOrderToSupplier(request: PurchaseRequest) {
+    const template = formTemplateById(purchaseOrderFormTemplateIdByPo[request.id], "purchase-order");
+    const presentation = resolveFormPresentation(template);
+    const orderAmount = request.lines?.length
+      ? request.lines.reduce((total, line) => total + line.estimatedCost, 0)
+      : request.estimatedCost;
+    const vatRate = numberFromSetting(normalizedFinanceSettings.vatRate, 20);
+    const vatAmount = orderAmount * (vatRate / 100);
+    const supplierRecord = suppliers.find((item) => item.name === request.supplier);
+    const to = supplierRecord?.email?.trim() || "";
+    const documentRows = buildCommercialDocumentRows({
+      presentation,
+      description: request.item || `Materials for ${request.jobRef}`,
+      totalLabel: currency(orderAmount),
+      poLines: request.lines?.length
+        ? request.lines
+        : [
+            {
+              id: request.id,
+              description: request.item || "Open purchase order",
+              quantity: 1,
+              estimatedCost: request.estimatedCost,
+            },
+          ],
+      formatMoney: currency,
+    });
+
+    if (to.includes("@") && emailIntegrationStatus?.lastTestMessageId) {
+      setIsSendingLiveEmail(true);
+      try {
+        await sendThroughLiveOutbox({
+          to,
+          subject: `${request.poNumber || "PO"} — ${request.item || "Purchase order"}`,
+          text: `Please supply the items on ${request.poNumber || "this purchase order"} for ${request.jobRef}.\n\nForm: ${template.name}.\n\nKind regards,\n${businessSettings.tradingName || businessSettings.companyName}`,
+          document: {
+            filename: `${request.poNumber || "PO"}.pdf`,
+            title: template.title || "Purchase Order",
+            businessName: businessSettings.tradingName || businessSettings.companyName,
+            reference: request.poNumber || request.id,
+            recipient: request.supplier,
+            subject: request.item || `Materials for ${request.jobRef}`,
+            rows: documentRows.map((row) => ({
+              description: row.description,
+              detail: row.detail,
+              value: row.value || "",
+            })),
+            subtotal: currency(orderAmount),
+            vat: currency(vatAmount),
+            total: currency(orderAmount + vatAmount),
+          },
+        });
+        showNotice(`${request.poNumber || "PO"} emailed to ${to} using ${template.name}.`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to email the PO.";
+        showNotice(`PO marked sent, but email failed: ${message}`);
+      } finally {
+        setIsSendingLiveEmail(false);
+      }
+    } else if (!to.includes("@")) {
+      showNotice(`${request.poNumber || "PO"} marked sent. Add a supplier email to email the ${template.name} PDF next time.`);
+    } else {
+      showNotice(`${request.poNumber || "PO"} marked sent. Connect and test Outlook in Setup to email the form PDF.`);
+    }
+
     await patchPurchaseRequest(
       request.id,
       { status: "Pending cost", sentAt: workflowTimestamp() },
-      `${request.poNumber || "PO"} sent to supplier. Cost is now pending invoice check.`,
+      `${request.poNumber || "PO"} sent to supplier using ${template.name}. Cost is now pending invoice check.`,
     );
   }
 
@@ -29945,7 +30346,10 @@ export default function CoreApp() {
         {isGasServiceFlow ? (
           <div style={{ marginBottom: 16 }}>
             <GasSafeLgsrCertificate
-              chrome={resolveFormDocumentChrome(formTemplateForLayout("gas-safe-lgsr"), businessSettings)}
+              chrome={resolveFormDocumentChrome(
+                gasSafeTemplateForCostCentreType(centre?.templateName),
+                businessSettings,
+              )}
               context={{
                 customer: job.customer,
                 site: job.site,
@@ -33522,12 +33926,32 @@ export default function CoreApp() {
             </section>
           ) : homeView === "purchase-order-record" ? (
             selectedPurchaseOrder ? (() => {
-              const template = formTemplateForLayout("purchase-order");
+              const template = formTemplateById(
+                purchaseOrderFormTemplateIdByPo[selectedPurchaseOrder.id],
+                "purchase-order",
+              );
+              const presentation = resolveFormPresentation(template);
               const orderAmount = selectedPurchaseOrder.lines?.length
                 ? selectedPurchaseOrder.lines.reduce((total, line) => total + line.estimatedCost, 0)
                 : selectedPurchaseOrder.estimatedCost;
               const vatRate = numberFromSetting(normalizedFinanceSettings.vatRate, 20);
               const vatAmount = orderAmount * (vatRate / 100);
+              const poPreviewRows = buildCommercialDocumentRows({
+                presentation,
+                description: selectedPurchaseOrder.item || `Materials for ${selectedPurchaseOrder.jobRef}`,
+                totalLabel: documentCurrency(orderAmount),
+                poLines: selectedPurchaseOrder.lines?.length
+                  ? selectedPurchaseOrder.lines
+                  : [
+                      {
+                        id: selectedPurchaseOrder.id,
+                        description: selectedPurchaseOrder.item || "Open purchase order",
+                        quantity: 1,
+                        estimatedCost: selectedPurchaseOrder.estimatedCost,
+                      },
+                    ],
+                formatMoney: documentCurrency,
+              });
               return (
                 <section className="quote-record-shell purchase-order-record-shell">
                   <div className="quote-record-banner">
@@ -33932,8 +34356,26 @@ export default function CoreApp() {
                         <p>Review the PO number, delivery reference, items, totals and terms before sending.</p>
                       </div>
                       <div className="setup-template-actions">
+                        <label style={{ display: "grid", gap: 4, minWidth: 220 }}>
+                          <span className="permission-heading">Form to send</span>
+                          <select
+                            value={template.id}
+                            onChange={(event) =>
+                              setPurchaseOrderFormTemplateIdByPo((current) => ({
+                                ...current,
+                                [selectedPurchaseOrder.id]: event.target.value,
+                              }))
+                            }
+                          >
+                            {formTemplatesForLayout("purchase-order").map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {item.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
                         <button className="secondary-button" type="button" onClick={printDocumentProof}><FileText size={15} /> Print / save PDF</button>
-                        <button className="secondary-button" type="button" onClick={() => openFormTemplateEditor("purchase-order")}>Edit form template</button>
+                        <button className="secondary-button" type="button" onClick={() => openFormTemplateEditor(template.layout)}>Edit form template</button>
                       </div>
                     </div>
                     <PdfDocumentPreview
@@ -33944,20 +34386,7 @@ export default function CoreApp() {
                       recipientAddress={selectedPurchaseOrderJob?.site || "Delivery address to be confirmed"}
                       issueLine={`Created by ${selectedPurchaseOrder.requestedBy} · ${selectedPurchaseOrder.status}`}
                       subject={selectedPurchaseOrder.item || `Materials for ${selectedPurchaseOrder.jobRef}`}
-                      rows={selectedPurchaseOrder.lines?.length ? selectedPurchaseOrder.lines.map((line) => ({
-                        id: line.id,
-                        description: line.description || "Open order line",
-                        detail: `${line.receivedPercent}% received`,
-                        quantity: String(line.quantity),
-                        unitRate: documentCurrency(line.quantity ? line.estimatedCost / line.quantity : line.estimatedCost),
-                        value: documentCurrency(line.estimatedCost),
-                      })) : [{
-                        id: selectedPurchaseOrder.id,
-                        description: selectedPurchaseOrder.item || "Open purchase order",
-                        detail: "Items and value will be populated when confirmed.",
-                        quantity: "Open",
-                        value: documentCurrency(selectedPurchaseOrder.estimatedCost),
-                      }]}
+                      rows={poPreviewRows}
                       headerValue={documentCurrency(orderAmount + vatAmount)}
                       subtotal={orderAmount}
                       vat={vatAmount}
@@ -33995,7 +34424,7 @@ export default function CoreApp() {
                       >
                         Open Xero bills
                       </button>
-                      <button className="primary-button" type="button" onClick={() => sendPurchaseOrderToSupplier(selectedPurchaseOrder)}><Mail size={15} /> Send to supplier</button>
+                      <button className="primary-button" type="button" onClick={() => void sendPurchaseOrderToSupplier(selectedPurchaseOrder)}><Mail size={15} /> Send to supplier</button>
                     </div>
                   </section>
                 </section>
@@ -35350,12 +35779,15 @@ export default function CoreApp() {
                             </div>
                           </div>
                           <div className="document-layout-grid">
-                            {documentLayouts.filter((layout) => layout.key !== "purchase-order").map((layout) => (
+                            {documentLayouts.filter((layout) => !["purchase-order", "gas-safe-lgsr", "gas-safe-warning-notice", "gas-safe-installation", "daywork-account"].includes(layout.key)).map((layout) => (
                               <button
                                 className={selectedQuoteEmailDraft.layout === layout.key ? "document-layout-card active" : "document-layout-card"}
                                 key={layout.key}
                                 type="button"
-                                onClick={() => updateSelectedQuoteEmailDraft({ layout: layout.key })}
+                                onClick={() => {
+                                  const nextTemplate = formTemplateForLayout(layout.key);
+                                  updateSelectedQuoteEmailDraft({ layout: layout.key, templateId: nextTemplate.id });
+                                }}
                               >
                                 <strong>{layout.label}</strong>
                                 <span>{layout.detail}</span>
@@ -35367,16 +35799,16 @@ export default function CoreApp() {
                         <section className="quote-send-grid">
                           {(() => {
                             const surveyPack = quoteSurveyPackSummary(selectedQuotePricedCostCentres);
-                            const template = formTemplateForLayout(selectedQuoteEmailDraft.layout);
+                            const template = formTemplateById(selectedQuoteEmailDraft.templateId, selectedQuoteEmailDraft.layout);
+                            const presentation = resolveFormPresentation(template);
                             const vatAmount = selectedQuoteTotals.sell * (numberFromSetting(normalizedFinanceSettings.vatRate, 20) / 100);
-                            const rows = template.includeCostCentreBreakdown
-                              ? selectedQuotePricedCostCentres.map((centre) => ({
-                                  id: centre.id,
-                                  description: centre.name,
-                                  detail: stripSimproHtml(centre.clientDescription || "") || "Scope description to be confirmed before issue.",
-                                  value: documentCurrency(quoteCostCentreTotals(centre).totalSell),
-                                }))
-                              : [{ id: selectedQuote.id, description: selectedQuote.description, detail: "Quoted works as described above.", value: documentCurrency(selectedQuoteTotals.sell) }];
+                            const rows = buildCommercialDocumentRows({
+                              presentation,
+                              description: selectedQuote.description,
+                              totalLabel: documentCurrency(selectedQuoteTotals.sell),
+                              costCentres: selectedQuotePricedCostCentres,
+                              formatMoney: documentCurrency,
+                            });
                             return (
                               <PdfDocumentPreview
                                 template={template}
@@ -35392,7 +35824,7 @@ export default function CoreApp() {
                                 vat={vatAmount}
                                 total={selectedQuoteTotals.sell + vatAmount}
                                 bankDetails={`${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · ${normalizedFinanceSettings.sortCode} · ${normalizedFinanceSettings.accountNumber}`}
-                                internalSummary={`Internal preview · Cost ${currency(selectedQuoteTotals.cost)} · Profit ${currency(selectedQuoteTotals.profit)}`}
+                                internalSummary={`Internal preview · Cost ${currency(selectedQuoteTotals.cost)} · Profit ${currency(selectedQuoteTotals.profit)} · ${FORM_PRESENTATION_OPTIONS.find((item) => item.key === presentation)?.label ?? presentation}`}
                                 supportingNote={surveyPack.clientVisible.length ? `${surveyPack.clientVisible.length} client-visible survey attachment(s) will accompany this document.` : undefined}
                               />
                             );
@@ -35425,6 +35857,22 @@ export default function CoreApp() {
                                 Apply follow-up template
                               </button>
                             </div>
+                            <label>
+                              Form to send
+                              <select
+                                value={selectedQuoteEmailDraft.templateId || formTemplateForLayout(selectedQuoteEmailDraft.layout).id}
+                                onChange={(event) => {
+                                  const next = formTemplateById(event.target.value, selectedQuoteEmailDraft.layout);
+                                  updateSelectedQuoteEmailDraft({ templateId: next.id, layout: next.layout });
+                                }}
+                              >
+                                {formTemplatesForLayouts(["quote", "job-sheet", "application-payment", "invoice"]).map((template) => (
+                                  <option key={template.id} value={template.id}>
+                                    {template.name} ({FORM_PRESENTATION_OPTIONS.find((item) => item.key === resolveFormPresentation(template))?.label ?? "Form"})
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
                             <label>
                               To
                               <input
@@ -38731,18 +39179,62 @@ export default function CoreApp() {
                 {activeJobTab === "documents" ? renderDocumentWorkspace("job", selectedJob.ref) : null}
 
                 {activeJobTab === "forms" ? (() => {
-                  const template = formTemplateForLayout("job-sheet");
+                  const template = formTemplateById(
+                    jobFormTemplateIdByJob[selectedJob.id],
+                    "job-sheet",
+                  );
+                  const presentation = resolveFormPresentation(template);
+                  const rows = buildCommercialDocumentRows({
+                    presentation,
+                    description: selectedJob.description,
+                    totalLabel:
+                      template.defaultAudience === "Client"
+                        ? documentCurrency(selectedJobCostSummary.totalCharge)
+                        : selectedJob.status,
+                    costCentres: selectedJobEstimateCostCentres,
+                    formatMoney: (value) =>
+                      template.defaultAudience === "Client" ? documentCurrency(value) : `${value}`,
+                  }).map((row) => {
+                    if (template.defaultAudience !== "Client" && presentation !== "description") {
+                      const centre = selectedJobEstimateCostCentres.find((item) => item.id === row.id);
+                      if (centre) {
+                        return {
+                          ...row,
+                          value: `${centre.labour.reduce((sum, line) => sum + line.hours, 0)}h`,
+                        };
+                      }
+                    }
+                    return row;
+                  });
                   return (
                     <section className="record-form-preview-workspace">
                       <div className="documents-toolbar">
                         <div>
                           <span className="permission-heading">Recipient preview</span>
                           <h2>Job form exactly as {template.defaultAudience.toLowerCase()} users see it</h2>
-                          <p>Check scope, dates and visible financial information before sharing the job pack.</p>
+                          <p>Choose description or cost-centre layout before printing the job pack.</p>
                         </div>
                         <div className="setup-template-actions">
+                          <label style={{ display: "grid", gap: 4, minWidth: 220 }}>
+                            <span className="permission-heading">Form</span>
+                            <select
+                              value={template.id}
+                              onChange={(event) =>
+                                setJobFormTemplateIdByJob((current) => ({
+                                  ...current,
+                                  [selectedJob.id]: event.target.value,
+                                }))
+                              }
+                            >
+                              {formTemplatesForLayout("job-sheet").map((item) => (
+                                <option key={item.id} value={item.id}>
+                                  {item.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
                           <button className="secondary-button" type="button" onClick={printDocumentProof}><FileText size={15} /> Print / save PDF</button>
-                          <button className="secondary-button" type="button" onClick={() => openFormTemplateEditor("job-sheet")}>Edit form template</button>
+                          <button className="secondary-button" type="button" onClick={() => openFormTemplateEditor(template.layout)}>Edit form template</button>
                         </div>
                       </div>
                       <PdfDocumentPreview
@@ -38753,21 +39245,11 @@ export default function CoreApp() {
                         recipientAddress={selectedJob.site}
                         issueLine={`${selectedJob.status} · Manager ${selectedJob.manager}`}
                         subject={selectedJob.description}
-                        rows={(template.includeCostCentreBreakdown ? selectedJobEstimateCostCentres : selectedJobEstimateCostCentres.slice(0, 1)).map((centre) => {
-                          const totals = estimateCostCentreTotals(centre);
-                          return {
-                            id: centre.id,
-                            description: centre.name,
-                            detail:
-                              stripSimproHtml(centre.engineerDescription || centre.clientDescription || "") ||
-                              "Work package details to be confirmed.",
-                            value: template.defaultAudience === "Client" ? documentCurrency(totals.totalSell) : `${centre.labour.reduce((sum, line) => sum + line.hours, 0)}h`,
-                          };
-                        })}
+                        rows={rows}
                         headerValue={template.defaultAudience === "Client" ? documentCurrency(selectedJobCostSummary.totalCharge) : selectedJob.status}
                         valueHeading={template.defaultAudience === "Client" ? "Amount" : "Planned"}
                         scheduleLines={selectedJobScheduleAssignments.length ? selectedJobScheduleAssignments.map((assignment) => `${assignment.costCentreName} · ${assignment.employeeName} · ${assignment.startDate} ${assignment.startTime}-${assignment.endDate} ${assignment.endTime}`) : ["No visits scheduled."]}
-                        internalSummary={`Internal preview · Cost ${currency(selectedJobCostSummary.totalCost)} · Profit ${currency(selectedJobCostSummary.projectedProfit)}`}
+                        internalSummary={`Internal preview · Cost ${currency(selectedJobCostSummary.totalCost)} · Profit ${currency(selectedJobCostSummary.projectedProfit)} · ${FORM_PRESENTATION_OPTIONS.find((item) => item.key === presentation)?.label ?? presentation}`}
                       />
                     </section>
                   );
@@ -41389,6 +41871,31 @@ export default function CoreApp() {
                           </div>
                         </header>
                         <div className="invoice-email-grid">
+                          <label className="full-field">
+                            Form to send
+                            <select
+                              value={
+                                selectedInvoiceEmailDraft.templateId ||
+                                (selectedInvoice.claimType === "valuation"
+                                  ? "form-template-application-payment"
+                                  : "form-template-invoice")
+                              }
+                              onChange={(event) => updateSelectedInvoiceEmailDraft({ templateId: event.target.value })}
+                            >
+                              {formTemplatesForLayouts(
+                                selectedInvoice.claimType === "valuation"
+                                  ? ["application-payment", "invoice"]
+                                  : ["invoice", "application-payment"],
+                              ).map((template) => (
+                                <option key={template.id} value={template.id}>
+                                  {template.name} (
+                                  {FORM_PRESENTATION_OPTIONS.find((item) => item.key === resolveFormPresentation(template))?.label ??
+                                    "Form"}
+                                  )
+                                </option>
+                              ))}
+                            </select>
+                          </label>
                           <label>
                             To
                             <input
@@ -42624,13 +43131,37 @@ export default function CoreApp() {
                               />
                               Show VAT / company number
                             </label>
-                            {!["daywork-account", "gas-safe-lgsr"].includes(activeFormTemplate.layout) ? (
+                            {!["daywork-account"].includes(activeFormTemplate.layout) && !isGasSafeFormLayout(activeFormTemplate.layout) ? (
                               <>
+                                <label>
+                                  Form layout
+                                  <select
+                                    value={resolveFormPresentation(activeFormTemplate)}
+                                    onChange={(event) => {
+                                      const presentation = event.target.value as FormDocumentPresentation;
+                                      updateFormTemplate(activeFormTemplate.id, {
+                                        presentation,
+                                        includeCostCentreBreakdown: presentation === "cost-centres",
+                                      });
+                                    }}
+                                  >
+                                    {FORM_PRESENTATION_OPTIONS.map((option) => (
+                                      <option key={option.key} value={option.key}>
+                                        {option.label} — {option.detail}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
                                 <label>
                                   <input
                                     type="checkbox"
                                     checked={activeFormTemplate.includeCostCentreBreakdown}
-                                    onChange={(event) => updateFormTemplate(activeFormTemplate.id, { includeCostCentreBreakdown: event.target.checked })}
+                                    onChange={(event) =>
+                                      updateFormTemplate(activeFormTemplate.id, {
+                                        includeCostCentreBreakdown: event.target.checked,
+                                        presentation: event.target.checked ? "cost-centres" : resolveFormPresentation(activeFormTemplate) === "cost-centres" ? "description" : resolveFormPresentation(activeFormTemplate),
+                                      })
+                                    }
                                   />
                                   Cost centre breakdown
                                 </label>
@@ -42662,6 +43193,39 @@ export default function CoreApp() {
                             ) : null}
                           </div>
 
+                          {isGasSafeFormLayout(activeFormTemplate.layout) ? (
+                            <section className="setup-panel" style={{ marginTop: 12 }}>
+                              <div className="documents-toolbar">
+                                <div>
+                                  <span className="permission-heading">Cost centres</span>
+                                  <h2>Link this certificate to cost centre types</h2>
+                                  <p>When a job cost centre matches, Field / office use this Gas Safe form.</p>
+                                </div>
+                              </div>
+                              <div className="setup-switch-grid">
+                                {costCentreTypeOptions.map((typeName) => {
+                                  const checked = (activeFormTemplate.linkedCostCentreTypes || []).includes(typeName);
+                                  return (
+                                    <label key={typeName}>
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={(event) => {
+                                          const current = activeFormTemplate.linkedCostCentreTypes || [];
+                                          const next = event.target.checked
+                                            ? Array.from(new Set([...current, typeName]))
+                                            : current.filter((item) => item !== typeName);
+                                          updateFormTemplate(activeFormTemplate.id, { linkedCostCentreTypes: next });
+                                        }}
+                                      />
+                                      {typeName}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </section>
+                          ) : null}
+
                           {(() => {
                             const formChrome = resolveFormDocumentChrome(activeFormTemplate, businessSettings);
                             const sampleRows: Record<QuoteDocumentLayout, PdfDocumentRow[]> = {
@@ -42686,8 +43250,10 @@ export default function CoreApp() {
                               ],
                               "daywork-account": [],
                               "gas-safe-lgsr": [],
+                              "gas-safe-warning-notice": [],
+                              "gas-safe-installation": [],
                             };
-                            const financialLayout = !["job-sheet", "daywork-account", "gas-safe-lgsr"].includes(activeFormTemplate.layout);
+                            const financialLayout = !["job-sheet", "daywork-account"].includes(activeFormTemplate.layout) && !isGasSafeFormLayout(activeFormTemplate.layout);
                             const subtotal = activeFormTemplate.layout === "purchase-order" ? 127 : activeFormTemplate.layout === "application-payment" ? 10000 : 2400;
                             const vat = subtotal * 0.2;
                             return (
@@ -42697,7 +43263,7 @@ export default function CoreApp() {
                                     <span className="permission-heading">Live proof</span>
                                     <strong>This is how the form will look with your header and logo</strong>
                                   </div>
-                                  {!["daywork-account", "gas-safe-lgsr"].includes(activeFormTemplate.layout) ? (
+                                  {activeFormTemplate.layout !== "daywork-account" && !isGasSafeFormLayout(activeFormTemplate.layout) ? (
                                     <button className="secondary-button" type="button" onClick={printDocumentProof}>
                                       <FileText size={15} /> Print / save PDF
                                     </button>
@@ -42729,7 +43295,7 @@ export default function CoreApp() {
                                       },
                                     }}
                                   />
-                                ) : activeFormTemplate.layout === "gas-safe-lgsr" ? (
+                                ) : isGasSafeFormLayout(activeFormTemplate.layout) ? (
                                   <GasSafeLgsrCertificate
                                     chrome={formChrome}
                                     context={{
@@ -43563,61 +44129,21 @@ export default function CoreApp() {
 	                  ) : null}
 
 	                  {activeSetupCategory === "rates" &&
-	                  (!activeSetupSubItem ||
-	                    activeSetupSubItem === "Labour rates" ||
-	                    activeSetupSubItem === "Default markups") ? (
+	                  (!activeSetupSubItem || activeSetupSubItem === "Labour rates") ? (
 	                    <section className="setup-panel">
 	                      <div className="documents-toolbar">
 	                        <div>
 	                          <span className="permission-heading">Rates & markups</span>
-	                          <h2>
-	                            {activeSetupSubItem === "Default markups"
-	                              ? "Default markups"
-	                              : "Default commercial pricing"}
-	                          </h2>
-	                          <p>Changes autosave and feed new quote/job labour and material lines.</p>
+	                          <h2>Labour types</h2>
+	                          <p>
+	                            Edit Engineer / Apprentice / Manager, or add new types (Joiner, Painter, etc.) with cost, markup and sell rates.
+	                            Changes autosave into quote and job labour pickers.
+	                          </p>
 	                        </div>
-	                        {!activeSetupSubItem || activeSetupSubItem === "Labour rates" ? (
 	                        <button className="primary-button" type="button" onClick={addLabourRateSetting}>
 	                          <Plus size={15} />
-	                          Add labour rate
+	                          Add labour type
 	                        </button>
-	                        ) : null}
-	                      </div>
-
-	                      <div className="setup-form-grid">
-	                        <label>
-	                          Material markup %
-	                          <input
-	                            inputMode="decimal"
-	                            value={normalizedFinanceSettings.defaultMaterialMarkupPercent}
-	                            onChange={(event) => updateFinanceSettings({ defaultMaterialMarkupPercent: event.target.value })}
-	                          />
-	                        </label>
-	                        <label>
-	                          Plant markup %
-	                          <input
-	                            inputMode="decimal"
-	                            value={normalizedFinanceSettings.defaultPlantMarkupPercent}
-	                            onChange={(event) => updateFinanceSettings({ defaultPlantMarkupPercent: event.target.value })}
-	                          />
-	                        </label>
-	                        <label>
-	                          Subcontractor markup %
-	                          <input
-	                            inputMode="decimal"
-	                            value={normalizedFinanceSettings.defaultSubcontractorMarkupPercent}
-	                            onChange={(event) => updateFinanceSettings({ defaultSubcontractorMarkupPercent: event.target.value })}
-	                          />
-	                        </label>
-	                        <label>
-	                          New labour markup %
-	                          <input
-	                            inputMode="decimal"
-	                            value={normalizedFinanceSettings.defaultLabourMarkupPercent}
-	                            onChange={(event) => updateFinanceSettings({ defaultLabourMarkupPercent: event.target.value })}
-	                          />
-	                        </label>
 	                      </div>
 
 	                      <div className="setup-rate-table">
@@ -43667,19 +44193,79 @@ export default function CoreApp() {
 
 	                      <div className="setup-readiness-grid">
 	                        <article>
-	                          <span>Quote labour</span>
-	                          <strong>{normalizedFinanceSettings.labourRates.length} active labour rate(s)</strong>
-	                          <small>New quote and job labour rows use these cost and sell rates.</small>
+	                          <span>Active types</span>
+	                          <strong>{normalizedFinanceSettings.labourRates.length} labour type(s)</strong>
+	                          <small>Rename any row or add Joiner / Painter / other trades.</small>
 	                        </article>
+	                        <article>
+	                          <span>Quote &amp; job labour</span>
+	                          <strong>Uses these rates</strong>
+	                          <small>New labour lines pick from this list with cost, markup and sell.</small>
+	                        </article>
+	                        <article>
+	                          <span>Per line control</span>
+	                          <strong>Still editable on the job</strong>
+	                          <small>Change hours, cost or sell on a cost centre without changing Setup.</small>
+	                        </article>
+	                      </div>
+	                    </section>
+	                  ) : null}
+
+	                  {activeSetupCategory === "rates" && activeSetupSubItem === "Default markups" ? (
+	                    <section className="setup-panel">
+	                      <div className="documents-toolbar">
+	                        <div>
+	                          <span className="permission-heading">Rates & markups</span>
+	                          <h2>Default markups</h2>
+	                          <p>Fallback markups for materials, plant, subcontractors and newly added labour types.</p>
+	                        </div>
+	                      </div>
+
+	                      <div className="setup-form-grid">
+	                        <label>
+	                          Material markup %
+	                          <input
+	                            inputMode="decimal"
+	                            value={normalizedFinanceSettings.defaultMaterialMarkupPercent}
+	                            onChange={(event) => updateFinanceSettings({ defaultMaterialMarkupPercent: event.target.value })}
+	                          />
+	                        </label>
+	                        <label>
+	                          Plant markup %
+	                          <input
+	                            inputMode="decimal"
+	                            value={normalizedFinanceSettings.defaultPlantMarkupPercent}
+	                            onChange={(event) => updateFinanceSettings({ defaultPlantMarkupPercent: event.target.value })}
+	                          />
+	                        </label>
+	                        <label>
+	                          Subcontractor markup %
+	                          <input
+	                            inputMode="decimal"
+	                            value={normalizedFinanceSettings.defaultSubcontractorMarkupPercent}
+	                            onChange={(event) => updateFinanceSettings({ defaultSubcontractorMarkupPercent: event.target.value })}
+	                          />
+	                        </label>
+	                        <label>
+	                          New labour markup %
+	                          <input
+	                            inputMode="decimal"
+	                            value={normalizedFinanceSettings.defaultLabourMarkupPercent}
+	                            onChange={(event) => updateFinanceSettings({ defaultLabourMarkupPercent: event.target.value })}
+	                          />
+	                        </label>
+	                      </div>
+
+	                      <div className="setup-readiness-grid">
 	                        <article>
 	                          <span>Supplier returns</span>
 	                          <strong>{defaultMaterialMarkupPercent}% material markup</strong>
 	                          <small>Returned supplier prices and one-off material rows start with this markup.</small>
 	                        </article>
 	                        <article>
-	                          <span>Per quote control</span>
-	                          <strong>Lines remain editable</strong>
-	                          <small>Open a cost centre and change cost, markup, sell price or hours for that job only.</small>
+	                          <span>New labour types</span>
+	                          <strong>{normalizedFinanceSettings.defaultLabourMarkupPercent}% default</strong>
+	                          <small>Used when you add a new labour type until you set its own markup.</small>
 	                        </article>
 	                      </div>
 	                    </section>

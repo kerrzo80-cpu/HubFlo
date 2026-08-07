@@ -125,6 +125,7 @@ export async function GET() {
       platformPolish: "fifteen-pass-v1",
       fieldPhotoSync: "bytes-v1",
       fieldChrome: "no-connect-talk-v1",
+      setupLabourForms: "types-certs-form-picker-v1",
       mobileNavFix: "url-sync-off-v5",
       moduleTabButtons: "unstyled-v1",
       heatDesignPlan: "save-race-walls-v1",
