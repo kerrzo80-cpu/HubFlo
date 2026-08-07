@@ -3442,9 +3442,9 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "tax-codes", label: "Tax codes", detail: "VAT treatments mapped for Xero" },
   { key: "email-templates", label: "Email templates", detail: "Quote, invoice, PO and follow-up wording" },
   { key: "security", label: "Security groups", detail: "Role permission templates for employee cards" },
-  { key: "integrations", label: "Integrations", detail: "Blake AI, simPRO, accounts (Xero), SumUp and live system sync", subItems: ["Blake AI", "simPRO", "Xero", "SumUp", "Import from simPRO"] },
+  { key: "integrations", label: "Integrations", detail: "API keys and software bridges that connect tools into NeXa", subItems: ["Blake AI", "simPRO", "SumUp", "Import from simPRO"] },
   { key: "communications", label: "Communications", detail: "Outlook, WhatsApp and supplier doorway settings", subItems: ["Outlook", "WhatsApp", "Supplier emails"] },
-  { key: "finance", label: "Finance", detail: "Invoices, VAT, payment terms and approval gates", subItems: ["Invoices", "Valuations", "PO approvals"] },
+  { key: "finance", label: "Finance", detail: "Invoices, VAT, payment terms, Xero accounts and approval gates", subItems: ["Invoices", "Valuations", "PO approvals", "Xero"] },
 ];
 
 const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string; focus: string[]; status: string }>> = {
@@ -3690,11 +3690,6 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       focus: ["Connection status", "One-way quote and job push", "Scheduler handoff readiness"],
       status: "Working bridge",
     },
-    Xero: {
-      summary: "Pick your accounts system and connect from Setup — Xero live now; QuickBooks and Sage use the same pattern next. No Render env per company.",
-      focus: ["Choose Xero / QuickBooks / Sage", "Save app credentials in Setup", "Connect organisation (simPRO-style)"],
-      status: "Editable now",
-    },
     SumUp: {
       summary: "Connect SumUp for hosted checkout on the invoice portal. Merchant code and API key live here.",
       focus: ["API key", "Merchant code", "Pay online on invoice portal"],
@@ -3738,6 +3733,11 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       summary: "PO approval threshold is edited under Workflow rules → Approvals. Finance holds invoice/bank defaults used when POs bill through.",
       focus: ["Open Workflow rules for threshold", "Invoice VAT and bank defaults", "Supplier PO issue"],
       status: "Threshold in Workflow rules",
+    },
+    Xero: {
+      summary: "Connect your accounts system here — Xero now; QuickBooks and Sage next. Finance is where people expect Xero.",
+      focus: ["Choose Xero / QuickBooks / Sage", "Save Client ID and Secret", "Connect organisation"],
+      status: "Editable now",
     },
   },
 };
@@ -18937,7 +18937,7 @@ export default function CoreApp() {
             ? `${providerLabel} connected${body.xero.tenantName ? ` · ${body.xero.tenantName}` : ""}.`
             : body.xero.canConnect
               ? `${providerLabel} app ready — click Connect to authorise your organisation.`
-              : "Choose Xero and save Client ID / Secret in Setup, then Connect (no Render env per company).",
+              : "Choose Xero under Setup → Finance, save Client ID / Secret, then Connect (no Render env per company).",
         );
       }
       return body;
@@ -18996,7 +18996,7 @@ export default function CoreApp() {
       if (body?.xero) setXeroConnectionStatus(body.xero);
       await refreshAccountingSetupStatus({ silent: true });
       setXeroAppDraft((current) => ({ ...current, clientId: "", clientSecret: "" }));
-      showNotice("Xero app credentials saved in Setup. Click Connect Xero to authorise your organisation.");
+      showNotice("Xero app credentials saved in Finance. Click Connect Xero to authorise your organisation.");
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to save Xero credentials.");
     } finally {
@@ -19455,6 +19455,11 @@ export default function CoreApp() {
 
     if (category.key === "communications" || category.key === "integrations") {
       void refreshIntegrationConnectionStatus({ silent: true });
+    }
+
+    if (category.key === "finance" && item === "Xero") {
+      void refreshIntegrationConnectionStatus({ silent: true });
+      void refreshAccountingSetupStatus({ silent: true });
     }
 
     if (category.key === "imports") {
@@ -32356,7 +32361,7 @@ export default function CoreApp() {
                     type="button"
                     onClick={() => {
                       setHomeView("settings");
-                      setActiveSetupCategory("integrations");
+                      setActiveSetupCategory("finance");
                       setActiveSetupSubItem("Xero");
                     }}
                   >
@@ -41075,11 +41080,11 @@ export default function CoreApp() {
                       type="button"
                       onClick={() => {
                         setHomeView("settings");
-                        setActiveSetupCategory("integrations");
+                        setActiveSetupCategory("finance");
                         setActiveSetupSubItem("Xero");
                       }}
                     >
-                      Open Setup → Xero
+                      Open Setup → Finance → Xero
                     </button>
                   </div>
                 </section>
@@ -44393,29 +44398,24 @@ export default function CoreApp() {
 	                  {activeSetupCategory === "integrations" &&
 	                  (!activeSetupSubItem ||
 	                    activeSetupSubItem === "simPRO" ||
-	                    activeSetupSubItem === "Xero" ||
 	                    activeSetupSubItem === "Import from simPRO") ? (
 	                    <section className="setup-panel">
 	                      <div className="documents-toolbar">
 	                        <div>
 	                          <span className="permission-heading">Live connections</span>
 	                          <h2>
-	                            {activeSetupSubItem === "Xero"
-	                              ? "Xero"
-	                              : activeSetupSubItem === "Import from simPRO"
-	                                ? "Import from simPRO"
-	                                : activeSetupSubItem === "simPRO"
-	                                  ? "simPRO"
-	                                  : "simPRO and Xero"}
+	                            {activeSetupSubItem === "Import from simPRO"
+	                              ? "Import from simPRO"
+	                              : activeSetupSubItem === "simPRO"
+	                                ? "simPRO"
+	                                : "simPRO bridge"}
 	                          </h2>
 	                          <p>
-	                            {activeSetupSubItem === "Xero"
-	                              ? "Choose your accounts system and connect from Setup — no Render env per company."
-	                              : activeSetupSubItem === "Import from simPRO"
-	                                ? "Preview and import from simPRO into this workspace."
-	                                : activeSetupSubItem === "simPRO"
-	                                  ? "Check the simPRO connection and one-way handoffs."
-	                                  : "Choose simPRO or Xero from the left — each opens on its own."}
+	                            {activeSetupSubItem === "Import from simPRO"
+	                              ? "Preview and import from simPRO into this workspace."
+	                              : activeSetupSubItem === "simPRO"
+	                                ? "API credentials and handoffs that connect simPRO into NeXa."
+	                                : "Connect simPRO with API credentials here. Accounts systems like Xero live under Finance."}
 	                          </p>
 	                        </div>
 	                        <div className="setup-template-actions">
@@ -44423,11 +44423,7 @@ export default function CoreApp() {
 	                            Refresh status
 	                          </button>
 	                          <span className="setup-status-label">
-	                            {activeSetupSubItem === "Xero"
-	                              ? `Xero ${xeroModeLabel(xeroConnectionStatus)}`
-	                              : activeSetupSubItem === "simPRO" || activeSetupSubItem === "Import from simPRO"
-	                                ? `simPRO ${simproBridgeStatus.configured ? `push ready (${simproBridgeStatus.mode})` : "needs setup"}`
-	                                : `simPRO ${simproBridgeStatus.configured ? `push ready (${simproBridgeStatus.mode})` : "needs setup"} · Xero ${xeroModeLabel(xeroConnectionStatus)}`}
+	                            {`simPRO ${simproBridgeStatus.configured ? `push ready (${simproBridgeStatus.mode})` : "needs setup"}`}
 	                          </span>
 	                        </div>
 	                      </div>
@@ -44630,162 +44626,6 @@ export default function CoreApp() {
 	                        </article>
 	                        ) : null}
 
-	                        {!activeSetupSubItem || activeSetupSubItem === "Xero" ? (
-	                        <article className="setup-integration-card">
-	                          <header>
-	                            <div>
-	                              <span>Accounts</span>
-	                              <strong>{xeroModeLabel(xeroConnectionStatus)}</strong>
-	                            </div>
-	                            <div className="setup-inline-actions">
-	                              <button
-	                                className="primary-button"
-	                                type="button"
-	                                disabled={isConnectingXero || !xeroConnectionStatus?.canConnect}
-	                                onClick={() => void connectXeroOAuth()}
-	                                title={
-	                                  xeroConnectionStatus?.canConnect
-	                                    ? "Authorise your Xero organisation"
-	                                    : "Save Xero Client ID and Secret below first"
-	                                }
-	                              >
-	                                {isConnectingXero
-	                                  ? "Opening Xero…"
-	                                  : xeroConnectionStatus?.hasRefreshToken
-	                                    ? "Reconnect Xero"
-	                                    : "Connect Xero"}
-	                              </button>
-	                              <button
-	                                className="secondary-button"
-	                                type="button"
-	                                disabled={isSavingAccountingSetup || !xeroConnectionStatus?.configured}
-	                                onClick={() => void disconnectXeroFromSetup()}
-	                              >
-	                                Disconnect
-	                              </button>
-	                              <button
-	                                className="secondary-button"
-	                                type="button"
-	                                onClick={() => void recheckXeroConfiguration()}
-	                              >
-	                                Refresh status
-	                              </button>
-	                            </div>
-	                          </header>
-	                          <small>
-	                            Connect accounts from Setup the same way as simPRO — each company authorises their own organisation here.
-	                            No Render environment variables per company. QuickBooks and Sage will use this same pattern.
-	                          </small>
-	                          <div className="setup-form-grid">
-	                            <label className="span-2">
-	                              Accounts system
-	                              <select
-	                                value={accountingSetupStatus?.provider || xeroConnectionStatus?.provider || "none"}
-	                                disabled={isSavingAccountingSetup}
-	                                onChange={(event) =>
-	                                  void saveAccountingProviderChoice(
-	                                    event.target.value as AccountingSetupStatus["provider"],
-	                                  )
-	                                }
-	                              >
-	                                {(accountingSetupStatus?.options || [
-	                                  { key: "none" as const, label: "None / CSV only", detail: "", available: true },
-	                                  { key: "xero" as const, label: "Xero", detail: "", available: true },
-	                                  { key: "quickbooks" as const, label: "QuickBooks Online (coming)", detail: "", available: false },
-	                                  { key: "sage" as const, label: "Sage (coming)", detail: "", available: false },
-	                                ]).map((option) => (
-	                                  <option key={option.key} value={option.key} disabled={!option.available && option.key !== (accountingSetupStatus?.provider || "none")}>
-	                                    {option.label}{option.available ? "" : " — coming next"}
-	                                  </option>
-	                                ))}
-	                              </select>
-	                            </label>
-	                          </div>
-	                          {(accountingSetupStatus?.provider || xeroConnectionStatus?.provider || "none") === "xero" ? (
-	                            <>
-	                              <div className="setup-form-grid">
-	                                <label className="span-2">
-	                                  Xero Client ID
-	                                  <input
-	                                    value={xeroAppDraft.clientId}
-	                                    onChange={(event) => setXeroAppDraft((current) => ({ ...current, clientId: event.target.value }))}
-	                                    placeholder={
-	                                      accountingSetupStatus?.xeroApp.clientIdPreview ||
-	                                      "Paste from developer.xero.com (or leave blank if platform env is set)"
-	                                    }
-	                                    autoComplete="off"
-	                                  />
-	                                </label>
-	                                <label className="span-2">
-	                                  Xero Client Secret
-	                                  <input
-	                                    type="password"
-	                                    value={xeroAppDraft.clientSecret}
-	                                    onChange={(event) => setXeroAppDraft((current) => ({ ...current, clientSecret: event.target.value }))}
-	                                    placeholder={
-	                                      accountingSetupStatus?.xeroApp.clientSecretSet
-	                                        ? "Saved — paste only to replace"
-	                                        : "Paste Client Secret"
-	                                    }
-	                                    autoComplete="new-password"
-	                                  />
-	                                </label>
-	                                <label className="span-2">
-	                                  Redirect URI
-	                                  <input
-	                                    value={xeroAppDraft.redirectUri}
-	                                    onChange={(event) => setXeroAppDraft((current) => ({ ...current, redirectUri: event.target.value }))}
-	                                    placeholder={accountingSetupStatus?.xeroApp.defaultRedirectUri || "https://…/api/integrations/xero/callback"}
-	                                  />
-	                                </label>
-	                              </div>
-	                              <div className="setup-inline-actions">
-	                                <button
-	                                  className="primary-button"
-	                                  type="button"
-	                                  disabled={isSavingAccountingSetup}
-	                                  onClick={() => void saveXeroAppCredentialsFromSetup()}
-	                                >
-	                                  {isSavingAccountingSetup ? "Saving…" : "Save Xero app credentials"}
-	                                </button>
-	                              </div>
-	                              <small>
-	                                Create a free Xero app at developer.xero.com, add the redirect URI above, then paste Client ID / Secret here and Connect.
-	                                Credentials source: {xeroConnectionStatus?.credentialSource || accountingSetupStatus?.xeroApp.source || "none"}
-	                                {xeroConnectionStatus?.tenantName ? ` · Organisation: ${xeroConnectionStatus.tenantName}` : ""}.
-	                              </small>
-	                            </>
-	                          ) : (
-	                            <small>CSV export still works from the Xero module when no live accounts system is connected.</small>
-	                          )}
-	                          <div className="setup-readiness-grid setup-sync-grid">
-	                            <article>
-	                              <span>App credentials</span>
-	                              <strong>{xeroConnectionStatus?.canConnect ? "Ready" : "Needed in Setup"}</strong>
-	                              <small>Saved in this workspace — not a Render env per company.</small>
-	                            </article>
-	                            <article>
-	                              <span>Organisation</span>
-	                              <strong>
-	                                {xeroConnectionStatus?.configured
-	                                  ? xeroConnectionStatus.tenantName || "Connected"
-	                                  : "Not connected"}
-	                              </strong>
-	                              <small>Authorised when you click Connect Xero.</small>
-	                            </article>
-	                            <article>
-	                              <span>Export queues</span>
-	                              <strong>Xero module</strong>
-	                              <small>Sales invoices and supplier bills after Connect.</small>
-	                            </article>
-	                            <article>
-	                              <span>Other systems</span>
-	                              <strong>QuickBooks / Sage next</strong>
-	                              <small>Same Setup picker and Connect flow.</small>
-	                            </article>
-	                          </div>
-	                        </article>
-	                        ) : null}
 	                      </div>
 	                    </section>
 	                  ) : null}
@@ -45008,6 +44848,180 @@ export default function CoreApp() {
                           </small>
                         </article>
                         ) : null}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {activeSetupCategory === "finance" && activeSetupSubItem === "Xero" ? (
+                    <section className="setup-panel">
+                      <div className="documents-toolbar">
+                        <div>
+                          <span className="permission-heading">Finance</span>
+                          <h2>Xero</h2>
+                          <p>Connect your accounts system from Finance — no Render env per company. Export queues stay in the Xero module.</p>
+                        </div>
+                        <div className="setup-template-actions">
+                          <button className="secondary-button" type="button" onClick={() => void recheckXeroConfiguration()}>
+                            Refresh status
+                          </button>
+                          <span className="setup-status-label">{`Xero ${xeroModeLabel(xeroConnectionStatus)}`}</span>
+                        </div>
+                      </div>
+                      <div className="setup-integration-grid">
+	                        <article className="setup-integration-card">
+	                          <header>
+	                            <div>
+	                              <span>Accounts</span>
+	                              <strong>{xeroModeLabel(xeroConnectionStatus)}</strong>
+	                            </div>
+	                            <div className="setup-inline-actions">
+	                              <button
+	                                className="primary-button"
+	                                type="button"
+	                                disabled={isConnectingXero || !xeroConnectionStatus?.canConnect}
+	                                onClick={() => void connectXeroOAuth()}
+	                                title={
+	                                  xeroConnectionStatus?.canConnect
+	                                    ? "Authorise your Xero organisation"
+	                                    : "Save Xero Client ID and Secret below first"
+	                                }
+	                              >
+	                                {isConnectingXero
+	                                  ? "Opening Xero…"
+	                                  : xeroConnectionStatus?.hasRefreshToken
+	                                    ? "Reconnect Xero"
+	                                    : "Connect Xero"}
+	                              </button>
+	                              <button
+	                                className="secondary-button"
+	                                type="button"
+	                                disabled={isSavingAccountingSetup || !xeroConnectionStatus?.configured}
+	                                onClick={() => void disconnectXeroFromSetup()}
+	                              >
+	                                Disconnect
+	                              </button>
+	                              <button
+	                                className="secondary-button"
+	                                type="button"
+	                                onClick={() => void recheckXeroConfiguration()}
+	                              >
+	                                Refresh status
+	                              </button>
+	                            </div>
+	                          </header>
+	                          <small>
+	                            Connect Xero under Finance — each company authorises their own organisation here.
+	                            No Render environment variables per company. QuickBooks and Sage will use this same Finance pattern.
+	                          </small>
+	                          <div className="setup-form-grid">
+	                            <label className="span-2">
+	                              Accounts system
+	                              <select
+	                                value={accountingSetupStatus?.provider || xeroConnectionStatus?.provider || "none"}
+	                                disabled={isSavingAccountingSetup}
+	                                onChange={(event) =>
+	                                  void saveAccountingProviderChoice(
+	                                    event.target.value as AccountingSetupStatus["provider"],
+	                                  )
+	                                }
+	                              >
+	                                {(accountingSetupStatus?.options || [
+	                                  { key: "none" as const, label: "None / CSV only", detail: "", available: true },
+	                                  { key: "xero" as const, label: "Xero", detail: "", available: true },
+	                                  { key: "quickbooks" as const, label: "QuickBooks Online (coming)", detail: "", available: false },
+	                                  { key: "sage" as const, label: "Sage (coming)", detail: "", available: false },
+	                                ]).map((option) => (
+	                                  <option key={option.key} value={option.key} disabled={!option.available && option.key !== (accountingSetupStatus?.provider || "none")}>
+	                                    {option.label}{option.available ? "" : " — coming next"}
+	                                  </option>
+	                                ))}
+	                              </select>
+	                            </label>
+	                          </div>
+	                          {(accountingSetupStatus?.provider || xeroConnectionStatus?.provider || "none") === "xero" ? (
+	                            <>
+	                              <div className="setup-form-grid">
+	                                <label className="span-2">
+	                                  Xero Client ID
+	                                  <input
+	                                    value={xeroAppDraft.clientId}
+	                                    onChange={(event) => setXeroAppDraft((current) => ({ ...current, clientId: event.target.value }))}
+	                                    placeholder={
+	                                      accountingSetupStatus?.xeroApp.clientIdPreview ||
+	                                      "Paste from developer.xero.com (or leave blank if platform env is set)"
+	                                    }
+	                                    autoComplete="off"
+	                                  />
+	                                </label>
+	                                <label className="span-2">
+	                                  Xero Client Secret
+	                                  <input
+	                                    type="password"
+	                                    value={xeroAppDraft.clientSecret}
+	                                    onChange={(event) => setXeroAppDraft((current) => ({ ...current, clientSecret: event.target.value }))}
+	                                    placeholder={
+	                                      accountingSetupStatus?.xeroApp.clientSecretSet
+	                                        ? "Saved — paste only to replace"
+	                                        : "Paste Client Secret"
+	                                    }
+	                                    autoComplete="new-password"
+	                                  />
+	                                </label>
+	                                <label className="span-2">
+	                                  Redirect URI
+	                                  <input
+	                                    value={xeroAppDraft.redirectUri}
+	                                    onChange={(event) => setXeroAppDraft((current) => ({ ...current, redirectUri: event.target.value }))}
+	                                    placeholder={accountingSetupStatus?.xeroApp.defaultRedirectUri || "https://…/api/integrations/xero/callback"}
+	                                  />
+	                                </label>
+	                              </div>
+	                              <div className="setup-inline-actions">
+	                                <button
+	                                  className="primary-button"
+	                                  type="button"
+	                                  disabled={isSavingAccountingSetup}
+	                                  onClick={() => void saveXeroAppCredentialsFromSetup()}
+	                                >
+	                                  {isSavingAccountingSetup ? "Saving…" : "Save Xero app credentials"}
+	                                </button>
+	                              </div>
+	                              <small>
+	                                Create a free Xero app at developer.xero.com, add the redirect URI above, then paste Client ID / Secret here and Connect.
+	                                Credentials source: {xeroConnectionStatus?.credentialSource || accountingSetupStatus?.xeroApp.source || "none"}
+	                                {xeroConnectionStatus?.tenantName ? ` · Organisation: ${xeroConnectionStatus.tenantName}` : ""}.
+	                              </small>
+	                            </>
+	                          ) : (
+	                            <small>CSV export still works from the Xero module when no live accounts system is connected.</small>
+	                          )}
+	                          <div className="setup-readiness-grid setup-sync-grid">
+	                            <article>
+	                              <span>App credentials</span>
+	                              <strong>{xeroConnectionStatus?.canConnect ? "Ready" : "Needed in Finance"}</strong>
+	                              <small>Saved in this workspace — not a Render env per company.</small>
+	                            </article>
+	                            <article>
+	                              <span>Organisation</span>
+	                              <strong>
+	                                {xeroConnectionStatus?.configured
+	                                  ? xeroConnectionStatus.tenantName || "Connected"
+	                                  : "Not connected"}
+	                              </strong>
+	                              <small>Authorised when you click Connect Xero.</small>
+	                            </article>
+	                            <article>
+	                              <span>Export queues</span>
+	                              <strong>Xero module</strong>
+	                              <small>Sales invoices and supplier bills after Connect.</small>
+	                            </article>
+	                            <article>
+	                              <span>Other systems</span>
+	                              <strong>QuickBooks / Sage next</strong>
+	                              <small>Same Finance picker and Connect flow.</small>
+	                            </article>
+	                          </div>
+	                        </article>
                       </div>
                     </section>
                   ) : null}

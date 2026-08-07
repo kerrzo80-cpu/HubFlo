@@ -176,7 +176,7 @@ export async function exchangeXeroAuthorizationCode(code: string, tenantIdHint?:
   const app = resolveXeroAppCredentials();
   if (!app.ready) {
     throw new Error(
-      "Xero OAuth needs a Client ID, Client Secret and redirect URI — save them in Setup → Integrations → Xero, or set platform env once.",
+      "Xero OAuth needs a Client ID, Client Secret and redirect URI — save them in Setup → Finance → Xero, or set platform env once.",
     );
   }
   if (!code.trim()) throw new Error("Missing Xero authorisation code.");

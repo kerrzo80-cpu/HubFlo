@@ -16,7 +16,7 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         error:
-          "Save your Xero app Client ID and Secret in Setup → Integrations → Xero (or set platform XERO_* env once), then Connect.",
+          "Save your Xero app Client ID and Secret in Setup → Finance → Xero (or set platform XERO_* env once), then Connect.",
         status,
       },
       { status: 400 },
