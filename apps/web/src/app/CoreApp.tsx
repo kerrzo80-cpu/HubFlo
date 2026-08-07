@@ -3444,7 +3444,7 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "security", label: "Security groups", detail: "Role permission templates for employee cards" },
   { key: "integrations", label: "Integrations", detail: "Blake AI, simPRO, accounts (Xero), SumUp and live system sync", subItems: ["Blake AI", "simPRO", "Xero", "SumUp", "Import from simPRO"] },
   { key: "communications", label: "Communications", detail: "Outlook, WhatsApp and supplier doorway settings", subItems: ["Outlook", "WhatsApp", "Supplier emails"] },
-  { key: "finance", label: "Finance", detail: "Invoices, VAT, payment terms, Xero connection and approval gates", subItems: ["Invoices", "Valuations", "PO approvals", "Xero"] },
+  { key: "finance", label: "Finance", detail: "Invoices, VAT, payment terms and approval gates", subItems: ["Invoices", "Valuations", "PO approvals"] },
 ];
 
 const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string; focus: string[]; status: string }>> = {
@@ -3738,11 +3738,6 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       summary: "PO approval threshold is edited under Workflow rules → Approvals. Finance holds invoice/bank defaults used when POs bill through.",
       focus: ["Open Workflow rules for threshold", "Invoice VAT and bank defaults", "Supplier PO issue"],
       status: "Threshold in Workflow rules",
-    },
-    Xero: {
-      summary: "Accounts connection lives under Integrations — choose Xero (or later QuickBooks / Sage) and connect your organisation from Setup.",
-      focus: ["Same Setup connect as Integrations", "Export queues in Xero module", "CSV fallback if not connected"],
-      status: "Opens connection setup",
     },
   },
 };
@@ -19454,22 +19449,7 @@ export default function CoreApp() {
     }
   }
 
-  function openXeroConnectionSetup() {
-    setHomeView("settings");
-    setActiveSetupCategory("integrations");
-    setActiveSetupSubItem("Xero");
-    void refreshIntegrationConnectionStatus({ silent: true });
-    void refreshAccountingSetupStatus({ silent: true });
-    scrollWorkspaceToTop();
-  }
-
   function handleSetupSubItemClick(category: (typeof setupCategories)[number], item: string) {
-    // Finance → Xero is a dual-link: people look under money settings; connection lives with integrations.
-    if (category.key === "finance" && item === "Xero") {
-      openXeroConnectionSetup();
-      return;
-    }
-
     setActiveSetupCategory(category.key);
     setActiveSetupSubItem(item);
 
@@ -45140,236 +45120,6 @@ export default function CoreApp() {
                         <p>The global VAT rate stays here as the fallback. Client defaults and site-specific overrides are edited from People &gt; Clients so the VAT rule lives with the customer record.</p>
                       </div>
 
-                      <div className="setup-subsection-heading">
-                        <div>
-                          <span className="permission-heading">Accounts integrations</span>
-                          <h3>Xero and simPRO live bridge</h3>
-                        </div>
-                        <p>Use this area to keep NeXa as the front end, push live records downstream to simPRO, and prepare Xero export without turning day-to-day work back into an import exercise.</p>
-                      </div>
-
-                      <div className="setup-integration-grid">
-                        <article className="setup-integration-card">
-                          <header>
-                            <div>
-                              <span>simPRO</span>
-                              <strong>{simproSyncStatus?.configured ? (integrationSettings.simproMode === "Two-way sync" ? "Direct sync ready" : "One-way push ready") : integrationSettings.simproMode}</strong>
-                            </div>
-                            <div className="setup-sync-actions">
-                              <button
-                                className="secondary-button"
-                                type="button"
-                                disabled={isTestingSimproConnection}
-                                onClick={() => void testSimproConnection()}
-                              >
-                                {isTestingSimproConnection ? "Testing..." : "Test connection"}
-                              </button>
-                              <button
-                                className="secondary-button"
-                                type="button"
-                                disabled={integrationSettings.simproMode !== "Two-way sync" || !simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
-                                onClick={() => runSimproSync("preview")}
-                              >
-                                {isRunningSimproPreview ? "Previewing..." : "Preview import"}
-                              </button>
-                              <button
-                                className="primary-button"
-                                type="button"
-                                disabled={integrationSettings.simproMode !== "Two-way sync" || !simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
-                                onClick={() => runSimproSync("apply")}
-                              >
-                                {isApplyingSimproImport ? "Applying..." : "Apply safe imports"}
-                              </button>
-                              <button
-                                className="secondary-button"
-                                type="button"
-                                disabled={isRunningSimproPreview || isApplyingSimproImport}
-                                onClick={() => void cleanupImportedSimproRecords()}
-                              >
-                                Delete imported jobs/quotes
-                              </button>
-                            </div>
-                          </header>
-                          <div className="setup-form-grid">
-                            <label>
-                              Sync mode
-                              <select
-                                value={integrationSettings.simproMode}
-                                onChange={(event) => updateIntegrationSettings({ simproMode: event.target.value as IntegrationMode })}
-                              >
-                                {integrationModes.map((mode) => (
-                                  <option key={mode}>{mode}</option>
-                                ))}
-                              </select>
-                            </label>
-                            <label>
-                              Company ID
-                              <input
-                                value={integrationSettings.simproCompanyId}
-                                onChange={(event) => updateIntegrationSettings({ simproCompanyId: event.target.value })}
-                                placeholder="0"
-                              />
-                            </label>
-                            <label className="span-2">
-                              API base URL
-                              <input
-                                value={integrationSettings.simproApiBaseUrl}
-                                onChange={(event) => updateIntegrationSettings({ simproApiBaseUrl: event.target.value })}
-                                placeholder={simproSyncStatus?.endpoint ?? "Stored securely in Render environment variables"}
-                              />
-                            </label>
-                            <label className="span-2">
-                              Webhook / bridge URL
-                              <input
-                                value={integrationSettings.simproWebhookUrl}
-                                onChange={(event) => updateIntegrationSettings({ simproWebhookUrl: event.target.value })}
-                                placeholder={simproBridgeStatus.endpoint ?? "Stored securely in Render environment variables"}
-                              />
-                            </label>
-                          </div>
-                          <small>
-                            {simproSyncStatus?.configured
-                              ? integrationSettings.simproMode === "Two-way sync"
-                                ? `Direct API ready at ${simproSyncStatus.endpoint}. Manual Apply uses your selected ticks; weekday end-of-day cron also refreshes leads, quotes, jobs, schedules, invoices, clients and sites after UK close (needs NEXA_IMPORT_TICK_SECRET on Render). NeXa Schedules is your day-to-day diary — visits can push to simPRO managers diary, and EOD/Apply can pull simPRO schedules back in.`
-                                : `Direct API ready at ${simproSyncStatus.endpoint}. Inbound imports are paused while NeXa stays the live front end.`
-                              : `Direct API not ready: ${simproSyncStatus?.missing.join(", ") || simproBridgeStatus.missing.join(", ") || "SIMPRO_ credentials missing"}.`}
-                          </small>
-                          {integrationSettings.simproMode === "Two-way sync" ? (
-                            <div className="setup-readiness-grid setup-sync-grid">
-                              <article>
-                                <span>Linked records</span>
-                                <strong>{simproSyncStatus?.linkCount ?? 0}</strong>
-                                <small>simPRO records tied to NeXa records.</small>
-                              </article>
-                              <article>
-                                <span>Webhook inbox</span>
-                                <strong>{simproSyncStatus?.webhookInboxCount ?? 0}</strong>
-                                <small>Inbound simPRO events waiting for sync processing.</small>
-                              </article>
-                              <article className={(simproSyncStatus?.lastRun?.totals.conflicts ?? 0) > 0 ? "attention" : ""}>
-                                <span>Last run</span>
-                                <strong>{simproSyncStatus?.lastRun ? simproSyncStatus.lastRun.mode : "No run yet"}</strong>
-                                <small>
-                                  {simproSyncStatus?.lastRun
-                                    ? `${simproSyncStatus.lastRun.totals.created} create · ${simproSyncStatus.lastRun.totals.linked} link · ${simproSyncStatus.lastRun.totals.conflicts} conflict · ${simproSyncStatus.lastRun.totals.errors} error`
-                                    : "Run preview before applying anything live."}
-                                </small>
-                              </article>
-                            </div>
-                          ) : (
-                            <div className="setup-readiness-grid setup-sync-grid">
-                              <article>
-                                <span>Primary direction</span>
-                                <strong>NeXa to simPRO</strong>
-                                <small>Quotes, jobs and planner updates are pushed downstream from NeXa.</small>
-                              </article>
-                              <article>
-                                <span>Inbound imports</span>
-                                <strong>Paused</strong>
-                                <small>Turn on Two-way sync only when you deliberately need a controlled migration or backfill.</small>
-                              </article>
-                              <article>
-                                <span>Bridge mode</span>
-                                <strong>{simproBridgeStatus.configured ? `Ready via ${simproBridgeStatus.mode}` : "Needs completing"}</strong>
-                                <small>{simproBridgeStatus.configured ? "Live handoff is available from NeXa records." : `Missing ${simproBridgeStatus.missing.join(", ") || "simPRO bridge settings"}.`}</small>
-                              </article>
-                            </div>
-                          )}
-                          {simproSyncStatus?.lastRun?.operations.length ? (
-                            renderSimproSyncLog(80)
-                          ) : integrationSettings.simproMode === "Two-way sync" ? null : (
-                            <div className="setup-rate-table setup-sync-log">
-                              <div className="setup-rate-row table-head">
-                                <span>Handoff</span>
-                                <span>What NeXa sends</span>
-                                <span>When</span>
-                              </div>
-                              <div className="setup-rate-row">
-                                <strong>Quotes</strong>
-                                <span>Customer, site, cost centres, totals and scope lines</span>
-                                <span>When you send a quote to simPRO</span>
-                              </div>
-                              <div className="setup-rate-row">
-                                <strong>Jobs</strong>
-                                <span>Job details, cost centres, totals and planner allocations</span>
-                                <span>When you send a job or update the planner</span>
-                              </div>
-                              <div className="setup-rate-row">
-                                <strong>Schedules</strong>
-                                <span>Current planner allocations attached to the pushed job</span>
-                                <span>Whenever NeXa planner assignments change</span>
-                              </div>
-                            </div>
-                          )}
-                        </article>
-
-                        <article className="setup-integration-card">
-                          <header>
-                            <div>
-                              <span>Xero</span>
-                              <strong>{xeroModeLabel(xeroConnectionStatus)}</strong>
-                            </div>
-                            <div className="setup-inline-actions">
-                              <button
-                                className="secondary-button"
-                                type="button"
-                                disabled={isConnectingXero || !xeroConnectionStatus?.authUrl}
-                                onClick={() => void connectXeroOAuth()}
-                              >
-                                {isConnectingXero
-                                  ? "Opening Xero…"
-                                  : xeroConnectionStatus?.hasRefreshToken
-                                    ? "Reconnect Xero"
-                                    : "Connect Xero"}
-                              </button>
-                              <button
-                                className="secondary-button"
-                                type="button"
-                                onClick={() => void recheckXeroConfiguration()}
-                              >
-                                Recheck configuration
-                              </button>
-                            </div>
-                          </header>
-                          <div className="setup-form-grid">
-                            <label>
-                              Sync mode
-                              <select
-                                value={integrationSettings.xeroMode}
-                                onChange={(event) => updateIntegrationSettings({ xeroMode: event.target.value as IntegrationMode })}
-                              >
-                                {integrationModes.map((mode) => (
-                                  <option key={mode}>{mode}</option>
-                                ))}
-                              </select>
-                            </label>
-                            <label>
-                              Tenant name
-                              <input
-                                value={integrationSettings.xeroTenantName}
-                                onChange={(event) => updateIntegrationSettings({ xeroTenantName: event.target.value })}
-                                placeholder="Errol Watson Group Ltd"
-                              />
-                            </label>
-                            <label className="span-2">
-                              Xero client ID
-                              <input
-                                value={integrationSettings.xeroClientId}
-                                onChange={(event) => updateIntegrationSettings({ xeroClientId: event.target.value })}
-                                placeholder="OAuth app client ID"
-                              />
-                            </label>
-                          </div>
-                          <small>
-                            Mode {xeroConnectionStatus?.mode || "csv-only"} · last sync check:{" "}
-                            {integrationSettings.xeroLastSync
-                              ? integrationSettings.xeroLastSync.slice(0, 16).replace("T", " ")
-                              : "Not checked yet"}
-                            {xeroConnectionStatus?.hasRefreshToken ? " · refresh token stored" : ""}
-                          </small>
-                        </article>
-                      </div>
-
                       <div className="setup-readiness-grid">
                         <article>
                           <span>Invoices</span>
@@ -45385,27 +45135,6 @@ export default function CoreApp() {
                           <span>Bank details</span>
                           <strong>{financeSettings.accountName}</strong>
                           <small>{financeSettings.bankName} · {financeSettings.sortCode} · {financeSettings.accountNumber}</small>
-                        </article>
-                        <article
-                          className="setup-readiness-action"
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => openXeroConnectionSetup()}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              openXeroConnectionSetup();
-                            }
-                          }}
-                        >
-                          <span>Accounts connector</span>
-                          <strong>Xero · {integrationSettings.xeroMode}</strong>
-                          <small>Open Setup accounts connect (Xero now; QuickBooks / Sage next). Export queues stay in the Xero module.</small>
-                        </article>
-                        <article>
-                          <span>simPRO bridge</span>
-                          <strong>simPRO · {integrationSettings.simproMode}</strong>
-                          <small>Quotes, jobs, clients and invoices can be prepared for a two-way sync worker once the live bridge credentials are wired.</small>
                         </article>
                       </div>
                     </section>
