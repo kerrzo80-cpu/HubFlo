@@ -15,6 +15,7 @@ import {
   type RecurringFrequency,
   type RecurringKind,
 } from "@/lib/recurring-data";
+import { generateDueRecurringPlans, generateRecurringPlanById } from "@/lib/recurring-generate";
 
 export const runtime = "nodejs";
 
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await parseJsonRequestBody<{
-    action?: "upsert" | "activate" | "deactivate" | "mark-generated" | "delete";
+    action?: "upsert" | "activate" | "deactivate" | "mark-generated" | "delete" | "generate" | "generate-due";
     id?: string;
     kind?: RecurringKind;
     name?: string;
@@ -63,9 +64,34 @@ export async function POST(request: NextRequest) {
     notes?: string;
     generatedRef?: string;
     active?: boolean;
+    asOf?: string;
+    actor?: string;
+    limit?: number;
   }>(request);
 
   try {
+    if (body?.action === "generate") {
+      if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const result = generateRecurringPlanById({ id: body.id, actor: body.actor });
+      const plan = listRecurringPlans(true).find((item) => item.id === body.id) ?? null;
+      return NextResponse.json({
+        result,
+        generated: [result],
+        plan,
+        plans: listRecurringPlans(true),
+        due: dueRecurringPlans(),
+        upcoming: upcomingRecurringPlans(),
+      });
+    }
+    if (body?.action === "generate-due") {
+      const result = generateDueRecurringPlans({ asOf: body.asOf, actor: body.actor, limit: body.limit });
+      return NextResponse.json({
+        ...result,
+        plans: listRecurringPlans(true),
+        due: dueRecurringPlans(body.asOf),
+        upcoming: upcomingRecurringPlans(7, body.asOf),
+      });
+    }
     if (body?.action === "delete") {
       if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
       return NextResponse.json({
