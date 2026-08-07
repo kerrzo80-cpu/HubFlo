@@ -12473,6 +12473,19 @@ export default function CoreApp() {
         items: searchFilteredInvoices.filter((invoice) => invoice.claimType === "valuation"),
       },
       {
+        key: "retention",
+        label: "Retention",
+        detail: reportRetentionTotals.outstanding > 0
+          ? `${currency(reportRetentionTotals.outstanding)} sitting out across ${reportRetentionTotals.jobs} job(s)`
+          : "Held and released retention by job — print from here",
+        tone: "amber",
+        items: searchFilteredInvoices.filter(
+          (invoice) =>
+            invoice.claimType === "retention-release" ||
+            (invoice.claimType === "progress-claim" && progressClaimRetainedAmount(invoice) > 0),
+        ),
+      },
+      {
         key: "credits",
         label: "Credit notes",
         detail: "Credits issued against invoices and applied to the ledger",
@@ -12506,14 +12519,38 @@ export default function CoreApp() {
         items: searchFilteredInvoices.filter((invoice) => isCollectible(invoice) && invoice.status === "Cancelled"),
       },
     ];
-  }, [currentOperatingDate, searchFilteredInvoices]);
+  }, [currentOperatingDate, searchFilteredInvoices, reportRetentionTotals.outstanding, reportRetentionTotals.jobs]);
 
   const visibleInvoiceDirectoryGroups = useMemo(
     () => activeInvoiceFolderKey === "all"
-      ? invoiceDirectoryGroups
+      ? invoiceDirectoryGroups.filter((group) => group.key !== "retention")
       : invoiceDirectoryGroups.filter((group) => group.key === activeInvoiceFolderKey),
     [activeInvoiceFolderKey, invoiceDirectoryGroups],
   );
+
+  function openJobRetentionRecord(jobId: string) {
+    const related = invoices.filter(
+      (invoice) =>
+        invoice.sourceType === "job" &&
+        invoice.sourceId === jobId &&
+        invoice.status !== "Cancelled" &&
+        (invoice.claimType === "progress-claim" || invoice.claimType === "retention-release"),
+    );
+    const progressClaim = related.find((invoice) => invoice.claimType === "progress-claim");
+    const target = progressClaim ?? related[0];
+    if (target) {
+      openInvoiceRecord(target.id);
+      return;
+    }
+    const job = jobs.find((item) => item.id === jobId);
+    if (job) {
+      setSelectedJobId(job.id);
+      setHomeView("job-record");
+      scrollWorkspaceToTop();
+      return;
+    }
+    showNotice("No progress claim found for this job’s retention yet.");
+  }
 
   const filteredClients = useMemo(
     () =>
@@ -20657,7 +20694,7 @@ export default function CoreApp() {
     });
     setRetentionReleaseAmountDraft("");
     retentionReleaseDraftDirtyRef.current = false;
-    setActiveInvoiceFolderKey("unpaid");
+    setActiveInvoiceFolderKey("retention");
     openInvoiceRecord(created.id);
     showNotice(`${created.ref} created for ${currency(amount)} retention release on ${job.ref}.`);
   }
@@ -41676,17 +41713,121 @@ export default function CoreApp() {
                     onClick={() => setActiveInvoiceFolderKey(group.key)}
                   >
                     <span>{group.label}</span>
-                    <strong>{group.items.length}</strong>
+                    <strong>{group.key === "retention" ? reportRetentionRows.length : group.items.length}</strong>
                   </button>
                 ))}
               </div>
 
               <div className="record-folder-stack">
+                {activeInvoiceFolderKey === "retention" ? (
+                  <section className="record-folder-section">
+                    <header>
+                      <div>
+                        <h3>Retention sitting out</h3>
+                        <p className="muted" style={{ margin: "0.35rem 0 0" }}>
+                          Held on progress claims, minus releases. Open a row to release retention on the claim.
+                        </p>
+                      </div>
+                      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+                        <span className={`status-pill ${reportRetentionTotals.outstanding > 0.009 ? "amber" : "green"}`}>
+                          {currency(reportRetentionTotals.outstanding)} outstanding
+                        </span>
+                        <button className="primary-button" type="button" onClick={() => void downloadRetentionReportPdf()}>
+                          <FileText size={15} />
+                          Print retention PDF
+                        </button>
+                      </div>
+                    </header>
+                    <div className="report-kpi-list" style={{ margin: "1rem 0" }}>
+                      <article>
+                        <span>Outstanding</span>
+                        <strong>{currency(reportRetentionTotals.outstanding)}</strong>
+                        <small>{reportRetentionTotals.jobs} job(s)</small>
+                      </article>
+                      <article>
+                        <span>Held to date</span>
+                        <strong>{currency(reportRetentionTotals.retained)}</strong>
+                        <small>Across progress claims</small>
+                      </article>
+                      <article>
+                        <span>Released to date</span>
+                        <strong>{currency(reportRetentionTotals.released)}</strong>
+                        <small>Retention release invoices</small>
+                      </article>
+                    </div>
+                    {reportRetentionRows.length === 0 ? (
+                      <div className="record-folder-empty">
+                        No retention held yet. Set retention % on the client/site, raise a valuation, approve it to a progress claim — then it shows here.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="quote-row table-header">
+                          <span>Job</span>
+                          <span>Customer</span>
+                          <span>Held</span>
+                          <span>Released</span>
+                          <span>Outstanding</span>
+                          <span>Cap</span>
+                          <span>Options</span>
+                        </div>
+                        {reportRetentionRows.map((row) => (
+                          <article
+                            className="quote-row clickable"
+                            key={row.jobId}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => openJobRetentionRecord(row.jobId)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                openJobRetentionRecord(row.jobId);
+                              }
+                            }}
+                          >
+                            <div className="job-identity">
+                              <div>
+                                <StatusDot tone={row.outstanding > 0.009 ? "amber" : "green"} />
+                                <strong>{row.jobRef}</strong>
+                              </div>
+                              <span>
+                                {row.retentionPercent > 0 ? `${row.retentionPercent}%` : "Retention"}
+                                {row.capped ? " · at cap" : ""}
+                              </span>
+                            </div>
+                            <span>{row.customer}</span>
+                            <span>{currency(row.retained)}</span>
+                            <span>{currency(row.released)}</span>
+                            <strong className="value">{currency(row.outstanding)}</strong>
+                            <span>
+                              {row.retentionCapAmount > 0
+                                ? `${currency(row.retentionCapAmount)}${
+                                    row.roomUnderCap != null && !row.capped ? ` · ${currency(row.roomUnderCap)} left` : ""
+                                  }`
+                                : "No cap"}
+                            </span>
+                            <span className="next-action quote-workflow-action">
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openJobRetentionRecord(row.jobId);
+                                }}
+                              >
+                                Open
+                              </button>
+                            </span>
+                          </article>
+                        ))}
+                      </>
+                    )}
+                  </section>
+                ) : null}
                 {visibleInvoiceDirectoryGroups.map((group) => (
                   <section className="record-folder-section" key={group.key}>
                     <header>
                       <div>
-                        <h3>{group.label}</h3>
+                        <h3>{group.key === "retention" ? "Retention invoices" : group.label}</h3>
                       </div>
                       <span className={`status-pill ${group.tone}`}>{group.items.length} invoices</span>
                     </header>
@@ -41741,7 +41882,9 @@ export default function CoreApp() {
                               </span>
                               <span className="quote-site">{invoice.sourceName}</span>
                               <span className={`status-pill ${invoice.status === "Cancelled" ? "red" : invoice.status === "Paid" ? "green" : "blue"}`}>
-                                {invoice.valuationStatus ?? invoice.status}
+                                {invoice.claimType === "retention-release"
+                                  ? "Retention release"
+                                  : invoice.valuationStatus ?? invoice.status}
                               </span>
                               <strong className="value">{currency(invoice.chargeTotal)}</strong>
                               <span className="next-action quote-workflow-action">
