@@ -1,5 +1,6 @@
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { appendAuditEvent } from "@/lib/people-data";
+import { xeroAccountCodesFromFinanceSettings } from "@/lib/xero-account-codes";
 import { getStoredXeroTenantId, resolveXeroAccessToken } from "@/lib/xero-auth";
 
 type LedgerPayment = {
