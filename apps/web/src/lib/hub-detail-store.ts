@@ -3,6 +3,7 @@ import { useDemoSeedData } from "@/lib/workspace-mode";
 import {
   mergeDayworkSheets,
   mergeFlowStepEvidence,
+  mergeInvoicesById,
   mergeJobDeliveryEvents,
 } from "@/lib/hub-state-merge";
 import {
@@ -129,6 +130,7 @@ function rehydrateDayworkFieldsFromDisk() {
     diskHub.jobCostCentres,
     hubDetailState.jobCostCentres,
   );
+  hubDetailState.invoices = mergeInvoicesById(diskHub.invoices, hubDetailState.invoices) as unknown[];
 }
 
 /**
@@ -148,6 +150,8 @@ export function saveHubDetailState(nextState: HubDetailState): HubDetailState {
     },
     jobDeliveryEvents: mergeJobDeliveryEvents(hubDetailState.jobDeliveryEvents, nextState.jobDeliveryEvents),
     jobCostCentres: mergeCentresPreserveDaywork(hubDetailState.jobCostCentres, nextState.jobCostCentres),
+    // Field auto-drafts and office invoice edits must survive stale Core PUT payloads.
+    invoices: mergeInvoicesById(hubDetailState.invoices, nextState.invoices) as unknown[],
     updatedAt: new Date().toISOString(),
   };
 

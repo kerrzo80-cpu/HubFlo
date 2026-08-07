@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 
 import { employeeHeaderName, getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
-import { getServerStoreDirectory } from "@/lib/server-store";
+import { readTakeoffDocumentBuffer } from "@/lib/takeoff-document-file";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
 import {
   getTakeoffProject,
@@ -76,13 +74,8 @@ function makeId(prefix: string) {
 }
 
 async function readDocumentBytes(document: TakeoffDocument): Promise<Buffer | null> {
-  if (!document.storageKey) return null;
-  try {
-    const full = path.join(getServerStoreDirectory(), document.storageKey);
-    return await readFile(full);
-  } catch {
-    return null;
-  }
+  const file = await readTakeoffDocumentBuffer(document);
+  return file.ok ? file.buffer : null;
 }
 
 async function pdfDrawingIndex(project: TakeoffProject): Promise<TakeoffSkillWorkflow["drawingIndex"]> {
@@ -418,7 +411,12 @@ async function textTagMeasure(
   const primaries = skill.assemblies.filter((item) => item.included && item.kind === "primary");
   if (!primaries.length) return [];
 
-  const docs = project.documents.filter((document) => document.kind === "Drawing" || document.kind === "Marked-up drawing");
+  const docs = project.documents.filter((document) =>
+    document.kind === "Drawing"
+    || document.kind === "Marked-up drawing"
+    || (document.mimeType || "").includes("pdf")
+    || document.fileName.toLowerCase().endsWith(".pdf"),
+  );
   const extractedByDoc = new Map<string, Awaited<ReturnType<typeof extractPdfDocument>>>();
   for (const document of docs) {
     const bytes = await readDocumentBytes(document);
