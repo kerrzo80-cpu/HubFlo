@@ -126,6 +126,7 @@ export async function GET() {
       fieldPhotoSync: "bytes-v1",
       fieldChrome: "no-connect-talk-v1",
       setupLabourForms: "types-certs-form-picker-v1",
+      accountingSetup: "setup-connect-v1",
       mobileNavFix: "url-sync-off-v5",
       moduleTabButtons: "unstyled-v1",
       heatDesignPlan: "save-race-walls-v1",
