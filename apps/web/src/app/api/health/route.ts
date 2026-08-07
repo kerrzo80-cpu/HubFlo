@@ -51,7 +51,7 @@ export async function GET() {
       portalHandoffAuthority: "quote-centres-variation-email-v1",
       fieldOfflineDayComplete: "outbox-outcome-hours-v1",
       reportsTrustPack: "manager-board-pack-v1",
-      opsChainContinuity: "accept-visit-invoice-chain-v1",
+      opsChainContinuity: "complete-passaround-invoice-merge-v2",
       dailyPathSimproOptional: "optional-sync-v1",
       sumupPayLinks: "hosted-checkout-v1",
       cashReconcile: "xero-filter-pull-v1",

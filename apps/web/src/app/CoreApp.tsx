@@ -19912,6 +19912,24 @@ export default function CoreApp() {
 
   function openJobInvoiceCreator(job: Job) {
     closeDirectoryActionMenu();
+    // Prefer Ready to invoice; allow Completed so office can prepare a draft during passaround.
+    if (!["Completed", "Ready to invoice", "Invoiced"].includes(job.status)) {
+      showNotice(`${job.ref} is ${job.status}. Mark the visit complete on Field (or move the job to Completed / Ready to invoice) before raising an invoice.`);
+      return;
+    }
+    const existingDraft = invoices.find(
+      (invoice) =>
+        invoice.sourceType === "job" &&
+        invoice.sourceId === job.id &&
+        invoice.status === "Draft" &&
+        invoice.claimType !== "credit-note",
+    );
+    if (existingDraft) {
+      showNotice(`${existingDraft.ref} draft already exists for ${job.ref} — opening it instead of creating another.`);
+      setActiveInvoiceFolderKey("unpaid");
+      openInvoiceRecord(existingDraft.id);
+      return;
+    }
     const centres = refreshedEstimateCostCentresFromRateBook(
       jobEstimateCostCentres[job.id] ?? makeDefaultEstimateCostCentres(job),
       availableQuoteCatalogById,

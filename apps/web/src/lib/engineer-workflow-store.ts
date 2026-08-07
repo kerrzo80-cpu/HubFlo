@@ -17,6 +17,7 @@ import {
   type EngineerFlowStepEvidenceValue,
 } from "@/lib/engineer-flow";
 import { toUkDateDisplay } from "@/lib/uk-date";
+import { isDayworkRequirement } from "@/lib/daywork-account-form";
 import { maybeCreateDraftInvoiceOnJobComplete } from "@/lib/field-job-invoice";
 import { saveFieldPhotoBytes } from "@/lib/field/field-photo-store";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
@@ -1121,6 +1122,18 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
   }
 
   if (input.action === "set_outcome") {
+    // Refresh requirements from live templates before gating Complete.
+    getEngineerJobWorkflow(scheduleId);
+    const liveRequirements = getMutableWorkflow(scheduleId).requirements ?? [];
+    if (input.payload.status === "Complete") {
+      const blocked = liveRequirements.some(
+        (item) => item.status === "missing" && !isDayworkRequirement(item),
+      );
+      if (blocked) {
+        throw new Error("Cannot mark complete yet. Finish required checklist items first.");
+      }
+    }
+
     const outcome: EngineerWorkflowOutcome = {
       status: input.payload.status,
       note: input.payload.note.trim(),
@@ -1129,9 +1142,10 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
     };
     workflow.outcome = outcome;
     if (job?.jobId) {
+      // Field Complete → Completed (passaround). Office approves → Ready to invoice.
       const nextStatus =
         outcome.status === "Complete"
-          ? "Ready to invoice"
+          ? "Completed"
           : outcome.status === "Needs parts"
             ? "Waiting on parts"
             : undefined;
@@ -1141,7 +1155,7 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
           next:
             outcome.note ||
             (outcome.status === "Complete"
-              ? `Marked complete by ${createdBy}.`
+              ? `Marked complete by ${createdBy}. Ready for office passaround before invoicing.`
               : `Awaiting parts — noted by ${createdBy}.`),
         });
         if (outcome.status === "Complete") {

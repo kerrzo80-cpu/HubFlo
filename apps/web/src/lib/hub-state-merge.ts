@@ -374,6 +374,58 @@ function mergeLineJsonPreferringUnitCosts(serverValue: unknown, clientValue: unk
   }
 }
 
+/**
+ * Merge invoice arrays by id so a stale Core autosave cannot drop Field-created drafts
+ * (or any invoice the browser payload omitted).
+ */
+export function mergeInvoicesById(serverValue: unknown, clientValue: unknown) {
+  const server = Array.isArray(serverValue) ? serverValue : [];
+  const client = Array.isArray(clientValue) ? clientValue : [];
+  // Empty browser payload must never wipe server invoices.
+  if (!client.length && server.length) return server;
+
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const item of server) {
+    const record = asRecord(item);
+    const id = typeof record?.id === "string" ? record.id.trim() : "";
+    if (id && record) byId.set(id, record);
+  }
+  for (const item of client) {
+    const record = asRecord(item);
+    const id = typeof record?.id === "string" ? record.id.trim() : "";
+    if (!id || !record) continue;
+    const existing = byId.get(id) || {};
+    const next = { ...existing, ...record };
+    // Prefer richer line lists (Field draft / office edit) when one side is empty.
+    const serverLines = Array.isArray(existing.lines) ? (existing.lines as unknown[]) : [];
+    const clientLines = Array.isArray(record.lines) ? (record.lines as unknown[]) : [];
+    if (serverLines.length && !clientLines.length) next.lines = serverLines;
+    if (clientLines.length && !serverLines.length) next.lines = clientLines;
+    // Never lose a Sent / Queued accounts export marker from the other side.
+    const serverAccounts = String(existing.accountsStatus || "");
+    const clientAccounts = String(record.accountsStatus || "");
+    if (serverAccounts === "Sent" && clientAccounts !== "Sent") {
+      next.accountsStatus = existing.accountsStatus;
+      if (existing.xeroInvoiceId) next.xeroInvoiceId = existing.xeroInvoiceId;
+      if (existing.xeroExportedAt) next.xeroExportedAt = existing.xeroExportedAt;
+    }
+    byId.set(id, next);
+  }
+  // Keep server invoices the client omitted (stale Core tab after Field auto-draft).
+  for (const item of server) {
+    const record = asRecord(item);
+    const id = typeof record?.id === "string" ? record.id.trim() : "";
+    if (!id || !record) continue;
+    if (!client.some((entry) => {
+      const clientRecord = asRecord(entry);
+      return typeof clientRecord?.id === "string" && clientRecord.id.trim() === id;
+    })) {
+      byId.set(id, record);
+    }
+  }
+  return Array.from(byId.values());
+}
+
 function mergeKeyedArraysById(serverValue: unknown, clientValue: unknown) {
   const server = asRecord(serverValue) || {};
   const client = asRecord(clientValue) || {};
@@ -444,5 +496,6 @@ export function mergeHubDetailState(serverState: HubDetailState, clientState: Hu
       (serverState as HubDetailState & { dayworkSheets?: unknown }).dayworkSheets,
       (clientState as HubDetailState & { dayworkSheets?: unknown }).dayworkSheets,
     ),
+    invoices: mergeInvoicesById(serverState.invoices, clientState.invoices),
   };
 }

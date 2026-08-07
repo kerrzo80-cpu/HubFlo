@@ -958,7 +958,11 @@ export default function JobDetailPage() {
     await runWorkflowAction(
       "set_outcome",
       { status, note: outcomeNote },
-      status === "Needs parts" ? "Marked awaiting parts — office notified." : `${status} sent to office.`,
+      status === "Needs parts"
+        ? "Marked awaiting parts — office notified."
+        : status === "Complete"
+          ? "Marked complete — office passaround next, then invoice."
+          : `${status} sent to office.`,
     );
   }
 

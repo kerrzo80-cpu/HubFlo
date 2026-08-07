@@ -14,6 +14,14 @@ type HubInvoice = {
   valuationLines?: Array<{ agreedThisPeriod?: number; requestedThisPeriod?: number }>;
 };
 
+type CostCentreLike = {
+  id?: string;
+  name?: string;
+  materials?: Array<{ unitCost?: number | string; unitSell?: number | string; qty?: number | string; quantity?: number | string }>;
+  labour?: Array<{ unitCost?: number | string; unitSell?: number | string; qty?: number | string; quantity?: number | string; hours?: number | string }>;
+  labor?: Array<{ unitCost?: number | string; unitSell?: number | string; qty?: number | string; quantity?: number | string; hours?: number | string }>;
+};
+
 function todayIso() {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/London",
@@ -33,6 +41,109 @@ function shiftIsoDate(isoDate: string, days: number) {
 function numericSetting(value: unknown, fallback: number) {
   const parsed = Number.parseFloat(String(value ?? "").replace(",", "."));
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function lineQty(row: { qty?: number | string; quantity?: number | string; hours?: number | string }) {
+  const raw = row.qty ?? row.quantity ?? row.hours ?? 1;
+  const parsed = Number.parseFloat(String(raw).replace(",", "."));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function lineMoney(row: { unitCost?: number | string; unitSell?: number | string }, field: "unitCost" | "unitSell") {
+  const parsed = Number.parseFloat(String(row[field] ?? "").replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/** Build invoice lines from job cost centres when present; never invent a fake cost ratio. */
+function buildLinesFromJobCentres(jobId: string, jobDescription: string, chargeTotal: number) {
+  const hub = getHubDetailState();
+  const centresRaw = hub.jobCostCentres && typeof hub.jobCostCentres === "object"
+    ? (hub.jobCostCentres as Record<string, unknown>)[jobId]
+    : null;
+  const centres = Array.isArray(centresRaw) ? (centresRaw as CostCentreLike[]) : [];
+
+  const lines: Array<{
+    id: string;
+    description: string;
+    category: "Materials" | "Labour" | "Other";
+    costToUs: number;
+    chargeToClient: number;
+    note: string;
+  }> = [];
+
+  for (const centre of centres) {
+    const name = String(centre.name || "Cost centre").trim() || "Cost centre";
+    const materials = Array.isArray(centre.materials) ? centre.materials : [];
+    const labour = Array.isArray(centre.labour)
+      ? centre.labour
+      : Array.isArray(centre.labor)
+        ? centre.labor
+        : [];
+
+    let materialCost = 0;
+    let materialSell = 0;
+    for (const row of materials) {
+      const qty = lineQty(row);
+      materialCost += lineMoney(row, "unitCost") * qty;
+      materialSell += lineMoney(row, "unitSell") * qty;
+    }
+    let labourCost = 0;
+    let labourSell = 0;
+    for (const row of labour) {
+      const qty = lineQty(row);
+      labourCost += lineMoney(row, "unitCost") * qty;
+      labourSell += lineMoney(row, "unitSell") * qty;
+    }
+
+    if (materialCost > 0 || materialSell > 0) {
+      lines.push({
+        id: `inv-line-${centre.id || name}-materials`,
+        description: `${name} materials`,
+        category: "Materials",
+        costToUs: Math.round(materialCost * 100) / 100,
+        chargeToClient: Math.round(materialSell * 100) / 100,
+        note: "From job cost centre",
+      });
+    }
+    if (labourCost > 0 || labourSell > 0) {
+      lines.push({
+        id: `inv-line-${centre.id || name}-labour`,
+        description: `${name} labour`,
+        category: "Labour",
+        costToUs: Math.round(labourCost * 100) / 100,
+        chargeToClient: Math.round(labourSell * 100) / 100,
+        note: "From job cost centre",
+      });
+    }
+  }
+
+  if (lines.length) {
+    const sellSum = lines.reduce((sum, line) => sum + line.chargeToClient, 0);
+    // If centre sells don't cover the remaining claim, add a balancing Other line.
+    const remainder = Math.round((chargeTotal - sellSum) * 100) / 100;
+    if (Math.abs(remainder) >= 0.01) {
+      lines.push({
+        id: `inv-line-balance-${Date.now()}`,
+        description: remainder > 0 ? "Balance of job value" : "Adjustment to job value",
+        category: "Other",
+        costToUs: 0,
+        chargeToClient: remainder,
+        note: "Auto-created when engineer marked job complete on Field",
+      });
+    }
+    return lines;
+  }
+
+  return [
+    {
+      id: `inv-line-${Date.now()}`,
+      description: jobDescription.trim() || "Work completed",
+      category: "Other" as const,
+      costToUs: 0,
+      chargeToClient: chargeTotal,
+      note: "Auto-created when engineer marked job complete on Field — review cost in Core",
+    },
+  ];
 }
 
 function billedAmountForJob(invoices: HubInvoice[], jobId: string) {
@@ -61,7 +172,7 @@ function billedAmountForJob(invoices: HubInvoice[], jobId: string) {
 
 /**
  * When Field marks a job Complete, create a Draft invoice-in-full claim if none exists yet.
- * Office reviews and sends from Core — mirrors the manual "invoice in full" path.
+ * Office reviews and sends from Core after passaround — mirrors the manual "invoice in full" path.
  */
 export function maybeCreateDraftInvoiceOnJobComplete(jobId: string, actor = "Field workflow") {
   const job = getJobs().find((item) => item.id === jobId);
@@ -103,6 +214,8 @@ export function maybeCreateDraftInvoiceOnJobComplete(jobId: string, actor = "Fie
   const sites = getClientSites();
   const site = job.siteId ? sites.find((item) => item.id === job.siteId) : null;
   const vatRate = numericSetting(settings.vatRate, 20);
+  const lines = buildLinesFromJobCentres(jobId, job.description || `Work on ${job.ref}`, chargeTotal);
+  const costTotal = Math.round(lines.reduce((sum, line) => sum + line.costToUs, 0) * 100) / 100;
 
   const created = {
     id: `inv-${Date.now()}-${Math.round(Math.random() * 1000)}`,
@@ -118,22 +231,13 @@ export function maybeCreateDraftInvoiceOnJobComplete(jobId: string, actor = "Fie
     issuedDate,
     dueDate: shiftIsoDate(issuedDate, termsDays),
     title: `Invoice in full for ${job.ref}`,
-    lines: [
-      {
-        id: `inv-line-${Date.now()}`,
-        description: job.description?.trim() || `Work on ${job.ref}`,
-        category: "Other",
-        costToUs: Math.round(chargeTotal * 0.68 * 100) / 100,
-        chargeToClient: chargeTotal,
-        note: "Auto-created when engineer marked job complete on Field",
-      },
-    ],
-    costTotal: Math.round(chargeTotal * 0.68 * 100) / 100,
+    lines,
+    costTotal,
     chargeTotal,
     vatRate,
     vatTreatment: client?.vatTreatment || site?.vatTreatment || "Standard 20%",
     vatNote: `Standard VAT ${vatRate}%.`,
-    notes: `Draft invoice created when ${job.ref} was marked complete on Field. Review lines and send from Core.`,
+    notes: `Draft invoice created when ${job.ref} was marked complete on Field. Complete office passaround, review lines, then send from Core.`,
     claimType: "full",
     accountsStatus: "Not sent",
     paymentStatus: "Unpaid",
