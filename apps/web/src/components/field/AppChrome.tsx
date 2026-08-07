@@ -3,17 +3,17 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Clock3, MessageCircle, RefreshCw, Settings } from "lucide-react";
+import { CalendarDays, Clock3, MessageCircle, RefreshCw } from "lucide-react";
 import { useBrand } from "@/components/BrandProvider";
 import { resolveBrandChromeLogoUrl } from "@/lib/branding";
 import { countPendingOutbox, flushOutbox, subscribeOutbox } from "@/lib/field/offline-outbox";
 import { FIELD_BASE, fieldPath } from "@/lib/field/routes";
 
+/** Site Field chrome — My Day / Ask Blake / Hours only (no Connect / Talk). */
 const links = [
   { href: fieldPath("/"), label: "My Day", icon: CalendarDays },
   { href: fieldPath("/ask"), label: "Ask Blake", icon: MessageCircle },
   { href: fieldPath("/time-check"), label: "Hours", icon: Clock3 },
-  { href: fieldPath("/settings"), label: "Connect", icon: Settings },
 ];
 
 export function AppChrome({ children }: { children: React.ReactNode }) {
@@ -45,7 +45,7 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
           const keys = await caches.keys();
           await Promise.all(
             keys
-              .filter((key) => key.startsWith("ewg-field-shell-") && key !== "ewg-field-shell-v4")
+              .filter((key) => key.startsWith("ewg-field-shell-") && key !== "ewg-field-shell-v5")
               .map((key) => caches.delete(key)),
           );
         }

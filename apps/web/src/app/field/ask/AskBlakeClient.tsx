@@ -3,12 +3,9 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AskBlakeChat } from "@/components/field/AskBlake";
-import { AskBlakeTalkLab } from "@/components/field/AskBlakeTalkLab";
 import { BlakeCharacter } from "@/components/field/BlakeCharacter";
 import { useNexaClient } from "@/lib/field/nexa";
 import type { AskBlakeJobContext } from "@/lib/field/ask-blake";
-
-type AskBlakeMode = "type" | "talk";
 
 type AskBlakeStatus = {
   connected?: boolean;
@@ -19,7 +16,6 @@ export default function AskBlakePage() {
   const client = useNexaClient();
   const searchParams = useSearchParams();
   const scheduleId = searchParams.get("job") ?? "";
-  const [mode, setMode] = useState<AskBlakeMode>("type");
   const [job, setJob] = useState<AskBlakeJobContext | null>(null);
   const [status, setStatus] = useState<AskBlakeStatus | null>(null);
 
@@ -94,50 +90,23 @@ export default function AskBlakePage() {
   }, []);
 
   return (
-    <main className={`field-screen ask-blake-page${mode === "talk" ? " is-talk" : ""}`}>
+    <main className="field-screen ask-blake-page">
       <header className="ask-blake-hero">
         <BlakeCharacter mood="idle" size="hero" />
         <div>
           <p className="eyebrow">Ask Blake</p>
-          <h1>{mode === "talk" ? "Talk with Blake" : "Type, photos or video"}</h1>
+          <h1>Type, photos or video</h1>
           <p className="field-page-sub">
             {job?.jobRef
               ? `${job.jobRef} · ${job.customer ?? "Job"}`
-              : mode === "talk"
-                ? "Hands-free call — talk naturally and optional camera so Blake can see the job."
-                : "Describe the fault or attach a photo or short video — likely cause, checks, next steps."}
+              : "Describe the fault or attach a photo or short video — likely cause, checks, next steps."}
           </p>
         </div>
       </header>
 
-      <div className="ask-blake-mode" role="tablist" aria-label="Ask Blake mode">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === "type"}
-          className={mode === "type" ? "active" : undefined}
-          onClick={() => setMode("type")}
-        >
-          Type
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === "talk"}
-          className={mode === "talk" ? "active" : undefined}
-          onClick={() => setMode("talk")}
-        >
-          Talk
-        </button>
-      </div>
-
       {status?.warning ? <div className="feedback">{status.warning}</div> : null}
 
-      {mode === "type" ? (
-        <AskBlakeChat job={job} />
-      ) : (
-        <AskBlakeTalkLab variant="app" />
-      )}
+      <AskBlakeChat job={job} />
     </main>
   );
 }

@@ -1,7 +1,7 @@
 /* Field offline shell — scoped to /field/ only. Network-first for pages so
- * deploys never leave Ask Blake / Hours / Connect on stale JS.
+ * deploys never leave Ask Blake / Hours on stale JS (no Connect / Talk).
  */
-const CACHE = "ewg-field-shell-v4";
+const CACHE = "ewg-field-shell-v5";
 const PRECACHE = [
   "/ewg-logo.png",
   "/manifest-field.json",
@@ -9,7 +9,6 @@ const PRECACHE = [
   "/field",
   "/field/ask",
   "/field/time-check",
-  "/field/settings",
 ];
 
 self.addEventListener("install", (event) => {
@@ -58,7 +57,6 @@ self.addEventListener("fetch", (event) => {
     url.pathname === "/field/" ||
     url.pathname.startsWith("/field/ask") ||
     url.pathname.startsWith("/field/time-check") ||
-    url.pathname.startsWith("/field/settings") ||
     url.pathname.startsWith("/field/jobs");
 
   if (isDocument) {
@@ -78,8 +76,7 @@ self.addEventListener("fetch", (event) => {
             (await cache.match("/field")) ||
             (await cache.match("/field/")) ||
             (await cache.match("/field/ask")) ||
-            (await cache.match("/field/time-check")) ||
-            (await cache.match("/field/settings"));
+            (await cache.match("/field/time-check"));
           return (
             cached ||
             new Response("Offline — open Field again when you have signal.", {

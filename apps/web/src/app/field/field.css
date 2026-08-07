@@ -122,7 +122,7 @@
   border-radius: 22px;
   bottom: 14px;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   left: 16px;
   padding: 6px;
   position: fixed;
@@ -394,11 +394,12 @@
   padding-bottom: calc(14px + var(--field-tabbar-height, 68px) + 48px);
 }
 
+/* Type/Talk toggle removed from Ask Blake — keep rule inert. */
 .ask-blake-mode {
+  display: none;
   background: var(--white);
   border: 1px solid var(--line);
   border-radius: 14px;
-  display: grid;
   gap: 4px;
   grid-template-columns: 1fr 1fr;
   padding: 4px;

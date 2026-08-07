@@ -124,6 +124,7 @@ export async function GET() {
       visualQa: "logo-rail-xero-finance-v1",
       platformPolish: "fifteen-pass-v1",
       fieldPhotoSync: "bytes-v1",
+      fieldChrome: "no-connect-talk-v1",
       mobileNavFix: "url-sync-off-v5",
       moduleTabButtons: "unstyled-v1",
       heatDesignPlan: "save-race-walls-v1",
