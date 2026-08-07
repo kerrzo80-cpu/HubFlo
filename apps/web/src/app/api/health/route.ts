@@ -135,6 +135,7 @@ export async function GET() {
       deploySmoke: "retry-settle-hourly-v2",
       mailboxIcloud: "smtp-mail-me-v1",
       mailboxSendAs: "editable-from-v1",
+      mailboxIcloudFix: "hydrate-dirty-v1",
       takeoffSkill: "drawing-first-v8-routes-page",
       takeoffAiConfirm: "overlay-review-v1",
       recurringServices: "upcoming-4w-v1",

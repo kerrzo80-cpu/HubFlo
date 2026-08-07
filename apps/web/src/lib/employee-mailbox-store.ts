@@ -2,7 +2,22 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 import nodemailer from "nodemailer";
 
 import { emailProviderSmtpDefaults, type EmailProvider } from "@/lib/email-integration-store";
-import { loadServerStore, writeServerStore } from "@/lib/server-store";
+import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
+
+const EMAIL_PROVIDERS: EmailProvider[] = ["Outlook", "Gmail", "iCloud"];
+
+function normalizeProvider(value: unknown): EmailProvider {
+  return EMAIL_PROVIDERS.includes(value as EmailProvider) ? (value as EmailProvider) : "Outlook";
+}
+
+/** Apple app passwords are often pasted with spaces — strip them. Keep hyphens. */
+export function normalizeMailboxSecret(secret: string) {
+  return secret.replace(/\s+/g, "").trim();
+}
+
+function isAppleMailAddress(email: string) {
+  return /@(icloud|me|mac)\.com$/i.test(email.trim());
+}
 
 export type EmployeeMailboxInput = {
   provider: EmailProvider;
@@ -92,6 +107,15 @@ function decryptSecret(payload: string) {
 
 const employeeMailboxStore = loadServerStore<EmployeeMailboxStore>("employee-mailboxes", emptyStore);
 
+/** Re-read disk/sqlite before every op — Render can have multiple Node instances with stale memory. */
+function hydrateEmployeeMailboxStore() {
+  const snapshot = readServerStoreSnapshot("employee-mailboxes") as EmployeeMailboxStore | null;
+  if (snapshot && typeof snapshot === "object" && snapshot.byEmployeeId && typeof snapshot.byEmployeeId === "object") {
+    employeeMailboxStore.byEmployeeId = snapshot.byEmployeeId;
+  }
+  return employeeMailboxStore;
+}
+
 function persist() {
   writeServerStore("employee-mailboxes", employeeMailboxStore);
 }
@@ -132,40 +156,59 @@ function sanitize(employeeId: string, record: EmployeeMailboxRecord | undefined)
 }
 
 export function getEmployeeMailboxStatus(employeeId: string): EmployeeMailboxStatus {
+  hydrateEmployeeMailboxStore();
   const id = employeeId.trim();
   return sanitize(id, id ? employeeMailboxStore.byEmployeeId[id] : undefined);
 }
 
 export function listConfiguredEmployeeMailboxes(): EmployeeMailboxStatus[] {
+  hydrateEmployeeMailboxStore();
   return Object.entries(employeeMailboxStore.byEmployeeId)
     .map(([employeeId, record]) => sanitize(employeeId, record))
     .filter((item) => item.configured);
 }
 
 export function saveEmployeeMailboxSettings(employeeId: string, input: EmployeeMailboxInput) {
+  hydrateEmployeeMailboxStore();
   const id = employeeId.trim();
   if (!id) throw new Error("Employee id is required.");
 
+  const provider = normalizeProvider(input.provider);
+  const senderEmail = input.senderEmail.trim().toLowerCase();
+  const username = (input.username.trim() || senderEmail).toLowerCase();
+  const secret = normalizeMailboxSecret(input.secret);
+  if (!senderEmail) throw new Error("Enter the email address to send as.");
+  if (provider === "iCloud" && !isAppleMailAddress(senderEmail)) {
+    throw new Error("For iCloud, Sends as must be your Apple Mail address (@icloud.com, @me.com, or @mac.com).");
+  }
+
   const current = employeeMailboxStore.byEmployeeId[id] ?? emptyRecord();
-  const defaults = defaultProviderHosts[input.provider];
-  const nextHost = input.smtpHost?.trim() || defaults.host;
-  const nextPort = input.smtpPort && Number.isFinite(input.smtpPort) ? input.smtpPort : defaults.port;
-  const nextSecure = input.secure ?? defaults.secure;
+  const defaults = defaultProviderHosts[provider];
+  // Always trust provider defaults for host/port/secure so a leftover Outlook host cannot break iCloud.
+  const nextHost = provider === "iCloud" || provider === "Gmail" || provider === "Outlook"
+    ? defaults.host
+    : (input.smtpHost?.trim() || defaults.host);
+  const nextPort = defaults.port;
+  const nextSecure = defaults.secure;
   const connectionChanged = Boolean(
-    input.secret.trim()
-    || input.provider !== current.provider
-    || input.senderEmail.trim() !== current.senderEmail
-    || input.username.trim() !== current.username
+    secret
+    || provider !== current.provider
+    || senderEmail !== current.senderEmail
+    || username !== current.username
     || nextHost !== current.smtpHost
     || nextPort !== current.smtpPort
     || nextSecure !== current.secure,
   );
 
+  if (!secret && !current.encryptedSecret) {
+    throw new Error("Paste the app-specific password before saving.");
+  }
+
   const next: EmployeeMailboxRecord = {
-    provider: input.provider,
-    senderEmail: input.senderEmail.trim(),
-    username: input.username.trim(),
-    encryptedSecret: input.secret.trim() ? encryptSecret(input.secret.trim()) : current.encryptedSecret,
+    provider,
+    senderEmail,
+    username,
+    encryptedSecret: secret ? encryptSecret(secret) : current.encryptedSecret,
     smtpHost: nextHost,
     smtpPort: nextPort,
     secure: nextSecure,
@@ -184,6 +227,7 @@ export function saveEmployeeMailboxSettings(employeeId: string, input: EmployeeM
 }
 
 export function clearEmployeeMailbox(employeeId: string) {
+  hydrateEmployeeMailboxStore();
   const id = employeeId.trim();
   if (!id || !employeeMailboxStore.byEmployeeId[id]) {
     return sanitize(id, undefined);
@@ -207,28 +251,32 @@ export type ResolvedMailboxTransport = {
 };
 
 export function resolveEmployeeMailboxTransport(employeeId: string): ResolvedMailboxTransport | null {
+  hydrateEmployeeMailboxStore();
   const id = employeeId.trim();
   if (!id) return null;
   const record = employeeMailboxStore.byEmployeeId[id];
   if (!record) return null;
-  const secret = decryptSecret(record.encryptedSecret);
-  if (!record.senderEmail.trim() || !record.username.trim() || !secret.trim()) return null;
+  const secret = normalizeMailboxSecret(decryptSecret(record.encryptedSecret));
+  if (!record.senderEmail.trim() || !record.username.trim() || !secret) return null;
+  const provider = normalizeProvider(record.provider);
+  const defaults = defaultProviderHosts[provider];
   const display = record.displayName.trim();
   return {
     source: "employee",
     employeeId: id,
-    provider: record.provider,
+    provider,
     from: record.senderEmail,
     fromHeader: display ? `${display} <${record.senderEmail}>` : record.senderEmail,
     username: record.username,
     secret,
-    smtpHost: record.smtpHost,
-    smtpPort: record.smtpPort,
-    secure: record.secure,
+    smtpHost: defaults.host,
+    smtpPort: defaults.port,
+    secure: defaults.secure,
   };
 }
 
 export function markEmployeeMailboxSent(employeeId: string, messageId: string, sentAt: string) {
+  hydrateEmployeeMailboxStore();
   const id = employeeId.trim();
   const record = employeeMailboxStore.byEmployeeId[id];
   if (!record) return;
@@ -239,6 +287,7 @@ export function markEmployeeMailboxSent(employeeId: string, messageId: string, s
 }
 
 export function markEmployeeMailboxError(employeeId: string, error: string) {
+  hydrateEmployeeMailboxStore();
   const id = employeeId.trim();
   const record = employeeMailboxStore.byEmployeeId[id];
   if (!record) return;
@@ -247,6 +296,7 @@ export function markEmployeeMailboxError(employeeId: string, error: string) {
 }
 
 export function markEmployeeMailboxTested(employeeId: string, recipient: string, messageId: string, testedAt: string) {
+  hydrateEmployeeMailboxStore();
   const id = employeeId.trim();
   const record = employeeMailboxStore.byEmployeeId[id];
   if (!record) return;
@@ -255,6 +305,17 @@ export function markEmployeeMailboxTested(employeeId: string, recipient: string,
   record.lastTestMessageId = messageId;
   record.lastError = undefined;
   persist();
+}
+
+function formatMailboxSendError(mailbox: ResolvedMailboxTransport, error: unknown) {
+  const raw = error instanceof Error ? error.message : "Email authentication or send failed.";
+  if (mailbox.provider === "iCloud") {
+    return [
+      raw,
+      "iCloud needs: full Apple Mail address (@icloud.com / @me.com / @mac.com), an app-specific password from appleid.apple.com (not your Apple ID password), and 2FA turned on.",
+    ].join(" — ");
+  }
+  return raw;
 }
 
 export async function sendViaResolvedMailbox(
@@ -270,9 +331,12 @@ export async function sendViaResolvedMailbox(
       user: mailbox.username,
       pass: mailbox.secret,
     },
-    connectionTimeout: 10_000,
-    greetingTimeout: 10_000,
-    socketTimeout: 15_000,
+    tls: {
+      minVersion: "TLSv1.2",
+    },
+    connectionTimeout: 15_000,
+    greetingTimeout: 15_000,
+    socketTimeout: 20_000,
   });
 
   try {
@@ -300,13 +364,11 @@ export async function sendViaResolvedMailbox(
       sentAt,
     };
   } catch (error) {
+    const message = formatMailboxSendError(mailbox, error);
     if (mailbox.employeeId) {
-      markEmployeeMailboxError(
-        mailbox.employeeId,
-        error instanceof Error ? error.message : "Email authentication or send failed.",
-      );
+      markEmployeeMailboxError(mailbox.employeeId, message);
     }
-    throw error;
+    throw new Error(message);
   } finally {
     transport.close();
   }
@@ -315,7 +377,10 @@ export async function sendViaResolvedMailbox(
 export async function testEmployeeMailboxConnection(employeeId: string) {
   const mailbox = resolveEmployeeMailboxTransport(employeeId);
   if (!mailbox) {
-    throw new Error("Connect this employee's Outlook, Gmail, or iCloud mailbox before testing.");
+    throw new Error("Save the mailbox first (provider, Sends as, and app password), then test.");
+  }
+  if (mailbox.provider === "iCloud" && !isAppleMailAddress(mailbox.from)) {
+    throw new Error("For iCloud, Sends as must be your Apple Mail address (@icloud.com, @me.com, or @mac.com).");
   }
   const result = await sendViaResolvedMailbox(mailbox, {
     to: mailbox.from,

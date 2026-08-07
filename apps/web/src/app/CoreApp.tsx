@@ -8179,6 +8179,8 @@ export default function CoreApp() {
   const [isTestingEmailIntegration, setIsTestingEmailIntegration] = useState(false);
   const [employeeMailboxDraft, setEmployeeMailboxDraft] = useState<EmployeeMailboxDraft>(blankEmployeeMailboxDraft);
   const [employeeMailboxStatus, setEmployeeMailboxStatus] = useState<EmployeeMailboxStatus | null>(null);
+  const [employeeMailboxDraftDirty, setEmployeeMailboxDraftDirty] = useState(false);
+  const employeeMailboxDraftDirtyRef = useRef(false);
   const [isSavingEmployeeMailbox, setIsSavingEmployeeMailbox] = useState(false);
   const [isTestingEmployeeMailbox, setIsTestingEmployeeMailbox] = useState(false);
   const [isSendingJobMessage, setIsSendingJobMessage] = useState(false);
@@ -10746,6 +10748,8 @@ export default function CoreApp() {
     if (!editingEmployeeId || editingEmployeeId === newEmployeeId) {
       setEmployeeMailboxStatus(null);
       setEmployeeMailboxDraft(blankEmployeeMailboxDraft);
+      employeeMailboxDraftDirtyRef.current = false;
+      setEmployeeMailboxDraftDirty(false);
       return;
     }
     let cancelled = false;
@@ -14812,15 +14816,21 @@ export default function CoreApp() {
         const cardEmail = activeEmployee?.profile?.email?.trim() || "";
         const sendAsEmail = status.senderEmail?.trim() || cardEmail;
         setEmployeeMailboxStatus(status);
-        setEmployeeMailboxDraft({
-          provider: status.provider || "Outlook",
-          senderEmail: sendAsEmail,
-          username: status.username?.trim() || sendAsEmail,
-          secret: "",
-          smtpHost: status.smtpHost || "smtp.office365.com",
-          smtpPort: String(status.smtpPort || 587),
-          secure: status.secure,
-          displayName: status.displayName || activeEmployee?.name || "",
+        setEmployeeMailboxDraft((current) => {
+          // Keep in-progress typing (Sends as / password / provider) — refresh was wiping iCloud mid-edit.
+          if (employeeMailboxDraftDirtyRef.current) {
+            return current;
+          }
+          return {
+            provider: status.provider || "Outlook",
+            senderEmail: sendAsEmail,
+            username: status.username?.trim() || sendAsEmail,
+            secret: "",
+            smtpHost: status.smtpHost || "smtp.office365.com",
+            smtpPort: String(status.smtpPort || 587),
+            secure: Boolean(status.secure),
+            displayName: status.displayName || activeEmployee?.name || "",
+          };
         });
       }
       if (!options?.silent) showNotice("Integration status refreshed.");
@@ -14871,14 +14881,20 @@ export default function CoreApp() {
       }
       const saved = result as EmployeeMailboxStatus;
       setEmployeeMailboxStatus(saved);
+      employeeMailboxDraftDirtyRef.current = false;
+      setEmployeeMailboxDraftDirty(false);
       setEmployeeMailboxDraft((current) => ({
         ...current,
-        senderEmail: sendAsEmail,
-        username: sendAsEmail,
+        provider: saved.provider,
+        senderEmail: saved.senderEmail || sendAsEmail,
+        username: saved.username || sendAsEmail,
         secret: "",
+        smtpHost: saved.smtpHost,
+        smtpPort: String(saved.smtpPort),
+        secure: saved.secure,
         displayName: activeEmployee?.name || current.displayName,
       }));
-      showNotice(`Connected ${employeeMailboxDraft.provider} for ${sendAsEmail}. Job emails will send as you.`);
+      showNotice(`Saved ${saved.provider} mailbox for ${saved.senderEmail || sendAsEmail}. Click Test connection next.`);
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to save the mailbox.");
     } finally {
@@ -14905,10 +14921,10 @@ export default function CoreApp() {
         message?: string;
         status?: EmployeeMailboxStatus;
       } | null;
+      if (result?.status) setEmployeeMailboxStatus(result.status);
       if (!response.ok || !result?.ok) {
         throw new Error(result?.error || "Unable to test the mailbox.");
       }
-      if (result.status) setEmployeeMailboxStatus(result.status);
       showNotice(result.message || "Mailbox connection looks reachable.");
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to test the mailbox.");
@@ -15057,13 +15073,19 @@ export default function CoreApp() {
       }
       const saved = result as EmployeeMailboxStatus;
       setEmployeeMailboxStatus(saved);
+      employeeMailboxDraftDirtyRef.current = false;
+      setEmployeeMailboxDraftDirty(false);
       setEmployeeMailboxDraft((current) => ({
         ...current,
-        senderEmail: sendAsEmail,
-        username: sendAsEmail,
+        provider: saved.provider,
+        senderEmail: saved.senderEmail || sendAsEmail,
+        username: saved.username || sendAsEmail,
         secret: "",
+        smtpHost: saved.smtpHost,
+        smtpPort: String(saved.smtpPort),
+        secure: saved.secure,
       }));
-      showNotice(`Mailbox saved for ${sendAsEmail}. Job emails will send from this address when they are logged in.`);
+      showNotice(`Mailbox saved for ${saved.senderEmail || sendAsEmail}. Click Test mailbox next.`);
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to save the employee mailbox.");
     } finally {
@@ -44690,28 +44712,39 @@ export default function CoreApp() {
                             </div>
                           </header>
                           <small>
-                            Choose Outlook, Gmail, or iCloud. Type the From address below — use your iCloud email for testing,
-                            then switch back to your Errol Watson Group address when IT is ready. This does not change your employee card email.
+                            Choose iCloud for testing. Type your @icloud.com / @me.com address in Sends as, paste an Apple app-specific password (appleid.apple.com), then Save and Test. Your employee card email stays unchanged.
                           </small>
                           <div className="setup-form-grid">
                             <label>
                               Provider
                               <select
                                 value={employeeMailboxDraft.provider}
-                                onChange={(event) =>
-                                  setEmployeeMailboxDraft((current) => ({
-                                    ...current,
-                                    provider: event.target.value as EmployeeMailboxDraft["provider"],
-                                    smtpHost:
-                                      event.target.value === "Gmail"
-                                        ? "smtp.gmail.com"
-                                        : event.target.value === "iCloud"
-                                          ? "smtp.mail.me.com"
-                                          : "smtp.office365.com",
-                                    smtpPort: event.target.value === "Gmail" ? "465" : "587",
-                                    secure: event.target.value === "Gmail",
-                                  }))
-                                }
+                                onChange={(event) => {
+                                  const provider = event.target.value as EmployeeMailboxDraft["provider"];
+                                  employeeMailboxDraftDirtyRef.current = true;
+                                  setEmployeeMailboxDraftDirty(true);
+                                  setEmployeeMailboxDraft((current) => {
+                                    const appleMail = /@(icloud|me|mac)\.com$/i.test(current.senderEmail.trim());
+                                    const nextEmail =
+                                      provider === "iCloud" && current.senderEmail && !appleMail
+                                        ? ""
+                                        : current.senderEmail;
+                                    return {
+                                      ...current,
+                                      provider,
+                                      senderEmail: nextEmail,
+                                      username: nextEmail,
+                                      smtpHost:
+                                        provider === "Gmail"
+                                          ? "smtp.gmail.com"
+                                          : provider === "iCloud"
+                                            ? "smtp.mail.me.com"
+                                            : "smtp.office365.com",
+                                      smtpPort: provider === "Gmail" ? "465" : "587",
+                                      secure: provider === "Gmail",
+                                    };
+                                  });
+                                }}
                               >
                                 <option value="Outlook">Outlook / Microsoft 365</option>
                                 <option value="Gmail">Gmail</option>
@@ -44723,14 +44756,16 @@ export default function CoreApp() {
                               <input
                                 type="email"
                                 value={employeeMailboxDraft.senderEmail}
-                                onChange={(event) =>
+                                onChange={(event) => {
+                                  employeeMailboxDraftDirtyRef.current = true;
+                                  setEmployeeMailboxDraftDirty(true);
                                   setEmployeeMailboxDraft((current) => ({
                                     ...current,
                                     senderEmail: event.target.value,
                                     username: event.target.value,
-                                  }))
-                                }
-                                placeholder={activeEmployee?.profile?.email?.trim() || "you@icloud.com"}
+                                  }));
+                                }}
+                                placeholder={employeeMailboxDraft.provider === "iCloud" ? "name@icloud.com" : (activeEmployee?.profile?.email?.trim() || "you@company.com")}
                               />
                             </label>
                             <label>
@@ -44738,8 +44773,13 @@ export default function CoreApp() {
                               <input
                                 type="password"
                                 value={employeeMailboxDraft.secret}
-                                onChange={(event) => setEmployeeMailboxDraft((current) => ({ ...current, secret: event.target.value }))}
-                                placeholder={employeeMailboxStatus?.secretStored ? "Stored securely — paste only to change it" : "Paste Outlook / Gmail / iCloud app password"}
+                                onChange={(event) => {
+                                  employeeMailboxDraftDirtyRef.current = true;
+                                  setEmployeeMailboxDraftDirty(true);
+                                  setEmployeeMailboxDraft((current) => ({ ...current, secret: event.target.value }));
+                                }}
+                                placeholder={employeeMailboxStatus?.secretStored ? "Stored securely — paste only to change it" : "Paste app-specific password"}
+                                autoComplete="new-password"
                               />
                             </label>
                           </div>
@@ -46695,20 +46735,32 @@ export default function CoreApp() {
                           Provider
                           <select
                             value={employeeMailboxDraft.provider}
-                            onChange={(event) =>
-                              setEmployeeMailboxDraft((current) => ({
-                                ...current,
-                                provider: event.target.value as EmployeeMailboxDraft["provider"],
-                                smtpHost:
-                                  event.target.value === "Gmail"
-                                    ? "smtp.gmail.com"
-                                    : event.target.value === "iCloud"
-                                      ? "smtp.mail.me.com"
-                                      : "smtp.office365.com",
-                                smtpPort: event.target.value === "Gmail" ? "465" : "587",
-                                secure: event.target.value === "Gmail",
-                              }))
-                            }
+                            onChange={(event) => {
+                              const provider = event.target.value as EmployeeMailboxDraft["provider"];
+                              employeeMailboxDraftDirtyRef.current = true;
+                                  setEmployeeMailboxDraftDirty(true);
+                              setEmployeeMailboxDraft((current) => {
+                                const appleMail = /@(icloud|me|mac)\.com$/i.test(current.senderEmail.trim());
+                                const nextEmail =
+                                  provider === "iCloud" && current.senderEmail && !appleMail
+                                    ? ""
+                                    : current.senderEmail;
+                                return {
+                                  ...current,
+                                  provider,
+                                  senderEmail: nextEmail,
+                                  username: nextEmail,
+                                  smtpHost:
+                                    provider === "Gmail"
+                                      ? "smtp.gmail.com"
+                                      : provider === "iCloud"
+                                        ? "smtp.mail.me.com"
+                                        : "smtp.office365.com",
+                                  smtpPort: provider === "Gmail" ? "465" : "587",
+                                  secure: provider === "Gmail",
+                                };
+                              });
+                            }}
                           >
                             <option value="Outlook">Outlook / Microsoft 365</option>
                             <option value="Gmail">Gmail</option>
@@ -46720,14 +46772,16 @@ export default function CoreApp() {
                           <input
                             type="email"
                             value={employeeMailboxDraft.senderEmail}
-                            onChange={(event) =>
+                            onChange={(event) => {
+                              employeeMailboxDraftDirtyRef.current = true;
+                                  setEmployeeMailboxDraftDirty(true);
                               setEmployeeMailboxDraft((current) => ({
                                 ...current,
                                 senderEmail: event.target.value,
                                 username: event.target.value,
-                              }))
-                            }
-                            placeholder={employeeProfileDraft.email.trim() || activeEditingEmployee.profile?.email || "you@icloud.com"}
+                              }));
+                            }}
+                            placeholder={employeeMailboxDraft.provider === "iCloud" ? "name@icloud.com" : (employeeProfileDraft.email.trim() || activeEditingEmployee.profile?.email || "you@company.com")}
                           />
                         </label>
                         <label>
@@ -46735,8 +46789,13 @@ export default function CoreApp() {
                           <input
                             type="password"
                             value={employeeMailboxDraft.secret}
-                            onChange={(event) => setEmployeeMailboxDraft((current) => ({ ...current, secret: event.target.value }))}
-                            placeholder={employeeMailboxStatus?.secretStored ? "Stored securely — paste only to change it" : "Paste app password"}
+                            onChange={(event) => {
+                              employeeMailboxDraftDirtyRef.current = true;
+                                  setEmployeeMailboxDraftDirty(true);
+                              setEmployeeMailboxDraft((current) => ({ ...current, secret: event.target.value }));
+                            }}
+                            placeholder={employeeMailboxStatus?.secretStored ? "Stored securely — paste only to change it" : "Paste app-specific password"}
+                            autoComplete="new-password"
                           />
                         </label>
                       </div>
