@@ -208,15 +208,20 @@ export async function sendEmailMessage(input: OutboundEmailInput) {
   const employeeId = input.employeeId?.trim();
   if (employeeId) {
     const { resolveEmployeeMailboxTransport, sendViaResolvedMailbox } = await import("@/lib/employee-mailbox-store");
-    const employeeMailbox = resolveEmployeeMailboxTransport(employeeId);
-    if (employeeMailbox) {
-      return sendViaResolvedMailbox(employeeMailbox, {
-        to: input.to,
-        cc: input.cc,
-        subject: input.subject,
-        text: input.text,
-        attachments: input.attachments,
-      });
+    try {
+      const employeeMailbox = resolveEmployeeMailboxTransport(employeeId);
+      if (employeeMailbox) {
+        return sendViaResolvedMailbox(employeeMailbox, {
+          to: input.to,
+          cc: input.cc,
+          subject: input.subject,
+          text: input.text,
+          attachments: input.attachments,
+        });
+      }
+    } catch (error) {
+      // Surface decrypt / missing-password issues instead of silently falling back to company SMTP.
+      throw error instanceof Error ? error : new Error("Unable to use the employee mailbox.");
     }
   }
 

@@ -26,6 +26,9 @@ services:
         value: /var/data
       - key: NEXA_WORKSPACE_MODE
         value: live
+      # Stable key for encrypted mailbox app passwords (set once in Render dashboard)
+      - key: NEXA_EMAIL_SETTINGS_SECRET
+        sync: false
       - key: NEXA_AUTH_MODE
         value: users
       - key: NEXA_ADMIN_NAME

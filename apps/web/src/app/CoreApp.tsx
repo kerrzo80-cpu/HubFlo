@@ -14771,7 +14771,7 @@ export default function CoreApp() {
 
   async function refreshIntegrationConnectionStatus(options?: { silent?: boolean }) {
     try {
-      const employeeId = activeEmployee?.id ?? "";
+      const employeeId = (loggedInEmployeeId || activeEmployee?.id || "").trim();
       const [simproResponse, simproReconnectResponse, xeroResponse, emailResponse, whatsAppResponse, mailboxResponse] = await Promise.all([
         fetch("/api/integrations/simpro/status", { headers: requestHeaders }),
         fetch("/api/integrations/simpro/reconnect", { headers: requestHeaders }),
@@ -14821,14 +14821,24 @@ export default function CoreApp() {
           if (employeeMailboxDraftDirtyRef.current) {
             return current;
           }
+          let backup: Partial<EmployeeMailboxDraft> | null = null;
+          if (!status.configured || !status.senderEmail?.trim()) {
+            try {
+              const raw = window.localStorage.getItem(`hubflo:mailbox-ui:${employeeId}`);
+              backup = raw ? (JSON.parse(raw) as Partial<EmployeeMailboxDraft>) : null;
+            } catch {
+              backup = null;
+            }
+          }
+          const nextEmail = status.senderEmail?.trim() || backup?.senderEmail?.trim() || sendAsEmail;
           return {
-            provider: status.provider || "Outlook",
-            senderEmail: sendAsEmail,
-            username: status.username?.trim() || sendAsEmail,
+            provider: status.provider || backup?.provider || "Outlook",
+            senderEmail: nextEmail,
+            username: status.username?.trim() || nextEmail,
             secret: "",
-            smtpHost: status.smtpHost || "smtp.office365.com",
-            smtpPort: String(status.smtpPort || 587),
-            secure: Boolean(status.secure),
+            smtpHost: status.smtpHost || backup?.smtpHost || "smtp.office365.com",
+            smtpPort: String(status.smtpPort || backup?.smtpPort || 587),
+            secure: Boolean(status.secure ?? backup?.secure),
             displayName: status.displayName || activeEmployee?.name || "",
           };
         });
@@ -14839,8 +14849,12 @@ export default function CoreApp() {
     }
   }
 
+  function mailboxOwnerEmployeeId() {
+    return (loggedInEmployeeId || activeEmployee?.id || "").trim();
+  }
+
   async function saveSignedInMailboxSettings() {
-    const targetEmployeeId = activeEmployee?.id ?? "";
+    const targetEmployeeId = mailboxOwnerEmployeeId();
     const sendAsEmail = (
       employeeMailboxDraft.senderEmail.trim()
       || activeEmployee?.profile?.email?.trim()
@@ -14880,21 +14894,48 @@ export default function CoreApp() {
         throw new Error(result && "error" in result ? result.error || "Unable to save mailbox." : "Unable to save mailbox.");
       }
       const saved = result as EmployeeMailboxStatus;
-      setEmployeeMailboxStatus(saved);
+      // Prove it stuck on disk (multi-instance was returning success then empty on next GET).
+      const verifyResponse = await fetch(
+        `/api/integrations/email/mailbox?employeeId=${encodeURIComponent(targetEmployeeId)}`,
+        { headers: requestHeaders },
+      );
+      const verified = verifyResponse.ok
+        ? ((await verifyResponse.json()) as EmployeeMailboxStatus)
+        : null;
+      if (!verified?.configured || verified.senderEmail !== (saved.senderEmail || sendAsEmail)) {
+        throw new Error(
+          "Save looked OK but the server lost the mailbox settings. Try Save again — if it keeps failing, contact support (disk persist).",
+        );
+      }
+      setEmployeeMailboxStatus(verified);
       employeeMailboxDraftDirtyRef.current = false;
       setEmployeeMailboxDraftDirty(false);
       setEmployeeMailboxDraft((current) => ({
         ...current,
-        provider: saved.provider,
-        senderEmail: saved.senderEmail || sendAsEmail,
-        username: saved.username || sendAsEmail,
+        provider: verified.provider,
+        senderEmail: verified.senderEmail || sendAsEmail,
+        username: verified.username || sendAsEmail,
         secret: "",
-        smtpHost: saved.smtpHost,
-        smtpPort: String(saved.smtpPort),
-        secure: saved.secure,
+        smtpHost: verified.smtpHost,
+        smtpPort: String(verified.smtpPort),
+        secure: verified.secure,
         displayName: activeEmployee?.name || current.displayName,
       }));
-      showNotice(`Saved ${saved.provider} mailbox for ${saved.senderEmail || sendAsEmail}. Click Test connection next.`);
+      try {
+        window.localStorage.setItem(
+          `hubflo:mailbox-ui:${targetEmployeeId}`,
+          JSON.stringify({
+            provider: verified.provider,
+            senderEmail: verified.senderEmail,
+            smtpHost: verified.smtpHost,
+            smtpPort: String(verified.smtpPort),
+            secure: verified.secure,
+          }),
+        );
+      } catch {
+        // ignore quota / private mode
+      }
+      showNotice(`Saved and verified ${verified.provider} for ${verified.senderEmail}. Click Test connection next.`);
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to save the mailbox.");
     } finally {
@@ -14903,7 +14944,7 @@ export default function CoreApp() {
   }
 
   async function testSignedInMailboxSettings() {
-    const targetEmployeeId = activeEmployee?.id ?? "";
+    const targetEmployeeId = mailboxOwnerEmployeeId();
     if (!targetEmployeeId) {
       showNotice("Sign in as an employee before testing a mailbox.");
       return;

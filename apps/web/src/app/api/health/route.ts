@@ -136,6 +136,7 @@ export async function GET() {
       mailboxIcloud: "smtp-mail-me-v1",
       mailboxSendAs: "editable-from-v1",
       mailboxIcloudFix: "hydrate-dirty-v1",
+      mailboxPersist: "verify-disk-v2",
       takeoffSkill: "drawing-first-v8-routes-page",
       takeoffAiConfirm: "overlay-review-v1",
       recurringServices: "upcoming-4w-v1",

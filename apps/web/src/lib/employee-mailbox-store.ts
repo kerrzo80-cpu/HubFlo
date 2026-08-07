@@ -2,8 +2,10 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 import nodemailer from "nodemailer";
 
 import { emailProviderSmtpDefaults, type EmailProvider } from "@/lib/email-integration-store";
-import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
+import { readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
 
+const STORE_NAME = "employee-mailboxes";
+const SECRET_STORE_NAME = "email-settings-secret";
 const EMAIL_PROVIDERS: EmailProvider[] = ["Outlook", "Gmail", "iCloud"];
 
 function normalizeProvider(value: unknown): EmailProvider {
@@ -41,6 +43,7 @@ export type EmployeeMailboxStatus = {
   secure: boolean;
   secretStored: boolean;
   displayName: string;
+  persisted?: boolean;
   lastTestedAt?: string;
   lastTestRecipient?: string;
   lastTestMessageId?: string;
@@ -72,52 +75,81 @@ type EmployeeMailboxStore = {
 
 const defaultProviderHosts = emailProviderSmtpDefaults;
 
-const emptyStore: EmployeeMailboxStore = { byEmployeeId: {} };
+function emptyStore(): EmployeeMailboxStore {
+  return { byEmployeeId: {} };
+}
 
+/** Stable key: env first, else existing disk value, else create once. Never overwrite an existing key. */
 function getEncryptionKey() {
   const explicit = process.env.NEXA_EMAIL_SETTINGS_SECRET?.trim();
-  const generated = loadServerStore("email-settings-secret", {
-    value: randomBytes(32).toString("hex"),
-  }) as { value: string };
-  const secret = explicit || generated.value;
-  return createHash("sha256").update(secret).digest();
+  if (explicit) {
+    return createHash("sha256").update(explicit).digest();
+  }
+
+  const existing = readServerStoreSnapshot(SECRET_STORE_NAME) as { value?: string } | null;
+  const existingValue = existing?.value?.trim();
+  if (existingValue) {
+    return createHash("sha256").update(existingValue).digest();
+  }
+
+  const value = randomBytes(32).toString("hex");
+  // Re-check before write to reduce dual-instance key races.
+  const raced = readServerStoreSnapshot(SECRET_STORE_NAME) as { value?: string } | null;
+  const racedValue = raced?.value?.trim();
+  if (racedValue) {
+    return createHash("sha256").update(racedValue).digest();
+  }
+
+  const wrote = writeServerStore(SECRET_STORE_NAME, { value });
+  if (!wrote) {
+    throw new Error("Unable to persist email encryption key to disk.");
+  }
+  return createHash("sha256").update(value).digest();
 }
 
 function encryptSecret(secret: string) {
-  if (!secret.trim()) return "";
+  const normalized = normalizeMailboxSecret(secret);
+  if (!normalized) return "";
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", getEncryptionKey(), iv);
-  const encrypted = Buffer.concat([cipher.update(secret, "utf8"), cipher.final()]);
+  const encrypted = Buffer.concat([cipher.update(normalized, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
   return `${iv.toString("hex")}:${tag.toString("hex")}:${encrypted.toString("hex")}`;
 }
 
 function decryptSecret(payload: string) {
   if (!payload) return "";
-  const [ivHex, tagHex, encryptedHex] = payload.split(":");
-  if (!ivHex || !tagHex || !encryptedHex) return "";
-  const decipher = createDecipheriv("aes-256-gcm", getEncryptionKey(), Buffer.from(ivHex, "hex"));
-  decipher.setAuthTag(Buffer.from(tagHex, "hex"));
-  const decrypted = Buffer.concat([
-    decipher.update(Buffer.from(encryptedHex, "hex")),
-    decipher.final(),
-  ]);
-  return decrypted.toString("utf8");
-}
-
-const employeeMailboxStore = loadServerStore<EmployeeMailboxStore>("employee-mailboxes", emptyStore);
-
-/** Re-read disk/sqlite before every op — Render can have multiple Node instances with stale memory. */
-function hydrateEmployeeMailboxStore() {
-  const snapshot = readServerStoreSnapshot("employee-mailboxes") as EmployeeMailboxStore | null;
-  if (snapshot && typeof snapshot === "object" && snapshot.byEmployeeId && typeof snapshot.byEmployeeId === "object") {
-    employeeMailboxStore.byEmployeeId = snapshot.byEmployeeId;
+  try {
+    const [ivHex, tagHex, encryptedHex] = payload.split(":");
+    if (!ivHex || !tagHex || !encryptedHex) return "";
+    const decipher = createDecipheriv("aes-256-gcm", getEncryptionKey(), Buffer.from(ivHex, "hex"));
+    decipher.setAuthTag(Buffer.from(tagHex, "hex"));
+    const decrypted = Buffer.concat([
+      decipher.update(Buffer.from(encryptedHex, "hex")),
+      decipher.final(),
+    ]);
+    return normalizeMailboxSecret(decrypted.toString("utf8"));
+  } catch {
+    return "";
   }
-  return employeeMailboxStore;
 }
 
-function persist() {
-  writeServerStore("employee-mailboxes", employeeMailboxStore);
+/** Always read from sqlite/disk — never trust process memory across Render instances. */
+function readMailboxStore(): EmployeeMailboxStore {
+  const snapshot = readServerStoreSnapshot(STORE_NAME) as EmployeeMailboxStore | null;
+  if (snapshot && typeof snapshot === "object" && snapshot.byEmployeeId && typeof snapshot.byEmployeeId === "object") {
+    return { byEmployeeId: { ...snapshot.byEmployeeId } };
+  }
+  return emptyStore();
+}
+
+function writeMailboxStore(store: EmployeeMailboxStore) {
+  const ok = writeServerStore(STORE_NAME, store);
+  if (!ok) {
+    throw new Error("Unable to persist mailbox settings to the server disk.");
+  }
+  const verify = readMailboxStore();
+  return verify;
 }
 
 function emptyRecord(): EmployeeMailboxRecord {
@@ -133,12 +165,12 @@ function emptyRecord(): EmployeeMailboxRecord {
   };
 }
 
-function sanitize(employeeId: string, record: EmployeeMailboxRecord | undefined): EmployeeMailboxStatus {
+function sanitize(employeeId: string, record: EmployeeMailboxRecord | undefined, persisted = true): EmployeeMailboxStatus {
   const store = record ?? emptyRecord();
   return {
     employeeId,
     configured: Boolean(store.senderEmail.trim() && store.username.trim() && store.encryptedSecret),
-    provider: store.provider,
+    provider: normalizeProvider(store.provider),
     senderEmail: store.senderEmail,
     username: store.username,
     smtpHost: store.smtpHost,
@@ -146,6 +178,7 @@ function sanitize(employeeId: string, record: EmployeeMailboxRecord | undefined)
     secure: store.secure,
     secretStored: Boolean(store.encryptedSecret),
     displayName: store.displayName,
+    persisted,
     lastTestedAt: store.lastTestedAt,
     lastTestRecipient: store.lastTestRecipient,
     lastTestMessageId: store.lastTestMessageId,
@@ -155,21 +188,32 @@ function sanitize(employeeId: string, record: EmployeeMailboxRecord | undefined)
   };
 }
 
-export function getEmployeeMailboxStatus(employeeId: string): EmployeeMailboxStatus {
-  hydrateEmployeeMailboxStore();
+function upsertRecord(employeeId: string, record: EmployeeMailboxRecord) {
   const id = employeeId.trim();
-  return sanitize(id, id ? employeeMailboxStore.byEmployeeId[id] : undefined);
+  const store = readMailboxStore();
+  store.byEmployeeId[id] = record;
+  const written = writeMailboxStore(store);
+  const saved = written.byEmployeeId[id];
+  if (!saved || saved.senderEmail !== record.senderEmail || !saved.encryptedSecret) {
+    throw new Error("Mailbox save did not stick on the server. Please try Save again.");
+  }
+  return saved;
+}
+
+export function getEmployeeMailboxStatus(employeeId: string): EmployeeMailboxStatus {
+  const id = employeeId.trim();
+  const store = readMailboxStore();
+  return sanitize(id, id ? store.byEmployeeId[id] : undefined, Boolean(id && store.byEmployeeId[id]));
 }
 
 export function listConfiguredEmployeeMailboxes(): EmployeeMailboxStatus[] {
-  hydrateEmployeeMailboxStore();
-  return Object.entries(employeeMailboxStore.byEmployeeId)
+  const store = readMailboxStore();
+  return Object.entries(store.byEmployeeId)
     .map(([employeeId, record]) => sanitize(employeeId, record))
     .filter((item) => item.configured);
 }
 
 export function saveEmployeeMailboxSettings(employeeId: string, input: EmployeeMailboxInput) {
-  hydrateEmployeeMailboxStore();
   const id = employeeId.trim();
   if (!id) throw new Error("Employee id is required.");
 
@@ -182,14 +226,29 @@ export function saveEmployeeMailboxSettings(employeeId: string, input: EmployeeM
     throw new Error("For iCloud, Sends as must be your Apple Mail address (@icloud.com, @me.com, or @mac.com).");
   }
 
-  const current = employeeMailboxStore.byEmployeeId[id] ?? emptyRecord();
+  const current = readMailboxStore().byEmployeeId[id] ?? emptyRecord();
   const defaults = defaultProviderHosts[provider];
-  // Always trust provider defaults for host/port/secure so a leftover Outlook host cannot break iCloud.
-  const nextHost = provider === "iCloud" || provider === "Gmail" || provider === "Outlook"
-    ? defaults.host
-    : (input.smtpHost?.trim() || defaults.host);
+  const nextHost = defaults.host;
   const nextPort = defaults.port;
   const nextSecure = defaults.secure;
+
+  if (!secret && !current.encryptedSecret) {
+    throw new Error("Paste the app-specific password before saving.");
+  }
+
+  const encryptedSecret = secret ? encryptSecret(secret) : current.encryptedSecret;
+  if (!encryptedSecret) {
+    throw new Error("Unable to encrypt the app password. Check server email secret configuration.");
+  }
+
+  // Round-trip check so we never save a password we cannot decrypt on this server.
+  if (secret) {
+    const roundTrip = decryptSecret(encryptedSecret);
+    if (roundTrip !== secret) {
+      throw new Error("Mailbox password encryption check failed. Try Save again — if it keeps failing, set NEXA_EMAIL_SETTINGS_SECRET on Render.");
+    }
+  }
+
   const connectionChanged = Boolean(
     secret
     || provider !== current.provider
@@ -200,15 +259,11 @@ export function saveEmployeeMailboxSettings(employeeId: string, input: EmployeeM
     || nextSecure !== current.secure,
   );
 
-  if (!secret && !current.encryptedSecret) {
-    throw new Error("Paste the app-specific password before saving.");
-  }
-
   const next: EmployeeMailboxRecord = {
     provider,
     senderEmail,
     username,
-    encryptedSecret: secret ? encryptSecret(secret) : current.encryptedSecret,
+    encryptedSecret,
     smtpHost: nextHost,
     smtpPort: nextPort,
     secure: nextSecure,
@@ -221,20 +276,19 @@ export function saveEmployeeMailboxSettings(employeeId: string, input: EmployeeM
     lastError: connectionChanged ? undefined : current.lastError,
   };
 
-  employeeMailboxStore.byEmployeeId[id] = next;
-  persist();
-  return sanitize(id, next);
+  const saved = upsertRecord(id, next);
+  return sanitize(id, saved, true);
 }
 
 export function clearEmployeeMailbox(employeeId: string) {
-  hydrateEmployeeMailboxStore();
   const id = employeeId.trim();
-  if (!id || !employeeMailboxStore.byEmployeeId[id]) {
-    return sanitize(id, undefined);
+  const store = readMailboxStore();
+  if (!id || !store.byEmployeeId[id]) {
+    return sanitize(id, undefined, false);
   }
-  delete employeeMailboxStore.byEmployeeId[id];
-  persist();
-  return sanitize(id, undefined);
+  delete store.byEmployeeId[id];
+  writeMailboxStore(store);
+  return sanitize(id, undefined, false);
 }
 
 export type ResolvedMailboxTransport = {
@@ -251,13 +305,17 @@ export type ResolvedMailboxTransport = {
 };
 
 export function resolveEmployeeMailboxTransport(employeeId: string): ResolvedMailboxTransport | null {
-  hydrateEmployeeMailboxStore();
   const id = employeeId.trim();
   if (!id) return null;
-  const record = employeeMailboxStore.byEmployeeId[id];
+  const record = readMailboxStore().byEmployeeId[id];
   if (!record) return null;
-  const secret = normalizeMailboxSecret(decryptSecret(record.encryptedSecret));
-  if (!record.senderEmail.trim() || !record.username.trim() || !secret) return null;
+  const secret = decryptSecret(record.encryptedSecret);
+  if (!record.senderEmail.trim() || !record.username.trim()) return null;
+  if (!secret) {
+    throw new Error(
+      "Saved mailbox password cannot be read on this server. Open Setup → Communications, paste the app password again, and Save.",
+    );
+  }
   const provider = normalizeProvider(record.provider);
   const defaults = defaultProviderHosts[provider];
   const display = record.displayName.trim();
@@ -275,36 +333,34 @@ export function resolveEmployeeMailboxTransport(employeeId: string): ResolvedMai
   };
 }
 
-export function markEmployeeMailboxSent(employeeId: string, messageId: string, sentAt: string) {
-  hydrateEmployeeMailboxStore();
+function patchRecord(employeeId: string, patch: Partial<EmployeeMailboxRecord>) {
   const id = employeeId.trim();
-  const record = employeeMailboxStore.byEmployeeId[id];
-  if (!record) return;
-  record.lastSentAt = sentAt;
-  record.lastSentMessageId = messageId;
-  record.lastError = undefined;
-  persist();
+  const store = readMailboxStore();
+  const current = store.byEmployeeId[id];
+  if (!current) return;
+  store.byEmployeeId[id] = { ...current, ...patch };
+  writeMailboxStore(store);
+}
+
+export function markEmployeeMailboxSent(employeeId: string, messageId: string, sentAt: string) {
+  patchRecord(employeeId, {
+    lastSentAt: sentAt,
+    lastSentMessageId: messageId,
+    lastError: undefined,
+  });
 }
 
 export function markEmployeeMailboxError(employeeId: string, error: string) {
-  hydrateEmployeeMailboxStore();
-  const id = employeeId.trim();
-  const record = employeeMailboxStore.byEmployeeId[id];
-  if (!record) return;
-  record.lastError = error;
-  persist();
+  patchRecord(employeeId, { lastError: error });
 }
 
 export function markEmployeeMailboxTested(employeeId: string, recipient: string, messageId: string, testedAt: string) {
-  hydrateEmployeeMailboxStore();
-  const id = employeeId.trim();
-  const record = employeeMailboxStore.byEmployeeId[id];
-  if (!record) return;
-  record.lastTestedAt = testedAt;
-  record.lastTestRecipient = recipient;
-  record.lastTestMessageId = messageId;
-  record.lastError = undefined;
-  persist();
+  patchRecord(employeeId, {
+    lastTestedAt: testedAt,
+    lastTestRecipient: recipient,
+    lastTestMessageId: messageId,
+    lastError: undefined,
+  });
 }
 
 function formatMailboxSendError(mailbox: ResolvedMailboxTransport, error: unknown) {
@@ -375,7 +431,12 @@ export async function sendViaResolvedMailbox(
 }
 
 export async function testEmployeeMailboxConnection(employeeId: string) {
-  const mailbox = resolveEmployeeMailboxTransport(employeeId);
+  let mailbox: ResolvedMailboxTransport | null = null;
+  try {
+    mailbox = resolveEmployeeMailboxTransport(employeeId);
+  } catch (error) {
+    throw error instanceof Error ? error : new Error("Unable to load mailbox.");
+  }
   if (!mailbox) {
     throw new Error("Save the mailbox first (provider, Sends as, and app password), then test.");
   }
