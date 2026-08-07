@@ -147,6 +147,14 @@ export type HeatingSystemLayout = {
   updatedAt: string;
 };
 
+export type HeatDesignRevision = {
+  id: string;
+  at: string;
+  actor?: string;
+  summary: string;
+  snapshotHash?: string;
+};
+
 export type HeatDesignProject = {
   id: string;
   name: string;
@@ -187,6 +195,7 @@ export type HeatDesignProject = {
   outdoorUnitDistanceM: number;
   nearestNeighbourDistanceM: number;
   kitExtras: string[];
+  revisions?: HeatDesignRevision[];
   updatedAt: string;
 };
 

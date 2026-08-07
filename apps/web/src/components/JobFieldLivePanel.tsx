@@ -13,7 +13,19 @@ type FieldChecklistItem = {
     text?: string;
     numberValue?: string;
     photoName?: string;
+    photoUrl?: string;
+    photoId?: string;
   };
+};
+
+type FieldVisitPhoto = {
+  id: string;
+  name: string;
+  type?: string;
+  uploadedBy?: string;
+  uploadedAt?: string;
+  url?: string;
+  mimeType?: string;
 };
 
 type FieldTimeEntry = {
@@ -42,6 +54,7 @@ type FieldVisit = {
   };
   timeEntries: FieldTimeEntry[];
   officeReview: Array<{ id: string; type: string; title: string; detail: string; createdAt: string }>;
+  photos?: FieldVisitPhoto[];
 };
 
 type FieldByJobResponse = {
@@ -178,6 +191,11 @@ export function JobFieldLivePanel({
                             .join(" · ")}
                         </small>
                         {item.status === "done" && valueLabel(item) ? <em>{valueLabel(item)}</em> : null}
+                        {item.value?.photoUrl ? (
+                          <a className="job-field-photo-link" href={item.value.photoUrl} target="_blank" rel="noreferrer">
+                            Open evidence photo
+                          </a>
+                        ) : null}
                       </div>
                     </li>
                   ))}
@@ -211,6 +229,41 @@ export function JobFieldLivePanel({
               )}
             </div>
           </div>
+
+          {(visit.photos ?? []).length ? (
+            <div className="job-field-visit-photos">
+              <h3>Synced photos</h3>
+              <div className="job-field-photo-grid">
+                {(visit.photos ?? []).map((photo) => {
+                  const isImage =
+                    Boolean(photo.url) &&
+                    (photo.type === "Photo" || Boolean(photo.mimeType?.startsWith("image/")) || !photo.mimeType);
+                  return (
+                    <div className="job-field-photo-card" key={photo.id}>
+                      {isImage && photo.url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={photo.url} alt={photo.name} />
+                      ) : (
+                        <span>{photo.type || "File"}</span>
+                      )}
+                      <div>
+                        <strong>{photo.name}</strong>
+                        <small>
+                          {[photo.uploadedBy, photo.uploadedAt].filter(Boolean).join(" · ")}
+                          {photo.url ? " · synced" : ""}
+                        </small>
+                      </div>
+                      {photo.url ? (
+                        <a href={photo.url} target="_blank" rel="noreferrer">
+                          Open
+                        </a>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
 
           <p className="job-field-visit-link">
             <a href={`/field/jobs/${encodeURIComponent(visit.scheduleId)}`}>Open this visit in Field</a>
