@@ -94,6 +94,13 @@ import {
   resolveCommercialTerms,
 } from "@/lib/commercial-terms";
 import {
+  applyRetentionWithCap,
+  buildRetentionPortfolio,
+  jobRetentionBalances,
+  progressClaimRetainedAmount,
+  retentionPortfolioTotals,
+} from "@/lib/retention-ledger";
+import {
   buddyMoodFromFindings,
   defaultBuddyMemory,
   dismissBuddyFinding,
@@ -810,7 +817,7 @@ type OpenWorkspaceTab = {
 type RecordSaveStatus = "saved" | "unsaved" | "saving" | "error";
 type EmployeeTab = "details" | "licences" | "rates" | "emergency" | "availability" | "permissions" | "login" | "mailbox";
 type ReportDateRange = "Today" | "This week" | "Last week" | "This month" | "Last month" | "Year to date" | "Last year" | "Custom" | "All time";
-type ReportTab = "executive" | "financial" | "jobs" | "wip" | "engineers" | "pipeline" | "customers" | "purchasing" | "compliance";
+type ReportTab = "executive" | "financial" | "retention" | "jobs" | "wip" | "engineers" | "pipeline" | "customers" | "purchasing" | "compliance";
 type ReportTone = "blue" | "green" | "amber" | "red";
 
 type ClientTab = "overview" | "sites" | "history";
@@ -1197,6 +1204,10 @@ type Invoice = {
   valuationPeriod?: string;
   valuationLines?: ValuationLine[];
   retentionPercent?: number;
+  /** Actual £ retained on this claim (supports retention caps). */
+  retentionHeldAmount?: number;
+  /** Snapshot of job retention cap £ when the claim was raised (0 / omit = no cap). */
+  retentionCapAmount?: number;
   /** Main contractor discount % applied when the invoice was raised (from client/site terms). */
   mainContractorDiscountPercent?: number;
   applicationRef?: string;
@@ -1307,48 +1318,6 @@ function valuationLineTotals(lines: ValuationLine[], retentionPercent: number) {
 
 function valuationNetAmount(value: number, retentionPercent: number) {
   return Math.max(0, value) * (1 - Math.max(0, retentionPercent) / 100);
-}
-
-function progressClaimGrossAmount(invoice: Invoice) {
-  if (invoice.valuationLines?.length) {
-    return invoice.valuationLines.reduce((sum, line) => sum + Math.max(0, line.agreedThisPeriod || line.requestedThisPeriod || 0), 0);
-  }
-  const rate = Math.max(0, Math.min(99.9, invoice.retentionPercent ?? 0)) / 100;
-  if (rate > 0 && rate < 1) return (invoice.chargeTotal || 0) / (1 - rate);
-  return invoice.chargeTotal || 0;
-}
-
-function progressClaimRetainedAmount(invoice: Invoice) {
-  const rate = Math.max(0, invoice.retentionPercent ?? 0) / 100;
-  if (rate <= 0) return 0;
-  return progressClaimGrossAmount(invoice) * rate;
-}
-
-function jobRetentionBalances(jobId: string, invoiceList: Invoice[]) {
-  const claims = invoiceList.filter(
-    (invoice) =>
-      invoice.sourceType === "job" &&
-      invoice.sourceId === jobId &&
-      invoice.status !== "Cancelled" &&
-      invoice.claimType === "progress-claim",
-  );
-  const releases = invoiceList.filter(
-    (invoice) =>
-      invoice.sourceType === "job" &&
-      invoice.sourceId === jobId &&
-      invoice.status !== "Cancelled" &&
-      invoice.claimType === "retention-release",
-  );
-  const retained = claims.reduce((sum, invoice) => sum + progressClaimRetainedAmount(invoice), 0);
-  const released = releases.reduce((sum, invoice) => sum + Math.max(0, invoice.chargeTotal || 0), 0);
-  return {
-    retained,
-    released,
-    available: Math.max(0, retained - released),
-    claimCount: claims.length,
-    releaseCount: releases.length,
-    claimRefs: claims.map((invoice) => invoice.applicationRef || invoice.ref),
-  };
 }
 
 function buildInvoiceRef(settings: FinanceSettings, existing: string[]) {
@@ -1467,6 +1436,7 @@ function makeInvoiceFromQuote(
     vatNote: vatProfile.note,
     cisInvoice: vatProfile.terms.cis,
     retentionPercent: vatProfile.terms.retentionPercent > 0 ? vatProfile.terms.retentionPercent : undefined,
+    retentionCapAmount: vatProfile.terms.retentionCapAmount > 0 ? vatProfile.terms.retentionCapAmount : undefined,
     mainContractorDiscountPercent:
       vatProfile.terms.mainContractorDiscountPercent > 0
         ? vatProfile.terms.mainContractorDiscountPercent
@@ -1564,6 +1534,7 @@ function makeInvoiceFromJobTotals(
     vatNote: vatProfile.note,
     cisInvoice: vatProfile.terms.cis,
     retentionPercent: vatProfile.terms.retentionPercent > 0 ? vatProfile.terms.retentionPercent : undefined,
+    retentionCapAmount: vatProfile.terms.retentionCapAmount > 0 ? vatProfile.terms.retentionCapAmount : undefined,
     mainContractorDiscountPercent:
       vatProfile.terms.mainContractorDiscountPercent > 0
         ? vatProfile.terms.mainContractorDiscountPercent
@@ -2602,6 +2573,7 @@ const blankEmployeeMailboxDraft: EmployeeMailboxDraft = {
 const reportTabs: Array<{ key: ReportTab; label: string }> = [
   { key: "executive", label: "Executive" },
   { key: "financial", label: "Financial" },
+  { key: "retention", label: "Retention" },
   { key: "jobs", label: "Jobs" },
   { key: "wip", label: "WIP" },
   { key: "engineers", label: "Engineers" },
@@ -10136,10 +10108,35 @@ export default function CoreApp() {
 
   const selectedRetentionBalances = useMemo(() => {
     if (!selectedInvoice || selectedInvoice.sourceType !== "job") {
-      return { retained: 0, released: 0, available: 0, claimCount: 0, releaseCount: 0, claimRefs: [] as string[] };
+      return { jobId: "", retained: 0, released: 0, available: 0, claimCount: 0, releaseCount: 0, claimRefs: [] as string[] };
     }
     return jobRetentionBalances(selectedInvoice.sourceId, invoices);
   }, [selectedInvoice, invoices]);
+
+  const reportRetentionRows = useMemo(() => {
+    return buildRetentionPortfolio({
+      jobs,
+      invoices,
+      customerFilter: reportCustomerFilter,
+      termsForJob: (job) => {
+        const client = clients.find((item) => item.id === job.clientId) ?? null;
+        const site = job.siteId ? clientSites.find((item) => item.id === job.siteId) ?? null : null;
+        const terms = resolveCommercialTerms(client, site, {
+          vatTreatment: "Standard 20%",
+          vatRate: financeSettings.vatRate,
+        });
+        return {
+          retentionPercent: terms.retentionPercent,
+          retentionCapAmount: terms.retentionCapAmount,
+        };
+      },
+    });
+  }, [jobs, invoices, clients, clientSites, reportCustomerFilter, financeSettings.vatRate]);
+
+  const reportRetentionTotals = useMemo(
+    () => retentionPortfolioTotals(reportRetentionRows),
+    [reportRetentionRows],
+  );
 
   useEffect(() => {
     if (!selectedInvoice || selectedInvoice.sourceType !== "job") {
@@ -13916,6 +13913,22 @@ export default function CoreApp() {
       ["Executive", "Gross profit", reportExecutive.grossProfit, `${reportExecutive.grossMargin}% margin`],
       ["Executive", "Net profit", reportExecutive.netProfit, `${reportExecutive.netMargin}% margin`],
       ["Executive", "Cash owed", reportExecutive.cashOwed, `${reportInvoiceRows.filter((row) => row.owed > 0).length} invoices`],
+      [
+        "Retention",
+        "Outstanding held",
+        reportRetentionTotals.outstanding,
+        `${reportRetentionTotals.jobs} jobs · retained ${currency(reportRetentionTotals.retained)} · released ${currency(reportRetentionTotals.released)}`,
+      ],
+      ...reportRetentionRows.map(
+        (row): ReportPackRow => [
+          "Retention",
+          row.jobRef,
+          row.outstanding,
+          `${row.customer} · held ${currency(row.retained)} · released ${currency(row.released)}${
+            row.retentionCapAmount > 0 ? ` · cap ${currency(row.retentionCapAmount)}` : ""
+          }${row.capped ? " · at cap" : ""}`,
+        ],
+      ),
       ...reportJobRows.map(
         (row): ReportPackRow => ["Jobs", row.job.ref, row.profit, `${row.job.customer} · ${row.margin}% margin`],
       ),
@@ -13936,6 +13949,48 @@ export default function CoreApp() {
         ],
       ),
     ];
+  }
+
+  async function downloadRetentionReportPdf() {
+    if (typeof window === "undefined") return;
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group";
+    const rows = reportRetentionRows.map((row) => ({
+      description: `${row.jobRef} · ${row.customer}`,
+      detail: [
+        row.retentionPercent > 0 ? `${row.retentionPercent}% retention` : null,
+        row.retentionCapAmount > 0 ? `cap ${currency(row.retentionCapAmount)}` : null,
+        row.capped ? "at cap" : null,
+        `held ${currency(row.retained)}`,
+        `released ${currency(row.released)}`,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      value: currency(row.outstanding),
+    }));
+    try {
+      await downloadSimpleDocumentPdf({
+        filename: `ewg-retention-${currentOperatingDate}.pdf`,
+        title: "Retention outstanding",
+        businessName: companyName,
+        reference: `RET-${currentOperatingDate}`,
+        recipient: reportCustomerFilter && reportCustomerFilter !== "All customers" ? reportCustomerFilter : "All customers",
+        subject: `Retention sitting out as at ${currentOperatingDate}`,
+        rows: rows.length
+          ? rows
+          : [{ description: "No retention currently held", detail: "No progress claims with outstanding retention in this filter.", value: currency(0) }],
+        subtotalLabel: "Held to date",
+        vatLabel: "Released to date",
+        totalLabel: "Outstanding",
+        subtotal: currency(reportRetentionTotals.retained),
+        vat: currency(reportRetentionTotals.released),
+        total: currency(reportRetentionTotals.outstanding),
+      });
+      showNotice(
+        `Retention report downloaded · ${currency(reportRetentionTotals.outstanding)} outstanding across ${reportRetentionTotals.jobs} job(s).`,
+      );
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to download retention report.");
+    }
   }
 
   function downloadReportsCsv() {
@@ -15766,7 +15821,7 @@ export default function CoreApp() {
 
   function clearSiteCommercialField(
     siteId: string,
-    keys: Array<"cis" | "retentionPercent" | "mainContractorDiscountPercent">,
+    keys: Array<"cis" | "retentionPercent" | "retentionCapAmount" | "mainContractorDiscountPercent">,
   ) {
     markSetupEdited();
     setClientSites((current) =>
@@ -20307,7 +20362,28 @@ export default function CoreApp() {
       return;
     }
 
-    const netClaim = valuationNetAmount(grossClaim, retentionPercent);
+    const commercial = resolveCommercialTerms(client, site, {
+      vatTreatment: "Standard 20%",
+      vatRate: normalizedFinanceSettings.vatRate,
+    });
+    const alreadyRetained = jobRetentionBalances(job.id, invoices).retained;
+    const retentionApplied = jobInvoiceDraft.mode === "valuation"
+      ? applyRetentionWithCap({
+          grossClaim,
+          retentionPercent,
+          alreadyRetained,
+          retentionCapAmount: commercial.retentionCapAmount,
+        })
+      : {
+          retentionAmount: 0,
+          netClaim: grossClaim,
+          effectivePercent: 0,
+          uncappedRetention: 0,
+          capped: false,
+          roomUnderCap: Number.POSITIVE_INFINITY,
+        };
+    const effectiveRetentionPercent = retentionApplied.effectivePercent;
+    const netClaim = retentionApplied.netClaim;
     const costRatio = contractTotal > 0 ? Math.min(1, grossClaim / contractTotal) : 0;
     const claimLines: InvoiceLine[] = valuationLines
       .filter((line) => line.requestedThisPeriod > 0)
@@ -20316,8 +20392,10 @@ export default function CoreApp() {
         description: line.description,
         category: "Other",
         costToUs: sourceTotals.cost * (line.contractValue / Math.max(1, contractTotal)) * costRatio,
-        chargeToClient: valuationNetAmount(line.requestedThisPeriod, retentionPercent),
-        note: jobInvoiceDraft.mode === "valuation" ? `Application for ${jobInvoiceDraft.valuationPeriod}` : `${depositPercent}% ${jobInvoiceDraft.mode} claim`,
+        chargeToClient: valuationNetAmount(line.requestedThisPeriod, effectiveRetentionPercent),
+        note: jobInvoiceDraft.mode === "valuation"
+          ? `Application for ${jobInvoiceDraft.valuationPeriod}${retentionApplied.capped ? " · retention capped" : ""}`
+          : `${depositPercent}% ${jobInvoiceDraft.mode} claim`,
       }));
     const discountPercent = base.mainContractorDiscountPercent ?? 0;
     const discounted = applyCommercialDiscountToLines(claimLines, netClaim, discountPercent);
@@ -20335,13 +20413,22 @@ export default function CoreApp() {
       lines: discounted.lines,
       costTotal: discounted.lines.reduce((sum, line) => sum + line.costToUs, 0),
       chargeTotal: discounted.chargeTotal,
-      notes: jobInvoiceDraft.notes || `${title} created from job cost centres. ${base.vatNote ?? ""}${base.cisInvoice ? " CIS applies." : ""}`.trim(),
+      notes: (
+        jobInvoiceDraft.notes ||
+        `${title} created from job cost centres. ${base.vatNote ?? ""}${base.cisInvoice ? " CIS applies." : ""}${
+          retentionApplied.capped
+            ? ` Retention capped at ${currency(commercial.retentionCapAmount)} — held ${currency(retentionApplied.retentionAmount)} this claim.`
+            : ""
+        }`
+      ).trim(),
       claimType: jobInvoiceDraft.mode,
       claimPercent: jobInvoiceDraft.mode === "deposit" ? depositPercent : undefined,
       valuationStatus: isValuation ? "Draft valuation" : undefined,
       valuationPeriod: jobInvoiceDraft.valuationPeriod,
       valuationLines,
       retentionPercent,
+      retentionHeldAmount: isValuation && retentionApplied.retentionAmount > 0 ? retentionApplied.retentionAmount : undefined,
+      retentionCapAmount: commercial.retentionCapAmount > 0 ? commercial.retentionCapAmount : undefined,
       cisInvoice: Boolean(base.cisInvoice),
       mainContractorDiscountPercent: discountPercent > 0 ? discountPercent : undefined,
       accountsStatus: "Not sent",
@@ -20400,6 +20487,25 @@ export default function CoreApp() {
       showNotice("Enter the contractor-agreed values before creating the progress claim.");
       return;
     }
+    const job = jobs.find((item) => item.id === selectedInvoice.sourceId) ?? null;
+    const client = clients.find((item) => item.id === selectedInvoice.clientId || item.id === job?.clientId) ?? null;
+    const site = (job?.siteId || selectedInvoice.siteId)
+      ? clientSites.find((item) => item.id === (job?.siteId || selectedInvoice.siteId)) ?? null
+      : null;
+    const commercial = resolveCommercialTerms(client, site, {
+      vatTreatment: "Standard 20%",
+      vatRate: normalizedFinanceSettings.vatRate,
+    });
+    const alreadyRetained = job
+      ? jobRetentionBalances(job.id, invoices).retained
+      : 0;
+    const retentionCap = selectedInvoice.retentionCapAmount ?? commercial.retentionCapAmount;
+    const retentionApplied = applyRetentionWithCap({
+      grossClaim: agreedGross,
+      retentionPercent,
+      alreadyRetained,
+      retentionCapAmount: retentionCap,
+    });
     const nextRef = buildInvoiceRef(normalizedFinanceSettings, invoices.map((item) => item.ref));
     const contractTotal = selectedInvoice.valuationLines.reduce((sum, line) => sum + line.contractValue, 0);
     const nextLines: InvoiceLine[] = selectedInvoice.valuationLines
@@ -20409,8 +20515,8 @@ export default function CoreApp() {
         description: line.description,
         category: "Other",
         costToUs: selectedInvoice.costTotal * (line.contractValue / Math.max(1, contractTotal)),
-        chargeToClient: valuationNetAmount(line.agreedThisPeriod, retentionPercent),
-        note: `Agreed progress claim from ${selectedInvoice.ref}`,
+        chargeToClient: valuationNetAmount(line.agreedThisPeriod, retentionApplied.effectivePercent),
+        note: `Agreed progress claim from ${selectedInvoice.ref}${retentionApplied.capped ? " · retention capped" : ""}`,
       }));
     const applicationRef = selectedInvoice.applicationRef ?? selectedInvoice.ref;
     const approvedInvoice: Invoice = {
@@ -20424,6 +20530,8 @@ export default function CoreApp() {
       lines: nextLines,
       costTotal: nextLines.reduce((sum, line) => line.costToUs + sum, 0),
       chargeTotal: nextLines.reduce((sum, line) => line.chargeToClient + sum, 0),
+      retentionHeldAmount: retentionApplied.retentionAmount > 0 ? retentionApplied.retentionAmount : 0,
+      retentionCapAmount: retentionCap > 0 ? retentionCap : undefined,
       accountsStatus: "Not sent",
       paymentStatus: "Unpaid",
       paidAmount: 0,
@@ -20446,12 +20554,18 @@ export default function CoreApp() {
       action: "progress claim created",
       recordType: "invoice",
       recordId: selectedInvoice.id,
-      summary: `${applicationRef} agreed at ${currency(valuationNetAmount(agreedGross, retentionPercent))} and converted to ${nextRef}.`,
+      summary: `${applicationRef} agreed at ${currency(retentionApplied.netClaim)} and converted to ${nextRef}${
+        retentionApplied.capped ? ` (retention capped — held ${currency(retentionApplied.retentionAmount)})` : ""
+      }.`,
       source: "valuation agreement",
       importance: "high",
     });
     setActiveInvoiceFolderKey("unpaid");
-    showNotice(`${applicationRef} approved. Invoice ${nextRef} created and marked unpaid — export from the Xero module when ready.`);
+    showNotice(
+      retentionApplied.capped
+        ? `${applicationRef} approved. Retention capped — held ${currency(retentionApplied.retentionAmount)} this claim. Invoice ${nextRef} created.`
+        : `${applicationRef} approved. Invoice ${nextRef} created and marked unpaid — export from the Xero module when ready.`,
+    );
   }
 
   function createRetentionReleaseInvoice() {
@@ -28618,6 +28732,7 @@ export default function CoreApp() {
         cis: typeof patch.cis === "boolean" ? patch.cis : null,
         vatTreatment: patch.vatTreatment ?? null,
         retentionPercent: patch.retentionPercent?.trim() ? patch.retentionPercent : null,
+        retentionCapAmount: patch.retentionCapAmount?.trim() ? patch.retentionCapAmount : null,
         mainContractorDiscountPercent: patch.mainContractorDiscountPercent?.trim()
           ? patch.mainContractorDiscountPercent
           : null,
@@ -33959,6 +34074,76 @@ export default function CoreApp() {
                       <article><span>Material spend</span><strong>{currency(reportJobRows.reduce((total, row) => total + row.actualMaterialCost + row.pendingMaterialCost, 0))}</strong><small>PO actual and pending</small></article>
                       <article><span>Labour spend</span><strong>{currency(reportJobRows.reduce((total, row) => total + row.actualLabourCost, 0))}</strong><small>{reportJobRows.reduce((total, row) => total + row.workedHours, 0).toFixed(1)} worked hours</small></article>
                       <article><span>Forecast revenue</span><strong>{currency(reportQuoteRows.filter((row) => row.quote.status === "Sent" || row.quote.status === "Accepted").reduce((total, row) => total + row.sell, 0))}</strong><small>Sent and accepted quote pipeline</small></article>
+                    </div>
+                  </section>
+                </div>
+              ) : null}
+
+              {activeReportTab === "retention" ? (
+                <div className="reports-section-grid">
+                  <section className="report-card wide">
+                    <header>
+                      <div>
+                        <span className="permission-heading">Retention ledger</span>
+                        <h3>How much retention is sitting out</h3>
+                        <p>Held on progress claims, minus releases. Cap stops further retention once the job hits the £ limit.</p>
+                      </div>
+                      <button className="primary-button" type="button" onClick={() => void downloadRetentionReportPdf()}>
+                        <FileText size={15} />
+                        Print retention PDF
+                      </button>
+                    </header>
+                    <div className="report-kpi-list" style={{ marginBottom: "1rem" }}>
+                      <article>
+                        <span>Outstanding</span>
+                        <strong>{currency(reportRetentionTotals.outstanding)}</strong>
+                        <small>{reportRetentionTotals.jobs} job(s) with retention activity</small>
+                      </article>
+                      <article>
+                        <span>Held to date</span>
+                        <strong>{currency(reportRetentionTotals.retained)}</strong>
+                        <small>Across progress claims</small>
+                      </article>
+                      <article>
+                        <span>Released to date</span>
+                        <strong>{currency(reportRetentionTotals.released)}</strong>
+                        <small>Retention release invoices</small>
+                      </article>
+                    </div>
+                    <div className="report-table financial">
+                      <div className="report-table-head">
+                        <span>Job</span>
+                        <span>Customer</span>
+                        <span>Held</span>
+                        <span>Released</span>
+                        <span>Outstanding</span>
+                        <span>Cap</span>
+                      </div>
+                      {reportRetentionRows.length ? (
+                        reportRetentionRows.map((row) => (
+                          <div className="report-table-row" key={row.jobId}>
+                            <strong>{row.jobRef}</strong>
+                            <span>{row.customer}</span>
+                            <span>{currency(row.retained)}</span>
+                            <span>{currency(row.released)}</span>
+                            <span>{currency(row.outstanding)}</span>
+                            <span>
+                              {row.retentionCapAmount > 0
+                                ? `${currency(row.retentionCapAmount)}${row.capped ? " · at cap" : row.roomUnderCap != null ? ` · ${currency(row.roomUnderCap)} left` : ""}`
+                                : "No cap"}
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="report-table-row">
+                          <strong>No retention held</strong>
+                          <span>Raise valuations with retention % to start the ledger.</span>
+                          <span>—</span>
+                          <span>—</span>
+                          <span>{currency(0)}</span>
+                          <span>—</span>
+                        </div>
+                      )}
                     </div>
                   </section>
                 </div>
@@ -42088,6 +42273,17 @@ export default function CoreApp() {
                               <strong>{currency(progressClaimRetainedAmount(selectedInvoice))}</strong>
                             </div>
                           ) : null}
+                          {(selectedInvoice.retentionCapAmount ?? 0) > 0 ? (
+                            <div>
+                              <span>Retention cap</span>
+                              <strong>
+                                {currency(selectedInvoice.retentionCapAmount ?? 0)}
+                                {selectedRetentionBalances.retained + 0.009 >= (selectedInvoice.retentionCapAmount ?? 0)
+                                  ? " · at cap"
+                                  : ` · ${currency(Math.max(0, (selectedInvoice.retentionCapAmount ?? 0) - selectedRetentionBalances.retained))} left`}
+                              </strong>
+                            </div>
+                          ) : null}
                         </div>
                         {selectedRetentionBalances.available > 0.009 ? (
                           <div className="commercial-claim-actions">
@@ -46414,6 +46610,15 @@ export default function CoreApp() {
                             />
                           </label>
                           <label>
+                            Retention cap £
+                            <input
+                              inputMode="decimal"
+                              placeholder="No cap"
+                              value={activeClient.retentionCapAmount ?? ""}
+                              onChange={(event) => updateClientRecordDraft(activeClient.id, { retentionCapAmount: event.target.value })}
+                            />
+                          </label>
+                          <label>
                             Main contractor discount %
                             <input
                               inputMode="decimal"
@@ -46622,6 +46827,22 @@ export default function CoreApp() {
                                     return;
                                   }
                                   updateClientSiteDraft(site.id, { retentionPercent: value });
+                                }}
+                              />
+                            </label>
+                            <label>
+                              Site retention cap £
+                              <input
+                                inputMode="decimal"
+                                placeholder={activeClient.retentionCapAmount?.trim() || "Inherited / no cap"}
+                                value={site.retentionCapAmount ?? ""}
+                                onChange={(event) => {
+                                  const value = event.target.value;
+                                  if (!value.trim()) {
+                                    clearSiteCommercialField(site.id, ["retentionCapAmount"]);
+                                    return;
+                                  }
+                                  updateClientSiteDraft(site.id, { retentionCapAmount: value });
                                 }}
                               />
                             </label>

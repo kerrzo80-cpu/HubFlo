@@ -67,6 +67,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     }
   }
 
+  if (hasKey(body, "retentionCapAmount")) {
+    if (body.retentionCapAmount === null || body.retentionCapAmount === "inherit") {
+      clearKeys.push("retentionCapAmount");
+    } else if (typeof body.retentionCapAmount === "string") {
+      patch.retentionCapAmount = body.retentionCapAmount;
+    }
+  }
+
   if (hasKey(body, "mainContractorDiscountPercent")) {
     if (body.mainContractorDiscountPercent === null || body.mainContractorDiscountPercent === "inherit") {
       clearKeys.push("mainContractorDiscountPercent");

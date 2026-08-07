@@ -41,6 +41,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     vatRateOverride: pickString(body, "vatRateOverride"),
     cis: pickOptionalBoolean(body, "cis"),
     retentionPercent: pickString(body, "retentionPercent"),
+    retentionCapAmount: pickString(body, "retentionCapAmount"),
     mainContractorDiscountPercent: pickString(body, "mainContractorDiscountPercent"),
     xeroContactId: pickString(body, "xeroContactId"),
     lastStatementSentAt: pickString(body, "lastStatementSentAt"),

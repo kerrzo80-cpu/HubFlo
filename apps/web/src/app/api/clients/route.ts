@@ -32,6 +32,7 @@ type CreateClientPayload = {
   vatRateOverride?: string;
   cis?: boolean;
   retentionPercent?: string;
+  retentionCapAmount?: string;
   mainContractorDiscountPercent?: string;
   siteVatTreatment?: VatTreatment;
   siteVatRateOverride?: string;
@@ -154,6 +155,7 @@ export async function POST(request: Request) {
     vatRateOverride: payload.vatRateOverride?.trim() || "",
     cis: typeof payload.cis === "boolean" ? payload.cis : undefined,
     retentionPercent: payload.retentionPercent?.trim() || undefined,
+    retentionCapAmount: payload.retentionCapAmount?.trim() || undefined,
     mainContractorDiscountPercent: payload.mainContractorDiscountPercent?.trim() || undefined,
   };
 

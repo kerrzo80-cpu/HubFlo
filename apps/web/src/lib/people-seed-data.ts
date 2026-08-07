@@ -16,6 +16,8 @@ export type ClientSite = {
   cis?: boolean;
   /** Retention % override — blank/undefined inherits client. */
   retentionPercent?: string;
+  /** Max £ retention held on this site’s jobs — blank/undefined inherits client. */
+  retentionCapAmount?: string;
   /** Main contractor discount % override — blank/undefined inherits client. */
   mainContractorDiscountPercent?: string;
   archived?: boolean;
@@ -38,6 +40,8 @@ export type ClientRecord = {
   cis?: boolean;
   /** Default retention % for valuations / claims. */
   retentionPercent?: string;
+  /** Max £ retention held per job (e.g. 10000). Blank = no cap. */
+  retentionCapAmount?: string;
   /** Default main contractor discount %. */
   mainContractorDiscountPercent?: string;
   archived?: boolean;

@@ -32,6 +32,22 @@ test("resolveCommercialTerms: site overrides client for CIS, retention, discount
   assert.equal(terms.sources.retention, "site");
 });
 
+test("resolveCommercialTerms: retention cap inherits and site overrides", () => {
+  const inherited = resolveCommercialTerms(
+    { retentionCapAmount: "10000" },
+    {},
+  );
+  assert.equal(inherited.retentionCapAmount, 10000);
+  assert.equal(inherited.sources.retentionCap, "client");
+
+  const overridden = resolveCommercialTerms(
+    { retentionCapAmount: "10000" },
+    { retentionCapAmount: "15000" },
+  );
+  assert.equal(overridden.retentionCapAmount, 15000);
+  assert.equal(overridden.sources.retentionCap, "site");
+});
+
 test("resolveCommercialTerms: blank site inherits client", () => {
   const terms = resolveCommercialTerms(
     {

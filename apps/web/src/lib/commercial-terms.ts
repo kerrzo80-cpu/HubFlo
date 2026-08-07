@@ -1,16 +1,20 @@
 import type { ClientRecord, ClientSite, VatTreatment } from "@/lib/people-seed-data";
+import { parseMoneyAmount } from "@/lib/retention-ledger";
 
 export type CommercialTerms = {
   vatTreatment: VatTreatment;
   vatRateOverride: string;
   cis: boolean;
   retentionPercent: number;
+  /** Max £ retention held on a job (0 = no cap). */
+  retentionCapAmount: number;
   mainContractorDiscountPercent: number;
   /** Which layer supplied each value (for UI hints). */
   sources: {
     vat: "site" | "client" | "default";
     cis: "site" | "client" | "default";
     retention: "site" | "client" | "default";
+    retentionCap: "site" | "client" | "default";
     discount: "site" | "client" | "default";
   };
 };
@@ -26,13 +30,15 @@ function hasOwn<T extends object>(record: T | null | undefined, key: keyof T) {
   return Boolean(record && Object.prototype.hasOwnProperty.call(record, key) && record[key] !== undefined && record[key] !== null && record[key] !== "");
 }
 
+type CommercialFields = "vatTreatment" | "vatRateOverride" | "cis" | "retentionPercent" | "retentionCapAmount" | "mainContractorDiscountPercent";
+
 /**
  * Site overrides client; blank/undefined site fields inherit.
  * CIS uses explicit boolean on site when `cis` key is present (including false).
  */
 export function resolveCommercialTerms(
-  client?: Pick<ClientRecord, "vatTreatment" | "vatRateOverride" | "cis" | "retentionPercent" | "mainContractorDiscountPercent"> | null,
-  site?: Pick<ClientSite, "vatTreatment" | "vatRateOverride" | "cis" | "retentionPercent" | "mainContractorDiscountPercent"> | null,
+  client?: Pick<ClientRecord, CommercialFields> | null,
+  site?: Pick<ClientSite, CommercialFields> | null,
   defaults?: { vatTreatment?: VatTreatment; vatRate?: string },
 ): CommercialTerms {
   const defaultVat = defaults?.vatTreatment ?? "Standard 20%";
@@ -56,6 +62,14 @@ export function resolveCommercialTerms(
       ? parsePercent(client!.retentionPercent)
       : 0;
 
+  const capFromSite = hasOwn(site, "retentionCapAmount");
+  const capFromClient = hasOwn(client, "retentionCapAmount");
+  const retentionCapAmount = capFromSite
+    ? parseMoneyAmount(site!.retentionCapAmount)
+    : capFromClient
+      ? parseMoneyAmount(client!.retentionCapAmount)
+      : 0;
+
   const discountFromSite = hasOwn(site, "mainContractorDiscountPercent");
   const discountFromClient = hasOwn(client, "mainContractorDiscountPercent");
   const mainContractorDiscountPercent = discountFromSite
@@ -69,11 +83,13 @@ export function resolveCommercialTerms(
     vatRateOverride,
     cis,
     retentionPercent,
+    retentionCapAmount,
     mainContractorDiscountPercent,
     sources: {
       vat: vatFromSite ? "site" : client?.vatTreatment ? "client" : "default",
       cis: cisFromSite ? "site" : cisFromClient ? "client" : "default",
       retention: retentionFromSite ? "site" : retentionFromClient ? "client" : "default",
+      retentionCap: capFromSite ? "site" : capFromClient ? "client" : "default",
       discount: discountFromSite ? "site" : discountFromClient ? "client" : "default",
     },
   };
@@ -97,6 +113,9 @@ export function commercialTermsSummary(terms: CommercialTerms) {
     terms.vatTreatment,
     terms.cis ? "CIS" : null,
     terms.retentionPercent > 0 ? `Retention ${terms.retentionPercent}%` : null,
+    terms.retentionCapAmount > 0
+      ? `Retention cap £${terms.retentionCapAmount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`
+      : null,
     terms.mainContractorDiscountPercent > 0
       ? `Main contractor discount ${terms.mainContractorDiscountPercent}%`
       : null,
@@ -113,7 +132,7 @@ export type DiscountableLine = {
   note?: string;
 };
 
-/** Append a negative main-contractor discount line when percent &gt; 0. */
+/** Append a negative main-contractor discount line when percent > 0. */
 export function applyCommercialDiscountToLines<T extends DiscountableLine>(
   lines: T[],
   chargeTotal: number,

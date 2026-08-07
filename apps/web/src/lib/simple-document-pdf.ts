@@ -17,6 +17,10 @@ export type SimpleDocumentPdfInput = {
   subtotal?: string;
   vat?: string;
   total?: string;
+  /** Optional labels (defaults: Subtotal / VAT / Total). */
+  subtotalLabel?: string;
+  vatLabel?: string;
+  totalLabel?: string;
 };
 
 function cleanText(value: unknown, fallback = "") {
@@ -82,9 +86,9 @@ export async function createSimpleDocumentPdf(document: SimpleDocumentPdfInput) 
   });
 
   y -= 8;
-  write(`Subtotal: ${cleanText(document.subtotal, "TBC")}`, { isBold: true, gap: 0 });
-  write(`VAT: ${cleanText(document.vat, "TBC")}`, { isBold: true, gap: 0 });
-  write(`Total: ${cleanText(document.total, "TBC")}`, { size: 13, isBold: true });
+  write(`${cleanText(document.subtotalLabel, "Subtotal")}: ${cleanText(document.subtotal, "TBC")}`, { isBold: true, gap: 0 });
+  write(`${cleanText(document.vatLabel, "VAT")}: ${cleanText(document.vat, "TBC")}`, { isBold: true, gap: 0 });
+  write(`${cleanText(document.totalLabel, "Total")}: ${cleanText(document.total, "TBC")}`, { size: 13, isBold: true });
 
   return Buffer.from(await pdf.save());
 }
