@@ -31,8 +31,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { useBrand } from "@/components/BrandProvider";
-import { resolveBrandLogoUrl } from "@/lib/branding";
 import { roleHeaderName } from "@/lib/access";
 import { BuddyCharacter } from "@/lib/BuddyCharacter";
 import type { BlakeBoqReviewDraft } from "@/lib/blake-boq-review";
@@ -76,7 +74,7 @@ import {
   togglePackageChild,
 } from "@/lib/takeoff-markup-packages";
 import { sanitizeRemovalSectionTakeoffMaterials } from "@/lib/takeoff-removal-materials";
-import TakeoffModeNav from "./TakeoffModeNav";
+import TakeoffChrome from "./TakeoffChrome";
 import "./takeoff-skill.css";
 
 type TakeoffTab = "intake" | "markup" | "surveyor" | "survey" | "rooms" | "heat" | "runs" | "boq" | "review";
@@ -156,6 +154,19 @@ const tabs: Array<{ key: TakeoffTab; label: string; icon: LucideIcon }> = [
 const requestHeaders: HeadersInit = {
   [roleHeaderName]: "Office",
 };
+
+async function takeoffApiFetch(input: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers || {});
+  for (const [key, value] of Object.entries(requestHeaders)) {
+    if (!headers.has(key) && typeof value === "string") headers.set(key, value);
+  }
+  const response = await fetch(input, { ...init, credentials: "same-origin", headers });
+  if (response.status === 401 && typeof window !== "undefined") {
+    const next = `${window.location.pathname}${window.location.search}`;
+    window.location.assign(`/login?next=${encodeURIComponent(next || "/takeoff")}`);
+  }
+  return response;
+}
 
 const blankNewProject: NewProjectDraft = {
   name: "",
@@ -2188,7 +2199,6 @@ function mergeImportedRooms(existingRooms: TakeoffRoom[], importedRooms: Takeoff
 }
 
 export default function TakeoffPage() {
-  const brand = useBrand();
   const [projects, setProjects] = useState<TakeoffProject[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [clientSites, setClientSites] = useState<ClientSite[]>([]);
@@ -2969,11 +2979,11 @@ const filteredMarkupPlantTools = useMemo(() => {
     setError("");
     try {
       const [projectResponse, quoteResponse, siteResponse] = await Promise.all([
-        fetch("/api/takeoff-projects", { headers: requestHeaders }),
-        fetch("/api/quotes", { headers: requestHeaders }),
-        fetch("/api/client-sites", { headers: requestHeaders }),
+        takeoffApiFetch("/api/takeoff-projects", { headers: requestHeaders }),
+        takeoffApiFetch("/api/quotes", { headers: requestHeaders }),
+        takeoffApiFetch("/api/client-sites", { headers: requestHeaders }),
       ]);
-      const aiResponse = await fetch("/api/takeoff-ai/status", { headers: requestHeaders });
+      const aiResponse = await takeoffApiFetch("/api/takeoff-ai/status", { headers: requestHeaders });
 
       if (!projectResponse.ok) throw new Error("Unable to load Takeoff projects");
       if (!quoteResponse.ok) throw new Error("Unable to load quotes");
@@ -3221,7 +3231,7 @@ const filteredMarkupPlantTools = useMemo(() => {
     }
 
     try {
-      const response = await fetch(`/api/takeoff-projects/${projectId}`, {
+      const response = await takeoffApiFetch(`/api/takeoff-projects/${projectId}`, {
         method: "PATCH",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify(patch),
@@ -5669,7 +5679,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     let saved: TakeoffProject | null = null;
     let snapshotDocument: TakeoffDocument | null = null;
     try {
-      const uploadResponse = await fetch(`/api/takeoff-projects/${selectedProject.id}/documents`, {
+      const uploadResponse = await takeoffApiFetch(`/api/takeoff-projects/${selectedProject.id}/documents`, {
         method: "POST",
         headers: requestHeaders,
         body: formData,
@@ -5713,7 +5723,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     }
 
     try {
-      const response = await fetch(`/api/takeoff-projects/${selectedProject.id}/marked-drawing`, {
+      const response = await takeoffApiFetch(`/api/takeoff-projects/${selectedProject.id}/marked-drawing`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -5793,7 +5803,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     setError("");
     const linkedQuote = quotes.find((quote) => quote.id === newProject.linkedQuoteId);
     try {
-      const response = await fetch("/api/takeoff-projects", {
+      const response = await takeoffApiFetch("/api/takeoff-projects", {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -5825,7 +5835,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
     setError("");
     try {
-      const response = await fetch(`/api/takeoff-projects/${encodeURIComponent(projectId)}`, {
+      const response = await takeoffApiFetch(`/api/takeoff-projects/${encodeURIComponent(projectId)}`, {
         method: "DELETE",
         headers: requestHeaders,
       });
@@ -5852,7 +5862,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     setIsSavingAiKey(true);
     setError("");
     try {
-      const response = await fetch("/api/takeoff-ai/config", {
+      const response = await takeoffApiFetch("/api/takeoff-ai/config", {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -5892,7 +5902,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       year: "numeric",
     })}`;
     try {
-      const response = await fetch("/api/takeoff-projects", {
+      const response = await takeoffApiFetch("/api/takeoff-projects", {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ name: fallbackName }),
@@ -5933,7 +5943,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     setIsUploadingDocs(true);
     setError("");
     try {
-      const response = await fetch(`/api/takeoff-projects/${projectForUpload.id}/documents`, {
+      const response = await takeoffApiFetch(`/api/takeoff-projects/${projectForUpload.id}/documents`, {
         method: "POST",
         headers: requestHeaders,
         body: formData,
@@ -5969,7 +5979,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
             drawingDocumentId: uploadedDrawing.id,
             updatedAt: new Date().toISOString(),
           };
-          const patchResponse = await fetch(`/api/takeoff-projects/${updatedProject.id}`, {
+          const patchResponse = await takeoffApiFetch(`/api/takeoff-projects/${updatedProject.id}`, {
             method: "PATCH",
             headers: { ...requestHeaders, "Content-Type": "application/json" },
             body: JSON.stringify({ servicesMarkup: nextMarkup }),
@@ -6057,7 +6067,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     setIsExtracting(true);
     setError("");
     try {
-      const response = await fetch(`/api/takeoff-projects/${selectedProject.id}/extract`, {
+      const response = await takeoffApiFetch(`/api/takeoff-projects/${selectedProject.id}/extract`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ actor: "Office review" }),
@@ -6109,7 +6119,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     setIsBlakeReviewing(true);
     setError("");
     try {
-      const response = await fetch(`/api/takeoff-projects/${selectedProject.id}/blake-boq-review`, {
+      const response = await takeoffApiFetch(`/api/takeoff-projects/${selectedProject.id}/blake-boq-review`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ actor: "Blake", apply }),
@@ -6160,7 +6170,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     setIsSurveyDrafting(true);
     setError("");
     try {
-      const response = await fetch(`/api/takeoff-projects/${selectedProject.id}/survey-draft`, {
+      const response = await takeoffApiFetch(`/api/takeoff-projects/${selectedProject.id}/survey-draft`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ actor: "Office survey review" }),
@@ -6240,7 +6250,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     setIsGeneratingSurveyPlan(true);
     setError("");
     try {
-      const response = await fetch(`/api/takeoff-projects/${selectedProject.id}/survey-plan`, {
+      const response = await takeoffApiFetch(`/api/takeoff-projects/${selectedProject.id}/survey-plan`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -6720,7 +6730,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         projectToPush = approvedProject;
       }
 
-      const response = await fetch(`/api/takeoff-projects/${projectToPush.id}/push`, {
+      const response = await takeoffApiFetch(`/api/takeoff-projects/${projectToPush.id}/push`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -6755,24 +6765,24 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       className={takeoffAppClassName}
       data-takeoff-mode={takeoffDrawingMode ? "drawing" : "page"}
     >
-      <header className="takeoff-header">
-        <div className="takeoff-brand">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={resolveBrandLogoUrl(brand, "takeoffs")} alt={brand.takeoffsAppName} />
-          <span>{brand.takeoffsAppName}</span>
-        </div>
-        <div className="takeoff-header-actions">
-          <a className="takeoff-ghost-button" href="/">
-            <ArrowLeft size={16} />
-            Core
-          </a>
-          <button className="takeoff-ghost-button" type="button" onClick={() => loadData().catch(() => {})}>
-            <RefreshCw size={16} />
-            Refresh
-          </button>
-        </div>
-      </header>
-      <TakeoffModeNav variant="markup" />
+      <TakeoffChrome
+        subtitle="Draw pipe runs · BoQ handoff"
+        compact={takeoffDrawingMode}
+        status={(
+          <span className={`takeoff-chrome-pill ${aiStatus?.connected ? "on" : ""}`}>
+            <Sparkles size={13} />
+            {aiStatus?.connected ? (aiStatus.model || "Blake ready") : "AI optional"}
+          </span>
+        )}
+        actions={(
+          <>
+            <button className="takeoff-chrome-btn" type="button" onClick={() => loadData().catch(() => {})}>
+              <RefreshCw size={14} />
+              Refresh
+            </button>
+          </>
+        )}
+      />
 
       <div className="takeoff-shell">
         <aside className="takeoff-sidebar">
@@ -6929,54 +6939,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                 </div>
               ) : null}
 
-              <section className="estimate-flow-strip" aria-label="Route design workflow">
-                <a href="/survey">
-                  <span>1</span>
-                  <strong>Survey</strong>
-                  <small>Upload evidence and describe the works</small>
-                </a>
-                <button className={activeTab === "markup" || activeTab === "intake" ? "active" : ""} type="button" onClick={() => setActiveTab("markup")}>
-                  <span>2</span>
-                  <strong>Route design</strong>
-                  <small>Draw pipe runs, place fittings, calibrate scale</small>
-                </button>
-                <button className={activeTab === "boq" ? "active" : ""} type="button" onClick={() => setActiveTab("boq")}>
-                  <span>3</span>
-                  <strong>BoQ / RFQ</strong>
-                  <small>Route lengths + fittings into supplier requests</small>
-                </button>
-                <button className={activeTab === "review" ? "active" : ""} type="button" onClick={() => setActiveTab("review")}>
-                  <span>4</span>
-                  <strong>Handoff</strong>
-                  <small>Review then push to Core quote</small>
-                </button>
-              </section>
-
-              <section className="takeoff-simple-banner">
-                <div>
-                  <Sparkles size={18} />
-                  <span>
-                    <strong>Plumbing route design</strong>
-                    <small>
-                      Calibrate the drawing, draw hot/cold/waste/soil routes, auto-add elbows at bends, then push lengths into the BoQ
-                      {selectedQuote ? ` for ${selectedQuote.ref}` : ""}.
-                    </small>
-                  </span>
-                </div>
-                <div className={`takeoff-ai-status compact ${aiStatus?.connected ? "connected" : "missing"}`}>
-                  <Sparkles size={14} />
-                  <span>
-                    <strong>{aiStatus?.connected ? `AI ready · ${aiStatus.model}` : "AI key missing"}</strong>
-                    <small>
-                      {aiStatus?.connected
-                        ? "Survey packs and AI scan use this connection."
-                        : `Set ${aiStatus?.keyName || "OPENAI_API_KEY"} on Render → nexa-live, then redeploy.`}
-                    </small>
-                  </span>
-                </div>
-              </section>
-
-              <nav className="takeoff-tabs takeoff-tabs-simple" aria-label="Takeoff sections">
+              <nav className="takeoff-tabs takeoff-tabs-simple" aria-label="Route design sections">
                 {tabs.map((tab) => {
                   const Icon = tab.icon;
                   return (

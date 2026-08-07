@@ -13,6 +13,14 @@ import {
 } from "lucide-react";
 import { formatDuration, getEngineerSchedule, mapsUrl } from "@/lib/engineer-data";
 
+function formatEngineerToday() {
+  return new Date().toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+}
+
 export default function EngineerTodayPage() {
   const jobs = getEngineerSchedule();
   const totalHours = jobs.reduce((sum, job) => sum + job.durationHours, 0);
@@ -50,7 +58,7 @@ export default function EngineerTodayPage() {
         <div className="engineer-section-heading">
           <div>
             <p className="eyebrow">Schedule</p>
-            <h2>Tuesday 23 June</h2>
+            <h2>{formatEngineerToday()}</h2>
           </div>
           <CalendarDays size={22} />
         </div>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { appendAuditEvent } from "@/lib/people-data";
+import { applyVariationPortalHandoff } from "@/lib/variation-portal-handoff";
 import {
   getVariationPortalRequestByToken,
   markVariationPortalRequestViewed,
@@ -52,6 +53,8 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Unable to update variation response." }, { status: 500 });
   }
 
+  const handoff = applyVariationPortalHandoff(updated);
+
   appendAuditEvent({
     actor: "Client",
     action: payload.response === "Approved" ? "approved" : "declined",
@@ -67,5 +70,6 @@ export async function POST(request: Request, context: RouteContext) {
     status: updated.status,
     variationEventId: updated.variationEventId,
     variationRef: `V-${updated.variationEventId.slice(-3).toUpperCase()}`,
+    handoff,
   });
 }

@@ -13,7 +13,7 @@ import {
 } from "@/lib/branding";
 import { useBrand } from "@/components/BrandProvider";
 
-const iconVersion = "20260805b";
+const iconVersion = "20260806g";
 
 type Profile = {
   app: BrandAppKey;
@@ -26,6 +26,16 @@ type Profile = {
 function withVersion(path: string) {
   const joiner = path.includes("?") ? "&" : "?";
   return `${path}${joiner}v=${iconVersion}`;
+}
+
+/** Swap home=1 → apple=1 for 180×180 apple-touch derivatives. */
+function toAppleTouchHref(iconPath: string) {
+  if (!iconPath.includes("/api/branding/assets/")) return iconPath;
+  const [base, query = ""] = iconPath.split("?");
+  const params = new URLSearchParams(query);
+  params.delete("home");
+  params.set("apple", "1");
+  return `${base}?${params.toString()}`;
 }
 
 function upsertMeta(name: string, content: string) {
@@ -51,6 +61,7 @@ function chooseApp(pathname: string): BrandAppKey {
   if (pathname.startsWith("/takeoff")) return "takeoffs";
   if (pathname.startsWith("/field")) return "field";
   if (pathname.startsWith("/heat-design")) return "heat-design";
+  if (pathname.startsWith("/train")) return "trainer";
   if (pathname.startsWith("/estimator") || pathname.startsWith("/survey")) return "survey";
   return "core";
 }
@@ -110,24 +121,26 @@ export function PwaIconLinks() {
     upsertMeta("mobile-web-app-capable", "yes");
     upsertMeta("theme-color", profile.themeColor);
 
-    const iconHref = withVersion(profile.icon);
+    // Tab favicon uses the full wordmark (not the droplet-only home mark).
+    const tabFavicon = withVersion("/api/branding/favicon?size=32");
+    const appleTouchHref = withVersion("/api/branding/favicon?size=180");
 
     document.head.querySelectorAll<HTMLLinkElement>('link[rel="apple-touch-icon"]').forEach((link) => {
-      link.href = iconHref;
+      link.href = appleTouchHref;
       link.sizes = "180x180";
       link.type = "image/png";
     });
-    document.head.querySelectorAll<HTMLLinkElement>('link[rel="icon"]').forEach((link) => {
-      link.href = iconHref;
-      link.sizes = "512x512";
+    document.head.querySelectorAll<HTMLLinkElement>('link[rel="icon"], link[rel="shortcut icon"]').forEach((link) => {
+      link.href = tabFavicon;
+      link.sizes = "32x32";
       link.type = "image/png";
     });
     document.head.querySelectorAll<HTMLLinkElement>('link[rel="manifest"]').forEach((link) => {
       link.href = profile.manifest;
     });
 
-    upsertLink("apple-touch-icon", iconHref, { sizes: "180x180", type: "image/png" });
-    upsertLink("icon", iconHref, { sizes: "512x512", type: "image/png" });
+    upsertLink("apple-touch-icon", appleTouchHref, { sizes: "180x180", type: "image/png" });
+    upsertLink("icon", tabFavicon, { sizes: "32x32", type: "image/png" });
     upsertLink("manifest", profile.manifest);
   }, [brand, pathname]);
 
