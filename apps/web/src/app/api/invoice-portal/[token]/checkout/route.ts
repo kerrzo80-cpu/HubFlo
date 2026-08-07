@@ -80,6 +80,7 @@ export async function POST(request: Request, context: RouteContext) {
 
     rememberSumUpCheckout({
       checkoutId: session.checkoutId,
+      checkoutReference: session.checkoutReference,
       invoiceId: invoice.id,
       portalToken,
       amount: owed,
@@ -89,6 +90,7 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({
       url: session.url,
       checkoutId: session.checkoutId,
+      checkoutReference: session.checkoutReference,
       provider: "sumup",
     });
   } catch (error) {

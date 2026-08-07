@@ -374,6 +374,55 @@ function mergeLineJsonPreferringUnitCosts(serverValue: unknown, clientValue: unk
   }
 }
 
+function paymentKey(payment: Record<string, unknown>) {
+  const sourcePaymentId = typeof payment.sourcePaymentId === "string" ? payment.sourcePaymentId.trim() : "";
+  if (sourcePaymentId) return sourcePaymentId;
+  const id = typeof payment.id === "string" ? payment.id.trim() : "";
+  return id;
+}
+
+/** Union payment rows by id/sourcePaymentId so SumUp webhook rows survive stale Core autosaves. */
+export function mergeInvoicePayments(serverValue: unknown, clientValue: unknown) {
+  const server = Array.isArray(serverValue) ? serverValue : [];
+  const client = Array.isArray(clientValue) ? clientValue : [];
+  if (!client.length && server.length) return server;
+  if (!server.length) return client;
+
+  const byKey = new Map<string, Record<string, unknown>>();
+  for (const item of server) {
+    const record = asRecord(item);
+    const key = record ? paymentKey(record) : "";
+    if (key && record) byKey.set(key, record);
+  }
+  for (const item of client) {
+    const record = asRecord(item);
+    const key = record ? paymentKey(record) : "";
+    if (!key || !record) continue;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, record);
+      continue;
+    }
+    byKey.set(key, {
+      ...existing,
+      ...record,
+      // Prefer any Xero linkage already recorded on either side.
+      xeroPaymentId: existing.xeroPaymentId || record.xeroPaymentId,
+      xeroPushStatus: existing.xeroPushStatus || record.xeroPushStatus,
+      sourceInvoiceId: existing.sourceInvoiceId || record.sourceInvoiceId,
+      note: String(record.note || existing.note || ""),
+    });
+  }
+  return Array.from(byKey.values());
+}
+
+function paymentStatusFromAmounts(paidAmount: number, chargeTotal: number, vatRate: number) {
+  const total = Math.round((chargeTotal + chargeTotal * ((vatRate || 0) / 100)) * 100) / 100;
+  if (paidAmount <= 0) return "Unpaid" as const;
+  if (paidAmount + 0.009 >= total) return "Paid" as const;
+  return "Part paid" as const;
+}
+
 /**
  * Merge invoice arrays by id so a stale Core autosave cannot drop Field-created drafts
  * (or any invoice the browser payload omitted).
@@ -408,6 +457,33 @@ export function mergeInvoicesById(serverValue: unknown, clientValue: unknown) {
       next.accountsStatus = existing.accountsStatus;
       if (existing.xeroInvoiceId) next.xeroInvoiceId = existing.xeroInvoiceId;
       if (existing.xeroExportedAt) next.xeroExportedAt = existing.xeroExportedAt;
+    }
+    // Protect SumUp / Xero payment ledger from stale unpaid Core autosaves.
+    const mergedPayments = mergeInvoicePayments(existing.payments, record.payments) as Array<
+      Record<string, unknown>
+    >;
+    next.payments = mergedPayments;
+    if (mergedPayments.length) {
+      const paidAmount =
+        Math.round(mergedPayments.reduce((sum, row) => sum + (Number(row.amount) || 0), 0) * 100) / 100;
+      next.paidAmount = paidAmount;
+      const chargeTotal = Number(next.chargeTotal ?? existing.chargeTotal ?? record.chargeTotal) || 0;
+      const vatRate = Number(next.vatRate ?? existing.vatRate ?? record.vatRate) || 0;
+      const paymentStatus = paymentStatusFromAmounts(paidAmount, chargeTotal, vatRate);
+      next.paymentStatus = paymentStatus;
+      if (paymentStatus === "Paid") next.status = "Paid";
+      else if (paymentStatus === "Part paid") next.status = "Partially paid";
+    } else {
+      // Keep server paid markers when client wiped payments but left stale unpaid fields.
+      const serverPaid = Number(existing.paidAmount) || 0;
+      const clientPaid = Number(record.paidAmount) || 0;
+      if (serverPaid > clientPaid) {
+        next.paidAmount = existing.paidAmount;
+        next.paymentStatus = existing.paymentStatus;
+        if (existing.status === "Paid" || existing.status === "Partially paid") {
+          next.status = existing.status;
+        }
+      }
     }
     byId.set(id, next);
   }

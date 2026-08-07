@@ -73,3 +73,48 @@ test("mergeHubDetailState merges invoices", () => {
   const ids = (merged.invoices as Array<{ id: string }>).map((row) => row.id).sort();
   assert.deepEqual(ids, ["inv-a", "inv-b"]);
 });
+
+test("mergeInvoicesById keeps SumUp payments when Core autosave is still Unpaid", () => {
+  const server = [
+    {
+      id: "inv-pay-1",
+      ref: "INV-PAY-1",
+      status: "Paid",
+      paymentStatus: "Paid",
+      paidAmount: 120,
+      chargeTotal: 100,
+      vatRate: 20,
+      payments: [
+        {
+          id: "sumup-TX9",
+          source: "sumup",
+          sourcePaymentId: "sumup:TX9",
+          amount: 120,
+          paidAt: "2026-08-07",
+          method: "SumUp",
+          xeroPaymentId: "xero-pay-1",
+        },
+      ],
+    },
+  ];
+  const client = [
+    {
+      id: "inv-pay-1",
+      ref: "INV-PAY-1",
+      status: "Sent",
+      paymentStatus: "Unpaid",
+      paidAmount: 0,
+      chargeTotal: 100,
+      vatRate: 20,
+      payments: [],
+    },
+  ];
+  const merged = mergeInvoicesById(server, client) as Array<Record<string, unknown>>;
+  const row = merged.find((item) => item.id === "inv-pay-1");
+  assert.ok(row);
+  assert.equal(row?.paymentStatus, "Paid");
+  assert.equal(row?.paidAmount, 120);
+  assert.equal(row?.status, "Paid");
+  assert.equal((row?.payments as unknown[])?.length, 1);
+  assert.equal(((row?.payments as Array<Record<string, unknown>>)[0] || {}).xeroPaymentId, "xero-pay-1");
+});

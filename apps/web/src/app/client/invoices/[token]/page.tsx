@@ -68,10 +68,11 @@ export default function ClientInvoicePortal({ params }: { params: Promise<{ toke
       setMessage("Confirming SumUp payment…");
       try {
         const checkoutId = params.get("checkout") || undefined;
+        const checkoutRef = params.get("checkoutRef") || undefined;
         const response = await fetch(`/api/invoice-portal/${token}/confirm`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ checkoutId }),
+          body: JSON.stringify({ checkoutId, checkoutRef }),
         });
         const body = (await response.json().catch(() => null)) as {
           ok?: boolean;
