@@ -134,6 +134,7 @@ export async function GET() {
       bootTabsReady: "auth-only-v1",
       deploySmoke: "retry-settle-hourly-v2",
       mailboxIcloud: "smtp-mail-me-v1",
+      mailboxSendAs: "editable-from-v1",
       takeoffSkill: "drawing-first-v8-routes-page",
       takeoffAiConfirm: "overlay-review-v1",
       recurringServices: "upcoming-4w-v1",

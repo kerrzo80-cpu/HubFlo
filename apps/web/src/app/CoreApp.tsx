@@ -3703,8 +3703,8 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
   },
   communications: {
     Outlook: {
-      summary: "Choose Outlook, Gmail, or iCloud for the signed-in employee. NeXa sends from the email on their employee card — no separate sender address to type.",
-      focus: ["Pick Outlook / Gmail / iCloud", "Uses employee card email", "App password only"],
+      summary: "Choose Outlook, Gmail, or iCloud for the signed-in employee. Type the Sends as address (iCloud is fine for testing).",
+      focus: ["Pick Outlook / Gmail / iCloud", "Editable Sends as address", "App password only"],
       status: "Connect your mailbox",
     },
     WhatsApp: {
@@ -14810,11 +14810,12 @@ export default function CoreApp() {
       if (mailboxResponse && mailboxResponse.ok) {
         const status = (await mailboxResponse.json()) as EmployeeMailboxStatus;
         const cardEmail = activeEmployee?.profile?.email?.trim() || "";
+        const sendAsEmail = status.senderEmail?.trim() || cardEmail;
         setEmployeeMailboxStatus(status);
         setEmployeeMailboxDraft({
           provider: status.provider || "Outlook",
-          senderEmail: cardEmail || status.senderEmail,
-          username: cardEmail || status.username || status.senderEmail,
+          senderEmail: sendAsEmail,
+          username: status.username?.trim() || sendAsEmail,
           secret: "",
           smtpHost: status.smtpHost || "smtp.office365.com",
           smtpPort: String(status.smtpPort || 587),
@@ -14830,13 +14831,17 @@ export default function CoreApp() {
 
   async function saveSignedInMailboxSettings() {
     const targetEmployeeId = activeEmployee?.id ?? "";
-    const cardEmail = activeEmployee?.profile?.email?.trim() || "";
+    const sendAsEmail = (
+      employeeMailboxDraft.senderEmail.trim()
+      || activeEmployee?.profile?.email?.trim()
+      || ""
+    );
     if (!targetEmployeeId) {
       showNotice("Sign in as an employee before connecting a mailbox.");
       return;
     }
-    if (!cardEmail) {
-      showNotice("Add this person's email on their employee card first, then come back to Setup.");
+    if (!sendAsEmail) {
+      showNotice("Enter the email address to send as (e.g. your iCloud address for testing).");
       return;
     }
     if (!employeeMailboxDraft.secret.trim() && !employeeMailboxStatus?.secretStored) {
@@ -14851,8 +14856,8 @@ export default function CoreApp() {
         body: JSON.stringify({
           employeeId: targetEmployeeId,
           provider: employeeMailboxDraft.provider,
-          senderEmail: cardEmail,
-          username: cardEmail,
+          senderEmail: sendAsEmail,
+          username: sendAsEmail,
           secret: employeeMailboxDraft.secret,
           smtpHost: employeeMailboxDraft.smtpHost,
           smtpPort: Number(employeeMailboxDraft.smtpPort) || undefined,
@@ -14868,12 +14873,12 @@ export default function CoreApp() {
       setEmployeeMailboxStatus(saved);
       setEmployeeMailboxDraft((current) => ({
         ...current,
-        senderEmail: cardEmail,
-        username: cardEmail,
+        senderEmail: sendAsEmail,
+        username: sendAsEmail,
         secret: "",
         displayName: activeEmployee?.name || current.displayName,
       }));
-      showNotice(`Connected ${employeeMailboxDraft.provider} for ${cardEmail}. Job emails will send as you.`);
+      showNotice(`Connected ${employeeMailboxDraft.provider} for ${sendAsEmail}. Job emails will send as you.`);
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to save the mailbox.");
     } finally {
@@ -15010,8 +15015,9 @@ export default function CoreApp() {
     const targetEmployeeId = editingEmployeeId && editingEmployeeId !== newEmployeeId
       ? editingEmployeeId
       : (activeEmployee?.id ?? "");
-    const cardEmail = (
-      employeeProfileDraft.email.trim()
+    const sendAsEmail = (
+      employeeMailboxDraft.senderEmail.trim()
+      || employeeProfileDraft.email.trim()
       || activeEditingEmployee?.profile?.email
       || activeEmployee?.profile?.email
       || ""
@@ -15020,8 +15026,8 @@ export default function CoreApp() {
       showNotice("Select an employee before connecting a mailbox.");
       return;
     }
-    if (!cardEmail) {
-      showNotice("Add the email on the employee Details tab before connecting Outlook, Gmail, or iCloud.");
+    if (!sendAsEmail) {
+      showNotice("Enter the email address to send as (work mailbox or iCloud for testing).");
       return;
     }
     if (!employeeMailboxDraft.secret.trim() && !employeeMailboxStatus?.secretStored) {
@@ -15036,8 +15042,8 @@ export default function CoreApp() {
         body: JSON.stringify({
           employeeId: targetEmployeeId,
           provider: employeeMailboxDraft.provider,
-          senderEmail: cardEmail,
-          username: cardEmail,
+          senderEmail: sendAsEmail,
+          username: sendAsEmail,
           secret: employeeMailboxDraft.secret,
           smtpHost: employeeMailboxDraft.smtpHost,
           smtpPort: Number(employeeMailboxDraft.smtpPort) || undefined,
@@ -15053,11 +15059,11 @@ export default function CoreApp() {
       setEmployeeMailboxStatus(saved);
       setEmployeeMailboxDraft((current) => ({
         ...current,
-        senderEmail: cardEmail,
-        username: cardEmail,
+        senderEmail: sendAsEmail,
+        username: sendAsEmail,
         secret: "",
       }));
-      showNotice(`Mailbox saved for ${cardEmail}. Job emails will send from this address when they are logged in.`);
+      showNotice(`Mailbox saved for ${sendAsEmail}. Job emails will send from this address when they are logged in.`);
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to save the employee mailbox.");
     } finally {
@@ -44684,8 +44690,8 @@ export default function CoreApp() {
                             </div>
                           </header>
                           <small>
-                            Choose Outlook, Gmail, or iCloud. NeXa always sends from the email on your employee card
-                            ({activeEmployee?.profile?.email?.trim() || "no email on card yet"}). Add or change that address under People → employee → Details.
+                            Choose Outlook, Gmail, or iCloud. Type the From address below — use your iCloud email for testing,
+                            then switch back to your Errol Watson Group address when IT is ready. This does not change your employee card email.
                           </small>
                           <div className="setup-form-grid">
                             <label>
@@ -44715,9 +44721,16 @@ export default function CoreApp() {
                             <label>
                               Sends as
                               <input
-                                value={activeEmployee?.profile?.email?.trim() || ""}
-                                readOnly
-                                placeholder="Set on employee card"
+                                type="email"
+                                value={employeeMailboxDraft.senderEmail}
+                                onChange={(event) =>
+                                  setEmployeeMailboxDraft((current) => ({
+                                    ...current,
+                                    senderEmail: event.target.value,
+                                    username: event.target.value,
+                                  }))
+                                }
+                                placeholder={activeEmployee?.profile?.email?.trim() || "you@icloud.com"}
                               />
                             </label>
                             <label>
@@ -44742,8 +44755,8 @@ export default function CoreApp() {
                               </strong>
                               <small>
                                 {employeeMailboxStatus?.lastError
-                                  || (!activeEmployee?.profile?.email?.trim()
-                                    ? "Put the work email on the employee card first."
+                                  || (!employeeMailboxDraft.senderEmail.trim()
+                                    ? "Enter the From address above (iCloud is fine for testing)."
                                     : "Save the app password, then send a test.")}
                               </small>
                             </article>
@@ -46674,7 +46687,7 @@ export default function CoreApp() {
                       <div className="employee-section-heading">
                         <span className="permission-heading">Personal mailbox</span>
                         <span className="employee-access-note">
-                          Choose Outlook, Gmail, or iCloud. NeXa sends from the email on this employee card ({activeEditingEmployee.profile?.email || employeeProfileDraft.email || "add email on Details first"}).
+                          Choose Outlook, Gmail, or iCloud. Edit Sends as for the From address (iCloud is fine for testing — does not change the Details email).
                         </span>
                       </div>
                       <div className="setup-form-grid">
@@ -46705,9 +46718,16 @@ export default function CoreApp() {
                         <label>
                           Sends as
                           <input
-                            value={employeeProfileDraft.email.trim() || activeEditingEmployee.profile?.email || ""}
-                            readOnly
-                            placeholder="Set on Details tab"
+                            type="email"
+                            value={employeeMailboxDraft.senderEmail}
+                            onChange={(event) =>
+                              setEmployeeMailboxDraft((current) => ({
+                                ...current,
+                                senderEmail: event.target.value,
+                                username: event.target.value,
+                              }))
+                            }
+                            placeholder={employeeProfileDraft.email.trim() || activeEditingEmployee.profile?.email || "you@icloud.com"}
                           />
                         </label>
                         <label>
@@ -46750,8 +46770,8 @@ export default function CoreApp() {
                           </strong>
                           <small>
                             {employeeMailboxStatus?.lastError
-                              || (!(employeeProfileDraft.email.trim() || activeEditingEmployee.profile?.email)
-                                ? "Add the email on the Details tab first."
+                              || (!employeeMailboxDraft.senderEmail.trim()
+                                ? "Enter the From address above."
                                 : "Connect Outlook, Gmail, or iCloud with an app password.")}
                           </small>
                         </article>
