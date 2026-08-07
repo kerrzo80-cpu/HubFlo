@@ -1,4 +1,5 @@
 import { appendAuditEvent, getClients, getClientSites } from "@/lib/people-data";
+import { applyCommercialDiscountToLines, resolveCommercialTerms } from "@/lib/commercial-terms";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { numberedReference, type NumberingSettingsLike } from "@/lib/numbering";
 import { getJobs } from "@/lib/workflow-data";
@@ -52,6 +53,21 @@ function lineQty(row: { qty?: number | string; quantity?: number | string; hours
 function lineMoney(row: { unitCost?: number | string; unitSell?: number | string }, field: "unitCost" | "unitSell") {
   const parsed = Number.parseFloat(String(row[field] ?? "").replace(",", "."));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function vatNoteForTreatment(treatment: string, rate: number) {
+  if (treatment === "Domestic reverse charge") {
+    return "Domestic reverse charge applies. Customer accounts for VAT.";
+  }
+  if (treatment === "Zero rated") return "Zero-rated VAT treatment.";
+  if (treatment === "Custom") return `Custom VAT rate ${rate}%.`;
+  return `Standard VAT ${rate}%.`;
+}
+
+function vatRateForTreatment(treatment: string, override: string, fallbackRate: number) {
+  if (treatment === "Zero rated" || treatment === "Domestic reverse charge") return 0;
+  const parsed = numericSetting(override, fallbackRate);
+  return parsed;
 }
 
 /** Build invoice lines from job cost centres when present; never invent a fake cost ratio. */
@@ -213,8 +229,20 @@ export function maybeCreateDraftInvoiceOnJobComplete(jobId: string, actor = "Fie
   const client = job.clientId ? clients.find((item) => item.id === job.clientId) : null;
   const sites = getClientSites();
   const site = job.siteId ? sites.find((item) => item.id === job.siteId) : null;
-  const vatRate = numericSetting(settings.vatRate, 20);
-  const lines = buildLinesFromJobCentres(jobId, job.description || `Work on ${job.ref}`, chargeTotal);
+  const defaultVatRate = String(settings.vatRate ?? "20");
+  const terms = resolveCommercialTerms(client, site, {
+    vatTreatment: "Standard 20%",
+    vatRate: defaultVatRate,
+  });
+  const vatRate = vatRateForTreatment(terms.vatTreatment, terms.vatRateOverride || defaultVatRate, numericSetting(defaultVatRate, 20));
+  const vatNote = vatNoteForTreatment(terms.vatTreatment, vatRate);
+  let lines = buildLinesFromJobCentres(jobId, job.description || `Work on ${job.ref}`, chargeTotal);
+  let finalCharge = chargeTotal;
+  if (terms.mainContractorDiscountPercent > 0) {
+    const discounted = applyCommercialDiscountToLines(lines, chargeTotal, terms.mainContractorDiscountPercent);
+    lines = discounted.lines;
+    finalCharge = discounted.chargeTotal;
+  }
   const costTotal = Math.round(lines.reduce((sum, line) => sum + line.costToUs, 0) * 100) / 100;
 
   const created = {
@@ -233,11 +261,15 @@ export function maybeCreateDraftInvoiceOnJobComplete(jobId: string, actor = "Fie
     title: `Invoice in full for ${job.ref}`,
     lines,
     costTotal,
-    chargeTotal,
+    chargeTotal: finalCharge,
     vatRate,
-    vatTreatment: client?.vatTreatment || site?.vatTreatment || "Standard 20%",
-    vatNote: `Standard VAT ${vatRate}%.`,
-    notes: `Draft invoice created when ${job.ref} was marked complete on Field. Complete office passaround, review lines, then send from Core.`,
+    vatTreatment: terms.vatTreatment,
+    vatNote,
+    cisInvoice: terms.cis,
+    retentionPercent: terms.retentionPercent > 0 ? terms.retentionPercent : undefined,
+    mainContractorDiscountPercent:
+      terms.mainContractorDiscountPercent > 0 ? terms.mainContractorDiscountPercent : undefined,
+    notes: `Draft invoice created when ${job.ref} was marked complete on Field. Complete office passaround, review lines, then send from Core. ${vatNote}${terms.cis ? " CIS applies." : ""}`,
     claimType: "full",
     accountsStatus: "Not sent",
     paymentStatus: "Unpaid",
