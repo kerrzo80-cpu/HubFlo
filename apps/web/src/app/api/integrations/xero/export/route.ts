@@ -6,6 +6,7 @@ import { employeeHeaderName, getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import { getServerStoreDirectory, loadServerStore, writeServerStore } from "@/lib/server-store";
 import { getStoredXeroTenantId, getXeroAuthStatus, resolveXeroAccessToken } from "@/lib/xero-auth";
+import { retryPendingSumUpXeroPushes } from "@/lib/xero-payment-push";
 
 export const runtime = "nodejs";
 
@@ -521,6 +522,16 @@ export async function POST(request: NextRequest) {
   store.exports.unshift(record);
   writeServerStore(STORE, store);
 
+  let sumupPaymentPush: { pushed: number } | null = null;
+  if (live.ok && live.xeroInvoiceId && !credit) {
+    try {
+      const retry = await retryPendingSumUpXeroPushes(invoice.id, live.xeroInvoiceId);
+      sumupPaymentPush = { pushed: retry.pushed };
+    } catch {
+      sumupPaymentPush = { pushed: 0 };
+    }
+  }
+
   return NextResponse.json({
     export: record,
     accountsStatus: live.ok ? ("Sent" as const) : ("Queued" as const),
@@ -530,5 +541,6 @@ export async function POST(request: NextRequest) {
     xeroExportedAt: live.ok ? createdAt : null,
     xeroContactId: live.ok ? live.xeroContactId || null : null,
     clientId: invoice.clientId || null,
+    sumupPaymentPush,
   });
 }

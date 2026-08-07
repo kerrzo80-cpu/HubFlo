@@ -1,6 +1,7 @@
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { appendAuditEvent } from "@/lib/people-data";
 import { getSumUpApiKey, getSumUpMerchantCode, isSumUpConfigured } from "@/lib/sumup-key-store";
+import { maybePushSumUpPaymentToXero } from "@/lib/xero-payment-push";
 
 const SUMUP_API = "https://api.sumup.com/v0.1";
 
@@ -17,6 +18,9 @@ export type OnlineLedgerPayment = {
   sourceInvoiceId?: string;
   importedAt?: string;
   reconciled?: boolean;
+  xeroPaymentId?: string;
+  xeroPushStatus?: "pushed" | "pending_export" | "failed" | "skipped";
+  xeroPushError?: string;
 };
 
 type HubInvoice = {
@@ -136,6 +140,8 @@ export async function createSumUpHostedCheckout(input: {
   if (amount < 1) throw new Error("Amount is too small for SumUp checkout.");
 
   const checkoutReference = `nexa-${input.invoice.id}-${Date.now().toString(36)}`;
+  // Include checkoutRef so portal confirm does not rely on "latest checkout" alone.
+  const redirectUrl = `${input.origin}/client/invoices/${input.portalToken}?paid=1&checkoutRef=${encodeURIComponent(checkoutReference)}`;
   const body = await sumUpFetch("/checkouts", {
     method: "POST",
     body: JSON.stringify({
@@ -144,7 +150,7 @@ export async function createSumUpHostedCheckout(input: {
       checkout_reference: checkoutReference,
       merchant_code: merchantCode,
       description: `${input.invoice.ref} — ${input.invoice.customer}`,
-      redirect_url: `${input.origin}/client/invoices/${input.portalToken}?paid=1`,
+      redirect_url: redirectUrl,
       return_url: `${input.origin}/api/integrations/sumup/webhook`,
       hosted_checkout: { enabled: true },
     }),
@@ -270,5 +276,24 @@ export async function syncSumUpCheckoutToLedger(checkoutId: string, hintInvoiceI
     transactionCode: tx?.transaction_code || tx?.id,
   });
 
-  return { ...applied, status, checkout };
+  let xeroPush: Awaited<ReturnType<typeof maybePushSumUpPaymentToXero>> | null = null;
+  if (applied.ok && !applied.duplicate) {
+    const paymentId = applied.invoice.payments?.slice(-1)[0]?.id;
+    if (paymentId) {
+      try {
+        xeroPush = await maybePushSumUpPaymentToXero({
+          invoiceId: invoice.id,
+          paymentId,
+        });
+      } catch (error) {
+        xeroPush = {
+          ok: false as const,
+          reason: "push_failed" as const,
+          error: error instanceof Error ? error.message : "Xero payment push failed",
+        };
+      }
+    }
+  }
+
+  return { ...applied, status, checkout, xeroPush };
 }

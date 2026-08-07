@@ -41962,7 +41962,7 @@ export default function CoreApp() {
                         ) : null}
                         <footer>
                           <small>
-                            Record payments on this invoice. Export to accounts from the{" "}
+                            Record payments on this invoice. SumUp portal pays post to the ledger and push to Xero when the invoice is exported. Export / pull from the{" "}
                             <button
                               type="button"
                               className="text-button"
@@ -41977,6 +41977,20 @@ export default function CoreApp() {
                             module.
                           </small>
                           <div>
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              disabled={
+                                isPullingXeroPayments ||
+                                !access.canEditInvoice ||
+                                selectedInvoice.status === "Draft" ||
+                                selectedInvoice.status === "Cancelled" ||
+                                selectedInvoice.claimType === "valuation"
+                              }
+                              onClick={() => void pullSelectedInvoicePaymentsFromXero()}
+                            >
+                              {isPullingXeroPayments ? "Pulling…" : "Pull Xero payments"}
+                            </button>
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Unpaid")}>Clear payments</button>
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Part paid")}>Record payment</button>
                             <button className="primary-button" type="button" onClick={() => updateSelectedInvoicePayment("Paid")}>Record balance paid</button>

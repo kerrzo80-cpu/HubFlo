@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { getHubDetailState } from "@/lib/hub-detail-store";
-import { latestCheckoutForInvoice, lookupSumUpCheckout } from "@/lib/sumup-checkout-store";
+import {
+  latestCheckoutForInvoice,
+  lookupSumUpCheckout,
+  lookupSumUpCheckoutByReference,
+} from "@/lib/sumup-checkout-store";
 import { syncSumUpCheckoutToLedger } from "@/lib/sumup-payments";
 
 export const runtime = "nodejs";
@@ -37,7 +41,7 @@ function findInvoiceByToken(token: string) {
   );
 }
 
-/** After SumUp redirect, confirm PAID status and post to NeXa ledger. */
+/** After SumUp redirect, confirm PAID status and post to NeXa ledger (+ Xero push). */
 export async function POST(request: Request, context: RouteContext) {
   const { token } = await context.params;
   const invoice = findInvoiceByToken(token);
@@ -45,9 +49,15 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Invoice link not found" }, { status: 404 });
   }
 
-  const body = (await request.json().catch(() => null)) as { checkoutId?: string } | null;
+  const body = (await request.json().catch(() => null)) as {
+    checkoutId?: string;
+    checkoutRef?: string;
+    checkoutReference?: string;
+  } | null;
+  const checkoutRef = body?.checkoutRef?.trim() || body?.checkoutReference?.trim() || "";
   const checkoutId =
     body?.checkoutId?.trim() ||
+    (checkoutRef ? lookupSumUpCheckoutByReference(checkoutRef)?.checkoutId : "") ||
     lookupSumUpCheckout(body?.checkoutId || "")?.checkoutId ||
     latestCheckoutForInvoice(invoice.id)?.checkoutId;
 

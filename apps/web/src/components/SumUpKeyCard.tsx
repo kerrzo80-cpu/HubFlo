@@ -89,7 +89,7 @@ export function SumUpKeyCard() {
       </header>
       <p>
         {connected
-          ? `Using ${status?.source === "env" ? "environment" : "in-app"} credentials${status?.merchantCode ? ` · merchant ${status.merchantCode}` : ""}. Webhook: /api/integrations/sumup/webhook`
+          ? `Using ${status?.source === "env" ? "environment" : "in-app"} credentials${status?.merchantCode ? ` · merchant ${status.merchantCode}` : ""}. Paid portal checkouts update the invoice ledger and push to Xero when the invoice is exported. Webhook: /api/integrations/sumup/webhook`
           : "Paste API key + merchant code from SumUp Dashboard → Developers. Bank-transfer notify still works without this."}
       </p>
       <div className="setup-key-fields">
