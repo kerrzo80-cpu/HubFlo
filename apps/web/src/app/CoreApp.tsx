@@ -44806,6 +44806,9 @@ export default function CoreApp() {
 	                          </div>
 	                        </article>
 	                        ) : null}
+	                      </div>
+	                    </section>
+	                  ) : null}
 
 	                  {activeSetupCategory === "communications" ? (
 	                    <section className="setup-panel setup-readiness">
