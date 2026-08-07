@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import nodemailer from "nodemailer";
 
-import type { EmailProvider } from "@/lib/email-integration-store";
+import { emailProviderSmtpDefaults, type EmailProvider } from "@/lib/email-integration-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
 export type EmployeeMailboxInput = {
@@ -55,10 +55,7 @@ type EmployeeMailboxStore = {
   byEmployeeId: Record<string, EmployeeMailboxRecord>;
 };
 
-const defaultProviderHosts: Record<EmailProvider, { host: string; port: number; secure: boolean }> = {
-  Outlook: { host: "smtp.office365.com", port: 587, secure: false },
-  Gmail: { host: "smtp.gmail.com", port: 465, secure: true },
-};
+const defaultProviderHosts = emailProviderSmtpDefaults;
 
 const emptyStore: EmployeeMailboxStore = { byEmployeeId: {} };
 
@@ -318,7 +315,7 @@ export async function sendViaResolvedMailbox(
 export async function testEmployeeMailboxConnection(employeeId: string) {
   const mailbox = resolveEmployeeMailboxTransport(employeeId);
   if (!mailbox) {
-    throw new Error("Connect this employee's Outlook/Gmail mailbox before testing.");
+    throw new Error("Connect this employee's Outlook, Gmail, or iCloud mailbox before testing.");
   }
   const result = await sendViaResolvedMailbox(mailbox, {
     to: mailbox.from,
