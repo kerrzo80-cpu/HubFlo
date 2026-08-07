@@ -12,6 +12,11 @@ export type EngineerAttachment = {
   type: "PDF" | "Photo" | "Note" | "Video";
   uploadedBy: string;
   uploadedAt: string;
+  /** Public Field API path when bytes were synced. */
+  url?: string;
+  mimeType?: string;
+  size?: number;
+  storageKey?: string;
 };
 
 export type EngineerRequirement = {
@@ -38,6 +43,8 @@ export type EngineerRequirement = {
     text?: string;
     numberValue?: string;
     photoName?: string;
+    photoUrl?: string;
+    photoId?: string;
     capturedAt?: string;
   };
 };

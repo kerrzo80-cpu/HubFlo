@@ -4,6 +4,7 @@ import type { HubRole } from "@/lib/access";
 import { parseRole } from "@/lib/access";
 import { getAuthenticatedUser } from "@/lib/auth-request";
 import {
+  regenerateBlakeTrainerFromSystemKnowledge,
   setFlowStatus,
   upsertFlow,
   upsertMaterial,
@@ -24,7 +25,8 @@ type AdminAction =
   | { action: "upsert_material"; material: Partial<TrainerMaterial> & { title: string; content: string; kind: TrainerMaterialKind } }
   | { action: "upsert_flow"; flow: Partial<TrainerFlow> & { title: string } }
   | { action: "upsert_module"; module: Partial<TrainerModule> & { title: string } }
-  | { action: "set_flow_status"; flowId: string; status: TrainerFlowStatus };
+  | { action: "set_flow_status"; flowId: string; status: TrainerFlowStatus }
+  | { action: "generate_system_modules" };
 
 function requireAdmin(request: Request):
   | { error: NextResponse; role?: undefined; name?: undefined }
@@ -76,6 +78,14 @@ export async function POST(request: Request) {
     if (body.action === "set_flow_status") {
       const flow = setFlowStatus(body.flowId, body.status);
       return NextResponse.json({ ok: true, flow });
+    }
+    if (body.action === "generate_system_modules") {
+      const summary = regenerateBlakeTrainerFromSystemKnowledge(gate.name);
+      return NextResponse.json({
+        ok: true,
+        summary,
+        message: `Blake rebuilt ${summary.modules} modules and ${summary.flows} flows from the approved NeXa system pack.`,
+      });
     }
     return NextResponse.json({ error: "Unknown action." }, { status: 400 });
   } catch (error) {
