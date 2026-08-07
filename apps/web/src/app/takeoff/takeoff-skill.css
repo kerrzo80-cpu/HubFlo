@@ -1,3 +1,415 @@
+/* Shared Takeoff chrome — one header for Quantity + Routes */
+.takeoff-chrome {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid #d9e2ec;
+  background: #173344;
+  color: #e8f3f8;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.takeoff-chrome.compact {
+  padding: 8px 14px;
+}
+
+.takeoff-chrome-left,
+.takeoff-chrome-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.takeoff-chrome-right {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.takeoff-chrome-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #d7ebf4;
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 650;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.takeoff-chrome-title strong {
+  display: block;
+  font-size: 15px;
+  letter-spacing: 0.01em;
+}
+
+.takeoff-chrome-title span {
+  display: block;
+  font-size: 11px;
+  color: #9fc4d6;
+}
+
+.takeoff-chrome-modes {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.takeoff-chrome-modes a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  color: #b7d4e2;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 12px;
+  border-radius: 999px;
+}
+
+.takeoff-chrome-modes a.on {
+  background: #fff;
+  color: #173344;
+}
+
+.takeoff-chrome-pill,
+.takeoff-chrome-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 650;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: #e8f3f8;
+}
+
+.takeoff-chrome-pill.on {
+  background: rgba(46, 140, 125, 0.28);
+  border-color: rgba(46, 140, 125, 0.5);
+}
+
+.takeoff-chrome-btn {
+  cursor: pointer;
+}
+
+.takeoff-chrome-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* Quantity takeoff v2 workspace */
+.takeoff-v2 {
+  --ink: #173344;
+  --muted: #5f7583;
+  --line: #d7e3ea;
+  --canvas: #eef4f7;
+  --surface: #ffffff;
+  --blue: #1998cf;
+  --blue-deep: #0879ab;
+  --green: #278459;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(25, 152, 207, 0.12), transparent 38%),
+    linear-gradient(180deg, #e8f2f7 0%, var(--canvas) 45%, #f4f8fa 100%);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+.takeoff-v2-banner {
+  margin: 12px 18px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-size: 13px;
+}
+
+.takeoff-v2-banner.error {
+  border-color: #f0b4b0;
+  background: #fff5f4;
+  color: #9b2c2c;
+}
+
+.takeoff-v2-banner.ok {
+  border-color: #b7e0c8;
+  background: #f1faf4;
+  color: #1f6b45;
+}
+
+.takeoff-v2-gate {
+  max-width: 480px;
+  margin: 64px auto;
+  padding: 28px;
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+
+.takeoff-v2-gate.inline {
+  margin: 48px auto;
+}
+
+.takeoff-v2-gate h1 {
+  margin: 0 0 8px;
+  font-size: 24px;
+}
+
+.takeoff-v2-gate p {
+  margin: 0 0 18px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.takeoff-v2-body {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px 18px 28px;
+  min-height: calc(100vh - 64px);
+}
+
+.takeoff-v2-rail {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+  height: fit-content;
+  position: sticky;
+  top: 72px;
+}
+
+.takeoff-v2-rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.takeoff-v2-rail-head h2 {
+  margin: 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.takeoff-v2-ghost {
+  border: 1px solid var(--line);
+  background: #f7fafc;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--blue-deep);
+  cursor: pointer;
+}
+
+.takeoff-v2-create {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.takeoff-v2-create input,
+.takeoff-v2-create select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.takeoff-v2-project-list {
+  display: grid;
+  gap: 6px;
+}
+
+.takeoff-v2-project-list button {
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 10px;
+  padding: 9px 10px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.takeoff-v2-project-list button strong,
+.takeoff-v2-project-list button span,
+.takeoff-v2-project-list button small {
+  display: block;
+}
+
+.takeoff-v2-project-list button span {
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.takeoff-v2-project-list button small {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.takeoff-v2-project-list button.on {
+  border-color: rgba(25, 152, 207, 0.35);
+  background: #eef7fc;
+}
+
+.takeoff-v2-main {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.takeoff-v2-projectbar {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px 18px;
+}
+
+.takeoff-v2-projectbar .eyebrow {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--blue-deep);
+}
+
+.takeoff-v2-projectbar h1 {
+  margin: 4px 0 2px;
+  font-size: 22px;
+}
+
+.takeoff-v2-projectbar p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.takeoff-v2-steps {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+
+.takeoff-v2-steps button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 7px 12px;
+  cursor: pointer;
+  color: var(--muted);
+  font: inherit;
+}
+
+.takeoff-v2-steps button b {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #e8eef2;
+  font-size: 11px;
+}
+
+.takeoff-v2-steps button.active {
+  border-color: rgba(25, 152, 207, 0.45);
+  background: #eef7fc;
+  color: var(--blue-deep);
+  font-weight: 700;
+}
+
+.takeoff-v2-steps button.active b {
+  background: var(--blue);
+  color: #fff;
+}
+
+.takeoff-v2-steps button.done {
+  color: var(--green);
+}
+
+.takeoff-v2-steps button.done b {
+  background: #e8f5ee;
+  color: var(--green);
+}
+
+.takeoff-v2-invoke {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+
+.takeoff-v2-invoke summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.takeoff-v2-invoke form {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.takeoff-v2-invoke textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  font: inherit;
+  resize: vertical;
+}
+
+@media (max-width: 900px) {
+  .takeoff-chrome {
+    grid-template-columns: 1fr;
+    justify-items: stretch;
+  }
+
+  .takeoff-chrome-modes {
+    justify-self: start;
+  }
+
+  .takeoff-chrome-right {
+    justify-content: flex-start;
+  }
+
+  .takeoff-v2-body {
+    grid-template-columns: 1fr;
+  }
+
+  .takeoff-v2-rail {
+    position: static;
+  }
+}
+
 .takeoff-mode-nav {
   display: flex;
   gap: 8px;
@@ -707,6 +1119,11 @@
   border-color: rgba(0, 110, 184, 0.28);
 }
 
+.takeoff-board-items .item.low-confidence {
+  border-color: rgba(247, 144, 9, 0.45);
+  background: #fff8e8;
+}
+
 .takeoff-board-items .item.derived {
   cursor: default;
   opacity: 0.88;
@@ -875,6 +1292,11 @@
   background: var(--blue-soft);
   border-color: rgba(0, 110, 184, 0.45);
   color: var(--blue-deep);
+}
+
+.takeoff-skill-secondary.danger {
+  border-color: rgba(180, 58, 58, 0.35);
+  color: var(--red);
 }
 
 .takeoff-overlay-canvas-wrap.tool-add {
