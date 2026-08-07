@@ -9,6 +9,12 @@ function pickString(body: Record<string, unknown> | null, key: string) {
   return typeof value === "string" ? value : undefined;
 }
 
+function pickOptionalBoolean(body: Record<string, unknown> | null, key: string) {
+  const value = body?.[key];
+  if (typeof value === "boolean") return value;
+  return undefined;
+}
+
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const access = getAccessProfileFromHeaders(request.headers);
   if (!access.showCustomers) {
@@ -33,6 +39,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     notes: pickString(body, "notes"),
     vatTreatment: pickString(body, "vatTreatment") as never,
     vatRateOverride: pickString(body, "vatRateOverride"),
+    cis: pickOptionalBoolean(body, "cis"),
+    retentionPercent: pickString(body, "retentionPercent"),
+    mainContractorDiscountPercent: pickString(body, "mainContractorDiscountPercent"),
     xeroContactId: pickString(body, "xeroContactId"),
     lastStatementSentAt: pickString(body, "lastStatementSentAt"),
     lastStatementSentTo: pickString(body, "lastStatementSentTo"),

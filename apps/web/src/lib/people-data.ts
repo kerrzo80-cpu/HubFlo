@@ -56,18 +56,33 @@ export function getClientSites() {
   return clone(peopleStore.clientSites);
 }
 
+function applyDefinedPatch<T extends object>(target: T, patch: Partial<T>) {
+  for (const [key, value] of Object.entries(patch) as Array<[keyof T, T[keyof T] | undefined]>) {
+    if (value !== undefined) {
+      target[key] = value;
+    }
+  }
+}
+
 export function updateClientRecord(clientId: string, patch: Partial<ClientRecord>) {
   const existing = peopleStore.clients.find((client) => client.id === clientId);
   if (!existing) return null;
-  Object.assign(existing, patch);
+  applyDefinedPatch(existing, patch);
   persistPeopleStore();
   return clone(existing);
 }
 
-export function updateClientSiteRecord(siteId: string, patch: Partial<ClientSite>) {
+export function updateClientSiteRecord(
+  siteId: string,
+  patch: Partial<ClientSite>,
+  options?: { clearKeys?: Array<keyof ClientSite> },
+) {
   const existing = peopleStore.clientSites.find((site) => site.id === siteId);
   if (!existing) return null;
-  Object.assign(existing, patch);
+  applyDefinedPatch(existing, patch);
+  for (const key of options?.clearKeys ?? []) {
+    delete existing[key];
+  }
   persistPeopleStore();
   return clone(existing);
 }

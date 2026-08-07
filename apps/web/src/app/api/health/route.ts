@@ -58,6 +58,7 @@ export async function GET() {
       moneyPathContinuity: "sumup-xero-payment-merge-v1",
       xeroSalesAccountCodes: "finance-map-v1",
       collectionsOfflinePdf: "statement-remittance-chase-v1",
+      siteCommercialTerms: "client-site-v1",
       fieldServiceWorker: "shell-v2-scoped",
       dispatchRunSheet: "travel-buffer-v1",
       boardPackEmail: "monday-cron-v1",

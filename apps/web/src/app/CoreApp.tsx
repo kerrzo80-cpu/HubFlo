@@ -89,6 +89,11 @@ import {
   type VatTreatment,
 } from "@/lib/people-seed-data";
 import {
+  applyCommercialDiscountToLines,
+  commercialTermsSummary,
+  resolveCommercialTerms,
+} from "@/lib/commercial-terms";
+import {
   buddyMoodFromFindings,
   defaultBuddyMemory,
   dismissBuddyFinding,
@@ -1192,6 +1197,8 @@ type Invoice = {
   valuationPeriod?: string;
   valuationLines?: ValuationLine[];
   retentionPercent?: number;
+  /** Main contractor discount % applied when the invoice was raised (from client/site terms). */
+  mainContractorDiscountPercent?: number;
   applicationRef?: string;
   retentionReleasedAmount?: number;
   retentionReleaseOfRefs?: string[];
@@ -1376,14 +1383,17 @@ function resolveVatProfile(
   client?: ClientRecord | null,
   site?: ClientSite | null,
 ) {
+  const terms = resolveCommercialTerms(client, site, {
+    vatTreatment: "Standard 20%",
+    vatRate: settings.vatRate,
+  });
   const defaultRate = numberFromSetting(settings.vatRate, 20);
-  const treatment = site?.vatTreatment ?? client?.vatTreatment ?? "Standard 20%";
-  const override = site?.vatRateOverride ?? client?.vatRateOverride ?? settings.vatRate;
-  const rate = vatTreatmentRate(treatment, override, defaultRate);
+  const rate = vatTreatmentRate(terms.vatTreatment, terms.vatRateOverride || settings.vatRate, defaultRate);
   return {
     rate,
-    treatment,
-    note: vatTreatmentNote(treatment, rate),
+    treatment: terms.vatTreatment,
+    note: vatTreatmentNote(terms.vatTreatment, rate),
+    terms,
   };
 }
 
@@ -1428,6 +1438,12 @@ function makeInvoiceFromQuote(
     { cost: 0, charge: 0 },
   );
   const vatProfile = resolveVatProfile(settings, client, site);
+  const discounted = applyCommercialDiscountToLines(
+    lines,
+    aggregated.charge,
+    vatProfile.terms.mainContractorDiscountPercent,
+  );
+  const termsNote = commercialTermsSummary(vatProfile.terms);
 
   return {
     id: `inv-${Date.now()}-${Math.round(Math.random() * 1000)}`,
@@ -1443,13 +1459,19 @@ function makeInvoiceFromQuote(
     clientId: client?.id,
     siteId: quote.siteId,
     title: `Invoice for ${quote.ref}`,
-    lines,
+    lines: discounted.lines,
     costTotal: aggregated.cost,
-    chargeTotal: aggregated.charge,
+    chargeTotal: discounted.chargeTotal,
     vatRate: vatProfile.rate,
     vatTreatment: vatProfile.treatment,
     vatNote: vatProfile.note,
-    notes: `Created from ${quote.ref} cost centres. ${vatProfile.note}`,
+    cisInvoice: vatProfile.terms.cis,
+    retentionPercent: vatProfile.terms.retentionPercent > 0 ? vatProfile.terms.retentionPercent : undefined,
+    mainContractorDiscountPercent:
+      vatProfile.terms.mainContractorDiscountPercent > 0
+        ? vatProfile.terms.mainContractorDiscountPercent
+        : undefined,
+    notes: `Created from ${quote.ref} cost centres. ${termsNote}.`,
   };
 }
 
@@ -1513,6 +1535,12 @@ function makeInvoiceFromJobTotals(
   const costTotal = totalsBySource.cost + variationLineTotalCost;
   const chargeTotal = totalsBySource.charge + variationLineTotalSell;
   const vatProfile = resolveVatProfile(settings, client, site);
+  const discounted = applyCommercialDiscountToLines(
+    lines,
+    chargeTotal,
+    vatProfile.terms.mainContractorDiscountPercent,
+  );
+  const termsNote = commercialTermsSummary(vatProfile.terms);
 
   return {
     id: `inv-${Date.now()}-${Math.round(Math.random() * 1000)}`,
@@ -1528,13 +1556,19 @@ function makeInvoiceFromJobTotals(
     clientId: client?.id,
     siteId: job.siteId,
     title: `Invoice for ${job.ref} · ${job.status}`,
-    lines,
+    lines: discounted.lines,
     costTotal,
-    chargeTotal,
+    chargeTotal: discounted.chargeTotal,
     vatRate: vatProfile.rate,
     vatTreatment: vatProfile.treatment,
     vatNote: vatProfile.note,
-    notes: `${job.description} captured from cost centres for invoicing. ${vatProfile.note}`,
+    cisInvoice: vatProfile.terms.cis,
+    retentionPercent: vatProfile.terms.retentionPercent > 0 ? vatProfile.terms.retentionPercent : undefined,
+    mainContractorDiscountPercent:
+      vatProfile.terms.mainContractorDiscountPercent > 0
+        ? vatProfile.terms.mainContractorDiscountPercent
+        : undefined,
+    notes: `${job.description} captured from cost centres for invoicing. ${termsNote}.`,
   };
 }
 
@@ -15730,6 +15764,23 @@ export default function CoreApp() {
     );
   }
 
+  function clearSiteCommercialField(
+    siteId: string,
+    keys: Array<"cis" | "retentionPercent" | "mainContractorDiscountPercent">,
+  ) {
+    markSetupEdited();
+    setClientSites((current) =>
+      current.map((site) => {
+        if (site.id !== siteId) return site;
+        const next = { ...site };
+        for (const key of keys) {
+          delete next[key];
+        }
+        return next;
+      }),
+    );
+  }
+
   function updateLabourRateSetting(rateId: string, patch: Partial<LabourRateSetting>) {
     markSetupEdited();
     setFinanceSettings((current) => {
@@ -20032,13 +20083,20 @@ export default function CoreApp() {
       });
     }
 
+    const client = clients.find((item) => item.id === job.clientId) ?? null;
+    const site = job.siteId ? clientSites.find((item) => item.id === job.siteId) ?? null : null;
+    const commercial = resolveCommercialTerms(client, site, {
+      vatTreatment: "Standard 20%",
+      vatRate: normalizedFinanceSettings.vatRate,
+    });
+
     setSelectedJobId(job.id);
     setSelectedInvoiceId(null);
     setJobInvoiceDraft({
       jobId: job.id,
       mode: "deposit",
       depositPercent: 30,
-      retentionPercent: 0,
+      retentionPercent: commercial.retentionPercent,
       valuationPeriod: new Date().toISOString().slice(0, 7),
       notes: "",
       valuationLines,
@@ -20129,7 +20187,7 @@ export default function CoreApp() {
     const contractTotal = valuationLines.reduce((sum, line) => sum + line.contractValue, 0) || job.value || grossClaim;
     const netClaim = valuationNetAmount(grossClaim, 0);
     const costRatio = contractTotal > 0 ? Math.min(1, grossClaim / contractTotal) : 0;
-    const lines: InvoiceLine[] = valuationLines
+    const depositLines: InvoiceLine[] = valuationLines
       .filter((line) => line.requestedThisPeriod > 0)
       .map((line) => ({
         id: `invoice-claim-${line.id}`,
@@ -20139,17 +20197,21 @@ export default function CoreApp() {
         chargeToClient: valuationNetAmount(line.requestedThisPeriod, 0),
         note: `${depositPercent}% deposit claim`,
       }));
+    const discountPercent = base.mainContractorDiscountPercent ?? 0;
+    const discounted = applyCommercialDiscountToLines(depositLines, netClaim, discountPercent);
 
     const created: Invoice = {
       ...base,
       title: `${depositPercent}% deposit for ${job.ref}`,
-      lines,
-      costTotal: lines.reduce((sum, line) => sum + line.costToUs, 0),
-      chargeTotal: netClaim,
-      notes: `${depositPercent}% deposit created on quote acceptance for ${job.ref}. ${base.vatNote ?? ""}`.trim(),
+      lines: discounted.lines,
+      costTotal: discounted.lines.reduce((sum, line) => sum + line.costToUs, 0),
+      chargeTotal: discounted.chargeTotal,
+      notes: `${depositPercent}% deposit created on quote acceptance for ${job.ref}. ${base.vatNote ?? ""}${base.cisInvoice ? " CIS applies." : ""}`.trim(),
       claimType: "deposit",
       claimPercent: depositPercent,
       retentionPercent: 0,
+      cisInvoice: Boolean(base.cisInvoice),
+      mainContractorDiscountPercent: discountPercent > 0 ? discountPercent : undefined,
       accountsStatus: "Not sent",
       paymentStatus: "Unpaid",
       paidAmount: 0,
@@ -20247,7 +20309,7 @@ export default function CoreApp() {
 
     const netClaim = valuationNetAmount(grossClaim, retentionPercent);
     const costRatio = contractTotal > 0 ? Math.min(1, grossClaim / contractTotal) : 0;
-    const lines: InvoiceLine[] = valuationLines
+    const claimLines: InvoiceLine[] = valuationLines
       .filter((line) => line.requestedThisPeriod > 0)
       .map((line) => ({
         id: `invoice-claim-${line.id}`,
@@ -20257,6 +20319,8 @@ export default function CoreApp() {
         chargeToClient: valuationNetAmount(line.requestedThisPeriod, retentionPercent),
         note: jobInvoiceDraft.mode === "valuation" ? `Application for ${jobInvoiceDraft.valuationPeriod}` : `${depositPercent}% ${jobInvoiceDraft.mode} claim`,
       }));
+    const discountPercent = base.mainContractorDiscountPercent ?? 0;
+    const discounted = applyCommercialDiscountToLines(claimLines, netClaim, discountPercent);
     const isValuation = jobInvoiceDraft.mode === "valuation";
     const reference = isValuation ? buildApplicationRef(invoices, normalizedFinanceSettings) : base.ref;
     const title = jobInvoiceDraft.mode === "deposit"
@@ -20268,16 +20332,18 @@ export default function CoreApp() {
       ...base,
       ref: reference,
       title,
-      lines,
-      costTotal: lines.reduce((sum, line) => sum + line.costToUs, 0),
-      chargeTotal: netClaim,
-      notes: jobInvoiceDraft.notes || `${title} created from job cost centres. ${base.vatNote ?? ""}`.trim(),
+      lines: discounted.lines,
+      costTotal: discounted.lines.reduce((sum, line) => sum + line.costToUs, 0),
+      chargeTotal: discounted.chargeTotal,
+      notes: jobInvoiceDraft.notes || `${title} created from job cost centres. ${base.vatNote ?? ""}${base.cisInvoice ? " CIS applies." : ""}`.trim(),
       claimType: jobInvoiceDraft.mode,
       claimPercent: jobInvoiceDraft.mode === "deposit" ? depositPercent : undefined,
       valuationStatus: isValuation ? "Draft valuation" : undefined,
       valuationPeriod: jobInvoiceDraft.valuationPeriod,
       valuationLines,
       retentionPercent,
+      cisInvoice: Boolean(base.cisInvoice),
+      mainContractorDiscountPercent: discountPercent > 0 ? discountPercent : undefined,
       accountsStatus: "Not sent",
       paymentStatus: "Unpaid",
       paidAmount: 0,
@@ -28546,7 +28612,17 @@ export default function CoreApp() {
     const response = await fetch(`/api/client-sites/${siteId}`, {
       method: "PATCH",
       headers: { ...requestHeaders, "Content-Type": "application/json", "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
-      body: JSON.stringify({ ...patch, actor: activeEmployee?.name ?? "NeXa user" }),
+      body: JSON.stringify({
+        ...patch,
+        // Tri-state inherit: omit boolean → null clears site CIS override.
+        cis: typeof patch.cis === "boolean" ? patch.cis : null,
+        vatTreatment: patch.vatTreatment ?? null,
+        retentionPercent: patch.retentionPercent?.trim() ? patch.retentionPercent : null,
+        mainContractorDiscountPercent: patch.mainContractorDiscountPercent?.trim()
+          ? patch.mainContractorDiscountPercent
+          : null,
+        actor: activeEmployee?.name ?? "NeXa user",
+      }),
     });
     const result = await response.json().catch(() => ({})) as {
       error?: string;
@@ -42082,6 +42158,23 @@ export default function CoreApp() {
                               CIS (uses Finance → Xero CIS code)
                             </span>
                           </label>
+                          <div>
+                            <span>Commercial terms</span>
+                            <strong>
+                              {[
+                                selectedInvoice.vatTreatment || "Standard 20%",
+                                selectedInvoice.cisInvoice ? "CIS" : null,
+                                (selectedInvoice.retentionPercent ?? 0) > 0
+                                  ? `Retention ${selectedInvoice.retentionPercent}%`
+                                  : null,
+                                (selectedInvoice.mainContractorDiscountPercent ?? 0) > 0
+                                  ? `Main contractor discount ${selectedInvoice.mainContractorDiscountPercent}%`
+                                  : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </strong>
+                          </div>
                           <label className="accounts-payment-amount">
                             <span>Payment amount</span>
                             <input
@@ -46282,8 +46375,8 @@ export default function CoreApp() {
                       </article>
 
                       <article className="client-info-card client-vat-card">
-                        <span className="permission-heading">Client VAT default</span>
-                        <p>Used for every quote, job and invoice unless a site below has its own VAT rule.</p>
+                        <span className="permission-heading">Client commercial defaults</span>
+                        <p>VAT, CIS, retention and main contractor discount for every site unless a site overrides them.</p>
                         <div className="client-vat-controls">
                           <label>
                             VAT treatment
@@ -46311,8 +46404,36 @@ export default function CoreApp() {
                               onChange={(event) => updateClientVatProfile(activeClient.id, { vatRateOverride: event.target.value })}
                             />
                           </label>
+                          <label>
+                            Retention %
+                            <input
+                              inputMode="decimal"
+                              placeholder="0"
+                              value={activeClient.retentionPercent ?? ""}
+                              onChange={(event) => updateClientRecordDraft(activeClient.id, { retentionPercent: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            Main contractor discount %
+                            <input
+                              inputMode="decimal"
+                              placeholder="0"
+                              value={activeClient.mainContractorDiscountPercent ?? ""}
+                              onChange={(event) => updateClientRecordDraft(activeClient.id, { mainContractorDiscountPercent: event.target.value })}
+                            />
+                          </label>
+                          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.35rem" }}>
+                            <input
+                              type="checkbox"
+                              checked={Boolean(activeClient.cis)}
+                              onChange={(event) => updateClientRecordDraft(activeClient.id, { cis: event.target.checked })}
+                            />
+                            CIS applies (shows on invoices / Xero CIS sales code)
+                          </label>
                         </div>
-                        <span className="setup-status-label">{resolveVatProfile(financeSettings, activeClient, null).note}</span>
+                        <span className="setup-status-label">
+                          {commercialTermsSummary(resolveVatProfile(financeSettings, activeClient, null).terms)}
+                        </span>
                       </article>
 
                       <article className="client-info-card">
@@ -46434,7 +46555,9 @@ export default function CoreApp() {
                               <input value={site.nextVisit} onChange={(event) => updateClientSiteDraft(site.id, { nextVisit: event.target.value })} />
                             </label>
                           </div>
-                          <p className="client-directory-meta">VAT: {resolveVatProfile(financeSettings, activeClient, site).note}</p>
+                          <p className="client-directory-meta">
+                            {commercialTermsSummary(resolveVatProfile(financeSettings, activeClient, site).terms)}
+                          </p>
                           <div className="client-vat-controls site-vat-controls">
                             <label>
                               Site VAT rule
@@ -46466,6 +46589,56 @@ export default function CoreApp() {
                                 placeholder={site.vatTreatment ? financeSettings.vatRate : "Inherited"}
                                 value={site.vatRateOverride ?? ""}
                                 onChange={(event) => updateSiteVatProfile(site.id, { vatRateOverride: event.target.value })}
+                              />
+                            </label>
+                            <label>
+                              Site CIS
+                              <select
+                                value={typeof site.cis === "boolean" ? (site.cis ? "yes" : "no") : "inherit"}
+                                onChange={(event) => {
+                                  const value = event.target.value;
+                                  if (value === "inherit") {
+                                    clearSiteCommercialField(site.id, ["cis"]);
+                                    return;
+                                  }
+                                  updateClientSiteDraft(site.id, { cis: value === "yes" });
+                                }}
+                              >
+                                <option value="inherit">Use client default{activeClient.cis ? " (CIS on)" : " (CIS off)"}</option>
+                                <option value="yes">CIS on for this site</option>
+                                <option value="no">CIS off for this site</option>
+                              </select>
+                            </label>
+                            <label>
+                              Site retention %
+                              <input
+                                inputMode="decimal"
+                                placeholder={activeClient.retentionPercent?.trim() || "Inherited"}
+                                value={site.retentionPercent ?? ""}
+                                onChange={(event) => {
+                                  const value = event.target.value;
+                                  if (!value.trim()) {
+                                    clearSiteCommercialField(site.id, ["retentionPercent"]);
+                                    return;
+                                  }
+                                  updateClientSiteDraft(site.id, { retentionPercent: value });
+                                }}
+                              />
+                            </label>
+                            <label>
+                              Site main contractor discount %
+                              <input
+                                inputMode="decimal"
+                                placeholder={activeClient.mainContractorDiscountPercent?.trim() || "Inherited"}
+                                value={site.mainContractorDiscountPercent ?? ""}
+                                onChange={(event) => {
+                                  const value = event.target.value;
+                                  if (!value.trim()) {
+                                    clearSiteCommercialField(site.id, ["mainContractorDiscountPercent"]);
+                                    return;
+                                  }
+                                  updateClientSiteDraft(site.id, { mainContractorDiscountPercent: value });
+                                }}
                               />
                             </label>
                           </div>
