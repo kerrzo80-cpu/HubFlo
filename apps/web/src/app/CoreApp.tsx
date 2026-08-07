@@ -120,6 +120,12 @@ import {
 } from "@/lib/access";
 import { numberedReference } from "@/lib/numbering";
 import {
+  DEFAULT_XERO_ACCOUNT_CODES,
+  XERO_ACCOUNT_CODE_FIELDS,
+  normalizeXeroAccountCodes,
+  type XeroAccountCodes,
+} from "@/lib/xero-account-codes";
+import {
   DIRECTORY_ALPHABET_LETTERS,
   filterDirectoryList,
   type DirectoryAlphabetLetter,
@@ -1179,6 +1185,8 @@ type Invoice = {
   outlookMessageId?: string;
   claimType?: InvoiceClaimType;
   claimPercent?: number;
+  /** When true, Xero export uses the CIS sales account code from Finance → Xero. */
+  cisInvoice?: boolean;
   valuationStatus?: ValuationStatus;
   valuationPeriod?: string;
   valuationLines?: ValuationLine[];
@@ -1859,6 +1867,8 @@ type FinanceSettings = {
   defaultLabourMarkupPercent: string;
   labourRates: LabourRateSetting[];
   deletedLabourRateIds?: string[];
+  /** simPRO-style Xero chart mapping for sales / bills / payments. */
+  xeroAccountCodes?: XeroAccountCodes;
 };
 
 type IntegrationMode = "Not connected" | "Queued handoff" | "One-way push" | "Two-way sync";
@@ -3735,8 +3745,8 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Threshold in Workflow rules",
     },
     Xero: {
-      summary: "Connect your accounts system here — Xero now; QuickBooks and Sage next. Finance is where people expect Xero.",
-      focus: ["Choose Xero / QuickBooks / Sage", "Save Client ID and Secret", "Connect organisation"],
+      summary: "Connect Xero and map sales types to chart codes — standard, CIS, retention, deposits — like simPRO’s Xero setup.",
+      focus: ["Connect organisation", "Map sales / CIS / retention codes", "Tax codes under Setup → Tax codes"],
       status: "Editable now",
     },
   },
@@ -4576,6 +4586,7 @@ const defaultFinanceSettings: FinanceSettings = {
   defaultLabourMarkupPercent: "30",
   labourRates: defaultLabourRateSettings,
   deletedLabourRateIds: [],
+  xeroAccountCodes: { ...DEFAULT_XERO_ACCOUNT_CODES },
 };
 
 const integrationModes: IntegrationMode[] = ["Not connected", "Queued handoff", "One-way push", "Two-way sync"];
@@ -7270,6 +7281,9 @@ function normalizeFinanceSettings(settings?: Partial<FinanceSettings>): FinanceS
     ...settings,
     labourRates: [...defaultRates, ...extraRates],
     deletedLabourRateIds,
+    xeroAccountCodes: normalizeXeroAccountCodes(
+      (settings as FinanceSettings).xeroAccountCodes || defaultFinanceSettings.xeroAccountCodes,
+    ),
   };
 }
 
@@ -15655,6 +15669,20 @@ export default function CoreApp() {
     setFinanceSettings((current) => ({ ...current, ...patch }));
   }
 
+  function updateXeroAccountCode(key: keyof XeroAccountCodes, value: string) {
+    markSetupEdited();
+    const cleaned = value.trim();
+    setFinanceSettings((current) => ({
+      ...current,
+      xeroAccountCodes: {
+        ...normalizeXeroAccountCodes(current.xeroAccountCodes),
+        [key]: cleaned,
+      },
+      // Alias for payment-push readers that look at financeSettings.xeroPaymentAccountCode.
+      ...(key === "paymentBank" ? ({ xeroPaymentAccountCode: cleaned } as Partial<FinanceSettings>) : {}),
+    }));
+  }
+
   function updateIntegrationSettings(patch: Partial<IntegrationSettings>) {
     markSetupEdited();
     setIntegrationSettings((current) => ({ ...current, ...patch }));
@@ -20888,8 +20916,10 @@ export default function CoreApp() {
             dueDate: invoice.dueDate,
             chargeTotal: invoice.chargeTotal,
             vatRate: invoice.vatRate,
+            vatTreatment: invoice.vatTreatment,
             notes: invoice.notes,
             claimType: invoice.claimType,
+            cisInvoice: Boolean(invoice.cisInvoice),
             creditOfRef: invoice.creditOfRef || creditOfInvoice?.ref,
             creditOfXeroInvoiceId: creditOfInvoice?.xeroInvoiceId,
             xeroInvoiceId: invoice.xeroInvoiceId,
@@ -41848,6 +41878,29 @@ export default function CoreApp() {
                             <strong>{currency(Math.max(0, selectedInvoiceFinancials.grandTotal - (selectedInvoice.paidAmount ?? 0)))}</strong>
                           </div>
                           <label className="accounts-payment-amount">
+                            <span>Xero sales type</span>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                              <input
+                                type="checkbox"
+                                checked={Boolean(selectedInvoice.cisInvoice)}
+                                disabled={!access.canEditInvoice}
+                                onChange={(event) => {
+                                  markInvoiceEdited();
+                                  const cisInvoice = event.target.checked;
+                                  setInvoices((current) => {
+                                    const next = current.map((invoice) =>
+                                      invoice.id === selectedInvoice.id ? { ...invoice, cisInvoice } : invoice,
+                                    );
+                                    saveHubDetailStateWithInvoices(next, "Could not save CIS sales flag.");
+                                    return next;
+                                  });
+                                }}
+                                aria-label="Post this invoice to the CIS sales account in Xero"
+                              />
+                              CIS (uses Finance → Xero CIS code)
+                            </span>
+                          </label>
+                          <label className="accounts-payment-amount">
                             <span>Payment amount</span>
                             <input
                               type="number"
@@ -44978,7 +45031,10 @@ export default function CoreApp() {
                         <div>
                           <span className="permission-heading">Finance</span>
                           <h2>Xero</h2>
-                          <p>Connect your accounts system from Finance — no Render env per company. Export queues stay in the Xero module.</p>
+                          <p>
+                            Connect Xero, then map sales types to your chart of accounts — same idea as simPRO’s Xero setup
+                            (standard, CIS, retention, deposits, credit notes).
+                          </p>
                         </div>
                         <div className="setup-template-actions">
                           <button className="secondary-button" type="button" onClick={() => void recheckXeroConfiguration()}>
@@ -45142,6 +45198,34 @@ export default function CoreApp() {
 	                            </article>
 	                          </div>
 	                        </article>
+
+                        <article className="setup-integration-card">
+                          <header>
+                            <div>
+                              <span>Chart of accounts</span>
+                              <strong>Sales & bill codes</strong>
+                            </div>
+                          </header>
+                          <small>
+                            Enter the Xero account codes from your chart of accounts. Blank optional fields fall back to
+                            Standard sales. Tax types still come from Setup → Tax codes (OUTPUT2 / NONE / RRCOUTPUT).
+                          </small>
+                          <div className="setup-form-grid">
+                            {XERO_ACCOUNT_CODE_FIELDS.map((field) => (
+                              <label key={field.key}>
+                                {field.label}
+                                <input
+                                  value={String(normalizedFinanceSettings.xeroAccountCodes?.[field.key] ?? "")}
+                                  onChange={(event) => updateXeroAccountCode(field.key, event.target.value)}
+                                  placeholder={field.placeholder}
+                                  inputMode="numeric"
+                                  autoComplete="off"
+                                />
+                                <small>{field.hint}</small>
+                              </label>
+                            ))}
+                          </div>
+                        </article>
                       </div>
                     </section>
                   ) : null}
