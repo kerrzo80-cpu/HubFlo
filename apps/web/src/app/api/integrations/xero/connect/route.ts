@@ -15,7 +15,8 @@ export async function GET(request: Request) {
   if (!status.authUrl) {
     return NextResponse.json(
       {
-        error: "Xero connect needs XERO_CLIENT_ID, XERO_CLIENT_SECRET and XERO_REDIRECT_URI.",
+        error:
+          "Save your Xero app Client ID and Secret in Setup → Finance → Xero (or set platform XERO_* env once), then Connect.",
         status,
       },
       { status: 400 },

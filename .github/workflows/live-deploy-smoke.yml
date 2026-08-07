@@ -1,0 +1,24 @@
+name: Live deploy smoke
+
+on:
+  push:
+    branches:
+      - codex/ai-surveyor-estimator-takeoff
+  workflow_dispatch:
+  schedule:
+    # Catch silent overnight breakage (UTC).
+    - cron: "15 */6 * * *"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    # Render deploys often take 3–8 minutes; settle retries cover that window.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Smoke live (wait through deploy, then hold)
+        env:
+          NEXA_SMOKE_BASE_URL: https://nexa-live.onrender.com
+          # Wait up to 10 minutes for Render cutover 502s to clear.
+          NEXA_SMOKE_SETTLE_SECONDS: "600"
+        run: node scripts/deploy-smoke.mjs --hold-seconds 90

@@ -52,8 +52,8 @@ function scoreUnderstanding(answer: string, expectedPoints: string[]) {
 
 function refuseReply(voice: boolean) {
   return voice
-    ? "I don’t have that in the approved NeXa materials, so I won’t guess. Ask your manager or Brian, or stick to this module’s pack."
-    : "I don’t have that in the approved NeXa materials (guides, screenshots, videos, FAQs, or company rules), so I won’t guess. Please ask your manager or Brian, or continue with this module’s approved pack.";
+    ? "I don’t have that in the approved company materials, so I won’t guess. Ask your manager or Brian, or stick to this module’s pack."
+    : "I don’t have that in the approved company materials (guides, screenshots, videos, FAQs, or company rules), so I won’t guess. Please ask your manager or Brian, or continue with this module’s approved pack.";
 }
 
 function teachReply(step: TrainerStep, materials: TrainerMaterial[], voice: boolean) {
