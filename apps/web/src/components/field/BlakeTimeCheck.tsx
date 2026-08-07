@@ -9,10 +9,18 @@ import {
 } from "lucide-react";
 import { BlakeCharacter, type BlakeMood } from "@/components/field/BlakeCharacter";
 import { useNexaClient } from "@/lib/field/nexa";
+import {
+  postFieldTimeCheck,
+  readCachedTimeCheck,
+  saveCachedTimeCheck,
+} from "@/lib/field/field-time-check-offline";
+import { isBrowserOnline } from "@/lib/field/offline-outbox";
 import { formatDuration } from "@/lib/field/format";
 import type { DailyTimeCheck, TimeCheckLine, TimeCheckSummary } from "@/lib/field/types";
 
 type Bubble = { id: string; role: "blake" | "you"; text: string };
+
+const FIELD_OFFLINE_NOTICE = "Saved offline — will sync when online";
 
 function nextPending(lines: TimeCheckLine[]) {
   return lines.find((line) => line.status === "pending") ?? null;
@@ -33,6 +41,7 @@ export function BlakeTimeCheck() {
   const [chat, setChat] = useState<Bubble[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [editing, setEditing] = useState(false);
   const [draftStart, setDraftStart] = useState("");
   const [draftEnd, setDraftEnd] = useState("");
@@ -47,36 +56,63 @@ export function BlakeTimeCheck() {
     async function boot() {
       setBusy(true);
       try {
+        if (!isBrowserOnline()) {
+          const cached = readCachedTimeCheck();
+          if (cached && !cancelled) {
+            setCheck(cached.check);
+            setSummary(cached.summary);
+            setNotice("Showing saved hours — changes will sync when you are back online.");
+            seedChat(cached.check, cached.summary);
+            return;
+          }
+        }
+
         const result = await client.getTimeCheck();
         if (cancelled) return;
         setCheck(result.check);
         setSummary(result.summary);
-        const pending = nextPending(result.check.lines);
-        if (result.check.status === "submitted") {
-          setChat([{
-            id: "done",
-            role: "blake",
-            text: `All set — ${result.summary.actualHours.toFixed(1)} hrs charged against today's jobs (${result.summary.amendedCount} amended).`,
-          }]);
-        } else if (pending) {
-          setChat([{
-            id: `ask-${pending.scheduleId}`,
-            role: "blake",
-            text: `End of day check. For ${pending.customer} (${pending.jobRef}) you were booked ${pending.scheduledStart}-${pending.scheduledEnd} — ${formatDuration(pending.scheduledHours)}. Did that match, or do we amend it?`,
-          }]);
-        } else {
-          setChat([{
-            id: "ready",
-            role: "blake",
-            text: `Every job is reviewed. Submit and I'll charge ${result.summary.actualHours.toFixed(1)} hrs against the work.`,
-          }]);
-        }
+        saveCachedTimeCheck(result.check, result.summary);
+        seedChat(result.check, result.summary);
       } catch (bootError) {
-        if (!cancelled) setError(bootError instanceof Error ? bootError.message : "Blake could not load today.");
+        if (!cancelled) {
+          const cached = readCachedTimeCheck();
+          if (cached) {
+            setCheck(cached.check);
+            setSummary(cached.summary);
+            setNotice("Showing saved hours — changes will sync when you are back online.");
+            seedChat(cached.check, cached.summary);
+            return;
+          }
+          setError(bootError instanceof Error ? bootError.message : "Blake could not load today.");
+        }
       } finally {
         if (!cancelled) setBusy(false);
       }
     }
+
+    function seedChat(nextCheck: DailyTimeCheck, nextSummary: TimeCheckSummary) {
+      const pending = nextPending(nextCheck.lines);
+      if (nextCheck.status === "submitted") {
+        setChat([{
+          id: "done",
+          role: "blake",
+          text: `All set — ${nextSummary.actualHours.toFixed(1)} hrs charged against today's jobs (${nextSummary.amendedCount} amended).`,
+        }]);
+      } else if (pending) {
+        setChat([{
+          id: `ask-${pending.scheduleId}`,
+          role: "blake",
+          text: `End of day check. For ${pending.customer} (${pending.jobRef}) you were booked ${pending.scheduledStart}-${pending.scheduledEnd} — ${formatDuration(pending.scheduledHours)}. Did that match, or do we amend it?`,
+        }]);
+      } else {
+        setChat([{
+          id: "ready",
+          role: "blake",
+          text: `Every job is reviewed. Submit and I'll charge ${nextSummary.actualHours.toFixed(1)} hrs against the work.`,
+        }]);
+      }
+    }
+
     void boot();
     return () => {
       cancelled = true;
@@ -91,10 +127,14 @@ export function BlakeTimeCheck() {
     setDraftNote(current.note);
   }, [current, editing]);
 
-  async function afterUpdate(result: { check: DailyTimeCheck; summary: TimeCheckSummary }, youSaid: string) {
+  async function afterUpdate(
+    result: { check: DailyTimeCheck; summary: TimeCheckSummary; offline?: boolean },
+    youSaid: string,
+  ) {
     setCheck(result.check);
     setSummary(result.summary);
     setEditing(false);
+    setNotice(result.offline ? FIELD_OFFLINE_NOTICE : "");
     setChat((prev) => [...prev, { id: `you-${Date.now()}`, role: "you", text: youSaid }]);
     const pending = nextPending(result.check.lines);
     if (result.check.status === "submitted") {
@@ -121,11 +161,17 @@ export function BlakeTimeCheck() {
   }
 
   async function confirmCurrent() {
-    if (!current) return;
+    if (!current || !check) return;
     setBusy(true);
     setError("");
     try {
-      const result = await client.updateTimeLine({ scheduleId: current.scheduleId, confirmAsScheduled: true });
+      const result = await postFieldTimeCheck(
+        {
+          action: "update_line",
+          payload: { scheduleId: current.scheduleId, confirmAsScheduled: true },
+        },
+        check,
+      );
       await afterUpdate(result, `Confirm ${current.jobRef} as scheduled.`);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Could not save.");
@@ -135,17 +181,23 @@ export function BlakeTimeCheck() {
   }
 
   async function saveAmendment() {
-    if (!current) return;
+    if (!current || !check) return;
     setBusy(true);
     setError("");
     try {
-      const result = await client.updateTimeLine({
-        scheduleId: current.scheduleId,
-        actualStart: draftStart,
-        actualEnd: draftEnd,
-        breakMinutes: Number(draftBreak) || 0,
-        note: draftNote || `Amended with Blake from ${current.scheduledHours}h booked.`,
-      });
+      const result = await postFieldTimeCheck(
+        {
+          action: "update_line",
+          payload: {
+            scheduleId: current.scheduleId,
+            actualStart: draftStart,
+            actualEnd: draftEnd,
+            breakMinutes: Number(draftBreak) || 0,
+            note: draftNote || `Amended with Blake from ${current.scheduledHours}h booked.`,
+          },
+        },
+        check,
+      );
       await afterUpdate(result, `Amend ${current.jobRef} to ${draftStart}-${draftEnd}.`);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Could not save.");
@@ -155,10 +207,17 @@ export function BlakeTimeCheck() {
   }
 
   async function submit(confirmRemaining = false) {
+    if (!check) return;
     setBusy(true);
     setError("");
     try {
-      const result = await client.submitTimeCheck(confirmRemaining);
+      const result = await postFieldTimeCheck(
+        {
+          action: "submit",
+          payload: { confirmRemainingAsScheduled: confirmRemaining },
+        },
+        check,
+      );
       await afterUpdate(
         result,
         confirmRemaining ? "Confirm remaining as scheduled and submit." : "Submit reviewed hours.",
@@ -184,6 +243,8 @@ export function BlakeTimeCheck() {
           </p>
         </div>
       </header>
+
+      {notice ? <div className="feedback">{notice}</div> : null}
 
       {error ? (
         <div className="feedback error">

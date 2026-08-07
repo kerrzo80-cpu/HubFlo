@@ -17,6 +17,7 @@ type PushBody = {
   /** Existing quote id, or omit / empty to create a new quote */
   quoteId?: string;
   createNew?: boolean;
+  projectId?: string;
   customerName?: string;
   projectName?: string;
   address?: string;
@@ -85,9 +86,14 @@ export async function POST(request: Request) {
       value: sellTotal,
       next: "Review heat-design materials cost centre and send quote",
       due,
+      metadata: body.projectId ? { heatDesignProjectId: body.projectId } : undefined,
     });
   } else {
     const nextValue = Math.max(0, Math.round((quote.value - previousSell + sellTotal) * 100) / 100);
+    const metadata = { ...(quote.metadata ?? {}) };
+    if (body.projectId) {
+      metadata.heatDesignProjectId = body.projectId;
+    }
     quote = updateQuote(quote.id, {
       customer: body.customerName || quote.customer,
       description: quote.description?.includes("Heat design")
@@ -96,6 +102,7 @@ export async function POST(request: Request) {
       owner: actor,
       value: nextValue,
       next: "Review heat-design materials cost centre and send quote",
+      metadata,
     })!;
   }
 
