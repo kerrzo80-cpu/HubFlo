@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
+import { useBrand } from "@/components/BrandProvider";
+import { resolveBrandLogoUrl } from "@/lib/branding";
 
 type VariationPortalRecord = {
   variationEventId: string;
@@ -34,6 +36,7 @@ function parseRecordStatus(status: VariationPortalRecord["status"]) {
 }
 
 export default function ClientVariationPortal({ params }: { params: Promise<{ token: string }> }) {
+  const brand = useBrand();
   const [token, setToken] = useState("");
   const [record, setRecord] = useState<VariationPortalRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -106,8 +109,8 @@ export default function ClientVariationPortal({ params }: { params: Promise<{ to
       <section className="client-portal-card">
         <header>
           <span className="verrova-client-lockup">
-            <img src="/brand/nexa-command-mark.svg" alt="" aria-hidden="true" />
-            <strong>NeXa</strong>
+            <img src={resolveBrandLogoUrl(brand)} alt="" aria-hidden="true" />
+            <strong>{brand.companyName}</strong>
           </span>
           <span>Online variation approval</span>
         </header>
@@ -146,7 +149,7 @@ export default function ClientVariationPortal({ params }: { params: Promise<{ to
                 <CheckCircle2 size={24} />
                 <div>
                   <strong>Variation approved</strong>
-                  <span>NeXa has been notified and office can proceed.</span>
+                  <span>{brand.companyName} has been notified and office can proceed.</span>
                 </div>
               </div>
             ) : record.status === "Declined" ? (

@@ -3,7 +3,13 @@ import nodemailer from "nodemailer";
 
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
-export type EmailProvider = "Outlook" | "Gmail";
+export type EmailProvider = "Outlook" | "Gmail" | "iCloud";
+
+export const emailProviderSmtpDefaults: Record<EmailProvider, { host: string; port: number; secure: boolean }> = {
+  Outlook: { host: "smtp.office365.com", port: 587, secure: false },
+  Gmail: { host: "smtp.gmail.com", port: 465, secure: true },
+  iCloud: { host: "smtp.mail.me.com", port: 587, secure: false },
+};
 
 export type EmailIntegrationInput = {
   provider: EmailProvider;
@@ -62,10 +68,7 @@ export type EmailIntegrationStatus = {
   lastError?: string;
 };
 
-const defaultProviderHosts: Record<EmailProvider, { host: string; port: number; secure: boolean }> = {
-  Outlook: { host: "smtp.office365.com", port: 587, secure: false },
-  Gmail: { host: "smtp.gmail.com", port: 465, secure: true },
-};
+const defaultProviderHosts = emailProviderSmtpDefaults;
 
 const emptyStore: EmailIntegrationStore = {
   provider: "Outlook",
@@ -205,15 +208,20 @@ export async function sendEmailMessage(input: OutboundEmailInput) {
   const employeeId = input.employeeId?.trim();
   if (employeeId) {
     const { resolveEmployeeMailboxTransport, sendViaResolvedMailbox } = await import("@/lib/employee-mailbox-store");
-    const employeeMailbox = resolveEmployeeMailboxTransport(employeeId);
-    if (employeeMailbox) {
-      return sendViaResolvedMailbox(employeeMailbox, {
-        to: input.to,
-        cc: input.cc,
-        subject: input.subject,
-        text: input.text,
-        attachments: input.attachments,
-      });
+    try {
+      const employeeMailbox = resolveEmployeeMailboxTransport(employeeId);
+      if (employeeMailbox) {
+        return sendViaResolvedMailbox(employeeMailbox, {
+          to: input.to,
+          cc: input.cc,
+          subject: input.subject,
+          text: input.text,
+          attachments: input.attachments,
+        });
+      }
+    } catch (error) {
+      // Surface decrypt / missing-password issues instead of silently falling back to company SMTP.
+      throw error instanceof Error ? error : new Error("Unable to use the employee mailbox.");
     }
   }
 
