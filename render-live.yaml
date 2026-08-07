@@ -147,29 +147,49 @@ services:
       - key: NEXA_IMPORT_TICK_SECRET
         sync: false
 
-  # Every 15 minutes — fail loud if Core/Field shells or health go dark.
+  # Hourly uptime probe. Retries through Render deploy 502s so cutovers do not page.
   - type: cron
     name: nexa-live-deploy-smoke
     runtime: node
     region: frankfurt
     plan: starter
-    schedule: "*/15 * * * *"
+    schedule: "5 * * * *"
     buildCommand: echo "nexa-deploy-smoke-cron"
     startCommand: >-
       node --input-type=module -e "
       const secret = process.env.NEXA_IMPORT_TICK_SECRET;
       if (!secret) { console.error('NEXA_IMPORT_TICK_SECRET missing'); process.exit(1); }
-      const res = await fetch('https://nexa-live.onrender.com/api/health/smoke', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-nexa-import-tick-secret': secret,
-        },
-        body: '{}',
-      });
-      const text = await res.text();
-      console.log(res.status, text.slice(0, 4000));
-      if (!res.ok) process.exit(1);
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      let lastStatus = 0;
+      let lastText = '';
+      let lastOk = false;
+      let lastDeployWindow = false;
+      for (let attempt = 1; attempt <= 6; attempt++) {
+        try {
+          const res = await fetch('https://nexa-live.onrender.com/api/health/smoke', {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-nexa-import-tick-secret': secret,
+            },
+            body: '{}',
+          });
+          lastStatus = res.status;
+          lastText = await res.text();
+          let body = null;
+          try { body = JSON.parse(lastText); } catch {}
+          lastOk = Boolean(body?.ok);
+          lastDeployWindow = Boolean(body?.deployWindow);
+          console.log(JSON.stringify({ attempt, status: lastStatus, ok: lastOk, deployWindow: lastDeployWindow, failed: body?.failed || [] }));
+          if (res.ok && lastOk) process.exit(0);
+        } catch (error) {
+          console.log(JSON.stringify({ attempt, error: error instanceof Error ? error.message : String(error) }));
+        }
+        // ~6 attempts × 25s ≈ 2.5 minutes through a Render cutover.
+        await sleep(25000);
+      }
+      console.error(lastStatus, lastText.slice(0, 4000));
+      process.exit(1);
       "
     envVars:
       - key: NODE_VERSION

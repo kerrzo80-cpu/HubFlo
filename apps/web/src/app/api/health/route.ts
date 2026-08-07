@@ -131,7 +131,7 @@ export async function GET() {
       heatDesignPlan: "save-race-walls-v1",
       setupIndependent: "integrations-one-panel-v1",
       bootTabsReady: "auth-only-v1",
-      deploySmoke: "health-smoke-cron-v1",
+      deploySmoke: "retry-settle-hourly-v2",
       takeoffSkill: "drawing-first-v8-routes-page",
       takeoffAiConfirm: "overlay-review-v1",
       recurringServices: "upcoming-4w-v1",

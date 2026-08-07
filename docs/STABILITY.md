@@ -4,13 +4,15 @@
 
 | Check | How |
 |-------|-----|
-| Local / CI | `pnpm smoke:live:once` or `pnpm smoke:live` (holds 2 min) |
+| Local / CI | `pnpm smoke:live:once` or `pnpm smoke:live` |
 | GitHub Actions | `.github/workflows/live-deploy-smoke.yml` on live branch push + every 6h |
-| Render cron | `nexa-live-deploy-smoke` every 15 min → `POST /api/health/smoke` |
+| Render cron | `nexa-live-deploy-smoke` hourly → `POST /api/health/smoke` (retries deploy 502s) |
 
 Smoke covers: `/api/health` (incl. `coreRoutes`), `/login`, `/`, Core modules (`/jobs`, `/quotes`, `/leads`, `/setup`, `/reports`, `/people`, `/schedule`, `/invoices`), `/field`, Field SW files, Field manifest, `/heat-design`, `/api/branding`.
 
-Health flags: `deploySmoke: health-smoke-cron-v1`, `coreRoutes: url-modules-v1`.
+**Important:** a Render “server failure” email from `nexa-live-deploy-smoke` usually means the **smoke cron exited non-zero**, not that the main web service crashed. Mid-deploy 502s are retried; only sustained failures should page.
+
+Health flags: `deploySmoke: retry-settle-hourly-v2`, `coreRoutes: url-modules-v1`.
 
 ## Core URL modules (Phase 1)
 

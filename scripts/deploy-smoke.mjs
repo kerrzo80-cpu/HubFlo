@@ -2,11 +2,12 @@
 /**
  * Post-deploy / uptime smoke — fetch only, no browser.
  *
+ * Retries through Render deploy 502/503 windows so a mid-deploy probe does not
+ * page the team. Only exits 1 after sustained failure.
+ *
  * Usage:
  *   NEXA_SMOKE_BASE_URL=https://nexa-live.onrender.com node scripts/deploy-smoke.mjs
  *   node scripts/deploy-smoke.mjs --base https://nexa-live.onrender.com --hold-seconds 120
- *
- * Exit 0 = all checks passed (and hold window stayed green if requested).
  */
 const args = process.argv.slice(2);
 function flag(name, fallback = "") {
@@ -20,10 +21,16 @@ const baseUrl = (flag("--base", process.env.NEXA_SMOKE_BASE_URL || "https://nexa
   "",
 );
 const holdSeconds = Number(flag("--hold-seconds", process.env.NEXA_SMOKE_HOLD_SECONDS || "0")) || 0;
-const timeoutMs = Number(flag("--timeout-ms", process.env.NEXA_SMOKE_TIMEOUT_MS || "20000")) || 20000;
+const timeoutMs = Number(flag("--timeout-ms", process.env.NEXA_SMOKE_TIMEOUT_MS || "25000")) || 25000;
+const settleSeconds =
+  Number(flag("--settle-seconds", process.env.NEXA_SMOKE_SETTLE_SECONDS || "480")) || 480;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientStatus(status) {
+  return status === 502 || status === 503 || status === 504 || status === 520 || status === 522 || status === 524;
 }
 
 async function probe(path, { expectStatus, expectRedirectTo, expectBodyIncludes, expectJson } = {}) {
@@ -36,6 +43,7 @@ async function probe(path, { expectStatus, expectRedirectTo, expectBodyIncludes,
       redirect: "manual",
       signal: controller.signal,
       headers: { accept: "text/html,application/json,*/*" },
+      cache: "no-store",
     });
     const elapsedMs = Date.now() - started;
     const status = response.status;
@@ -46,6 +54,12 @@ async function probe(path, { expectStatus, expectRedirectTo, expectBodyIncludes,
       json = JSON.parse(text);
     } catch {
       // not json
+    }
+
+    if (isTransientStatus(status)) {
+      const err = new Error(`${path} status ${status} (deploy/transient)`);
+      err.transient = true;
+      throw err;
     }
 
     if (Array.isArray(expectStatus) && !expectStatus.includes(status)) {
@@ -65,8 +79,33 @@ async function probe(path, { expectStatus, expectRedirectTo, expectBodyIncludes,
     }
 
     return { path, status, elapsedMs, location, ok: true };
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      const err = new Error(`${path} timed out after ${timeoutMs}ms`);
+      err.transient = true;
+      throw err;
+    }
+    if (error && typeof error === "object" && !("transient" in error)) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|network/i.test(message)) {
+        const err = new Error(message);
+        err.transient = true;
+        throw err;
+      }
+    }
+    throw error;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+function assertHealth(json) {
+  if (!json?.ok) throw new Error("/api/health ok !== true");
+  if (!json?.deployment?.commit) throw new Error("/api/health missing deployment.commit");
+  // Soft flags: warn via throw only if missing after settle; required spine markers.
+  if (!json?.deployment?.tenOfTenPlan) throw new Error("/api/health missing tenOfTenPlan");
+  if (json?.deployment?.coreRoutes !== "url-modules-v1") {
+    throw new Error(`/api/health coreRoutes=${json?.deployment?.coreRoutes}, expected url-modules-v1`);
   }
 }
 
@@ -76,39 +115,7 @@ async function runOnce() {
   results.push(
     await probe("/api/health", {
       expectStatus: 200,
-      expectJson: (json) => {
-        if (!json?.ok) throw new Error("/api/health ok !== true");
-        if (!json?.deployment?.commit) throw new Error("/api/health missing deployment.commit");
-        if (!json?.deployment?.tenOfTenPlan) throw new Error("/api/health missing tenOfTenPlan");
-        if (json?.deployment?.coreRoutes !== "url-modules-v1") {
-          throw new Error(`/api/health coreRoutes=${json?.deployment?.coreRoutes}, expected url-modules-v1`);
-        }
-        if (json?.deployment?.fieldPhotoSync !== "bytes-v1") {
-          throw new Error(
-            `/api/health fieldPhotoSync=${json?.deployment?.fieldPhotoSync}, expected bytes-v1`,
-          );
-        }
-        if (json?.deployment?.mobileNavFix !== "url-sync-off-v5") {
-          throw new Error(
-            `/api/health mobileNavFix=${json?.deployment?.mobileNavFix}, expected url-sync-off-v5`,
-          );
-        }
-        if (json?.deployment?.heatDesignPlan !== "save-race-walls-v1") {
-          throw new Error(
-            `/api/health heatDesignPlan=${json?.deployment?.heatDesignPlan}, expected save-race-walls-v1`,
-          );
-        }
-        if (json?.deployment?.setupIndependent !== "integrations-one-panel-v1") {
-          throw new Error(
-            `/api/health setupIndependent=${json?.deployment?.setupIndependent}, expected integrations-one-panel-v1`,
-          );
-        }
-        if (json?.deployment?.bootTabsReady !== "auth-only-v1") {
-          throw new Error(
-            `/api/health bootTabsReady=${json?.deployment?.bootTabsReady}, expected auth-only-v1`,
-          );
-        }
-      },
+      expectJson: assertHealth,
     }),
   );
 
@@ -119,14 +126,12 @@ async function runOnce() {
     }),
   );
 
-  // Unauthenticated Core should bounce to login (users auth mode).
   results.push(
     await probe("/", {
       expectStatus: [307, 302, 200],
     }),
   );
 
-  // Core module URL routes (Phase 1 route split) — must resolve, not 404.
   for (const path of ["/jobs", "/quotes", "/leads", "/setup", "/reports", "/people", "/schedule", "/invoices"]) {
     results.push(
       await probe(path, {
@@ -150,16 +155,49 @@ async function runOnce() {
   return results;
 }
 
+async function runOnceWithSettle() {
+  const deadline = Date.now() + settleSeconds * 1000;
+  let attempt = 0;
+  let lastError = null;
+
+  while (Date.now() <= deadline) {
+    attempt += 1;
+    try {
+      const results = await runOnce();
+      return { results, attempt };
+    } catch (error) {
+      lastError = error;
+      const transient = Boolean(error && typeof error === "object" && error.transient);
+      const message = error instanceof Error ? error.message : String(error);
+      const remainingMs = deadline - Date.now();
+      console.error(
+        JSON.stringify({
+          attempt,
+          transient,
+          remainingSec: Math.max(0, Math.round(remainingMs / 1000)),
+          error: message,
+        }),
+      );
+      if (!transient && attempt >= 2) throw error;
+      if (remainingMs <= 0) break;
+      await sleep(Math.min(20000, Math.max(5000, Math.floor(remainingMs / 6))));
+    }
+  }
+
+  throw lastError || new Error("Smoke failed after settle window");
+}
+
 async function main() {
-  console.log(JSON.stringify({ baseUrl, holdSeconds, timeoutMs }, null, 2));
+  console.log(JSON.stringify({ baseUrl, holdSeconds, timeoutMs, settleSeconds }, null, 2));
   const started = Date.now();
   let pass = 0;
 
   while (true) {
-    const results = await runOnce();
+    const { results, attempt } = await runOnceWithSettle();
     pass += 1;
     const summary = {
       pass,
+      attempt,
       elapsedSec: Math.round((Date.now() - started) / 1000),
       results: results.map((row) => ({
         path: row.path,

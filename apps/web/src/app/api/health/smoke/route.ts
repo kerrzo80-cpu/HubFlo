@@ -9,6 +9,7 @@ type SmokeCheck = {
   status?: number;
   ms?: number;
   error?: string;
+  attempts?: number;
 };
 
 function canRunWithSecret(request: NextRequest) {
@@ -24,32 +25,53 @@ function appOrigin(request: NextRequest) {
   return request.nextUrl.origin;
 }
 
+function isTransientStatus(status: number) {
+  return status === 502 || status === 503 || status === 504 || status === 520 || status === 522 || status === 524;
+}
+
+async function sleep(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function checkPath(origin: string, path: string, acceptStatuses: number[]): Promise<SmokeCheck> {
-  const started = Date.now();
-  try {
-    const response = await fetch(`${origin}${path}`, {
-      method: "GET",
-      redirect: "manual",
-      headers: { accept: "text/html,application/json,*/*" },
-      cache: "no-store",
-    });
-    const ms = Date.now() - started;
-    const ok = acceptStatuses.includes(response.status);
-    return {
-      path,
-      ok,
-      status: response.status,
-      ms,
-      error: ok ? undefined : `expected ${acceptStatuses.join("|")}, got ${response.status}`,
-    };
-  } catch (error) {
-    return {
-      path,
-      ok: false,
-      ms: Date.now() - started,
-      error: error instanceof Error ? error.message : "fetch failed",
-    };
+  const maxAttempts = 4;
+  let last: SmokeCheck = { path, ok: false, error: "not attempted" };
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const started = Date.now();
+    try {
+      const response = await fetch(`${origin}${path}`, {
+        method: "GET",
+        redirect: "manual",
+        headers: { accept: "text/html,application/json,*/*" },
+        cache: "no-store",
+      });
+      const ms = Date.now() - started;
+      const ok = acceptStatuses.includes(response.status);
+      last = {
+        path,
+        ok,
+        status: response.status,
+        ms,
+        attempts: attempt,
+        error: ok ? undefined : `expected ${acceptStatuses.join("|")}, got ${response.status}`,
+      };
+      if (ok) return last;
+      if (!isTransientStatus(response.status) || attempt === maxAttempts) return last;
+    } catch (error) {
+      last = {
+        path,
+        ok: false,
+        ms: Date.now() - started,
+        attempts: attempt,
+        error: error instanceof Error ? error.message : "fetch failed",
+      };
+      if (attempt === maxAttempts) return last;
+    }
+    await sleep(1500 * attempt);
   }
+
+  return last;
 }
 
 async function runSmoke(origin: string) {
@@ -92,8 +114,14 @@ async function runSmoke(origin: string) {
   }
 
   const failed = checks.filter((check) => !check.ok);
+  const transientOnly =
+    failed.length > 0 &&
+    failed.every((check) => typeof check.status === "number" && isTransientStatus(check.status));
+
   return {
     ok: failed.length === 0,
+    /** Informational: failures look like deploy/proxy blips; outer cron should retry. */
+    deployWindow: transientOnly,
     origin,
     checkedAt: new Date().toISOString(),
     failed: failed.map((check) => check.path),
