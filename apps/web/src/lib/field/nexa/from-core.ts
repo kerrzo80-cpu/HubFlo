@@ -38,6 +38,10 @@ function mapAttachment(item: EngineerScheduleItem["attachments"][number]): Field
             : "PDF",
     uploadedBy: item.uploadedBy,
     uploadedAt: item.uploadedAt,
+    url: item.url,
+    mimeType: item.mimeType,
+    size: item.size,
+    storageKey: item.storageKey,
   };
 }
 
