@@ -71,17 +71,19 @@ export async function POST(request: Request) {
 
   const buildBlakeMaterials = (takeoffId: string) => {
     const reducers = reducerMaterialAllowances(fittings, takeoffId);
-    // Valves / clips / TRVs etc. Elbows/couplings already land via studio auto fittings on runs.
-    const ancillaries = blakeKitMaterialAllowances(
-      buildBlakeAncillariesKit({
-        systemKind,
-        emitterMode,
-        layout: sizedLayout,
-        fittings,
-        roomCount: project.rooms.length,
-      }),
-      takeoffId,
-    );
+    // Prefer live Blake AI kit when present; else rule ancillaries.
+    // Elbows/couplings already land via studio auto fittings on runs.
+    const kitLines =
+      project.blakeProposal?.kitLines?.length
+        ? project.blakeProposal.kitLines
+        : buildBlakeAncillariesKit({
+            systemKind,
+            emitterMode,
+            layout: sizedLayout,
+            fittings,
+            roomCount: project.rooms.length,
+          });
+    const ancillaries = blakeKitMaterialAllowances(kitLines, takeoffId);
     return [...reducers, ...ancillaries];
   };
 
