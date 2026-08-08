@@ -32,10 +32,16 @@ import {
   createDefaultStudioState,
   importPipeRunsIntoStudio,
   importSkillCountsIntoStudio,
+  metresPerUnitFromRatio,
+  parseScaleRatioLabel,
   polylineLength,
   scaleForPage,
   studioHasAiPipeRuns,
 } from "@/lib/takeoff-studio";
+import {
+  applyLearningToMeasuredRows,
+  takeoffLearningPreferences,
+} from "@/lib/takeoff-learning-store";
 import { POST as skillPost } from "../skill/route";
 
 export const runtime = "nodejs";
@@ -114,17 +120,23 @@ async function skillJson(request: NextRequest, id: string, body: Record<string, 
   return json;
 }
 
-function tradeFromSheets(sheets: Array<{ discipline?: string }> | undefined): TakeoffTradeId {
+function tradeFromSheets(sheets: Array<{ discipline?: string }> | undefined): {
+  trade: TakeoffTradeId;
+  voteCount: number;
+} {
   const votes = new Map<TakeoffTradeId, number>();
   for (const sheet of sheets || []) {
     const discipline = (sheet.discipline || "").toLowerCase();
+    if (!discipline.trim()) continue;
     let trade: TakeoffTradeId = "plumbing";
     if (discipline.includes("elec")) trade = "electrical";
-    else if (discipline.includes("mech") || discipline.includes("heat")) trade = "mechanical";
+    else if (discipline.includes("heat")) trade = "heating";
+    else if (discipline.includes("mech")) trade = "mechanical";
     else if (discipline.includes("struct")) trade = "structural";
     else if (discipline.includes("arch")) trade = "architectural";
     else if (discipline.includes("civil") || discipline.includes("drain")) trade = "civil";
     else if (discipline.includes("plumb")) trade = "plumbing";
+    else continue;
     votes.set(trade, (votes.get(trade) || 0) + 1);
   }
   let best: TakeoffTradeId = "plumbing";
@@ -135,7 +147,7 @@ function tradeFromSheets(sheets: Array<{ discipline?: string }> | undefined): Ta
       bestCount = count;
     }
   }
-  return best;
+  return { trade: best, voteCount: bestCount };
 }
 
 function pinCountOf(measured: MeasuredRow[]) {
@@ -465,7 +477,8 @@ export async function POST(
     .reduce((sum, doc) => sum + (Number(doc?.colouredStrokeCount) || 0), 0);
 
   try {
-    let trade: TakeoffTradeId = "plumbing";
+    const learning = takeoffLearningPreferences();
+    let trade: TakeoffTradeId = learning.defaultTrade || "plumbing";
     let measured: MeasuredRow[] = [];
     let pinCount = 0;
     let usedFallback = false;
@@ -490,7 +503,10 @@ export async function POST(
 
     try {
       const analysed = await skillJson(request, id, { action: "analyse", actor });
-      trade = tradeFromSheets(analysed.skill?.drawingIndex?.sheets);
+      const sheetTrade = tradeFromSheets(analysed.skill?.drawingIndex?.sheets);
+      trade = sheetTrade.voteCount > 0
+        ? sheetTrade.trade
+        : (learning.defaultTrade || sheetTrade.trade);
       await skillJson(request, id, {
         action: "set-scope",
         actor,
@@ -519,8 +535,11 @@ export async function POST(
       };
     } catch {
       // Client-only path still useful when skill/server PDF parse fails.
-      trade = tradeFromSheets([]);
+      trade = learning.defaultTrade || "plumbing";
     }
+
+    measured = applyLearningToMeasuredRows(measured, learning);
+    pinCount = pinCountOf(measured);
 
     if (pinCount === 0) {
       const fallback = await serverDiscoverPins(getTakeoffProject(id) || project);
@@ -584,7 +603,31 @@ export async function POST(
         }
       }
     }
-    const scaled = applyScaleHintsToStudio(baseStudio, scalePages);
+    let scaled = applyScaleHintsToStudio(baseStudio, scalePages);
+    // Fall back to the scale ratio this workspace usually picks.
+    if (!scaled.appliedLabel && learning.preferredScaleLabel) {
+      const denom = parseScaleRatioLabel(learning.preferredScaleLabel);
+      const mpu = denom != null ? metresPerUnitFromRatio(denom, 1.35) : null;
+      if (mpu != null) {
+        const docId = drawings[0]?.id || baseStudio.activeDocumentId;
+        const page = baseStudio.activePage || 1;
+        if (docId) {
+          const scales = [
+            ...scaled.studio.scales.filter((row) => !(row.documentId === docId && row.page === page)),
+            {
+              documentId: docId,
+              page,
+              metresPerUnit: mpu,
+              label: learning.preferredScaleLabel,
+            },
+          ];
+          scaled = {
+            studio: { ...scaled.studio, scales },
+            appliedLabel: `${learning.preferredScaleLabel} (usual)`,
+          };
+        }
+      }
+    }
 
     let nextStudio = importSkillCountsIntoStudio(
       {
@@ -625,6 +668,9 @@ export async function POST(
     if (!nextStudio.activeDocumentId) {
       nextStudio.activeDocumentId = drawings[0]?.id || baseStudio.activeDocumentId;
     }
+    if (!baseStudio.activePipeSpecId && learning.defaultPipeSpecId) {
+      nextStudio.activePipeSpecId = learning.defaultPipeSpecId;
+    }
     nextStudio.tool = "select";
     nextStudio.updatedAt = new Date().toISOString();
 
@@ -650,6 +696,7 @@ export async function POST(
           : null,
         scaled.appliedLabel ? `scale ${scaled.appliedLabel}` : null,
         !scaled.appliedLabel && pipeRunCount > 0 ? "set scale to lock metres" : null,
+        learning.eventCount >= 2 ? "using your takeoff habits" : null,
       ].filter(Boolean);
       message = `Blake found ${bits.join(" · ")}. Review on the sheet${studioHasAiPipeRuns(nextStudio) ? " — trim/extend runs if needed" : ""}.`;
     }
@@ -668,6 +715,12 @@ export async function POST(
         scaleLabel: scaled.appliedLabel,
       },
       trade,
+      learning: {
+        eventCount: learning.eventCount,
+        defaultPipeSpecId: learning.defaultPipeSpecId,
+        defaultTrade: learning.defaultTrade,
+        summary: learning.summary,
+      },
       usedFallback,
       diagnostics,
       focus: firstAi
