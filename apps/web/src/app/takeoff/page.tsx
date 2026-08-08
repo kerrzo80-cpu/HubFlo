@@ -59,8 +59,10 @@ import {
 import { recordTakeoffLearningClient } from "@/lib/takeoff-learning-client";
 import {
   applyTakeoffRatesToMaterials,
+  priceAndExpandTakeoffMaterials,
   summarisePricedMaterials,
 } from "@/lib/takeoff-studio-rates";
+import type { TakeoffAssemblyKit, TakeoffRateEntry, TakeoffRateLibrary } from "@/lib/takeoff-rate-library";
 
 import TakeoffOverlayReview from "./TakeoffOverlayReview";
 import StudioCanvas from "./studio/StudioCanvas";
@@ -107,6 +109,9 @@ export default function TakeoffStudioPage() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [boqOpen, setBoqOpen] = useState(false);
+  const [rateLibrary, setRateLibrary] = useState<TakeoffRateLibrary | null>(null);
+  const [ratesOpen, setRatesOpen] = useState(false);
+  const [ratesBusy, setRatesBusy] = useState(false);
   const saveTimer = useRef<number | null>(null);
   const historyRef = useRef<StudioState[]>([]);
   const futureRef = useRef<StudioState[]>([]);
@@ -249,6 +254,23 @@ export default function TakeoffStudioPage() {
   useEffect(() => {
     if (hasPendingAiReview) setReviewOpen(true);
   }, [hasPendingAiReview, selectedId]);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const response = await apiFetch("/api/takeoff-rates", { cache: "no-store" });
+        const body = (await response.json().catch(() => null)) as { ok?: boolean; library?: TakeoffRateLibrary } | null;
+        if (!active || !response.ok || !body?.library) return;
+        setRateLibrary(body.library);
+      } catch {
+        // Rates stay on built-in defaults until library loads.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -884,6 +906,42 @@ export default function TakeoffStudioPage() {
     return { saved, attached };
   }
 
+  async function saveRateLibrary(next: TakeoffRateLibrary) {
+    setRatesBusy(true);
+    setError(null);
+    try {
+      const response = await apiFetch("/api/takeoff-rates", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rates: next.rates, assemblies: next.assemblies }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { ok?: boolean; library?: TakeoffRateLibrary; error?: string };
+      if (!response.ok || !body.library) throw new Error(body.error || "Could not save rates");
+      setRateLibrary(body.library);
+      show("Rate library saved — Push will use these £ rates and assembly kits.", 8000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save rates");
+    } finally {
+      setRatesBusy(false);
+    }
+  }
+
+  function patchRateCost(id: string, unitCost: number) {
+    if (!rateLibrary) return;
+    const rates: TakeoffRateEntry[] = rateLibrary.rates.map((row) =>
+      row.id === id ? { ...row, unitCost: Number.isFinite(unitCost) ? unitCost : 0 } : row,
+    );
+    setRateLibrary({ ...rateLibrary, rates });
+  }
+
+  function patchAssemblyEnabled(id: string, enabled: boolean) {
+    if (!rateLibrary) return;
+    const assemblies: TakeoffAssemblyKit[] = rateLibrary.assemblies.map((row) =>
+      row.id === id ? { ...row, enabled } : row,
+    );
+    setRateLibrary({ ...rateLibrary, assemblies });
+  }
+
   async function pushToCore(options: { allowPendingAiReview?: boolean; createNew?: boolean } = {}) {
     if (!selected) return;
     const createNew = Boolean(options.createNew) || !selected.linkedQuoteId;
@@ -923,7 +981,7 @@ export default function TakeoffStudioPage() {
         markupPercent: 0,
         supplierRequired: false,
       }));
-      const materials = applyTakeoffRatesToMaterials([...pipeMaterials, ...baseMaterials]);
+      const materials = priceAndExpandTakeoffMaterials([...pipeMaterials, ...baseMaterials]);
       const priced = summarisePricedMaterials(materials);
       const patch = await apiFetch(`/api/takeoff-projects/${selected.id}`, {
         method: "PATCH",
@@ -1374,6 +1432,101 @@ export default function TakeoffStudioPage() {
                 <p className="muted nexa-studio-hint">
                   Tap a coloured service (Cold = blue, Hot = red), then Length. Or change the swatch colour anytime. Ask Blake can still auto-trace vector pipes.
                 </p>
+              </section>
+
+              <section className="nexa-studio-rates-rail">
+                <header>
+                  <h2>Rates &amp; assemblies</h2>
+                  <button type="button" className="ghost" onClick={() => setRatesOpen((open) => !open)}>
+                    {ratesOpen ? "Hide" : "Edit"}
+                  </button>
+                </header>
+                <p className="muted nexa-studio-hint">
+                  Edit £ rates for pipe/fittings/fixtures. Assembly kits (WC / WHB / rad) add ancillaries on Push.
+                </p>
+                {ratesOpen && rateLibrary ? (
+                  <div className="nexa-studio-rates-editor">
+                    <strong className="nexa-studio-rates-heading">Unit rates</strong>
+                    <ul className="nexa-studio-rates-list">
+                      {rateLibrary.rates.map((row) => (
+                        <li key={row.id}>
+                          <span>
+                            {row.label}
+                            <small>{row.unit}</small>
+                          </span>
+                          <label>
+                            £
+                            <input
+                              inputMode="decimal"
+                              value={String(row.unitCost)}
+                              onChange={(e) => patchRateCost(row.id, Number(e.target.value))}
+                              aria-label={`${row.label} unit cost`}
+                            />
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                    <strong className="nexa-studio-rates-heading">Assemblies on Push</strong>
+                    <ul className="nexa-studio-assembly-list">
+                      {rateLibrary.assemblies.map((kit) => (
+                        <li key={kit.id}>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={kit.enabled}
+                              onChange={(e) => patchAssemblyEnabled(kit.id, e.target.checked)}
+                            />
+                            <span>
+                              {kit.label}
+                              <small>{kit.lines.length} ancillaries</small>
+                            </span>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="nexa-studio-rates-actions">
+                      <button
+                        type="button"
+                        className="nexa-studio-primary"
+                        disabled={ratesBusy}
+                        onClick={() => rateLibrary && void saveRateLibrary(rateLibrary)}
+                      >
+                        {ratesBusy ? <Loader2 className="spin" size={14} /> : null}
+                        Save rates
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost"
+                        disabled={ratesBusy}
+                        onClick={() => {
+                          void (async () => {
+                            setRatesBusy(true);
+                            try {
+                              const response = await apiFetch("/api/takeoff-rates", {
+                                method: "PUT",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ reset: true }),
+                              });
+                              const body = (await response.json().catch(() => ({}))) as {
+                                library?: TakeoffRateLibrary;
+                                error?: string;
+                              };
+                              if (!response.ok || !body.library) throw new Error(body.error || "Reset failed");
+                              setRateLibrary(body.library);
+                              show("Rates reset to defaults.", 6000);
+                            } catch (err) {
+                              setError(err instanceof Error ? err.message : "Reset failed");
+                            } finally {
+                              setRatesBusy(false);
+                            }
+                          })();
+                        }}
+                      >
+                        Reset defaults
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </section>
 
               <section className="nexa-studio-core-link">

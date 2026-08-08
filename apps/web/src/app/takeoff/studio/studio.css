@@ -773,6 +773,86 @@
   margin-top: 6px;
 }
 
+.nexa-studio-rates-editor {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.nexa-studio-rates-heading {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.nexa-studio-rates-list,
+.nexa-studio-assembly-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.nexa-studio-rates-list li,
+.nexa-studio-assembly-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+}
+
+.nexa-studio-rates-list li span,
+.nexa-studio-assembly-list li span {
+  display: grid;
+  gap: 1px;
+  font-weight: 700;
+}
+
+.nexa-studio-rates-list small,
+.nexa-studio-assembly-list small {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.nexa-studio-rates-list label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  color: var(--blue-deep);
+}
+
+.nexa-studio-rates-list input {
+  width: 72px;
+  min-height: 30px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 700;
+}
+
+.nexa-studio-assembly-list label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  cursor: pointer;
+}
+
+.nexa-studio-rates-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
 .nexa-studio-fitting-tally {
   display: flex;
   flex-wrap: wrap;

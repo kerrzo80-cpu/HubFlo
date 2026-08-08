@@ -46,7 +46,7 @@ import {
   appendLinearWithAutoFittings,
   pipeSpecById,
 } from "@/lib/takeoff-studio-pipe";
-import { measureTakeoffPagesWithVision } from "@/lib/takeoff-blake-vision";
+import { measureTakeoffPagesWithVision, type BlakeTextHint } from "@/lib/takeoff-blake-vision";
 import { POST as skillPost } from "../skill/route";
 
 export const runtime = "nodejs";
@@ -611,7 +611,23 @@ export async function POST(
     // Scanned / image sheets: look at page screenshots when text+vector found nothing.
     if (pinCount === 0 && !pipeExtract.runs.length && pageImages.length) {
       try {
-        const vision = await measureTakeoffPagesWithVision(pageImages);
+        const textHints: BlakeTextHint[] = clientExtracts.flatMap((extract) =>
+          extract.pages.flatMap((page) =>
+            (page.textItems || [])
+              .filter((item) => item.text && item.text.trim().length >= 2)
+              .slice(0, 80)
+              .map((item) => ({
+                documentId: extract.documentId,
+                pageNumber: page.pageNumber,
+                text: item.text,
+                x: item.x,
+                y: item.y,
+                pageWidth: page.width,
+                pageHeight: page.height,
+              })),
+          ),
+        );
+        const vision = await measureTakeoffPagesWithVision(pageImages, { textHints });
         if (vision.used) {
           measured = vision.measured.map((row) => ({
             ...row,

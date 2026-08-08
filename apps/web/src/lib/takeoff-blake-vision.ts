@@ -15,6 +15,17 @@ export type BlakePageImage = {
   height?: number;
 };
 
+/** Optional PDF text items (even sparse OCR/text) to snap vision pins onto. */
+export type BlakeTextHint = {
+  documentId: string;
+  pageNumber: number;
+  text: string;
+  x: number;
+  y: number;
+  pageWidth: number;
+  pageHeight: number;
+};
+
 export type BlakeVisionMeasuredRow = {
   id: string;
   kind: "primary" | "secondary";
@@ -60,27 +71,30 @@ type VisionPayload = {
 
 const VISION_MODELS = ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1"] as const;
 
-const CODE_ALIASES: Record<string, { code: string; description: string }> = {
-  wc: { code: "P-WC", description: "WC" },
-  toilet: { code: "P-WC", description: "WC" },
-  whb: { code: "P-WHB", description: "Wash hand basin" },
-  basin: { code: "P-WHB", description: "Wash hand basin" },
-  bath: { code: "P-BATH", description: "Bath" },
-  shower: { code: "P-SHR", description: "Shower" },
-  rad: { code: "P-RAD", description: "Radiator" },
-  radiator: { code: "P-RAD", description: "Radiator" },
-  sink: { code: "P-SINK", description: "Sink" },
-  boiler: { code: "P-BOILER", description: "Boiler" },
-  cylinder: { code: "P-CYL", description: "Cylinder" },
+const CODE_ALIASES: Record<string, { code: string; description: string; keywords: string[] }> = {
+  wc: { code: "P-WC", description: "WC", keywords: ["wc", "toilet", "pan"] },
+  toilet: { code: "P-WC", description: "WC", keywords: ["wc", "toilet", "pan"] },
+  whb: { code: "P-WHB", description: "Wash hand basin", keywords: ["whb", "basin", "lav"] },
+  basin: { code: "P-WHB", description: "Wash hand basin", keywords: ["whb", "basin", "lav"] },
+  bath: { code: "P-BATH", description: "Bath", keywords: ["bath"] },
+  shower: { code: "P-SHR", description: "Shower", keywords: ["shower", "shr"] },
+  rad: { code: "P-RAD", description: "Radiator", keywords: ["rad", "radiator"] },
+  radiator: { code: "P-RAD", description: "Radiator", keywords: ["rad", "radiator"] },
+  sink: { code: "P-SINK", description: "Sink", keywords: ["sink", "ssk"] },
+  boiler: { code: "P-BOILER", description: "Boiler", keywords: ["boiler"] },
+  cylinder: { code: "P-CYL", description: "Cylinder", keywords: ["cylinder", "cyl"] },
 };
 
 function normaliseCode(raw: string, description: string) {
   const key = `${raw} ${description}`.toLowerCase();
   for (const [alias, mapped] of Object.entries(CODE_ALIASES)) {
-    if (key.includes(alias)) return mapped;
+    if (key.includes(alias)) {
+      return { code: mapped.code, description: mapped.description, keywords: mapped.keywords };
+    }
   }
   const clean = raw.trim().toUpperCase().replace(/\s+/g, "-") || "P-ITEM";
-  return { code: clean.startsWith("P-") ? clean : `P-${clean}`, description: description || clean };
+  const code = clean.startsWith("P-") ? clean : `P-${clean}`;
+  return { code, description: description || clean, keywords: [description, raw].map((s) => s.toLowerCase()).filter(Boolean) };
 }
 
 function extractOutputText(body: unknown): string {
@@ -104,32 +118,92 @@ function parseVisionJson(raw: string): VisionPayload | null {
   }
 }
 
+function snapToTextHint(
+  documentId: string;
+  pageNumber: number,
+  x: number,
+  y: number,
+  pageWidth: number,
+  pageHeight: number,
+  keywords: string[],
+  hints: BlakeTextHint[],
+): { x: number; y: number; text?: string; snapped: boolean } {
+  const candidates = hints.filter((hint) => {
+    if (hint.documentId !== documentId || hint.pageNumber !== pageNumber) return false;
+    const text = hint.text.toLowerCase();
+    return keywords.some((key) => key && text.includes(key));
+  });
+  if (!candidates.length) return { x, y, snapped: false };
+
+  let best = candidates[0]!;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (const hint of candidates) {
+    // Hints are PDF bottom-left; vision pin y is also bottom-left after conversion.
+    const scaleX = pageWidth / Math.max(hint.pageWidth, 1);
+    const scaleY = pageHeight / Math.max(hint.pageHeight, 1);
+    const hx = hint.x * scaleX;
+    const hy = hint.y * scaleY;
+    const dist = Math.hypot(hx - x, hy - y);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = hint;
+    }
+  }
+  // Only snap when reasonably near (within ~25% of page diagonal).
+  const diagonal = Math.hypot(pageWidth, pageHeight);
+  if (bestDist > diagonal * 0.25) return { x, y, snapped: false };
+  const scaleX = pageWidth / Math.max(best.pageWidth, 1);
+  const scaleY = pageHeight / Math.max(best.pageHeight, 1);
+  return {
+    x: best.x * scaleX,
+    y: best.y * scaleY,
+    text: best.text,
+    snapped: true,
+  };
+}
+
 async function callVisionModel(
   apiKey: string,
   preferredModel: string,
   images: BlakePageImage[],
+  textHints: BlakeTextHint[],
 ): Promise<{ text: string; model: string } | null> {
   const models = [preferredModel, ...VISION_MODELS].filter(
     (model, index, list) => Boolean(model) && list.indexOf(model) === index,
   );
 
+  const hintLines = textHints.slice(0, 40).map((hint) => {
+    const xPct = hint.pageWidth ? hint.x / hint.pageWidth : 0;
+    const yTopPct = hint.pageHeight ? 1 - hint.y / hint.pageHeight : 0;
+    return `- "${hint.text}" page ${hint.pageNumber} ≈ (${xPct.toFixed(2)}, ${yTopPct.toFixed(2)})`;
+  });
+
   const prompt = `You are Blake, a UK MEP takeoff assistant looking at a construction drawing screenshot.
 Return JSON only:
 {
   "summary": string,
-  "fixtures": [{"code":"P-WC","description":"WC","count":1,"pageNumber":1,"xPct":0.0-1.0,"yPct":0.0-1.0}],
+  "fixtures": [{"code":"P-WC","description":"WC","pageNumber":1,"xPct":0.42,"yPct":0.61}],
   "pipes": [{"role":"hot"|"cold"|"waste"|"heating","approxMetres":number,"notes":string}]
 }
 Rules:
-- Prefer plumbing fixtures you can see labels/symbols for (WC, WHB, bath, shower, rad, sink, boiler).
-- xPct/yPct are position on the page image (0=left/top, 1=right/bottom). Estimate if unsure.
-- For pipes, estimate visible coloured run lengths in metres only if a scale is obvious; otherwise omit approxMetres or use null.
-- If unsure, return empty arrays. Never invent dozens of fixtures.`;
+- One fixture object PER instance (do not use count>1). Repeat the object for each WC/basin/etc.
+- xPct/yPct are REQUIRED (0=left/top, 1=right/bottom) at the fixture symbol or label centre.
+- Prefer fixtures you can see labels/symbols for (WC, WHB, bath, shower, rad, sink, boiler).
+- If text labels below are given, put pins on those labels when they match.
+- For pipes, only estimate metres if scale is obvious; otherwise omit.
+- If unsure, return empty arrays. Never invent fixtures you cannot see.`;
 
   const content: Array<
     | { type: "input_text"; text: string }
-    | { type: "input_image"; image_url: string; detail: "low" | "auto" }
+    | { type: "input_image"; image_url: string; detail: "low" | "auto" | "high" }
   > = [{ type: "input_text", text: prompt }];
+
+  if (hintLines.length) {
+    content.push({
+      type: "input_text",
+      text: `Known text labels on the sheet (top-left %):\n${hintLines.join("\n")}`,
+    });
+  }
 
   for (const image of images.slice(0, 2)) {
     if (!image.dataUrl || image.dataUrl.length > 900_000) continue;
@@ -140,7 +214,7 @@ Rules:
     content.push({
       type: "input_image",
       image_url: image.dataUrl,
-      detail: images.length > 1 ? "low" : "auto",
+      detail: images.length === 1 ? "high" : "auto",
     });
   }
 
@@ -202,9 +276,22 @@ function pipeCode(role: string): { code: string; description: string } | null {
   return null;
 }
 
+function expandFixtureInstances(fixture: VisionFixture): VisionFixture[] {
+  const count = Math.max(1, Math.min(20, Math.round(Number(fixture.count) || 1)));
+  if (count === 1) return [{ ...fixture, count: 1 }];
+  // Legacy count>1 responses: fan instances slightly so they aren't stacked.
+  return Array.from({ length: count }, (_, index) => ({
+    ...fixture,
+    count: 1,
+    xPct: Number.isFinite(fixture.xPct) ? Number(fixture.xPct) + (index % 3) * 0.02 : undefined,
+    yPct: Number.isFinite(fixture.yPct) ? Number(fixture.yPct) + Math.floor(index / 3) * 0.02 : undefined,
+  }));
+}
+
 /** Run vision on page screenshots; returns measured rows for Studio review/BOQ. */
 export async function measureTakeoffPagesWithVision(
   images: BlakePageImage[],
+  options: { textHints?: BlakeTextHint[] } = {},
 ): Promise<{ measured: BlakeVisionMeasuredRow[]; summary: string; model: string | null; used: boolean }> {
   const config = getTakeoffOpenAiConfig();
   if (!config.connected || !images.length) {
@@ -220,7 +307,8 @@ export async function measureTakeoffPagesWithVision(
     .slice(0, 2);
   if (!usable.length) return { measured: [], summary: "", model: null, used: false };
 
-  const result = await callVisionModel(config.apiKey, config.model, usable);
+  const textHints = Array.isArray(options.textHints) ? options.textHints : [];
+  const result = await callVisionModel(config.apiKey, config.model, usable, textHints);
   if (!result) return { measured: [], summary: "", model: null, used: false };
 
   const parsed = parseVisionJson(result.text);
@@ -228,14 +316,50 @@ export async function measureTakeoffPagesWithVision(
 
   const byCode = new Map<string, BlakeVisionMeasuredRow>();
   const pageMeta = usable[0]!;
+  let snappedCount = 0;
+  let placedCount = 0;
 
-  for (const fixture of parsed.fixtures || []) {
+  const instances = (parsed.fixtures || []).flatMap(expandFixtureInstances);
+
+  for (const fixture of instances) {
     const mapped = normaliseCode(String(fixture.code || ""), String(fixture.description || ""));
-    const count = Math.max(1, Math.min(40, Math.round(Number(fixture.count) || 1)));
     const pageNumber = Math.max(1, Number(fixture.pageNumber) || pageMeta.pageNumber || 1);
-    const docId = usable.find((image) => image.pageNumber === pageNumber)?.documentId || pageMeta.documentId;
-    const width = usable.find((image) => image.documentId === docId)?.width || 1000;
-    const height = usable.find((image) => image.documentId === docId)?.height || 1400;
+    const image = usable.find((row) => row.pageNumber === pageNumber) || usable.find((row) => row.documentId === pageMeta.documentId) || pageMeta;
+    const width = image.width || 1000;
+    const height = image.height || 1400;
+
+    // Require a real position — no decorative grid of fake pins.
+    if (!Number.isFinite(fixture.xPct) || !Number.isFinite(fixture.yPct)) {
+      // Last resort: snap purely from matching text hints.
+      const fromHint = textHints.find((hint) => {
+        if (hint.pageNumber !== pageNumber) return false;
+        const text = hint.text.toLowerCase();
+        return mapped.keywords.some((key) => key && text.includes(key));
+      });
+      if (!fromHint) continue;
+      fixture.xPct = fromHint.pageWidth ? fromHint.x / fromHint.pageWidth : 0.5;
+      fixture.yPct = fromHint.pageHeight ? 1 - fromHint.y / fromHint.pageHeight : 0.5;
+    }
+
+    const xPct = Math.max(0.02, Math.min(0.98, Number(fixture.xPct)));
+    const yPct = Math.max(0.02, Math.min(0.98, Number(fixture.yPct)));
+    const x = xPct * width;
+    const yTop = yPct * height;
+    const y = height - yTop;
+
+    const snapped = snapToTextHint(
+      image.documentId,
+      pageNumber,
+      x,
+      y,
+      width,
+      height,
+      mapped.keywords,
+      textHints,
+    );
+    if (snapped.snapped) snappedCount += 1;
+    placedCount += 1;
+
     const existing = byCode.get(mapped.code) || {
       id: `blake-vision-${mapped.code}`,
       kind: "primary" as const,
@@ -249,26 +373,22 @@ export async function measureTakeoffPagesWithVision(
       tagMatches: [] as NonNullable<BlakeVisionMeasuredRow["tagMatches"]>,
     };
 
-    for (let index = 0; index < count; index += 1) {
-      const xPct = Number.isFinite(fixture.xPct) ? Number(fixture.xPct) : 0.2 + (index % 5) * 0.15;
-      const yPct = Number.isFinite(fixture.yPct) ? Number(fixture.yPct) : 0.2 + Math.floor(index / 5) * 0.15;
-      // Studio/PDF text path uses bottom-left origin for y; vision gives top-left pct.
-      const x = Math.max(0, Math.min(1, xPct)) * width;
-      const yTop = Math.max(0, Math.min(1, yPct)) * height;
-      const y = height - yTop;
-      existing.tagMatches = existing.tagMatches || [];
-      existing.tagMatches.push({
-        id: `blake-vision-pin-${mapped.code}-${pageNumber}-${index}-${Math.round(x)}-${Math.round(y)}`,
-        documentId: docId,
-        pageNumber,
-        x,
-        y,
-        pageWidth: width,
-        pageHeight: height,
-        text: mapped.description,
-      });
+    existing.tagMatches = existing.tagMatches || [];
+    existing.tagMatches.push({
+      id: `blake-vision-pin-${mapped.code}-${pageNumber}-${placedCount}-${Math.round(snapped.x)}-${Math.round(snapped.y)}`,
+      documentId: image.documentId,
+      pageNumber,
+      x: snapped.x,
+      y: snapped.y,
+      pageWidth: width,
+      pageHeight: height,
+      text: snapped.text || mapped.description,
+    });
+    existing.quantity = existing.tagMatches.length;
+    if (snapped.snapped) {
+      existing.confidence = "Medium";
+      existing.notes = "Blake vision snapped to sheet text — verify before Core push";
     }
-    existing.quantity = (existing.tagMatches || []).length;
     byCode.set(mapped.code, existing);
   }
 
@@ -291,9 +411,15 @@ export async function measureTakeoffPagesWithVision(
   }
 
   const measured = [...byCode.values()];
+  const summaryBits = [
+    parsed.summary || (measured.length ? `Vision found ${measured.length} item group(s)` : ""),
+    placedCount ? `${placedCount} pin(s)` : null,
+    snappedCount ? `${snappedCount} snapped to text` : null,
+  ].filter(Boolean);
+
   return {
     measured,
-    summary: parsed.summary || (measured.length ? `Vision found ${measured.length} item group(s).` : ""),
+    summary: summaryBits.join(" · "),
     model: result.model,
     used: measured.length > 0,
   };
