@@ -4,8 +4,11 @@ import { getAccessProfileFromHeaders } from "@/lib/access";
 import { getHeatDesignProject, saveHeatDesignProject } from "@/lib/heat-design-store";
 import {
   applyBlakePipeSizing,
+  blakeKitMaterialAllowances,
+  buildBlakeAncillariesKit,
   heatDesignTakeoffDescription,
   heatingLayoutToStudio,
+  heatingSystemOptions,
   reducerMaterialAllowances,
   summariseHeatingFittings,
 } from "@/lib/heat-design";
@@ -13,6 +16,10 @@ import { parseJsonRequestBody } from "@/lib/http";
 import { appendAuditEvent } from "@/lib/people-data";
 import { surveyRequestContext } from "@/lib/survey-api";
 import { createTakeoffProject, getTakeoffProject, updateTakeoffProject } from "@/lib/takeoff-data";
+
+function blakeAllowancePrefix(takeoffId: string) {
+  return `studio-mat-${takeoffId}-blake-`;
+}
 
 type Body = {
   projectId?: string;
@@ -50,6 +57,9 @@ export async function POST(request: Request) {
   const sizedLayout = applyBlakePipeSizing(project.heatingLayout);
   const { studio, fittings } = heatingLayoutToStudio(sizedLayout, { projectName: project.name });
   const description = heatDesignTakeoffDescription(project, fittings);
+  const systemKind =
+    heatingSystemOptions.find((item) => item.id === project.chosenSystemId)?.kind || "ashp";
+  const emitterMode = project.emitterMode ?? sizedLayout.emitterMode ?? "radiators";
 
   const createNew = Boolean(body.createNew) || !body.takeoffId && !project.linkedTakeoffId;
   const targetId = createNew ? undefined : (body.takeoffId || project.linkedTakeoffId);
@@ -58,6 +68,22 @@ export async function POST(request: Request) {
   if (targetId && !takeoff) {
     return NextResponse.json({ error: "Linked takeoff was not found." }, { status: 404 });
   }
+
+  const buildBlakeMaterials = (takeoffId: string) => {
+    const reducers = reducerMaterialAllowances(fittings, takeoffId);
+    // Valves / clips / TRVs etc. Elbows/couplings already land via studio auto fittings on runs.
+    const ancillaries = blakeKitMaterialAllowances(
+      buildBlakeAncillariesKit({
+        systemKind,
+        emitterMode,
+        layout: sizedLayout,
+        fittings,
+        roomCount: project.rooms.length,
+      }),
+      takeoffId,
+    );
+    return [...reducers, ...ancillaries];
+  };
 
   if (!takeoff) {
     takeoff = createTakeoffProject({
@@ -74,17 +100,19 @@ export async function POST(request: Request) {
       materialAllowances: [],
     });
     takeoff = updateTakeoffProject(takeoff.id, {
-      materialAllowances: reducerMaterialAllowances(fittings, takeoff.id),
+      materialAllowances: buildBlakeMaterials(takeoff.id),
     }) || takeoff;
   } else {
-    const nextReducers = reducerMaterialAllowances(fittings, takeoff.id);
+    const nextBlake = buildBlakeMaterials(takeoff.id);
     const kept = (takeoff.materialAllowances || []).filter(
-      (line) => !line.id.startsWith(`studio-mat-${takeoff!.id}-reducer-`),
+      (line) =>
+        !line.id.startsWith(`studio-mat-${takeoff!.id}-reducer-`)
+        && !line.id.startsWith(blakeAllowancePrefix(takeoff!.id)),
     );
     takeoff = updateTakeoffProject(takeoff.id, {
       studio,
       description,
-      materialAllowances: [...kept, ...nextReducers],
+      materialAllowances: [...kept, ...nextBlake],
       status: takeoff.status === "Draft" ? "Draft" : takeoff.status,
     });
     if (!takeoff) {
@@ -105,7 +133,7 @@ export async function POST(request: Request) {
       action: "heat_design_send_takeoff",
       recordType: "takeoff_project",
       recordId: takeoff.id,
-      summary: `Heat Design → Takeoff · ${fittings.totalMetres} m · ${fittings.totalElbows} elbows · ${fittings.totalReducers} reducers`,
+      summary: `Heat Design → Takeoff · ${fittings.totalMetres} m · ${fittings.totalElbows} elbows · ${fittings.totalReducers} reducers · Blake ancillaries`,
       source: "heat design",
       importance: "high",
     });
