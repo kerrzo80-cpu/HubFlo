@@ -57,6 +57,10 @@ import {
   type StudioBoqRow,
 } from "@/lib/takeoff-studio-pipe";
 import { recordTakeoffLearningClient } from "@/lib/takeoff-learning-client";
+import {
+  applyTakeoffRatesToMaterials,
+  summarisePricedMaterials,
+} from "@/lib/takeoff-studio-rates";
 
 import TakeoffOverlayReview from "./TakeoffOverlayReview";
 import StudioCanvas from "./studio/StudioCanvas";
@@ -137,8 +141,22 @@ export default function TakeoffStudioPage() {
   const layerBoq = summariseStudioBoq(studio, activeLayerId);
   const masterBoq = summariseStudioBoq(studio, "all");
   const boqForPanel = activeLayerId === "all" ? masterBoq : layerBoq;
+  const pricedBoqForPanel = applyTakeoffRatesToMaterials(
+    boqForPanel.map((row) => ({
+      id: row.id,
+      section: row.section,
+      description: row.description,
+      quantity: row.quantity,
+      unit: row.unit,
+      unitCost: 0,
+      markupPercent: 0,
+      supplierRequired: false,
+    })),
+  );
+  const boqMaterialCost = summarisePricedMaterials(pricedBoqForPanel).materialCost;
   const boqLayerLabel =
     STUDIO_SERVICE_LAYERS.find((layer) => layer.id === activeLayerId)?.label || "Master / all";
+  const showSizeBar = studio.tool === "linear" || activeClass?.kind === "linear";
   const linkedQuote = quotes.find((q) => q.id === selected?.linkedQuoteId);
   const aiReviewRows = studio.aiReviewMeasured || [];
   const aiReviewPinCount = aiReviewRows.reduce(
@@ -575,11 +593,47 @@ export default function TakeoffStudioPage() {
         }
       }
 
+      // Scanned sheets: send page screenshot(s) so Blake can use vision when text/vectors are empty.
+      const pageImages: Array<{
+        documentId: string;
+        fileName: string;
+        pageNumber: number;
+        dataUrl: string;
+        width: number;
+        height: number;
+      }> = [];
+      const textItems = clientExtracts.reduce(
+        (sum, extract) => sum + extract.pages.reduce((pageSum, page) => pageSum + (page.textItems?.length || 0), 0),
+        0,
+      );
+      const strokeRuns = clientStrokeRuns.reduce((sum, row) => sum + (row.runs?.length || 0), 0);
+      if (textItems < 8 && strokeRuns === 0) {
+        setBlakeStep("Sheet looks scanned — Blake is looking at the open page…");
+        const pagesToSnap = [studio.activePage || 1];
+        if ((studio.activePage || 1) === 1) pagesToSnap.push(2);
+        for (const pageNumber of pagesToSnap.slice(0, 2)) {
+          try {
+            const snap = await renderTakeoffPdfPageDataUrl(selected.id, doc.id, pageNumber, 1200);
+            if (!snap?.dataUrl) continue;
+            pageImages.push({
+              documentId: doc.id,
+              fileName: doc.fileName,
+              pageNumber,
+              dataUrl: snap.dataUrl,
+              width: snap.width,
+              height: snap.height,
+            });
+          } catch {
+            // Vision is optional.
+          }
+        }
+      }
+
       setBlakeStep("Blake is analysing your drawings…");
       const response = await apiFetch(`/api/takeoff-projects/${selected.id}/blake-run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientExtracts, clientStrokeRuns }),
+        body: JSON.stringify({ clientExtracts, clientStrokeRuns, pageImages }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
@@ -869,7 +923,8 @@ export default function TakeoffStudioPage() {
         markupPercent: 0,
         supplierRequired: false,
       }));
-      const materials = [...pipeMaterials, ...baseMaterials];
+      const materials = applyTakeoffRatesToMaterials([...pipeMaterials, ...baseMaterials]);
+      const priced = summarisePricedMaterials(materials);
       const patch = await apiFetch(`/api/takeoff-projects/${selected.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -905,6 +960,9 @@ export default function TakeoffStudioPage() {
       const drawings = await saveAllStudioLayerDrawings({ quiet: true });
       show(
         `${result.created ? "Created" : "Updated"} quote ${result.quote.ref} with takeoff BOQ`
+        + (priced.pricedLines
+          ? ` · ${priced.pricedLines} priced line(s) ≈ £${priced.materialCost.toFixed(0)} mat.`
+          : "")
         + (drawings.attached
           ? ` · ${drawings.attached} layer drawing(s) in quote Documents (carry to job on convert).`
           : drawings.saved
@@ -1445,50 +1503,38 @@ export default function TakeoffStudioPage() {
                   </strong>
                 ) : null}
               </div>
-              <div className="nexa-studio-size-bar" aria-label="Pipe size">
-                <span className="nexa-studio-service-bar-label">Size</span>
-                {STUDIO_PIPE_SPECS.map((spec) => {
-                  const active = (studio.activePipeSpecId || DEFAULT_STUDIO_PIPE_SPEC_ID) === spec.id;
-                  return (
-                    <button
-                      key={spec.id}
-                      type="button"
-                      className={active ? "on" : undefined}
-                      onClick={() => {
-                        void persistStudio({ ...studio, activePipeSpecId: spec.id, tool: "linear" });
-                        if (selected) {
-                          recordTakeoffLearningClient({
-                            type: "pipe_spec_choice",
-                            projectId: selected.id,
-                            pipeSpecId: spec.id,
-                            trade: "plumbing",
-                          });
-                        }
-                      }}
-                      title={`${spec.diameter} ${spec.material}${spec.autoCouplings ? ` · couplings every ${spec.stockLengthM}m` : ""}${spec.autoElbows ? " · auto elbows" : ""}`}
-                    >
-                      {spec.label}
-                    </button>
-                  );
-                })}
-                <span className="nexa-studio-size-note">
-                  Fittings match the Size chip (e.g. 22 Cu → 22mm Copper elbows &amp; couplings every 3 m). Scale required for metres/couplings.
-                </span>
-                {(() => {
-                  const fittingRows = summariseStudioPipeBoq(studio).filter((row) => row.section === "Fittings");
-                  if (!fittingRows.length) return null;
-                  return (
-                    <div className="nexa-studio-fitting-tally" aria-label="Sized fittings tally">
-                      <span className="nexa-studio-fitting-tally-label">On sheet (after Done run)</span>
-                      {fittingRows.map((row) => (
-                        <span key={row.id}>
-                          <strong>{row.quantity}</strong> {row.description}
-                        </span>
-                      ))}
-                    </div>
-                  );
-                })()}
-              </div>
+              {showSizeBar ? (
+                <div className="nexa-studio-size-bar" aria-label="Pipe size">
+                  <span className="nexa-studio-service-bar-label">Size</span>
+                  {STUDIO_PIPE_SPECS.map((spec) => {
+                    const active = (studio.activePipeSpecId || DEFAULT_STUDIO_PIPE_SPEC_ID) === spec.id;
+                    return (
+                      <button
+                        key={spec.id}
+                        type="button"
+                        className={active ? "on" : undefined}
+                        onClick={() => {
+                          void persistStudio({ ...studio, activePipeSpecId: spec.id, tool: "linear" });
+                          if (selected) {
+                            recordTakeoffLearningClient({
+                              type: "pipe_spec_choice",
+                              projectId: selected.id,
+                              pipeSpecId: spec.id,
+                              trade: "plumbing",
+                            });
+                          }
+                        }}
+                        title={`${spec.diameter} ${spec.material}${spec.autoCouplings ? ` · couplings every ${spec.stockLengthM}m` : ""}${spec.autoElbows ? " · auto elbows" : ""}`}
+                      >
+                        {spec.label}
+                      </button>
+                    );
+                  })}
+                  <span className="nexa-studio-size-note">
+                    Fittings match the Size chip (e.g. 22 Cu → 22mm Copper elbows &amp; couplings every 3 m). Scale required for metres/couplings.
+                  </span>
+                </div>
+              ) : null}
               <div className="nexa-studio-boq-sheet">
                 <button
                   type="button"
@@ -1499,7 +1545,9 @@ export default function TakeoffStudioPage() {
                   <span>Bill of quantities · {boqLayerLabel}</span>
                   <strong>
                     {boqForPanel.length
-                      ? `${boqForPanel.length} line${boqForPanel.length === 1 ? "" : "s"}`
+                      ? `${boqForPanel.length} line${boqForPanel.length === 1 ? "" : "s"}${
+                          boqMaterialCost > 0 ? ` · £${boqMaterialCost.toFixed(0)}` : ""
+                        }`
                       : "Empty"}
                   </strong>
                 </button>
@@ -1523,11 +1571,12 @@ export default function TakeoffStudioPage() {
                       {activeLayerId === "all"
                         ? "Master BOQ — every cost centre. Switch tabs for Hot & cold / Heating / Waste alone."
                         : `${boqLayerLabel} cost centre only. Master rolls them all up for Push.`}
+                      {boqMaterialCost > 0 ? ` Indicative materials ≈ £${boqMaterialCost.toFixed(0)}.` : ""}
                     </p>
-                    {boqForPanel.length ? (
+                    {pricedBoqForPanel.length ? (
                       <div className="nexa-studio-boq-list">
                         {(["Pipework", "Fittings", "Counts", "Areas"] as const).map((section) => {
-                          const rows = boqForPanel.filter((row) => row.section === section);
+                          const rows = pricedBoqForPanel.filter((row) => row.section === section);
                           if (!rows.length) return null;
                           return (
                             <div key={section} className="nexa-studio-boq-section">
@@ -1538,6 +1587,9 @@ export default function TakeoffStudioPage() {
                                     <span>{row.description}</span>
                                     <em>
                                       {row.quantity} {row.unit}
+                                      {row.unitCost > 0
+                                        ? ` · £${(row.quantity * row.unitCost).toFixed(0)}`
+                                        : ""}
                                     </em>
                                   </li>
                                 ))}
