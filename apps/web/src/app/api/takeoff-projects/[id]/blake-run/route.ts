@@ -32,6 +32,8 @@ import {
   createDefaultStudioState,
   importPipeRunsIntoStudio,
   importSkillCountsIntoStudio,
+  metresPerUnitFromRatio,
+  parseScaleRatioLabel,
   polylineLength,
   scaleForPage,
   studioHasAiPipeRuns,
@@ -601,7 +603,31 @@ export async function POST(
         }
       }
     }
-    const scaled = applyScaleHintsToStudio(baseStudio, scalePages);
+    let scaled = applyScaleHintsToStudio(baseStudio, scalePages);
+    // Fall back to the scale ratio this workspace usually picks.
+    if (!scaled.appliedLabel && learning.preferredScaleLabel) {
+      const denom = parseScaleRatioLabel(learning.preferredScaleLabel);
+      const mpu = denom != null ? metresPerUnitFromRatio(denom, 1.35) : null;
+      if (mpu != null) {
+        const docId = drawings[0]?.id || baseStudio.activeDocumentId;
+        const page = baseStudio.activePage || 1;
+        if (docId) {
+          const scales = [
+            ...scaled.studio.scales.filter((row) => !(row.documentId === docId && row.page === page)),
+            {
+              documentId: docId,
+              page,
+              metresPerUnit: mpu,
+              label: learning.preferredScaleLabel,
+            },
+          ];
+          scaled = {
+            studio: { ...scaled.studio, scales },
+            appliedLabel: `${learning.preferredScaleLabel} (usual)`,
+          };
+        }
+      }
+    }
 
     let nextStudio = importSkillCountsIntoStudio(
       {
