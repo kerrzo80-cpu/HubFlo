@@ -66,6 +66,10 @@ function defaults(): TakeoffRateLibrary {
       { id: "rate-shower", label: "Shower", match: "P-SHR|\\bshower\\b", unit: "nr", unitCost: 160, category: "fixture" },
       { id: "rate-rad", label: "Radiator", match: "P-RAD|\\bradiator\\b", unit: "nr", unitCost: 95, category: "fixture" },
       { id: "rate-sink", label: "Sink", match: "P-SINK|\\bsink\\b", unit: "nr", unitCost: 110, category: "fixture" },
+      { id: "rate-boiler", label: "Boiler", match: "P-BOILER|\\bBoiler\\b", unit: "nr", unitCost: 1450, category: "fixture" },
+      { id: "rate-ashp", label: "ASHP", match: "P-ASHP|\\bASHP\\b|heat pump", unit: "nr", unitCost: 4200, category: "fixture" },
+      { id: "rate-cylinder", label: "Cylinder", match: "P-CYL|\\bCylinder\\b", unit: "nr", unitCost: 780, category: "fixture" },
+      { id: "rate-manifold", label: "UFH manifold", match: "P-MANIFOLD|UFH manifold|\\bmanifold\\b", unit: "nr", unitCost: 320, category: "fixture" },
     ],
     assemblies: [
       {
@@ -106,6 +110,57 @@ function defaults(): TakeoffRateLibrary {
           { code: "P-RAD-TAILS", description: "Radiator tails / copper", unit: "nr", qtyPerPrimary: 1, unitCost: 12 },
         ],
       },
+      {
+        id: "asm-boiler",
+        primaryCode: "P-BOILER",
+        label: "Boiler kit",
+        match: "P-BOILER|\\bBoiler\\b",
+        enabled: true,
+        lines: [
+          { code: "P-BOILER-FLUE", description: "Flue kit", unit: "nr", qtyPerPrimary: 1, unitCost: 95 },
+          { code: "P-BOILER-MAG", description: "System filter / magnaclean", unit: "nr", qtyPerPrimary: 1, unitCost: 85 },
+          { code: "P-BOILER-VALVES", description: "Boiler isolation / filling loop set", unit: "nr", qtyPerPrimary: 1, unitCost: 48 },
+          { code: "P-BOILER-COND", description: "Condensate pipe / neutraliser", unit: "nr", qtyPerPrimary: 1, unitCost: 35 },
+        ],
+      },
+      {
+        id: "asm-ashp",
+        primaryCode: "P-ASHP",
+        label: "ASHP kit",
+        match: "P-ASHP|\\bASHP\\b",
+        enabled: true,
+        lines: [
+          { code: "P-ASHP-BASE", description: "Outdoor unit base / anti-vib mounts", unit: "nr", qtyPerPrimary: 1, unitCost: 120 },
+          { code: "P-ASHP-FLEX", description: "Flexible hose kit", unit: "nr", qtyPerPrimary: 1, unitCost: 65 },
+          { code: "P-ASHP-CONT", description: "Controls / wiring centre", unit: "nr", qtyPerPrimary: 1, unitCost: 180 },
+          { code: "P-ASHP-GLYCOL", description: "Antifreeze / inhibitor pack", unit: "nr", qtyPerPrimary: 1, unitCost: 55 },
+        ],
+      },
+      {
+        id: "asm-cylinder",
+        primaryCode: "P-CYL",
+        label: "Cylinder kit",
+        match: "P-CYL|\\bCylinder\\b",
+        enabled: true,
+        lines: [
+          { code: "P-CYL-G3", description: "G3 discharge / tundish pack", unit: "nr", qtyPerPrimary: 1, unitCost: 75 },
+          { code: "P-CYL-EXP", description: "Expansion vessel", unit: "nr", qtyPerPrimary: 1, unitCost: 85 },
+          { code: "P-CYL-VALVE", description: "Inlet control group", unit: "nr", qtyPerPrimary: 1, unitCost: 95 },
+          { code: "P-CYL-STAT", description: "Cylinder thermostat / sensor", unit: "nr", qtyPerPrimary: 1, unitCost: 28 },
+        ],
+      },
+      {
+        id: "asm-manifold",
+        primaryCode: "P-MANIFOLD",
+        label: "UFH manifold kit",
+        match: "P-MANIFOLD|UFH manifold|\\bmanifold\\b",
+        enabled: true,
+        lines: [
+          { code: "P-UFH-ACT", description: "Manifold actuators (set)", unit: "nr", qtyPerPrimary: 1, unitCost: 95 },
+          { code: "P-UFH-CAB", description: "Manifold cabinet", unit: "nr", qtyPerPrimary: 1, unitCost: 110 },
+          { code: "P-UFH-BLEND", description: "Blending / pumpset", unit: "nr", qtyPerPrimary: 1, unitCost: 220 },
+        ],
+      },
     ],
     updatedAt: new Date().toISOString(),
   };
@@ -115,13 +170,20 @@ function cloneDefaults(): TakeoffRateLibrary {
   return JSON.parse(JSON.stringify(defaults())) as TakeoffRateLibrary;
 }
 
+function mergeLibraryRows<T extends { id: string }>(saved: T[] | undefined, defaults: T[]): T[] {
+  if (!Array.isArray(saved) || !saved.length) return defaults;
+  const savedIds = new Set(saved.map((row) => row.id));
+  // Keep user edits; append any new default kits/rates they don't have yet.
+  return [...saved, ...defaults.filter((row) => !savedIds.has(row.id))];
+}
+
 export function getTakeoffRateLibrary(): TakeoffRateLibrary {
   const raw = loadServerStore<Partial<TakeoffRateLibrary>>(STORE_NAME, cloneDefaults());
   const base = cloneDefaults();
   return {
     version: 1,
-    rates: Array.isArray(raw.rates) && raw.rates.length ? raw.rates : base.rates,
-    assemblies: Array.isArray(raw.assemblies) && raw.assemblies.length ? raw.assemblies : base.assemblies,
+    rates: mergeLibraryRows(raw.rates, base.rates),
+    assemblies: mergeLibraryRows(raw.assemblies, base.assemblies),
     updatedAt: raw.updatedAt || new Date().toISOString(),
   };
 }
