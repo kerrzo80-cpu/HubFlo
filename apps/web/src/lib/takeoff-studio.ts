@@ -418,6 +418,9 @@ export function importPipeRunsIntoStudio(
     renderScale?: number;
     replaceExistingAiPipes?: boolean;
     aiReviewStatus?: StudioAiReviewStatus;
+    /** Size Blake runs (e.g. cu-22) so BOQ + fittings resolve. */
+    pipeSpec?: { id: string; material: string; diameter: string; stockLengthM: number };
+    wastePipeSpec?: { id: string; material: string; diameter: string; stockLengthM: number };
   },
 ): StudioState {
   const renderScale = options?.renderScale ?? 1.35;
@@ -435,6 +438,7 @@ export function importPipeRunsIntoStudio(
       x: point.x * renderScale,
       y: (run.pageHeight - point.y) * renderScale,
     }));
+    const sized = run.role === "waste" ? options?.wastePipeSpec : options?.pipeSpec;
     geometries.push({
       id: `ai-pipe-${run.documentId}-${run.pageNumber}-${index}`,
       classificationId: def.id,
@@ -446,6 +450,10 @@ export function importPipeRunsIntoStudio(
       confidence: "Medium",
       reviewStatus: options?.aiReviewStatus ?? "pending",
       notes: `Blake vector stroke · ${run.colourHex || run.role}`,
+      material: sized?.material,
+      diameter: sized?.diameter,
+      stockLengthM: sized?.stockLengthM,
+      pipeSpecId: sized?.id,
     });
   }
 

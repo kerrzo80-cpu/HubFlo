@@ -595,6 +595,79 @@
   font-weight: 600;
 }
 
+.nexa-studio-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 0 2px;
+}
+
+.nexa-studio-quick-actions button {
+  flex: 1 1 auto;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nexa-studio-quick-actions button.on {
+  border-color: var(--blue);
+  background: #e8f4fb;
+  color: var(--blue-deep);
+}
+
+.nexa-studio-quick-actions button.need {
+  border-color: #c45c26;
+  background: #fff4ec;
+  color: #9a3f12;
+}
+
+.nexa-studio-push-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.nexa-studio-boq-layers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.nexa-studio-boq-layers button {
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nexa-studio-boq-layers button.on {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: #fff;
+}
+
+.nexa-studio-boq-panel-actions {
+  margin-top: 12px;
+}
+
+.nexa-studio-boq-panel-actions .nexa-studio-primary {
+  width: 100%;
+}
+
 .nexa-studio-boq-sheet {
   display: grid;
   gap: 0;
@@ -1136,6 +1209,23 @@
     position: sticky;
     top: 0;
     z-index: 3;
+  }
+
+  .nexa-studio-quick-actions {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    margin: 0 0 6px;
+    padding: 6px 0 4px;
+    background: linear-gradient(180deg, #f4f8fb 70%, rgba(244, 248, 251, 0));
+  }
+
+  .nexa-studio-size-note {
+    display: none;
+  }
+
+  .nexa-studio-boq-sheet:not(:has(.nexa-studio-boq-panel)) {
+    margin-bottom: 4px;
   }
 
   .nexa-studio-top {

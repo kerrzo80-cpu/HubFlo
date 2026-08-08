@@ -102,7 +102,7 @@ export default function TakeoffStudioPage() {
   const [blakeStep, setBlakeStep] = useState<string | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
-  const [boqOpen, setBoqOpen] = useState(true);
+  const [boqOpen, setBoqOpen] = useState(false);
   const saveTimer = useRef<number | null>(null);
   const historyRef = useRef<StudioState[]>([]);
   const futureRef = useRef<StudioState[]>([]);
@@ -217,13 +217,15 @@ export default function TakeoffStudioPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    // On phones, collapse Projects so the drawing fills the first screen.
+    // On phones, collapse Projects + BOQ so the drawing fills the first screen.
     const narrow = window.matchMedia("(max-width: 960px)").matches;
     if (!narrow) {
       setRailCollapsed(false);
+      setBoqOpen(true);
       return;
     }
     setRailCollapsed(Boolean(activeDoc));
+    setBoqOpen(false);
   }, [selectedId, activeDoc?.id]);
 
   useEffect(() => {
@@ -614,13 +616,16 @@ export default function TakeoffStudioPage() {
       await new Promise((resolve) => window.setTimeout(resolve, 700));
       if (found > 0) {
         setReviewOpen(true);
+        setError(null);
         show(message, 14000);
       } else {
-        setNotice(null);
-        setError(message);
+        // Guidance, not a hard failure — keep mark-up path first-class.
+        setError(null);
+        show(message, 16000);
+        setBoqOpen(true);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Blake could not finish. Try again or mark up manually.");
+      setError(err instanceof Error ? err.message : "Blake could not finish. Keep the sheet open and try again, or Length the run.");
     } finally {
       window.clearInterval(stepTimer);
       setBusy(null);
@@ -825,25 +830,33 @@ export default function TakeoffStudioPage() {
     return { saved, attached };
   }
 
-  async function pushToCore(options: { allowPendingAiReview?: boolean } = {}) {
+  async function pushToCore(options: { allowPendingAiReview?: boolean; createNew?: boolean } = {}) {
     if (!selected) return;
-    if (!selected.linkedQuoteId) {
-      setError("Link a Core quote before pushing.");
-      return;
+    const createNew = Boolean(options.createNew) || !selected.linkedQuoteId;
+    if (!selected.linkedQuoteId && !options.createNew) {
+      const makeNew = window.confirm(
+        "No Core quote linked yet. Create a new quote from this takeoff BOQ?",
+      );
+      if (!makeNew) {
+        setRailCollapsed(false);
+        show("Link a quote under Core link, or tap New quote.", 10000);
+        return;
+      }
     }
     if (hasPendingAiReview && !options.allowPendingAiReview) {
       const ok = window.confirm(
-        "Blake AI count pins are still pending human review. Push to Core anyway and mark this as an explicit override?",
+        "Blake AI pins are still pending review. Push to Core anyway?",
       );
       if (!ok) {
         setReviewOpen(true);
-        setError("Confirm or reject Blake AI counts before pushing to Core.");
+        show("Confirm or reject Blake’s pins, then Push — or override from Push again.", 12000);
         return;
       }
-      await pushToCore({ allowPendingAiReview: true });
+      await pushToCore({ allowPendingAiReview: true, createNew });
       return;
     }
     setBusy("push");
+    setError(null);
     try {
       const baseMaterials = studioQuantitiesToMaterialAllowances(studio, selected.id);
       const pipeMaterials = summariseStudioPipeBoq(studio).map((row) => ({
@@ -874,7 +887,8 @@ export default function TakeoffStudioPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          quoteId: selected.linkedQuoteId,
+          quoteId: createNew ? undefined : selected.linkedQuoteId,
+          createNew,
           actor: authName || "Office",
           allowPendingAiReview: Boolean(options.allowPendingAiReview),
         }),
@@ -886,11 +900,11 @@ export default function TakeoffStudioPage() {
         }
         throw new Error(body.error || "Push failed");
       }
-      const result = (await push.json()) as { project: TakeoffProject; quote: { id: string; ref: string } };
+      const result = (await push.json()) as { project: TakeoffProject; quote: { id: string; ref: string }; created?: boolean };
       upsert(result.project);
       const drawings = await saveAllStudioLayerDrawings({ quiet: true });
       show(
-        `Pushed BOQ into quote ${result.quote.ref}`
+        `${result.created ? "Created" : "Updated"} quote ${result.quote.ref} with takeoff BOQ`
         + (drawings.attached
           ? ` · ${drawings.attached} layer drawing(s) in quote Documents (carry to job on convert).`
           : drawings.saved
@@ -1335,15 +1349,27 @@ export default function TakeoffStudioPage() {
                     <ExternalLink size={13} />
                   </a>
                 ) : null}
-                <button
-                  type="button"
-                  className="nexa-studio-primary"
-                  disabled={busy === "push" || !selected.linkedQuoteId}
-                  onClick={() => void pushToCore()}
-                >
-                  {busy === "push" ? <Loader2 className="spin" size={14} /> : null}
-                  Push BOQ + drawings
-                </button>
+                <div className="nexa-studio-push-actions">
+                  <button
+                    type="button"
+                    className="nexa-studio-primary"
+                    disabled={busy === "push"}
+                    onClick={() => void pushToCore()}
+                  >
+                    {busy === "push" ? <Loader2 className="spin" size={14} /> : null}
+                    {selected.linkedQuoteId ? "Push BOQ + drawings" : "Push to new quote"}
+                  </button>
+                  {selected.linkedQuoteId ? (
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={busy === "push"}
+                      onClick={() => void pushToCore({ createNew: true })}
+                    >
+                      New quote instead
+                    </button>
+                  ) : null}
+                </div>
               </section>
             </>
           ) : null}
@@ -1366,6 +1392,26 @@ export default function TakeoffStudioPage() {
             </div>
           ) : selected ? (
             <>
+              {activeDoc ? (
+                <div className="nexa-studio-quick-actions" aria-label="Takeoff shortcuts">
+                  <button
+                    type="button"
+                    className={!hasScale ? "need" : undefined}
+                    onClick={() => runFlowAction("scale")}
+                  >
+                    {hasScale ? "Scale ✓" : "Set scale"}
+                  </button>
+                  <button type="button" className={boqOpen ? "on" : undefined} onClick={() => setBoqOpen((open) => !open)}>
+                    BOQ · {boqForPanel.length || 0}
+                  </button>
+                  <button type="button" disabled={busy === "blake"} onClick={() => void runAiAssist()}>
+                    {busy === "blake" ? "Blake…" : "Ask Blake"}
+                  </button>
+                  <button type="button" disabled={busy === "push"} onClick={() => void pushToCore()}>
+                    {selected.linkedQuoteId ? "Push" : "New quote"}
+                  </button>
+                </div>
+              ) : null}
               <div className="nexa-studio-service-bar" aria-label="Pipe service colours">
                 <span className="nexa-studio-service-bar-label">Draw as</span>
                 {pipeServiceClasses.map((cls) => (
@@ -1459,12 +1505,24 @@ export default function TakeoffStudioPage() {
                 </button>
                 {boqOpen ? (
                   <div className="nexa-studio-boq-panel" aria-label={`Bill of quantities · ${boqLayerLabel}`}>
+                    <div className="nexa-studio-boq-layers" role="tablist" aria-label="Cost centre layers">
+                      {STUDIO_SERVICE_LAYERS.map((layer) => (
+                        <button
+                          key={layer.id}
+                          type="button"
+                          role="tab"
+                          aria-selected={activeLayerId === layer.id}
+                          className={activeLayerId === layer.id ? "on" : undefined}
+                          onClick={() => void persistStudio(setStudioActiveLayer(studio, layer.id))}
+                        >
+                          {layer.id === "all" ? "Master" : layer.label}
+                        </button>
+                      ))}
+                    </div>
                     <p>
                       {activeLayerId === "all"
-                        ? "Master total across every layer. Pick a Layer in Projects to see Hot & cold / Heating / Waste on their own."
-                        : `Showing ${boqLayerLabel} only. Switch to Master / all for the full takeoff BOQ.`}
-                      {" "}
-                      Page 1/2 under the drawing is the PDF page — not the BOQ.
+                        ? "Master BOQ — every cost centre. Switch tabs for Hot & cold / Heating / Waste alone."
+                        : `${boqLayerLabel} cost centre only. Master rolls them all up for Push.`}
                     </p>
                     {boqForPanel.length ? (
                       <div className="nexa-studio-boq-list">
@@ -1491,6 +1549,11 @@ export default function TakeoffStudioPage() {
                     ) : (
                       <p className="empty">Nothing on this layer yet — tap Done run after Length, or Count fixtures.</p>
                     )}
+                    <div className="nexa-studio-boq-panel-actions">
+                      <button type="button" className="nexa-studio-primary" disabled={busy === "push"} onClick={() => void pushToCore()}>
+                        {selected.linkedQuoteId ? "Push master BOQ" : "Push to new quote"}
+                      </button>
+                    </div>
                   </div>
                 ) : null}
               </div>
@@ -1503,6 +1566,15 @@ export default function TakeoffStudioPage() {
                 onRedo={redoStudio}
                 canUndo={canUndo}
                 canRedo={canRedo}
+                onLinearFinished={(summary) => {
+                  setBoqOpen(true);
+                  const bits = [
+                    summary.metres != null ? `${summary.metres.toFixed(2)} m` : "run saved · set scale for m",
+                    summary.elbows ? `${summary.elbows} elbow${summary.elbows === 1 ? "" : "s"}` : null,
+                    summary.couplings ? `${summary.couplings} coupling${summary.couplings === 1 ? "" : "s"}` : null,
+                  ].filter(Boolean);
+                  show(`Added to BOQ · ${summary.label} · ${bits.join(" · ")}`, 10000);
+                }}
               />
             </>
           ) : (
