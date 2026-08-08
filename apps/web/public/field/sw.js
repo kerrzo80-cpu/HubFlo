@@ -1,10 +1,9 @@
 /* Field offline shell — scoped to /field/ only. Network-first for pages so
  * deploys never leave Ask Blake / Hours on stale JS (no Connect / Talk).
  */
-const CACHE = "ewg-field-shell-v5";
+const CACHE = "ewg-field-shell-v6";
 const PRECACHE = [
   "/ewg-logo.png",
-  "/manifest-field.json",
   "/api/manifest/field",
   "/field",
   "/field/ask",

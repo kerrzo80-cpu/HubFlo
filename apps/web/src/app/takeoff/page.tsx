@@ -263,14 +263,18 @@ export default function TakeoffStudioPage() {
       ...project,
       studio: project.studio ?? createDefaultStudioState(),
     })));
-    const wantedId =
-      typeof window !== "undefined"
-        ? new URLSearchParams(window.location.search).get("projectId")
-        : null;
+    const search =
+      typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+    // Accept projectId (canonical) and legacy ?project= from older Survey/Heat deep links.
+    const wantedId = search?.get("projectId") || search?.get("project") || null;
+    const wantedTab = (search?.get("tab") || "").toLowerCase();
     setSelectedId((current) => {
       if (wantedId && list.some((project) => project.id === wantedId)) return wantedId;
       return current ?? list[0]?.id ?? null;
     });
+    if (wantedTab === "boq" || wantedTab === "bill" || wantedTab === "quantities") {
+      setBoqOpen(true);
+    }
     if (quoteRes.ok) {
       const quoteList = (await quoteRes.json()) as Array<Record<string, unknown>>;
       setQuotes(

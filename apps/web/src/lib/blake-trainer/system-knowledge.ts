@@ -313,16 +313,16 @@ export const nexaSystemKnowledge: SystemKnowledgeTopic[] = [
     kind: "guide",
     area: "survey",
     roles: Array.from(new Set<HubRole>([...FIELD_ROLES, ...COMMERCIAL_ROLES])),
-    tags: ["survey", "guided", "evidence"],
+    tags: ["survey", "evidence", "blake"],
     content: [
-      "NeXa Surveyor captures site surveys with guided flows, photos, measurements and assumptions.",
-      "Guided survey routes live under /survey/guided.",
-      "Completed surveys can hand off evidence packs toward estimating and quotes.",
+      "NeXa Surveyor captures site surveys with photos, drawings, works notes and Blake cost centres.",
+      "Survey routes live under /survey and /survey/[id].",
+      "Completed surveys can hand off evidence packs toward Takeoff, Estimator and Core quotes.",
       "Keep photos and scope clear — commercial decisions depend on survey evidence.",
     ].join(" "),
     teachScript:
-      "Surveyor is where site surveys are captured — guided questions, photos and measurements that feed estimating and quotes.",
-    checkPoints: ["survey", "photos", "guided", "quote", "evidence"],
+      "Surveyor is where site surveys are captured — photos, drawings and Blake cost centres that feed Takeoff, Estimator and quotes.",
+    checkPoints: ["survey", "photos", "blake", "quote", "evidence"],
     checkPrompt: "What does Surveyor capture, and what does it feed next?",
   },
   {

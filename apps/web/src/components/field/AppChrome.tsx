@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Clock3, RefreshCw } from "lucide-react";
+import { CalendarDays, Clock3, LayoutDashboard, RefreshCw } from "lucide-react";
 import { useBrand } from "@/components/BrandProvider";
 import { BlakeCharacter } from "@/components/field/BlakeCharacter";
 import { resolveBrandChromeLogoUrl } from "@/lib/branding";
@@ -46,7 +46,7 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
           const keys = await caches.keys();
           await Promise.all(
             keys
-              .filter((key) => key.startsWith("ewg-field-shell-") && key !== "ewg-field-shell-v5")
+              .filter((key) => key.startsWith("ewg-field-shell-") && key !== "ewg-field-shell-v6")
               .map((key) => caches.delete(key)),
           );
         }
@@ -86,15 +86,21 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
           <strong>{brand.fieldAppName}</strong>
           <span>{brand.companyName}</span>
         </div>
-        {pendingSyncCount > 0 ? (
-          <div className="field-sync-pill" role="status" aria-live="polite">
-            <span>{pendingSyncCount} pending sync</span>
-            <button type="button" disabled={syncing} onClick={() => void syncNow()}>
-              <RefreshCw size={13} />
-              {syncing ? "Syncing" : "Sync now"}
-            </button>
-          </div>
-        ) : null}
+        <div className="field-topbar-actions">
+          {pendingSyncCount > 0 ? (
+            <div className="field-sync-pill" role="status" aria-live="polite">
+              <span>{pendingSyncCount} pending sync</span>
+              <button type="button" disabled={syncing} onClick={() => void syncNow()}>
+                <RefreshCw size={13} />
+                {syncing ? "Syncing" : "Sync now"}
+              </button>
+            </div>
+          ) : null}
+          <Link href="/" className="field-core-link" aria-label="Back to Core">
+            <LayoutDashboard size={15} aria-hidden />
+            Core
+          </Link>
+        </div>
       </header>
       {children}
       <nav className="field-tabbar" aria-label="Field app">

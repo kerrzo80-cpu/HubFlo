@@ -267,8 +267,6 @@ export function JobFieldLivePanel({
 
           <p className="job-field-visit-link">
             <a href={`/field/jobs/${encodeURIComponent(visit.scheduleId)}`}>Open this visit in Field</a>
-            {" · "}
-            <a href={`/engineer/jobs/${encodeURIComponent(visit.scheduleId)}`}>Engineer workspace</a>
           </p>
         </article>
       ))}

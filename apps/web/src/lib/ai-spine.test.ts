@@ -25,7 +25,11 @@ describe("ai-spine", () => {
       assert.ok(result.takeoff.id);
       assert.ok(result.steps.length >= 3);
       assert.ok(result.steps.some((step) => step.href.includes("/heat-design")));
+      assert.ok(result.steps.some((step) => step.href.includes("projectId=")));
       assert.ok(result.steps.some((step) => step.href.includes("/takeoff")));
+      const quoteStep = result.steps.find((step) => step.id === "quote");
+      assert.ok(quoteStep);
+      assert.match(quoteStep.href, /^\/(\?quote=|quotes)/);
       assert.equal(result.aiUsed, false);
     } finally {
       if (previous !== undefined) process.env.OPENAI_API_KEY = previous;

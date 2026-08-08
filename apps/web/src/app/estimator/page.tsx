@@ -337,7 +337,33 @@ export default function EstimatorPage() {
             <>
               <div className="estimator-titlebar">
                 <div><span className="guided-eyebrow">{estimate.reference} · {estimate.pricingProfile.name}</span><h1>{survey?.customerName || "Survey estimate"}</h1><p>{survey?.siteAddress || estimate.scopeOfWorks[0]}</p></div>
-                <div><b data-status={estimate.status}>{estimate.coreQuoteRef ? `${estimate.status} · ${estimate.coreQuoteRef}` : estimate.status}</b><button type="button" className="secondary" onClick={() => void regenerate()} disabled={working}><RefreshCw className={working ? "spin" : ""} size={16} /> Regenerate</button><button type="button" title={totals.unpriced ? "Unpriced supplier RFQ lines will push at £0 provisional" : undefined} onClick={() => void pushToQuote()} disabled={working || !estimate.scopeOfWorks.length}><Send size={16} /> {estimate.coreQuoteRef ? `Update ${estimate.coreQuoteRef}` : "Push to quote"}</button></div>
+                <div>
+                  <b data-status={estimate.status}>
+                    {estimate.coreQuoteRef ? (
+                      <>
+                        {estimate.status} ·{" "}
+                        {estimate.coreQuoteId ? (
+                          <a href={`/?quote=${encodeURIComponent(estimate.coreQuoteId)}`}>{estimate.coreQuoteRef}</a>
+                        ) : (
+                          estimate.coreQuoteRef
+                        )}
+                      </>
+                    ) : (
+                      estimate.status
+                    )}
+                  </b>
+                  <button type="button" className="secondary" onClick={() => void regenerate()} disabled={working}>
+                    <RefreshCw className={working ? "spin" : ""} size={16} /> Regenerate
+                  </button>
+                  <button
+                    type="button"
+                    title={totals.unpriced ? "Unpriced supplier RFQ lines will push at £0 provisional" : undefined}
+                    onClick={() => void pushToQuote()}
+                    disabled={working || !estimate.scopeOfWorks.length}
+                  >
+                    <Send size={16} /> {estimate.coreQuoteRef ? `Update ${estimate.coreQuoteRef}` : "Push to quote"}
+                  </button>
+                </div>
               </div>
               {error ? <p className="estimator-message error"><AlertTriangle size={16} /> {error}</p> : null}
               {notice ? <p className="estimator-message"><CheckCircle2 size={16} /> {notice}</p> : null}

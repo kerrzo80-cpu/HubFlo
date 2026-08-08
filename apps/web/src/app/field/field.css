@@ -83,6 +83,35 @@
   font-weight: 500;
 }
 
+.field-topbar-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.field-core-link {
+  align-items: center;
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--teal) 35%, var(--line));
+  border-radius: 999px;
+  color: var(--teal);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 5px;
+  min-height: 32px;
+  padding: 0 11px;
+  text-decoration: none;
+}
+
+.field-core-link:hover {
+  background: var(--teal-soft);
+  border-color: var(--teal);
+}
+
 .field-sync-pill {
   align-items: center;
   background: #fff7e0;
@@ -91,7 +120,7 @@
   color: #704a05;
   display: flex;
   gap: 6px;
-  margin-left: auto;
+  margin-left: 0;
   padding: 4px 6px 4px 10px;
 }
 

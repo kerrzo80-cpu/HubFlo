@@ -556,7 +556,7 @@ export function AiFirstPrototype() {
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
             <a
               className="ai-first-principle"
-              href="https://nexa-pilot.onrender.com/ai-first"
+              href="/ai-first"
               style={{ textDecoration: "none" }}
             >
               AI First · Human Approved

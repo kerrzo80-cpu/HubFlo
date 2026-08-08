@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ClipboardList,
   FileSearch,
+  LayoutDashboard,
   Loader2,
   Ruler,
   Save,
@@ -547,7 +548,7 @@ export default function SimpleSurveyWorkspacePage() {
       if (!response.ok || !body.quote) throw new Error(body.error || "Unable to send this survey into the quote.");
       setNoticeTone("ok");
       setNotice(
-        `Sent to ${body.quote.ref}${body.unpricedCount ? ` · ${body.unpricedCount} supplier RFQ line(s) at £0 provisional` : ""}. Open the quote in Core to review.`,
+        `Sent to ${body.quote.ref}${body.unpricedCount ? ` · ${body.unpricedCount} supplier RFQ line(s) at £0 provisional` : ""}. Use Open Quote above to review in Core.`,
       );
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "Unable to send to quote.");
@@ -561,16 +562,17 @@ export default function SimpleSurveyWorkspacePage() {
       <main className="survey-simple-loading">
         <Loader2 className="spin" size={22} />
         <strong>{error || "Opening survey"}</strong>
+        <a href="/">Core</a>
         <a href="/survey">Back to surveys</a>
       </main>
     );
   }
 
   const takeoffHref = survey.legacyTakeoffProjectId
-    ? `/takeoff?project=${encodeURIComponent(survey.legacyTakeoffProjectId)}&tab=markup`
+    ? `/takeoff?projectId=${encodeURIComponent(survey.legacyTakeoffProjectId)}`
     : "/takeoff";
   const boqHref = survey.legacyTakeoffProjectId
-    ? `/takeoff?project=${encodeURIComponent(survey.legacyTakeoffProjectId)}&tab=boq`
+    ? `/takeoff?projectId=${encodeURIComponent(survey.legacyTakeoffProjectId)}&tab=boq`
     : "/takeoff?tab=boq";
   const buddyQuestions = survey.answers.filter((answer) =>
     answer.section === "Blake checks" || answer.section === "Buddy checks",
@@ -624,6 +626,7 @@ export default function SimpleSurveyWorkspacePage() {
             {saveState === "Saving" ? <Loader2 className="spin" size={14} /> : saveState === "Saved" ? <CheckCircle2 size={14} /> : <Save size={14} />}
             {saveState}
           </span>
+          <a href="/"><LayoutDashboard size={16} /> Core</a>
           <a href="/survey"><ArrowLeft size={16} /> Surveys</a>
         </div>
       </header>

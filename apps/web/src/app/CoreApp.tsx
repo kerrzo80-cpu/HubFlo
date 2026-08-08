@@ -11728,8 +11728,9 @@ export default function CoreApp() {
     if (!hasHydratedLocalData || handledInitialRoute || typeof window === "undefined") return;
 
     const params = new URLSearchParams(window.location.search);
-    const quoteParam = params.get("quote");
-    const jobParam = params.get("job");
+    // Canonical: ?quote= / ?job= / ?lead=. Also accept quoteId/jobId from older deep links.
+    const quoteParam = params.get("quote") || params.get("quoteId");
+    const jobParam = params.get("job") || params.get("jobId");
 
     if (quoteParam) {
       const targetQuote = quotes.find((quote) => quote.id === quoteParam || quote.ref === quoteParam);
@@ -37018,7 +37019,11 @@ export default function CoreApp() {
                                       ? `${otherCentreCount} more material line(s) live on other cost centres — open those centres to edit them. `
                                       : ""}
                                     Heating design / heat loss lives in{" "}
-                                    <a href="/heat-design" target="_blank" rel="noreferrer">
+                                    <a
+                                      href={`/heat-design?quoteId=${encodeURIComponent(selectedQuote.id)}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
                                       Heat Design
                                     </a>
                                     .

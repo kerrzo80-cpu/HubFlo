@@ -255,7 +255,7 @@ export async function runAiSpine(brief: AiSpineBrief): Promise<AiSpineResult> {
     {
       id: "quote",
       label: brief.linkedQuoteRef ? `Open quote ${brief.linkedQuoteRef}` : "Link / create quote in Core",
-      href: brief.linkedQuoteId ? `/?module=quotes&quoteId=${encodeURIComponent(brief.linkedQuoteId)}` : "/?module=quotes",
+      href: brief.linkedQuoteId ? `/?quote=${encodeURIComponent(brief.linkedQuoteId)}` : "/quotes",
       status: brief.linkedQuoteId ? "ready" : "optional",
       detail: "Push Takeoff BOQ or Heat kit into the Core quote when ready.",
     },

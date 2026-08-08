@@ -858,7 +858,11 @@ export default function HeatDesignLabPage() {
       setNotice(
         `${body.created ? "Created" : "Updated"} takeoff ${body.takeoff.reference} with sized routes + fittings. Open Takeoff to Push.`,
       );
-      window.open(`/takeoff`, "_blank", "noopener,noreferrer");
+      window.open(
+        `/takeoff?projectId=${encodeURIComponent(body.takeoff.id)}`,
+        "_blank",
+        "noopener,noreferrer",
+      );
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "Could not send to Takeoff.");
     } finally {
@@ -1283,7 +1287,14 @@ export default function HeatDesignLabPage() {
                   ) : null}
                   {project.linkedTakeoffRef ? (
                     <p className="hd-lead" style={{ margin: 0 }}>
-                      Linked takeoff <strong>{project.linkedTakeoffRef}</strong>
+                      Linked takeoff{" "}
+                      {project.linkedTakeoffId ? (
+                        <a href={`/takeoff?projectId=${encodeURIComponent(project.linkedTakeoffId)}`}>
+                          <strong>{project.linkedTakeoffRef}</strong>
+                        </a>
+                      ) : (
+                        <strong>{project.linkedTakeoffRef}</strong>
+                      )}
                     </p>
                   ) : null}
                   {project.heatingLayout?.pipes?.length &&
@@ -1731,7 +1742,14 @@ export default function HeatDesignLabPage() {
                   </div>
                   {project.linkedTakeoffRef ? (
                     <div className="hd-banner" style={{ marginBottom: 10 }}>
-                      Takeoff <strong>{project.linkedTakeoffRef}</strong>
+                      Takeoff{" "}
+                      {project.linkedTakeoffId ? (
+                        <a href={`/takeoff?projectId=${encodeURIComponent(project.linkedTakeoffId)}`}>
+                          <strong>{project.linkedTakeoffRef}</strong>
+                        </a>
+                      ) : (
+                        <strong>{project.linkedTakeoffRef}</strong>
+                      )}
                     </div>
                   ) : null}
                 </div>
@@ -1746,13 +1764,27 @@ export default function HeatDesignLabPage() {
                     <div className="hd-banner" style={{ marginBottom: 10 }}>
                       {project.linkedQuoteRef ? (
                         <>
-                          Quote <strong>{project.linkedQuoteRef}</strong>
+                          Quote{" "}
+                          {project.linkedQuoteId ? (
+                            <a href={`/?quote=${encodeURIComponent(project.linkedQuoteId)}`}>
+                              <strong>{project.linkedQuoteRef}</strong>
+                            </a>
+                          ) : (
+                            <strong>{project.linkedQuoteRef}</strong>
+                          )}
                           {project.linkedJobRef ? " · " : null}
                         </>
                       ) : null}
                       {project.linkedJobRef ? (
                         <>
-                          Job <strong>{project.linkedJobRef}</strong>
+                          Job{" "}
+                          {project.linkedJobId ? (
+                            <a href={`/?job=${encodeURIComponent(project.linkedJobId)}`}>
+                              <strong>{project.linkedJobRef}</strong>
+                            </a>
+                          ) : (
+                            <strong>{project.linkedJobRef}</strong>
+                          )}
                         </>
                       ) : null}
                     </div>

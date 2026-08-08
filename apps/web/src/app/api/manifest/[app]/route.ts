@@ -30,7 +30,7 @@ const appConfig: Record<
     startUrl: "/survey",
     scope: "/survey",
     shortFallback: "Survey",
-    description: "Guided site capture and survey packs.",
+    description: "Site capture, evidence packs and Blake cost centres.",
   },
   estimator: {
     key: "estimator",
