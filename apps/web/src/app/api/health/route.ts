@@ -147,6 +147,8 @@ export async function GET() {
       heatDesignMobile: "core-nav-iphone-v1",
       routeAudit: "handoffs-core-nav-v1",
       priceLedger: "budget-guide-rfq-firm-v1",
+      leadsRecordFix: "lead-quote-map-tdz-v1",
+      e2eTestJobs: "numbered-pilot-jobs-v1",
       renderBuildFix: "no-sqlite-in-client-v1",
       setupIndependent: "integrations-one-panel-v1",
       bootTabsReady: "auth-only-v1",
