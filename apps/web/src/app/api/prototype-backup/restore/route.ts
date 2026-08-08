@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     ...result,
     dryRun: !forceApply,
     message: forceApply
-      ? "Backup written to store. Restart the service so in-memory modules reload."
-      : "Dry-run only — no stores were overwritten. Pass dryRun:false and confirm:\"RESTORE\" to apply.",
+      ? "Backup written to store (pre-restore snapshot saved). Restart the service so in-memory modules reload."
+      : "Dry-run only — no stores were overwritten. Prefer POST /api/prototype-backup/fire-drill for a safe shadow round-trip. Pass dryRun:false and confirm:\"RESTORE\" only for a real restore.",
   });
 }

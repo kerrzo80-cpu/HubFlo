@@ -160,6 +160,8 @@ export async function GET() {
       pilotBackup: "export-verify-dryrun-v2",
       openaiOps: "status-smoke-hasinapp-v1",
       dualPathCleanup: "ai-first-redirect-survey-canonical-v1",
+      companyProd: "restore-firedrill-simpro-optional-v1",
+      restoreFireDrill: "shadow-roundtrip-v1",
       renderBuildFix: "no-sqlite-in-client-v1",
       setupIndependent: "integrations-one-panel-v1",
       bootTabsReady: "auth-only-v1",

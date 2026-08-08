@@ -16,6 +16,20 @@ type ReadinessResponse = {
   checks?: ReadinessCheck[];
   openai?: { connected?: boolean; source?: string };
   backup?: { presentStoreCount?: number; storeCount?: number; totalBytes?: number };
+  companyProduction?: {
+    ready?: boolean;
+    blockers?: string[];
+    warnings?: string[];
+    posture?: string;
+    note?: string;
+  };
+  fireDrill?: {
+    ok?: boolean;
+    at?: string;
+    storesMatched?: number;
+    storesChecked?: number;
+    ms?: number;
+  } | null;
 };
 
 type OpenAiStatus = {
@@ -39,26 +53,29 @@ export function SetupLiveReadinessPanel() {
   const [backupNote, setBackupNote] = useState<string>("");
   const [error, setError] = useState<string>("");
 
+  async function refresh() {
+    const [readyRes, openaiRes, backupRes] = await Promise.all([
+      fetch("/api/go-live/readiness", { cache: "no-store" }),
+      fetch("/api/integrations/openai", { cache: "no-store" }),
+      fetch("/api/prototype-backup?format=verify", { cache: "no-store" }),
+    ]);
+    if (readyRes.ok) setReadiness((await readyRes.json()) as ReadinessResponse);
+    else setError(`Readiness ${readyRes.status}`);
+    if (openaiRes.ok) setOpenai((await openaiRes.json()) as OpenAiStatus);
+    if (backupRes.ok) {
+      const body = await backupRes.json();
+      const v = body.verification || body;
+      setBackupNote(
+        `${v.presentStoreCount ?? "?"} / ${v.storeCount ?? "?"} stores · ${Math.round((v.totalBytes || 0) / 1024)} KB`,
+      );
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [readyRes, openaiRes, backupRes] = await Promise.all([
-          fetch("/api/go-live/readiness", { cache: "no-store" }),
-          fetch("/api/integrations/openai", { cache: "no-store" }),
-          fetch("/api/prototype-backup?format=verify", { cache: "no-store" }),
-        ]);
-        if (cancelled) return;
-        if (readyRes.ok) setReadiness((await readyRes.json()) as ReadinessResponse);
-        else setError(`Readiness ${readyRes.status}`);
-        if (openaiRes.ok) setOpenai((await openaiRes.json()) as OpenAiStatus);
-        if (backupRes.ok) {
-          const body = await backupRes.json();
-          const v = body.verification || body;
-          setBackupNote(
-            `${v.presentStoreCount ?? "?"} / ${v.storeCount ?? "?"} stores · ${Math.round((v.totalBytes || 0) / 1024)} KB`,
-          );
-        }
+        await refresh();
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load readiness");
       }
@@ -106,36 +123,62 @@ export function SetupLiveReadinessPanel() {
     }
   }
 
+  async function runFireDrill() {
+    setBackupNote("Fire-drill…");
+    try {
+      const response = await fetch("/api/prototype-backup/fire-drill", { method: "POST" });
+      const body = await response.json();
+      if (!response.ok || !body.ok) {
+        setBackupNote(
+          `Fire-drill failed — ${body.mismatches?.[0]?.reason || body.error || response.status}`,
+        );
+      } else {
+        setBackupNote(
+          `Fire-drill OK — ${body.storesMatched}/${body.storesChecked} stores · ${body.ms}ms · cleaned ${body.cleaned}`,
+        );
+      }
+      await refresh();
+    } catch (err) {
+      setBackupNote(err instanceof Error ? err.message : "Fire-drill failed");
+    }
+  }
+
   const checks = readiness?.checks || [];
-  const blocked = checks.filter((c) => c.status === "blocked").length;
-  const warnings = checks.filter((c) => c.status === "warning").length;
-  const buildLabel =
-    error
-      ? "Readiness unavailable"
+  const company = readiness?.companyProduction;
+  const companyReady = Boolean(company?.ready);
+  const blocked = (company?.blockers || []).length;
+  const warnings = (company?.warnings || []).length;
+  const buildLabel = error
+    ? "Readiness unavailable"
+    : companyReady
+      ? "Company production ready"
       : blocked
-        ? `${blocked} blocked`
+        ? `${blocked} blocker${blocked === 1 ? "" : "s"}`
         : warnings
           ? `${warnings} warning${warnings === 1 ? "" : "s"}`
-          : "Ready for company pilot";
+          : "Almost ready";
 
   return (
     <section className="setup-panel setup-readiness">
       <div className="documents-toolbar">
         <div>
-          <span className="permission-heading">Live readiness</span>
+          <span className="permission-heading">Company production</span>
           <h2>Ops checklist</h2>
         </div>
         <div className="setup-template-actions">
           <a className="secondary-button" href="/api/prototype-backup" download>
-            Export pilot backup
+            Export company backup
           </a>
           <button type="button" className="secondary-button" onClick={() => void runBackupDryRun()}>
             Backup dry-run
           </button>
+          <button type="button" className="secondary-button" onClick={() => void runFireDrill()}>
+            Restore fire-drill
+          </button>
           <button type="button" className="secondary-button" onClick={() => void runOpenAiSmoke()}>
             OpenAI smoke
           </button>
-          <span className={statusClass(blocked ? "blocked" : warnings ? "warning" : "ready")}>
+          <span className={statusClass(companyReady ? "ready" : blocked ? "blocked" : "warning")}>
             {buildLabel}
           </span>
         </div>
@@ -144,6 +187,7 @@ export function SetupLiveReadinessPanel() {
       {error ? <p className="setup-inline-note">{error}</p> : null}
       {smoke ? <p className="setup-inline-note">{smoke}</p> : null}
       {backupNote ? <p className="setup-inline-note">Backup: {backupNote}</p> : null}
+      {company?.note ? <p className="setup-inline-note">{company.note}</p> : null}
 
       <div className="setup-readiness-grid">
         {checks.map((check) => (
@@ -165,12 +209,22 @@ export function SetupLiveReadinessPanel() {
           </small>
         </article>
         <article>
-          <span>Backup / restore</span>
-          <strong className={statusClass(backupNote.includes("Dry-run OK") || backupNote.includes("stores") ? "ready" : "warning")}>
-            export + dry-run
+          <span>Restore fire-drill</span>
+          <strong
+            className={statusClass(
+              readiness?.fireDrill?.ok
+                ? "ready"
+                : backupNote.includes("Fire-drill OK")
+                  ? "ready"
+                  : "blocked",
+            )}
+          >
+            {readiness?.fireDrill?.ok
+              ? `${readiness.fireDrill.storesMatched}/${readiness.fireDrill.storesChecked} matched`
+              : "not run"}
           </strong>
           <small>
-            Full restore needs Owner confirm + service restart. Auth passwords are never in the backup file.
+            Shadow write/read of every backup store — live data is not overwritten. Auth passwords stay out of backups.
           </small>
         </article>
         {readiness?.counts ? (

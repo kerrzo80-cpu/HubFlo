@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
 import path from "node:path";
 
 // Treat empty/whitespace-only env values as unset. Nullish coalescing (??) keeps
@@ -156,6 +156,30 @@ export function writeServerStore<T>(name: string, value: T): boolean {
 
 export function readServerStoreSnapshot(name: string): unknown | null {
   return readSqliteStore(name) ?? readJsonStore(name);
+}
+
+/** Remove a named store from SQLite and/or JSON disk. Used for fire-drill shadows. */
+export function deleteServerStore(name: string): boolean {
+  let ok = false;
+  const database = getSqliteStore();
+  if (database) {
+    try {
+      database.prepare("DELETE FROM pilot_store WHERE name = ?").run(name);
+      ok = true;
+    } catch {
+      // fall through to JSON cleanup
+    }
+  }
+  try {
+    const file = getStoreFilePath(name);
+    if (existsSync(file)) {
+      unlinkSync(file);
+      ok = true;
+    }
+  } catch {
+    // ignore
+  }
+  return ok;
 }
 
 export function getServerStoreBackend() {

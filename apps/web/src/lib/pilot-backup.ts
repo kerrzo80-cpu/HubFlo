@@ -1,8 +1,14 @@
 import { createHash } from "node:crypto";
 
-import { readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
+import {
+  deleteServerStore,
+  getServerStoreBackend,
+  loadServerStore,
+  readServerStoreSnapshot,
+  writeServerStore,
+} from "@/lib/server-store";
 
-/** Business + ops stores included in pilot backup (secrets like mailbox passwords excluded). */
+/** Business + ops stores included in company backup (mailbox app passwords excluded). */
 export const PILOT_BACKUP_STORE_NAMES = [
   "people-store",
   "lead-store",
@@ -24,6 +30,9 @@ export const PILOT_BACKUP_STORE_NAMES = [
   "employee-mailboxes",
 ] as const;
 
+/** Preferred alias — same store set. */
+export const COMPANY_BACKUP_STORE_NAMES = PILOT_BACKUP_STORE_NAMES;
+
 export type PilotBackupStoreName = (typeof PILOT_BACKUP_STORE_NAMES)[number];
 
 export type PilotBackupPayload = {
@@ -41,6 +50,21 @@ export type StoreSummary = {
   sha256: string | null;
   topLevelKeys?: string[];
   approxItems?: number;
+};
+
+const FIRE_DRILL_RESULT_STORE = "nexa-ops-firedrill-v1";
+const PRE_RESTORE_SNAPSHOT_STORE = "nexa-pre-restore-snapshot-v1";
+const SHADOW_PREFIX = "__firedrill__";
+
+export type FireDrillResult = {
+  ok: boolean;
+  at: string;
+  ms: number;
+  storesChecked: number;
+  storesMatched: number;
+  mismatches: Array<{ name: string; reason: string }>;
+  cleaned: number;
+  backend: string;
 };
 
 function approxItemCount(value: unknown): number | undefined {
@@ -81,13 +105,15 @@ export function collectPilotBackup(): PilotBackupPayload {
     PILOT_BACKUP_STORE_NAMES.map((name) => [name, readServerStoreSnapshot(name)]),
   );
   return {
-    product: "NeXa pilot",
-    purpose: "Ops backup",
+    product: "NeXa company backup",
+    purpose: "Company ops backup",
     generatedAt: new Date().toISOString(),
     version: 2,
     stores,
   };
 }
+
+export const collectCompanyBackup = collectPilotBackup;
 
 export function verifyPilotBackup(payload: unknown) {
   if (!payload || typeof payload !== "object") {
@@ -133,12 +159,13 @@ export type RestoreResult = {
   written: string[];
   skipped: Array<{ name: string; reason: string }>;
   verification: ReturnType<typeof verifyPilotBackup>;
+  preRestoreSnapshotSaved?: boolean;
 };
 
 /**
- * Restore pilot stores from a backup payload.
- * dryRun=true validates and reports diffs only.
- * Auth/password hashes in auth-store are intentionally NOT in the backup set.
+ * Restore company stores from a backup payload.
+ * dryRun=true validates and reports only.
+ * Real apply saves a pre-restore snapshot first. Auth passwords are not in the backup set.
  */
 export function restorePilotBackup(payload: unknown, options?: { dryRun?: boolean }): RestoreResult {
   const verification = verifyPilotBackup(payload);
@@ -157,6 +184,15 @@ export function restorePilotBackup(payload: unknown, options?: { dryRun?: boolea
   const dryRun = Boolean(options?.dryRun);
   const written: string[] = [];
   const skipped: Array<{ name: string; reason: string }> = [];
+  let preRestoreSnapshotSaved = false;
+
+  if (!dryRun) {
+    const snapshot = collectPilotBackup();
+    preRestoreSnapshotSaved = writeServerStore(PRE_RESTORE_SNAPSHOT_STORE, {
+      savedAt: new Date().toISOString(),
+      backup: snapshot,
+    });
+  }
 
   for (const name of PILOT_BACKUP_STORE_NAMES) {
     if (!(name in body.stores)) {
@@ -184,5 +220,65 @@ export function restorePilotBackup(payload: unknown, options?: { dryRun?: boolea
     written,
     skipped,
     verification,
+    preRestoreSnapshotSaved,
   };
+}
+
+export function getLastFireDrillResult(): FireDrillResult | null {
+  const stored = loadServerStore<{ result?: FireDrillResult }>(FIRE_DRILL_RESULT_STORE, {});
+  return stored.result ?? null;
+}
+
+/**
+ * Safe fire-drill: export live stores → write shadow copies → read back → hash match → delete shadows.
+ * Does not overwrite live business stores.
+ */
+export function runRestoreFireDrill(options?: { persist?: boolean }): FireDrillResult {
+  const started = Date.now();
+  const backup = collectPilotBackup();
+  const mismatches: Array<{ name: string; reason: string }> = [];
+  let storesChecked = 0;
+  let storesMatched = 0;
+  let cleaned = 0;
+
+  for (const name of PILOT_BACKUP_STORE_NAMES) {
+    const value = backup.stores[name];
+    if (value === null || value === undefined) continue;
+    storesChecked += 1;
+    const expected = summariseStore(name, value);
+    const shadow = `${SHADOW_PREFIX}${name}`;
+    const wrote = writeServerStore(shadow, value);
+    if (!wrote) {
+      mismatches.push({ name, reason: "shadow write failed" });
+      continue;
+    }
+    const readBack = readServerStoreSnapshot(shadow);
+    const actual = summariseStore(name, readBack);
+    if (!actual.present || actual.sha256 !== expected.sha256) {
+      mismatches.push({
+        name,
+        reason: `hash mismatch expected=${expected.sha256?.slice(0, 12)} got=${actual.sha256?.slice(0, 12) || "none"}`,
+      });
+    } else {
+      storesMatched += 1;
+    }
+    if (deleteServerStore(shadow)) cleaned += 1;
+  }
+
+  const result: FireDrillResult = {
+    ok: storesChecked > 0 && mismatches.length === 0,
+    at: new Date().toISOString(),
+    ms: Date.now() - started,
+    storesChecked,
+    storesMatched,
+    mismatches,
+    cleaned,
+    backend: getServerStoreBackend(),
+  };
+
+  if (options?.persist !== false) {
+    writeServerStore(FIRE_DRILL_RESULT_STORE, { result });
+  }
+
+  return result;
 }

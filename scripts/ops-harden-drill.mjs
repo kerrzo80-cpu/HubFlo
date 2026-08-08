@@ -109,17 +109,6 @@ async function main() {
     note("warn", "/ai-first unexpected", { detail: String(aiFirst.status) });
   }
 
-  const readiness = await request("GET", "/api/go-live/readiness", null, cookie);
-  if (readiness.status >= 400) {
-    note("issue", "Readiness failed", { detail: JSON.stringify(readiness.json).slice(0, 300) });
-  } else {
-    for (const check of readiness.json?.checks || []) {
-      note(check.status === "blocked" ? "issue" : check.status === "warning" ? "warn" : "info", `Check ${check.id}`, {
-        detail: `${check.status} · ${check.label}`,
-      });
-    }
-  }
-
   const openai = await request("GET", "/api/integrations/openai", null, cookie);
   note("info", "OpenAI status", {
     detail: JSON.stringify({
@@ -162,8 +151,51 @@ async function main() {
     });
   }
 
-  // Safety: never apply real restore in this drill
-  const summary = { base: BASE, findings, readiness: readiness.json, openai: openai.json, smoke: smoke.json, dryRun: dryRun.json };
+  const fireDrill = await request("POST", "/api/prototype-backup/fire-drill", {}, cookie);
+  if (fireDrill.status >= 400 || !fireDrill.json?.ok) {
+    note("issue", "Restore fire-drill failed", { detail: JSON.stringify(fireDrill.json).slice(0, 400) });
+  } else {
+    note("info", "Restore fire-drill OK", {
+      detail: `${fireDrill.json.storesMatched}/${fireDrill.json.storesChecked} · ${fireDrill.json.ms}ms · cleaned ${fireDrill.json.cleaned}`,
+    });
+  }
+
+  const readinessAfter = await request("GET", "/api/go-live/readiness", null, cookie);
+  if (readinessAfter.status >= 400) {
+    note("issue", "Readiness failed", { detail: JSON.stringify(readinessAfter.json).slice(0, 300) });
+  } else {
+    for (const check of readinessAfter.json?.checks || []) {
+      // Simpro is optional — never treat as an issue for company production.
+      const level =
+        check.id === "simpro"
+          ? "info"
+          : check.status === "blocked"
+            ? "issue"
+            : check.status === "warning"
+              ? "warn"
+              : "info";
+      note(level, `Check ${check.id}`, {
+        detail: `${check.status} · ${check.label}`,
+      });
+    }
+  }
+  const company = readinessAfter.json?.companyProduction;
+  if (company) {
+    note(company.ready ? "info" : "warn", "Company production", {
+      detail: `${company.ready ? "ready" : "not ready"} · blockers=${(company.blockers || []).join(",") || "none"} · ${company.posture || ""}`,
+    });
+  }
+
+  // Safety: never apply real restore (confirm:RESTORE) in this drill
+  const summary = {
+    base: BASE,
+    findings,
+    readiness: readinessAfter.json,
+    openai: openai.json,
+    smoke: smoke.json,
+    dryRun: dryRun.json,
+    fireDrill: fireDrill.json,
+  };
   fs.writeFileSync(`${OUT}/summary.json`, JSON.stringify(summary, null, 2));
   const issues = findings.filter((f) => f.level === "issue");
   console.log(`\nDone. ${issues.length} issues. Artifacts ${OUT}`);

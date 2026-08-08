@@ -4,9 +4,11 @@ import { describe, it } from "node:test";
 import {
   PILOT_BACKUP_STORE_NAMES,
   restorePilotBackup,
+  runRestoreFireDrill,
   summariseStore,
   verifyPilotBackup,
 } from "./pilot-backup";
+import { writeServerStore } from "./server-store";
 
 describe("pilot-backup", () => {
   it("summarises present and missing stores", () => {
@@ -21,7 +23,7 @@ describe("pilot-backup", () => {
 
   it("verifies backup shape and dry-runs restore", () => {
     const backup = {
-      product: "NeXa pilot",
+      product: "NeXa company backup",
       purpose: "test",
       generatedAt: new Date().toISOString(),
       version: 2,
@@ -42,5 +44,16 @@ describe("pilot-backup", () => {
   it("rejects invalid backup", () => {
     const bad = verifyPilotBackup({ hello: true });
     assert.equal(bad.ok, false);
+  });
+
+  it("runs a shadow restore fire-drill against written stores", () => {
+    // Seed a couple of real stores so the drill has something to round-trip.
+    writeServerStore("lead-store", { leads: [{ id: "drill-1" }] });
+    writeServerStore("workflow-store", { quotes: [], jobs: [], purchaseRequests: [] });
+    const result = runRestoreFireDrill({ persist: true });
+    assert.equal(result.ok, true);
+    assert.ok(result.storesChecked >= 2);
+    assert.equal(result.storesMatched, result.storesChecked);
+    assert.equal(result.mismatches.length, 0);
   });
 });
