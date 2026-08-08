@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { employeeHeaderName } from "@/lib/access";
+import { appendAuditEvent } from "@/lib/people-data";
 import {
   getTakeoffRateLibrary,
   resetTakeoffRateLibrary,
@@ -31,13 +33,41 @@ export async function PUT(req: Request) {
     if (!body || typeof body !== "object") {
       return NextResponse.json({ ok: false, error: "Invalid rate library body" }, { status: 400 });
     }
+    const actor = req.headers.get(employeeHeaderName) || "Office";
     if (body.reset) {
-      return NextResponse.json({ ok: true, library: resetTakeoffRateLibrary() });
+      const library = resetTakeoffRateLibrary();
+      try {
+        appendAuditEvent({
+          actor,
+          action: "rates_reset",
+          recordType: "takeoff_rate_library",
+          recordId: "workspace",
+          summary: "Takeoff rate library reset to defaults",
+          source: "takeoff add-on",
+          importance: "normal",
+        });
+      } catch {
+        // ignore
+      }
+      return NextResponse.json({ ok: true, library });
     }
     const library = saveTakeoffRateLibrary({
       rates: body.rates,
       assemblies: body.assemblies,
     });
+    try {
+      appendAuditEvent({
+        actor,
+        action: "rates_saved",
+        recordType: "takeoff_rate_library",
+        recordId: "workspace",
+        summary: `Takeoff rates saved · ${library.rates.length} rates · ${library.assemblies.filter((row) => row.enabled).length} assemblies on`,
+        source: "takeoff add-on",
+        importance: "normal",
+      });
+    } catch {
+      // ignore
+    }
     return NextResponse.json({ ok: true, library });
   } catch (error) {
     return NextResponse.json(

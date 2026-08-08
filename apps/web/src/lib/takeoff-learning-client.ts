@@ -9,6 +9,7 @@ export type TakeoffLearningClientEvent = {
   classificationId?: string;
   scaleLabel?: string;
   trade?: string;
+  actor?: string;
 };
 
 export function recordTakeoffLearningClient(event: TakeoffLearningClientEvent): void {

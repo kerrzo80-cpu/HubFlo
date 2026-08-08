@@ -61,6 +61,20 @@ type VisionPipe = {
   role?: string;
   approxMetres?: number;
   notes?: string;
+  pageNumber?: number;
+  /** Top-left percentages along the visible coloured run (min 2 points). */
+  pointsPct?: Array<{ xPct?: number; yPct?: number }>;
+};
+
+export type BlakeVisionPipeRun = {
+  documentId: string;
+  pageNumber: number;
+  points: Array<{ x: number; y: number }>;
+  role: "hot" | "cold" | "waste";
+  pageWidth: number;
+  pageHeight: number;
+  colourHex: string;
+  lengthPdfUnits: number;
 };
 
 type VisionPayload = {
@@ -119,7 +133,7 @@ function parseVisionJson(raw: string): VisionPayload | null {
 }
 
 function snapToTextHint(
-  documentId: string;
+  documentId: string,
   pageNumber: number,
   x: number,
   y: number,
@@ -183,15 +197,16 @@ Return JSON only:
 {
   "summary": string,
   "fixtures": [{"code":"P-WC","description":"WC","pageNumber":1,"xPct":0.42,"yPct":0.61}],
-  "pipes": [{"role":"hot"|"cold"|"waste"|"heating","approxMetres":number,"notes":string}]
+  "pipes": [{"role":"hot"|"cold"|"waste","pageNumber":1,"approxMetres":number,"pointsPct":[{"xPct":0.1,"yPct":0.2},{"xPct":0.3,"yPct":0.2}],"notes":string}]
 }
 Rules:
 - One fixture object PER instance (do not use count>1). Repeat the object for each WC/basin/etc.
-- xPct/yPct are REQUIRED (0=left/top, 1=right/bottom) at the fixture symbol or label centre.
+- Fixture xPct/yPct are REQUIRED (0=left/top, 1=right/bottom) at the symbol or label centre.
 - Prefer fixtures you can see labels/symbols for (WC, WHB, bath, shower, rad, sink, boiler).
-- If text labels below are given, put pins on those labels when they match.
-- For pipes, only estimate metres if scale is obvious; otherwise omit.
-- If unsure, return empty arrays. Never invent fixtures you cannot see.`;
+- For coloured pipe runs: return polylines with pointsPct (≥2 points) along the visible run.
+- Role from colour: red/magenta ≈ hot, blue ≈ cold, brown/orange ≈ waste. Skip grey grid lines.
+- approxMetres only if scale is obvious; otherwise omit.
+- If unsure, return empty arrays. Never invent fixtures or pipes you cannot see.`;
 
   const content: Array<
     | { type: "input_text"; text: string }
@@ -276,6 +291,76 @@ function pipeCode(role: string): { code: string; description: string } | null {
   return null;
 }
 
+function pipeRole(role: string): "hot" | "cold" | "waste" | null {
+  const clean = role.toLowerCase();
+  if (clean.includes("hot") && !clean.includes("heat")) return "hot";
+  if (clean.includes("cold")) return "cold";
+  if (clean.includes("waste") || clean.includes("soil")) return "waste";
+  // Heating flow often drawn red — treat as hot for studio colouring.
+  if (clean.includes("heat")) return "hot";
+  return null;
+}
+
+const PIPE_COLOURS: Record<"hot" | "cold" | "waste", string> = {
+  hot: "#d64545",
+  cold: "#2878c8",
+  waste: "#8a5a32",
+};
+
+function clamp01(value: number) {
+  return Math.max(0.01, Math.min(0.99, value));
+}
+
+/** Convert vision % polylines into importPipeRunsIntoStudio-ready runs (PDF bottom-left space). */
+export function visionPipesToImportRuns(
+  images: BlakePageImage[],
+  pipes: VisionPipe[],
+): BlakeVisionPipeRun[] {
+  const runs: BlakeVisionPipeRun[] = [];
+  const fallback = images[0];
+  if (!fallback) return runs;
+
+  for (const pipe of pipes) {
+    const role = pipeRole(String(pipe.role || ""));
+    if (!role) continue;
+    const pageNumber = Math.max(1, Number(pipe.pageNumber) || fallback.pageNumber || 1);
+    const image = images.find((row) => row.pageNumber === pageNumber) || fallback;
+    const width = image.width || 1000;
+    const height = image.height || 1400;
+    const rawPoints = Array.isArray(pipe.pointsPct) ? pipe.pointsPct : [];
+    const points = rawPoints
+      .map((point) => {
+        const xPct = Number(point?.xPct);
+        const yPct = Number(point?.yPct);
+        if (!Number.isFinite(xPct) || !Number.isFinite(yPct)) return null;
+        return {
+          x: clamp01(xPct) * width,
+          // Bottom-left origin expected by importPipeRunsIntoStudio.
+          y: (1 - clamp01(yPct)) * height,
+        };
+      })
+      .filter((point): point is { x: number; y: number } => Boolean(point));
+    if (points.length < 2) continue;
+
+    let length = 0;
+    for (let index = 1; index < points.length; index += 1) {
+      length += Math.hypot(points[index]!.x - points[index - 1]!.x, points[index]!.y - points[index - 1]!.y);
+    }
+
+    runs.push({
+      documentId: image.documentId,
+      pageNumber,
+      points,
+      role,
+      pageWidth: width,
+      pageHeight: height,
+      colourHex: PIPE_COLOURS[role],
+      lengthPdfUnits: length,
+    });
+  }
+  return runs.slice(0, 40);
+}
+
 function expandFixtureInstances(fixture: VisionFixture): VisionFixture[] {
   const count = Math.max(1, Math.min(20, Math.round(Number(fixture.count) || 1)));
   if (count === 1) return [{ ...fixture, count: 1 }];
@@ -292,11 +377,16 @@ function expandFixtureInstances(fixture: VisionFixture): VisionFixture[] {
 export async function measureTakeoffPagesWithVision(
   images: BlakePageImage[],
   options: { textHints?: BlakeTextHint[] } = {},
-): Promise<{ measured: BlakeVisionMeasuredRow[]; summary: string; model: string | null; used: boolean }> {
+): Promise<{
+  measured: BlakeVisionMeasuredRow[];
+  pipeRuns: BlakeVisionPipeRun[];
+  summary: string;
+  model: string | null;
+  used: boolean;
+}> {
+  const empty = { measured: [], pipeRuns: [], summary: "", model: null, used: false };
   const config = getTakeoffOpenAiConfig();
-  if (!config.connected || !images.length) {
-    return { measured: [], summary: "", model: null, used: false };
-  }
+  if (!config.connected || !images.length) return empty;
 
   const usable = images
     .filter((image) => typeof image.dataUrl === "string" && image.dataUrl.startsWith("data:image"))
@@ -305,14 +395,14 @@ export async function measureTakeoffPagesWithVision(
       dataUrl: image.dataUrl.length > 900_000 ? image.dataUrl.slice(0, 900_000) : image.dataUrl,
     }))
     .slice(0, 2);
-  if (!usable.length) return { measured: [], summary: "", model: null, used: false };
+  if (!usable.length) return empty;
 
   const textHints = Array.isArray(options.textHints) ? options.textHints : [];
   const result = await callVisionModel(config.apiKey, config.model, usable, textHints);
-  if (!result) return { measured: [], summary: "", model: null, used: false };
+  if (!result) return { ...empty, model: null };
 
   const parsed = parseVisionJson(result.text);
-  if (!parsed) return { measured: [], summary: "", model: result.model, used: false };
+  if (!parsed) return { ...empty, model: result.model };
 
   const byCode = new Map<string, BlakeVisionMeasuredRow>();
   const pageMeta = usable[0]!;
@@ -392,10 +482,15 @@ export async function measureTakeoffPagesWithVision(
     byCode.set(mapped.code, existing);
   }
 
+  const pipeRuns = visionPipesToImportRuns(usable, parsed.pipes || []);
+
+  // Metre estimates only when we didn't get a drawable polyline for that role.
+  const rolesWithRuns = new Set(pipeRuns.map((run) => run.role));
   for (const pipe of parsed.pipes || []) {
+    const role = pipeRole(String(pipe.role || ""));
     const mapped = pipeCode(String(pipe.role || ""));
     const metres = Number(pipe.approxMetres);
-    if (!mapped || !(metres > 0) || metres > 500) continue;
+    if (!mapped || !role || rolesWithRuns.has(role) || !(metres > 0) || metres > 500) continue;
     byCode.set(mapped.code, {
       id: `blake-vision-${mapped.code}`,
       kind: "primary",
@@ -412,15 +507,17 @@ export async function measureTakeoffPagesWithVision(
 
   const measured = [...byCode.values()];
   const summaryBits = [
-    parsed.summary || (measured.length ? `Vision found ${measured.length} item group(s)` : ""),
+    parsed.summary || (measured.length || pipeRuns.length ? `Vision found ${measured.length + pipeRuns.length} item(s)` : ""),
     placedCount ? `${placedCount} pin(s)` : null,
     snappedCount ? `${snappedCount} snapped to text` : null,
+    pipeRuns.length ? `${pipeRuns.length} pipe run(s)` : null,
   ].filter(Boolean);
 
   return {
     measured,
+    pipeRuns,
     summary: summaryBits.join(" · "),
     model: result.model,
-    used: measured.length > 0,
+    used: measured.length > 0 || pipeRuns.length > 0,
   };
 }
