@@ -12,6 +12,7 @@ import { ChevronLeft, ChevronRight, Loader2, Redo2, Undo2, ZoomIn, ZoomOut } fro
 
 import type { TakeoffDocument } from "@/lib/takeoff-data";
 import {
+  classificationLayer,
   polygonArea,
   polylineLength,
   detectScaleRatioHints,
@@ -190,9 +191,22 @@ export default function StudioCanvas({
       const cls = studio.classifications.find((c) => c.id === geo.classificationId);
       const colour = cls?.colour || "#1998cf";
       const selected = geo.id === selectedId;
-      const dimmed = Boolean(studio.activeClassificationId && geo.classificationId !== studio.activeClassificationId && !selected);
+      const activeLayer = studio.activeLayerId || "all";
+      const offLayer = Boolean(
+        activeLayer !== "all"
+        && cls
+        && classificationLayer(cls) !== activeLayer
+        && !selected,
+      );
+      // With a service layer active, keep that layer crisp and fade everything else.
+      // On "All layers", soft-dim marks that are not the active classification.
+      const dimmed = offLayer
+        || (
+          activeLayer === "all"
+          && Boolean(studio.activeClassificationId && geo.classificationId !== studio.activeClassificationId && !selected)
+        );
       ctx.save();
-      ctx.globalAlpha = dimmed ? 0.22 : 1;
+      ctx.globalAlpha = offLayer ? 0.08 : dimmed ? 0.22 : 1;
       ctx.lineWidth = selected ? 3.5 : 2.2;
       ctx.strokeStyle = colour;
       ctx.fillStyle = colour;
@@ -707,7 +721,9 @@ export default function StudioCanvas({
     linear: {
       label: "Length",
       title: "Tap along a pipe or wall run to measure metres.",
-      hint: "Tap along the run point-by-point, then Done run. Set scale first for metres.",
+      hint: activeClass
+        ? `Drawing ${activeClass.name} (${activeClass.colour}). Tap along the run, then Done run. Change colour with the chips above or the swatch in Classifications.`
+        : "Pick Hot / Cold / Heating / Waste above first, then tap along the run and Done run.",
     },
     area: {
       label: "Area",

@@ -16,10 +16,16 @@ import { resolveBrandLogoUrl } from "@/lib/branding";
 import { roleHeaderName } from "@/lib/access";
 import type { TakeoffDocument, TakeoffProject } from "@/lib/takeoff-data";
 import {
+  classificationLayer,
   createDefaultStudioState,
+  ensureServiceClassifications,
   importSkillCountsIntoStudio,
   isAiStudioGeometry,
   nextClassificationColour,
+  SERVICE_CLASS_DEFS,
+  setClassificationColour,
+  setStudioActiveLayer,
+  STUDIO_SERVICE_LAYERS,
   studioId,
   studioHasAiCounts,
   studioNeedsAiReview,
@@ -70,7 +76,8 @@ export default function TakeoffStudioPage() {
   const [error, setError] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
   const [newClassName, setNewClassName] = useState("");
-  const [newClassKind, setNewClassKind] = useState<StudioClassKind>("count");
+  const [newClassKind, setNewClassKind] = useState<StudioClassKind>("linear");
+  const [newClassColour, setNewClassColour] = useState("#2878c8");
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
   const [blakeStep, setBlakeStep] = useState<string | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -78,18 +85,29 @@ export default function TakeoffStudioPage() {
   const historyRef = useRef<StudioState[]>([]);
   const futureRef = useRef<StudioState[]>([]);
   const [historyTick, setHistoryTick] = useState(0);
+  const seededServicesRef = useRef<string | null>(null);
 
   const selected = useMemo(
     () => projects.find((p) => p.id === selectedId) ?? null,
     [projects, selectedId],
   );
 
-  const studio: StudioState = selected?.studio ?? createDefaultStudioState();
+  const studio: StudioState = ensureServiceClassifications(selected?.studio ?? createDefaultStudioState());
   const drawingDocs = (selected?.documents || []).filter(
     (doc) => doc.kind === "Drawing" || doc.kind === "Marked-up drawing" || (doc.mimeType || "").includes("pdf"),
   );
   const activeDoc =
     drawingDocs.find((doc) => doc.id === studio.activeDocumentId) || drawingDocs[0] || null;
+  const activeClass = studio.classifications.find((cls) => cls.id === studio.activeClassificationId) || null;
+  const activeLayerId = studio.activeLayerId || "all";
+  const visibleClassifications = studio.classifications.filter((cls) =>
+    activeLayerId === "all" ? true : classificationLayer(cls) === activeLayerId,
+  );
+  const pipeServiceClasses = SERVICE_CLASS_DEFS
+    .filter((def) => def.kind === "linear")
+    .map((def) => studio.classifications.find((cls) => cls.id === def.id))
+    .filter((cls): cls is StudioClassification => Boolean(cls))
+    .filter((cls) => activeLayerId === "all" || classificationLayer(cls) === activeLayerId);
   const quantities = summariseStudioQuantities(studio);
   const linkedQuote = quotes.find((q) => q.id === selected?.linkedQuoteId);
   const aiReviewRows = studio.aiReviewMeasured || [];
@@ -152,7 +170,20 @@ export default function TakeoffStudioPage() {
     setHistoryTick((value) => value + 1);
     setSaveState("saved");
     setReviewOpen(false);
+    seededServicesRef.current = null;
   }, [selectedId]);
+
+  useEffect(() => {
+    if (!selected || seededServicesRef.current === selected.id) return;
+    const raw = selected.studio ?? createDefaultStudioState();
+    const ensured = ensureServiceClassifications(raw);
+    seededServicesRef.current = selected.id;
+    if (ensured !== raw) {
+      void persistStudio(ensured, {}, { skipHistory: true, immediate: true });
+    }
+    // Seed service classes once per project; persistStudio is defined below in this component.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id]);
 
   useEffect(() => {
     if (hasPendingAiReview) setReviewOpen(true);
@@ -364,12 +395,16 @@ export default function TakeoffStudioPage() {
 
   function addClassification() {
     const name = newClassName.trim() || (newClassKind === "area" ? "Area" : newClassKind === "linear" ? "Linear" : "Count");
+    const colour = /^#?[0-9a-fA-F]{6}$/.test(newClassColour.trim())
+      ? (newClassColour.startsWith("#") ? newClassColour : `#${newClassColour}`)
+      : nextClassificationColour(studio.classifications);
     const cls: StudioClassification = {
       id: studioId("cls"),
       kind: newClassKind,
       name,
-      colour: nextClassificationColour(studio.classifications),
+      colour,
       unit: newClassKind === "area" ? "m2" : newClassKind === "linear" ? "m" : "nr",
+      layer: activeLayerId === "all" ? "general" : activeLayerId,
     };
     void persistStudio({
       ...studio,
@@ -378,6 +413,15 @@ export default function TakeoffStudioPage() {
       tool: newClassKind,
     });
     setNewClassName("");
+  }
+
+  function selectPipeService(cls: StudioClassification) {
+    void persistStudio({
+      ...studio,
+      activeClassificationId: cls.id,
+      tool: cls.kind,
+      activeLayerId: classificationLayer(cls),
+    });
   }
 
   function deleteClassification(id: string) {
@@ -855,16 +899,50 @@ export default function TakeoffStudioPage() {
 
               <section>
                 <header>
+                  <h2>Layers</h2>
+                </header>
+                <div className="nexa-studio-layer-list" role="tablist" aria-label="Service layers">
+                  {STUDIO_SERVICE_LAYERS.map((layer) => (
+                    <button
+                      key={layer.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeLayerId === layer.id}
+                      className={activeLayerId === layer.id ? "on" : undefined}
+                      onClick={() => void persistStudio(setStudioActiveLayer(studio, layer.id))}
+                    >
+                      {layer.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="muted nexa-studio-hint">
+                  Work one layer at a time — e.g. Hot &amp; cold, then Heating, then Sanitary &amp; waste. Other layers stay dimmed on the sheet.
+                </p>
+              </section>
+
+              <section>
+                <header>
                   <h2>Classifications</h2>
                 </header>
                 <div className="nexa-studio-class-list">
-                  {studio.classifications.map((cls) => {
+                  {visibleClassifications.map((cls) => {
                     const qty = quantities.find((row) => row.classificationId === cls.id);
                     return (
                       <div
                         key={cls.id}
                         className={`nexa-studio-class-row${cls.id === studio.activeClassificationId ? " on" : ""}`}
                       >
+                        <label className="nexa-studio-class-colour" title="Pipe / mark colour">
+                          <span style={{ background: cls.colour }} />
+                          <input
+                            type="color"
+                            value={/^#[0-9a-fA-F]{6}$/.test(cls.colour) ? cls.colour : "#2878c8"}
+                            aria-label={`Colour for ${cls.name}`}
+                            onChange={(e) => {
+                              void persistStudio(setClassificationColour(studio, cls.id, e.target.value));
+                            }}
+                          />
+                        </label>
                         <button
                           type="button"
                           className="nexa-studio-class-pick"
@@ -872,9 +950,9 @@ export default function TakeoffStudioPage() {
                             ...studio,
                             activeClassificationId: cls.id,
                             tool: cls.kind,
+                            activeLayerId: classificationLayer(cls),
                           })}
                         >
-                          <i style={{ background: cls.colour }} />
                           <span>
                             <strong>{cls.name}</strong>
                             <small>{cls.kind} · {qty?.pieces || 0} item{(qty?.pieces || 0) === 1 ? "" : "s"}</small>
@@ -898,15 +976,22 @@ export default function TakeoffStudioPage() {
                 </div>
                 <div className="nexa-studio-create class">
                   <select value={newClassKind} onChange={(e) => setNewClassKind(e.target.value as StudioClassKind)}>
-                    <option value="count">Count</option>
                     <option value="linear">Linear</option>
+                    <option value="count">Count</option>
                     <option value="area">Area</option>
                   </select>
+                  <input
+                    type="color"
+                    value={newClassColour}
+                    onChange={(e) => setNewClassColour(e.target.value)}
+                    aria-label="New classification colour"
+                    title="Colour"
+                  />
                   <input value={newClassName} onChange={(e) => setNewClassName(e.target.value)} placeholder="Name" />
                   <button type="button" className="ghost" onClick={addClassification}>Add</button>
                 </div>
                 <p className="muted nexa-studio-hint">
-                  Pick a classification, then draw. Green <strong>Ask Blake</strong> counts fixture text tags and traces coloured vector pipe runs (hot/cold/waste). Set scale for metres.
+                  Tap a coloured service (Cold = blue, Hot = red), then Length. Or change the swatch colour anytime. Ask Blake can still auto-trace vector pipes.
                 </p>
               </section>
 
@@ -914,6 +999,9 @@ export default function TakeoffStudioPage() {
                 <header>
                   <h2>Core link</h2>
                 </header>
+                <p className="muted nexa-studio-hint">
+                  Marks auto-save on this takeoff project. <strong>Push BOQ</strong> writes quantities into the linked Core <strong>quote</strong> (not the job). Jobs pick it up after the quote is converted.
+                </p>
                 <label>
                   Quote
                   <select
@@ -944,7 +1032,7 @@ export default function TakeoffStudioPage() {
                   onClick={() => void pushToCore()}
                 >
                   {busy === "push" ? <Loader2 className="spin" size={14} /> : null}
-                  Push BOQ to Core
+                  Push BOQ to quote
                 </button>
               </section>
             </>
@@ -966,16 +1054,39 @@ export default function TakeoffStudioPage() {
               />
             </div>
           ) : selected ? (
-            <StudioCanvas
-              projectId={selected.id}
-              document={activeDoc}
-              studio={studio}
-              onChange={(next) => void persistStudio(next)}
-              onUndo={undoStudio}
-              onRedo={redoStudio}
-              canUndo={canUndo}
-              canRedo={canRedo}
-            />
+            <>
+              <div className="nexa-studio-service-bar" aria-label="Pipe service colours">
+                <span className="nexa-studio-service-bar-label">Draw as</span>
+                {pipeServiceClasses.map((cls) => (
+                  <button
+                    key={cls.id}
+                    type="button"
+                    className={cls.id === studio.activeClassificationId ? "on" : undefined}
+                    style={{ ["--svc" as string]: cls.colour }}
+                    onClick={() => selectPipeService(cls)}
+                    title={`Draw ${cls.name} in this colour`}
+                  >
+                    <i style={{ background: cls.colour }} />
+                    {cls.name.replace(/ pipe runs$/i, "").replace(/ runs$/i, "")}
+                  </button>
+                ))}
+                {activeClass ? (
+                  <strong className="nexa-studio-service-active" style={{ color: activeClass.colour }}>
+                    {activeClass.name}
+                  </strong>
+                ) : null}
+              </div>
+              <StudioCanvas
+                projectId={selected.id}
+                document={activeDoc}
+                studio={studio}
+                onChange={(next) => void persistStudio(next)}
+                onUndo={undoStudio}
+                onRedo={redoStudio}
+                canUndo={canUndo}
+                canRedo={canRedo}
+              />
+            </>
           ) : (
             <div className="nexa-studio-empty-main">
               <h1>Start a NeXa takeoff</h1>
