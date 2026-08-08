@@ -7,7 +7,7 @@ const pilotPin = process.env.NEXA_PILOT_PIN;
 const pilotUser = process.env.NEXA_PILOT_USER?.trim() || "nexa";
 const pilotSessionCookie = "nexa_pilot_session";
 const pilotSessionMaxAgeSeconds = 60 * 60 * 24 * 30;
-const publicPagePrefixes = ["/heat-design", "/client"];
+const publicPagePrefixes = ["/heat-design", "/client", "/nexa", "/early-access"];
 const publicAssetPrefixes = ["/app-icons/", "/brand/", "/api/manifest/"];
 const publicApiPrefixes = [
   "/api/quote-portal",
@@ -24,6 +24,8 @@ const userAuthPublicPaths = new Set([
   "/api/branding",
   "/api/postcode-lookup",
   "/heat-design",
+  "/nexa",
+  "/early-access",
 ]);
 const publicAssetPaths = new Set([
   "/ewg-logo.png",

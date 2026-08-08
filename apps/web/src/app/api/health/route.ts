@@ -162,6 +162,8 @@ export async function GET() {
       dualPathCleanup: "ai-first-redirect-survey-canonical-v1",
       companyProd: "restore-firedrill-simpro-optional-v1",
       restoreFireDrill: "shadow-roundtrip-v1",
+      earlyAccessPack: "company-production-v1",
+      opsServicesMonitor: "thin-status-v1",
       renderBuildFix: "no-sqlite-in-client-v1",
       setupIndependent: "integrations-one-panel-v1",
       bootTabsReady: "auth-only-v1",

@@ -341,8 +341,9 @@ export function NexaSalesExperience() {
           <a href="#demo" onClick={() => setMenuOpen(false)}>Demos</a>
         </nav>
         <div className={styles.headerActions}>
+          <a className={styles.textAction} href="/early-access">Early access</a>
           <a className={styles.textAction} href="/login">Sign in</a>
-          <a className={styles.primaryAction} href="mailto:brian.kerr@errolwatsongroup.com?subject=NeXa%20product%20demo">Request a demo <ArrowRight size={16} /></a>
+          <a className={styles.primaryAction} href="/early-access">Company production <ArrowRight size={16} /></a>
         </div>
         <button className={styles.menuButton} type="button" onClick={() => setMenuOpen((open) => !open)} aria-label={menuOpen ? "Close menu" : "Open menu"}>
           {menuOpen ? <X size={21} /> : <Menu size={21} />}
@@ -356,8 +357,8 @@ export function NexaSalesExperience() {
           <h1>NeXa</h1>
           <p>Run the full job lifecycle from one connected command centre, with Blake working across the operation.</p>
           <div className={styles.heroActions}>
-            <a className={styles.primaryAction} href="#demo"><Play size={16} /> Watch the product demos</a>
-            <a className={styles.secondaryAction} href="#product">Explore NeXa <ChevronRight size={16} /></a>
+            <a className={styles.primaryAction} href="/early-access">Company production early access <ArrowRight size={16} /></a>
+            <a className={styles.secondaryAction} href="#demo"><Play size={16} /> Watch demos</a>
           </div>
           <div className={styles.heroProof}>
             <span><Check size={15} /> Quote to cash</span>
@@ -457,7 +458,7 @@ export function NexaSalesExperience() {
         <h2>Bring the whole operation into one view.</h2>
         <p>See how NeXa can fit your customers, teams, workflows and existing systems.</p>
         <div>
-          <a className={styles.primaryAction} href="mailto:brian.kerr@errolwatsongroup.com?subject=NeXa%20product%20demo">Request a demonstration <ArrowRight size={16} /></a>
+          <a className={styles.primaryAction} href="/early-access">Company production early access <ArrowRight size={16} /></a>
           <a className={styles.secondaryAction} href="/login">Open NeXa workspace</a>
         </div>
       </section>
@@ -465,7 +466,7 @@ export function NexaSalesExperience() {
       <footer className={styles.footer}>
         <Image src="/brand/nexa-command-lockup-dark.svg" width={132} height={34} alt="NeXa" />
         <span>Bound into one command centre.</span>
-        <div><a href="#product">Product</a><a href="#demo">Demos</a><a href="/login">Sign in</a></div>
+        <div><a href="#product">Product</a><a href="#demo">Demos</a><a href="/early-access">Early access</a><a href="/login">Sign in</a></div>
         <small>© 2026 NeXa. Product demonstration data is synthetic.</small>
       </footer>
     </main>

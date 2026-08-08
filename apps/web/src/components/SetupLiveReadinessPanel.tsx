@@ -40,6 +40,14 @@ type OpenAiStatus = {
   envKeyName?: string;
 };
 
+type ServiceRow = {
+  id: string;
+  label: string;
+  status: "ready" | "warning" | "blocked";
+  detail: string;
+  required?: boolean;
+};
+
 function statusClass(status: string) {
   if (status === "ready") return "setup-status-label ready";
   if (status === "warning") return "setup-status-label warn";
@@ -52,12 +60,14 @@ export function SetupLiveReadinessPanel() {
   const [smoke, setSmoke] = useState<string>("");
   const [backupNote, setBackupNote] = useState<string>("");
   const [error, setError] = useState<string>("");
+  const [services, setServices] = useState<ServiceRow[]>([]);
 
   async function refresh() {
-    const [readyRes, openaiRes, backupRes] = await Promise.all([
+    const [readyRes, openaiRes, backupRes, servicesRes] = await Promise.all([
       fetch("/api/go-live/readiness", { cache: "no-store" }),
       fetch("/api/integrations/openai", { cache: "no-store" }),
       fetch("/api/prototype-backup?format=verify", { cache: "no-store" }),
+      fetch("/api/ops/services", { cache: "no-store" }),
     ]);
     if (readyRes.ok) setReadiness((await readyRes.json()) as ReadinessResponse);
     else setError(`Readiness ${readyRes.status}`);
@@ -68,6 +78,10 @@ export function SetupLiveReadinessPanel() {
       setBackupNote(
         `${v.presentStoreCount ?? "?"} / ${v.storeCount ?? "?"} stores · ${Math.round((v.totalBytes || 0) / 1024)} KB`,
       );
+    }
+    if (servicesRes.ok) {
+      const body = await servicesRes.json();
+      setServices(Array.isArray(body.services) ? body.services : []);
     }
   }
 
@@ -188,6 +202,22 @@ export function SetupLiveReadinessPanel() {
       {smoke ? <p className="setup-inline-note">{smoke}</p> : null}
       {backupNote ? <p className="setup-inline-note">Backup: {backupNote}</p> : null}
       {company?.note ? <p className="setup-inline-note">{company.note}</p> : null}
+      <p className="setup-inline-note">
+        Selling NeXa: see <a href="/early-access">/early-access</a> pack. Plumbing sales stay in Core
+        leads/quotes — no second CRM required.
+      </p>
+
+      {services.length ? (
+        <div className="setup-readiness-grid" style={{ marginBottom: 16 }}>
+          {services.map((service) => (
+            <article key={service.id}>
+              <span>{service.label}{service.required ? "" : " · optional"}</span>
+              <strong className={statusClass(service.status)}>{service.status}</strong>
+              <small>{service.detail}</small>
+            </article>
+          ))}
+        </div>
+      ) : null}
 
       <div className="setup-readiness-grid">
         {checks.map((check) => (
