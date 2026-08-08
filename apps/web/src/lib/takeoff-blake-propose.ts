@@ -34,8 +34,13 @@ export type BlakeProposeRequest = BlakeProposeAnswers & {
   pageHeight: number;
   /** Plant location in studio page pixels. Defaults near bottom-centre of page. */
   plantPoint?: StudioPoint;
+  /** Optional AI / measured emitter targets (overrides stub fan-out). */
+  emitterPoints?: StudioPoint[];
   pipeSpecId?: string;
   replaceExistingProposal?: boolean;
+  /** Prefixed onto summary when live AI guided placement. */
+  aiNarrative?: string;
+  aiQuestions?: string[];
 };
 
 export type BlakeProposeResult = {
@@ -275,7 +280,13 @@ export function applyBlakeProposal(studio: StudioState, request: BlakeProposeReq
     hub = manifoldPoint;
   }
 
-  const targets = buildStubTargets(hub, request.emitterMode, request.pageWidth, request.pageHeight);
+  const targets =
+    request.emitterPoints?.length
+      ? request.emitterPoints.map((point) => ({
+          x: Math.min(request.pageWidth - 24, Math.max(24, point.x)),
+          y: Math.min(request.pageHeight - 24, Math.max(24, point.y)),
+        }))
+      : buildStubTargets(hub, request.emitterMode, request.pageWidth, request.pageHeight);
   if (request.emitterMode === "radiators" || request.emitterMode === "mixed") {
     for (const [index, target] of targets.entries()) {
       if (request.emitterMode === "mixed" && index >= 2) break;
@@ -399,13 +410,20 @@ export function applyBlakeProposal(studio: StudioState, request: BlakeProposeReq
       : request.emitterMode === "mixed"
         ? "mixed rads + UFH"
         : "radiators";
-  const summary = `Proposed ${plantLabel(request.plantKind)} layout · ${modeLabel} · ${routeCount} route stub(s) · ${equipment.join(", ")}. Edit on sheet — BOQ updates live.`;
+  const baseSummary = `Proposed ${plantLabel(request.plantKind)} layout · ${modeLabel} · ${routeCount} route stub(s) · ${equipment.join(", ")}. Edit on sheet — BOQ updates live.`;
+  const summary = request.aiNarrative?.trim()
+    ? `${request.aiNarrative.trim()} · ${routeCount} route stub(s).`
+    : baseSummary;
+  const questions = [
+    ...(request.aiQuestions || []),
+    ...followUpQuestions(request),
+  ].filter((q, index, all) => q && all.indexOf(q) === index).slice(0, 10);
 
   return {
     studio: next,
     summary,
     equipment,
     routeCount,
-    questions: followUpQuestions(request),
+    questions,
   };
 }

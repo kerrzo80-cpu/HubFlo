@@ -1,3 +1,5 @@
+import { applyGuidePricesToKit } from "@/lib/ai-guide-prices";
+
 import {
   buildKitLines,
   ceilingTypes,
@@ -303,7 +305,7 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
     emitterMode,
     designLoadKw,
   });
-  const blakeKit =
+  const blakeKit = applyGuidePricesToKit(
     project.blakeProposal?.kitLines?.length
       ? project.blakeProposal.kitLines
       : buildBlakeAncillariesKit({
@@ -312,7 +314,8 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
           layout: project.heatingLayout,
           roomCount: project.rooms.length,
           floorAreaM2: totalFloorArea,
-        });
+        }),
+  );
   const kit = [...baseKit, ...blakeKit];
   const kitTotal = kit.reduce((sum, line) => sum + line.qty * line.unitCost, 0);
   const materialsComplete =
