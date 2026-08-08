@@ -113,7 +113,7 @@ import {
   type Weekday,
   weekDays,
 } from "@/lib/access";
-import { numberedReference } from "@/lib/numbering";
+import { compareReferenceDesc, numberedReference, referenceNumber } from "@/lib/numbering";
 import {
   DIRECTORY_ALPHABET_LETTERS,
   filterDirectoryList,
@@ -11397,24 +11397,26 @@ export default function Dashboard() {
 
   const filteredLeads = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return leads.filter((lead) => {
-      const matchesSearch =
-        !query ||
-        [
-          lead.ref,
-          lead.customerName,
-          lead.phone,
-          lead.email,
-          lead.address,
-          lead.description,
-          lead.source,
-          lead.status,
-          lead.surveyor,
-          lead.createdBy,
-        ].some((value) => value.toLowerCase().includes(query));
-      const matchesStatus = leadStatusFilter === "All leads" || lead.status === leadStatusFilter;
-      return matchesSearch && matchesStatus;
-    });
+    return leads
+      .filter((lead) => {
+        const matchesSearch =
+          !query ||
+          [
+            lead.ref,
+            lead.customerName,
+            lead.phone,
+            lead.email,
+            lead.address,
+            lead.description,
+            lead.source,
+            lead.status,
+            lead.surveyor,
+            lead.createdBy,
+          ].some((value) => value.toLowerCase().includes(query));
+        const matchesStatus = leadStatusFilter === "All leads" || lead.status === leadStatusFilter;
+        return matchesSearch && matchesStatus;
+      })
+      .sort((left, right) => compareReferenceDesc(left.ref, right.ref));
   }, [leadStatusFilter, leads, search]);
 
   const leadQuoteMap = useMemo(() => {
@@ -11572,49 +11574,62 @@ export default function Dashboard() {
 
   const filteredQuotes = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return quotes.filter((quote) => {
-      const matchesSearch =
-        !query ||
-        [quote.ref, quote.customer, quote.description, quote.owner, quote.status].some((value) =>
-          value.toLowerCase().includes(query),
-        );
-      const matchesStatus = quoteStatusFilter === "All quotes" || quote.status === quoteStatusFilter;
-      return matchesSearch && matchesStatus;
-    });
+    return quotes
+      .filter((quote) => {
+        const matchesSearch =
+          !query ||
+          [quote.ref, quote.customer, quote.description, quote.owner, quote.status].some((value) =>
+            value.toLowerCase().includes(query),
+          );
+        const matchesStatus = quoteStatusFilter === "All quotes" || quote.status === quoteStatusFilter;
+        return matchesSearch && matchesStatus;
+      })
+      .sort((left, right) => compareReferenceDesc(left.ref, right.ref));
   }, [quotes, quoteStatusFilter, search]);
 
   const filteredJobs = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return jobs.filter((job) => {
-      const matchesSearch =
-        !query ||
-        [job.ref, job.customer, job.site, job.description, job.manager, job.status].some((value) =>
-          value.toLowerCase().includes(query),
-        );
-      const matchesStatus = statusFilter === "All statuses" || job.status === statusFilter;
-      return matchesSearch && matchesStatus;
-    });
+    return jobs
+      .filter((job) => {
+        const matchesSearch =
+          !query ||
+          [job.ref, job.customer, job.site, job.description, job.manager, job.status].some((value) =>
+            value.toLowerCase().includes(query),
+          );
+        const matchesStatus = statusFilter === "All statuses" || job.status === statusFilter;
+        return matchesSearch && matchesStatus;
+      })
+      .sort((left, right) => compareReferenceDesc(left.ref, right.ref));
   }, [jobs, search, statusFilter]);
 
   const searchFilteredInvoices = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return invoices.filter((invoice) => {
-      const matchesSearch =
-        !query ||
-        [
-          invoice.ref,
-          invoice.sourceRef,
-          invoice.sourceName,
-          invoice.customer,
-          invoice.title,
-          invoice.status,
-          invoice.claimType ?? "",
-          invoice.valuationStatus ?? "",
-        ].some((value) =>
-          value.toLowerCase().includes(query),
-        );
-      return matchesSearch;
-    });
+    return invoices
+      .filter((invoice) => {
+        const matchesSearch =
+          !query ||
+          [
+            invoice.ref,
+            invoice.sourceRef,
+            invoice.sourceName,
+            invoice.customer,
+            invoice.title,
+            invoice.status,
+            invoice.claimType ?? "",
+            invoice.valuationStatus ?? "",
+          ].some((value) =>
+            value.toLowerCase().includes(query),
+          );
+        return matchesSearch;
+      })
+      .sort((left, right) => {
+        const leftDate = left.issuedDate || "";
+        const rightDate = right.issuedDate || "";
+        if (leftDate && rightDate && leftDate !== rightDate) {
+          return rightDate.localeCompare(leftDate);
+        }
+        return compareReferenceDesc(left.ref, right.ref);
+      });
   }, [invoices, search]);
 
   const filteredInvoices = useMemo(() => {
@@ -11627,6 +11642,7 @@ export default function Dashboard() {
 
   const purchaseOrderRows = useMemo(() => {
     const query = search.trim().toLowerCase();
+    const requestOrder = new Map(purchaseRequests.map((request, index) => [request.id, index]));
     return purchaseRequests
       .map((request) => {
         const job = jobs.find((item) => item.id === request.jobId) ?? null;
@@ -11662,6 +11678,16 @@ export default function Dashboard() {
         const matchesStatus =
           purchaseOrderStatusFilter === "All POs" || row.request.status === purchaseOrderStatusFilter;
         return matchesSearch && matchesStatus;
+      })
+      .sort((left, right) => {
+        const leftNum = referenceNumber(left.request.poNumber);
+        const rightNum = referenceNumber(right.request.poNumber);
+        const leftHasNumber = leftNum > 0;
+        const rightHasNumber = rightNum > 0;
+        if (leftHasNumber && rightHasNumber && leftNum !== rightNum) return rightNum - leftNum;
+        // Draft / unnumbered POs are usually the newest creates — keep them above older numbered rows.
+        if (leftHasNumber !== rightHasNumber) return leftHasNumber ? 1 : -1;
+        return (requestOrder.get(left.request.id) ?? 0) - (requestOrder.get(right.request.id) ?? 0);
       });
   }, [jobs, purchaseOrderStatusFilter, purchaseRequests, search]);
 
