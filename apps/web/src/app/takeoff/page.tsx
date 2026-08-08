@@ -45,7 +45,10 @@ import {
   studioLayerLabel,
   type StudioExportLayerId,
 } from "@/lib/takeoff-studio-marked-export";
-import { extractTakeoffPdfInBrowser } from "@/lib/takeoff-pdf-browser";
+import {
+  extractTakeoffPdfInBrowser,
+  extractTakeoffPdfStrokesInBrowser,
+} from "@/lib/takeoff-pdf-browser";
 
 import TakeoffOverlayReview from "./TakeoffOverlayReview";
 import StudioCanvas from "./studio/StudioCanvas";
@@ -90,6 +93,7 @@ export default function TakeoffStudioPage() {
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
   const [blakeStep, setBlakeStep] = useState<string | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(false);
   const saveTimer = useRef<number | null>(null);
   const historyRef = useRef<StudioState[]>([]);
   const futureRef = useRef<StudioState[]>([]);
@@ -193,6 +197,17 @@ export default function TakeoffStudioPage() {
     // Seed service classes once per project; persistStudio is defined below in this component.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    // On phones, collapse Projects so the drawing fills the first screen.
+    const narrow = window.matchMedia("(max-width: 960px)").matches;
+    if (!narrow) {
+      setRailCollapsed(false);
+      return;
+    }
+    setRailCollapsed(Boolean(activeDoc));
+  }, [selectedId, activeDoc?.id]);
 
   useEffect(() => {
     if (hasPendingAiReview) setReviewOpen(true);
@@ -496,11 +511,32 @@ export default function TakeoffStudioPage() {
         }
       }
 
+      setBlakeStep("Tracing coloured pipe runs on the open PDF…");
+      const clientStrokeRuns = [];
+      for (const drawing of drawingDocs.slice(0, 2)) {
+        try {
+          const strokes = await extractTakeoffPdfStrokesInBrowser(
+            selected.id,
+            drawing.id,
+            drawing.fileName,
+            { maxPages: 4 },
+          );
+          clientStrokeRuns.push({
+            documentId: strokes.documentId,
+            fileName: strokes.fileName,
+            runs: strokes.runs,
+            colouredStrokeCount: strokes.colouredStrokeCount,
+          });
+        } catch {
+          // Server may still extract strokes if client path fails.
+        }
+      }
+
       setBlakeStep("Blake is analysing your drawings…");
       const response = await apiFetch(`/api/takeoff-projects/${selected.id}/blake-run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientExtracts }),
+        body: JSON.stringify({ clientExtracts, clientStrokeRuns }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
@@ -972,8 +1008,19 @@ export default function TakeoffStudioPage() {
         </div>
       ) : null}
 
-      <div className="nexa-studio-body">
-        <aside className="nexa-studio-rail">
+      <div className={`nexa-studio-body${railCollapsed ? " rail-collapsed" : ""}`}>
+        <aside className={`nexa-studio-rail${railCollapsed ? " is-collapsed" : ""}`}>
+          <button
+            type="button"
+            className="nexa-studio-rail-toggle"
+            aria-expanded={!railCollapsed}
+            onClick={() => setRailCollapsed((value) => !value)}
+          >
+            <FolderOpen size={15} />
+            <span>{railCollapsed ? "Projects & tools" : "Hide projects"}</span>
+            <strong>{selected?.reference || "Projects"}</strong>
+          </button>
+          <div className="nexa-studio-rail-body">
           <section>
             <header>
               <FolderOpen size={15} />
@@ -1199,6 +1246,7 @@ export default function TakeoffStudioPage() {
               </section>
             </>
           ) : null}
+          </div>
         </aside>
 
         <main className="nexa-studio-main">

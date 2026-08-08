@@ -300,6 +300,16 @@
   -webkit-overflow-scrolling: touch;
 }
 
+.nexa-studio-rail-toggle {
+  display: none;
+}
+
+.nexa-studio-rail-body {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
 .nexa-studio-rail section {
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -857,22 +867,108 @@
 }
 
 @media (max-width: 960px) {
+  /* Canvas-first on phones: page can scroll; drawing gets most of the viewport. */
+  .nexa-studio {
+    height: auto;
+    min-height: 100dvh;
+    overflow: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .nexa-studio-body {
     grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(55vh, 1fr);
+    grid-template-rows: minmax(68dvh, 1fr) auto;
+    flex: 1 1 auto;
+    min-height: calc(100dvh - 56px);
+  }
+
+  .nexa-studio-main {
+    order: -1;
+    min-height: 68dvh;
+  }
+
+  .nexa-studio-canvas-wrap {
+    min-height: 68dvh;
+  }
+
+  .nexa-studio-stage {
+    min-height: 52dvh;
   }
 
   .nexa-studio-rail {
-    max-height: 42vh;
+    order: 1;
+    max-height: none;
     border-right: 0;
-    border-bottom: 1px solid var(--line);
+    border-top: 1px solid var(--line);
+    border-bottom: 0;
+    padding: 8px 10px 16px;
+  }
+
+  .nexa-studio-rail-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #f4f8fb;
+    color: var(--ink);
+    font: inherit;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .nexa-studio-rail-toggle span {
+    flex: 1;
+    font-size: 13px;
+  }
+
+  .nexa-studio-rail-toggle strong {
+    font-size: 12px;
+    color: var(--blue-deep);
+  }
+
+  .nexa-studio-rail.is-collapsed .nexa-studio-rail-body {
+    display: none;
+  }
+
+  .nexa-studio-body.rail-collapsed {
+    grid-template-rows: minmax(78dvh, 1fr) auto;
+  }
+
+  .nexa-studio-body.rail-collapsed .nexa-studio-main,
+  .nexa-studio-body.rail-collapsed .nexa-studio-canvas-wrap {
+    min-height: 78dvh;
+  }
+
+  .nexa-studio-body.rail-collapsed .nexa-studio-stage {
+    min-height: 62dvh;
+  }
+
+  .nexa-studio-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 3;
   }
 
   .nexa-studio-top {
     flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 4;
   }
 
   .nexa-studio-brand span {
     display: none;
+  }
+
+  .nexa-studio-flow {
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
   }
 }

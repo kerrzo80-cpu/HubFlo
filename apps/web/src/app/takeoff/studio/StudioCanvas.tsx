@@ -11,6 +11,7 @@ import {
 import { ChevronLeft, ChevronRight, Loader2, Redo2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 
 import type { TakeoffDocument } from "@/lib/takeoff-data";
+import { cacheTakeoffPdfBytes } from "@/lib/takeoff-pdf-browser";
 import {
   classificationLayer,
   polygonArea,
@@ -129,6 +130,7 @@ export default function StudioCanvas({
         const response = await fetch(src, { credentials: "include", cache: "no-store" });
         if (!response.ok) throw new Error(`Unable to load drawing (${response.status})`);
         const data = new Uint8Array(await response.arrayBuffer());
+        cacheTakeoffPdfBytes(projectId, document.id, data);
         const task = pdfjs.getDocument({ data, isOffscreenCanvasSupported: false });
         const pdf = await task.promise;
         if (cancelled) return;
