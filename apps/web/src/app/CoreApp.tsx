@@ -10348,6 +10348,27 @@ export default function CoreApp() {
     return communicationRecords.filter((record) => relatedIds.has(record.recordId) || record.relatedJobId === selectedJob.id);
   }, [communicationRecords, selectedInvoiceFromJob, selectedJob]);
 
+  // Must stay above activeRecordChain — lead-record timeline calls these during render.
+  const leadQuoteMap = useMemo(() => {
+    const index = new Map<string, Quote>();
+    for (const quote of quotes) {
+      if (quote.sourceLeadId) index.set(quote.sourceLeadId, quote);
+      if (quote.sourceLeadRef) index.set(quote.sourceLeadRef, quote);
+    }
+    return index;
+  }, [quotes]);
+
+  function getLeadQuote(lead: Lead) {
+    return leadQuoteMap.get(lead.id) ?? leadQuoteMap.get(lead.ref);
+  }
+
+  function getQuoteJob(quote: Quote | null | undefined) {
+    if (!quote) return null;
+    return quote.convertedJobId
+      ? jobs.find((job) => job.id === quote.convertedJobId) ?? null
+      : jobs.find((job) => job.sourceQuoteId === quote.id || job.sourceQuoteRef === quote.ref) ?? null;
+  }
+
   const activeRecordChain = useMemo(() => {
     let lead: Lead | null = null;
     let quote: Quote | null = null;
@@ -10397,6 +10418,8 @@ export default function CoreApp() {
     homeView,
     invoiceSourceMap.byJob,
     invoiceSourceMap.byQuote,
+    jobs,
+    leadQuoteMap,
     leads,
     quotes,
     selectedInvoice,
@@ -12055,24 +12078,11 @@ export default function CoreApp() {
           lead.status,
           lead.surveyor,
           lead.createdBy,
-        ].some((value) => value.toLowerCase().includes(query));
+        ].some((value) => String(value ?? "").toLowerCase().includes(query));
       const matchesStatus = leadStatusFilter === "All leads" || lead.status === leadStatusFilter;
       return matchesSearch && matchesStatus;
     });
   }, [leadStatusFilter, leads, search]);
-
-  const leadQuoteMap = useMemo(() => {
-    const index = new Map<string, Quote>();
-    for (const quote of quotes) {
-      if (quote.sourceLeadId) index.set(quote.sourceLeadId, quote);
-      if (quote.sourceLeadRef) index.set(quote.sourceLeadRef, quote);
-    }
-    return index;
-  }, [quotes]);
-
-  function getLeadQuote(lead: Lead) {
-    return leadQuoteMap.get(lead.id) ?? leadQuoteMap.get(lead.ref);
-  }
 
   function getLeadQuoteFollowUp(lead: Lead) {
     const linkedQuote = getLeadQuote(lead);
@@ -12087,13 +12097,6 @@ export default function CoreApp() {
       detail: `${daysPastSurvey} days since survey. Create or chase the quote.`,
       tone: "red" as const,
     };
-  }
-
-  function getQuoteJob(quote: Quote | null | undefined) {
-    if (!quote) return null;
-    return quote.convertedJobId
-      ? jobs.find((job) => job.id === quote.convertedJobId) ?? null
-      : jobs.find((job) => job.sourceQuoteId === quote.id || job.sourceQuoteRef === quote.ref) ?? null;
   }
 
   function getQuoteAddress(quote: Quote, linkedJob: Job | null) {
