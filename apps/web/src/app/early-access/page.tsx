@@ -72,9 +72,9 @@ export default function EarlyAccessPage() {
             alt="NeXa"
             priority
           />
-          <h1>Production for your company.</h1>
+          <h1>One company package.</h1>
           <p className={styles.heroLede}>
-            Paid early access for {pack.buyer} — live ops, Blake AI, and company backups. Not a generic SaaS launch.
+            Core, Survey, Takeoff, Heat Design and Field for {pack.buyer} — live ops, Blake AI and backups. Not a pile of project apps.
           </p>
           <div className={styles.heroActions}>
             <a className={styles.primary} href={acceptHref}>
@@ -89,9 +89,9 @@ export default function EarlyAccessPage() {
 
       <section className={`${styles.section} ${styles.sectionNarrow}`}>
         <p className={styles.sectionLabel}>Included</p>
-        <h2>What you get in early access.</h2>
+        <h2>Everything in the package.</h2>
         <p className={styles.sectionIntro}>
-          One connected company system for quoting, surveying, heat design, takeoff, field and invoicing.
+          One connected company package for quoting, surveying, heat design, takeoff, field and invoicing — not five separate tools.
         </p>
         <ul className={styles.list}>
           {pack.included.map((item) => (

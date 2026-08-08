@@ -7,15 +7,18 @@ export const EARLY_ACCESS_PACK = {
   offerName: "Company Production — Early Access",
   buyer: "Errol Watson Group (named company)",
   posture: "single-company production",
+  packageLine:
+    "All-in-one ops package: Core, Survey, Takeoff, Heat Design and Field on one live record.",
   /** Replace when commercial terms are signed. */
   pricingLabel: "Agreed monthly company fee",
   pricingNote:
-    "Flat company fee covering Core, Survey, Heat Design, Takeoff and Field — not per-seat SaaS pricing.",
+    "Flat company fee for the full NeXa package — Core, Survey, Heat Design, Takeoff and Field — not per-seat SaaS pricing.",
   supportOwner: "Brian Kerr",
   supportEmail: "brian.kerr@errolwatsongroup.com",
   supportWindow: "Business hours, same working day for blocking issues",
   mailtoSubject: "NeXa Early Access — accept company production",
   included: [
+    "Full package: Core, Survey, Takeoff, Heat Design and Field",
     "Live ops spine: lead → survey / heat / takeoff → quote → job → invoice",
     "Core office command centre + Field engineer app",
     "Blake AI (OpenAI-backed) across Survey, Heat Design and Takeoff",

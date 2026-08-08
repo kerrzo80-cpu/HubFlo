@@ -3,13 +3,13 @@ import type { Metadata } from "next";
 import { NexaSalesExperience } from "./sales-experience";
 
 export const metadata: Metadata = {
-  title: "NeXa | Company production for service work",
+  title: "NeXa | All-in-one ops package for service work",
   description:
-    "Quote, survey, schedule, deliver and invoice from one connected command centre. Company production early access for named operators.",
+    "Core, Survey, Takeoff, Heat Design and Field in one company package — quote to cash on one live record.",
   openGraph: {
-    title: "NeXa | Company production for service work",
+    title: "NeXa | All-in-one ops package for service work",
     description:
-      "One live command centre for quote, survey, schedule, deliver and invoice — with Blake across the operation.",
+      "One package, not five tools: Core, Survey, Takeoff, Heat Design and Field for service work.",
     url: "/nexa",
     siteName: "NeXa",
     type: "website",
@@ -17,8 +17,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary",
-    title: "NeXa | Company production for service work",
-    description: "Quote to cash from one live command centre.",
+    title: "NeXa | All-in-one ops package for service work",
+    description: "Core, Survey, Takeoff, Heat Design and Field — one live record.",
     images: ["/app-icons/nexa-core-icon-512.png"],
   },
 };

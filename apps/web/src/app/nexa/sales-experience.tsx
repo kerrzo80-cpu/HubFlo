@@ -355,7 +355,9 @@ export function NexaSalesExperience() {
         <div className={styles.heroProduct}><ProductShell /></div>
         <div className={styles.heroCopy}>
           <h1>NeXa</h1>
-          <p>Quote, survey, schedule, deliver and invoice from one live command centre — with Blake across the operation.</p>
+          <p>
+            The all-in-one ops package for service work — Core, Survey, Takeoff, Heat Design and Field on one live record.
+          </p>
           <div className={styles.heroActions}>
             <a className={styles.primaryAction} href="/early-access">
               Company production <ArrowRight size={16} />
@@ -368,9 +370,11 @@ export function NexaSalesExperience() {
       </section>
 
       <section className={styles.statementBand} id="product">
-        <span>One live operational record</span>
-        <h2>Every decision stays connected to the work.</h2>
-        <p>NeXa binds the customer, site, scope, price, programme, people, evidence, costs and invoice into one controlled workflow.</p>
+        <span>One package. Not five tools.</span>
+        <h2>Project delivery without the re-keying.</h2>
+        <p>
+          NeXa keeps customer, site, survey, design, quantities, price, programme, people, evidence and invoice on one controlled record — from enquiry through to cash.
+        </p>
         <div className={styles.lifecycle}>
           {["Enquiry", "Survey", "Estimate", "Quote", "Schedule", "Deliver", "Invoice", "Learn"].map((item, index) => (
             <span key={item}><b>{String(index + 1).padStart(2, "0")}</b>{item}</span>
@@ -407,9 +411,9 @@ export function NexaSalesExperience() {
 
       <section className={styles.modulesBand} id="modules">
         <header>
-          <span className={styles.eyebrow}>One connected system</span>
-          <h2>Use the right tool for each part of the job.</h2>
-          <p>Each NeXa module has one clear purpose. The information moves between them without rebuilding the work.</p>
+          <span className={styles.eyebrow}>The NeXa package</span>
+          <h2>Core, Survey, Takeoff, Heat Design and Field.</h2>
+          <p>One company package. Each module has one job — the work moves between them without rebuilding the job.</p>
         </header>
         <div className={styles.moduleList}>
           {moduleRows.map(({ icon: Icon, name, statement, detail }, index) => (
@@ -455,9 +459,9 @@ export function NexaSalesExperience() {
       <section className={styles.earlyAccessBand} id="early-access">
         <div className={styles.earlyAccessInner}>
           <span className={styles.eyebrow}>Company production</span>
-          <h2>Sell it as early access.</h2>
+          <h2>The package, ready as early access.</h2>
           <p>
-            One named-company offer: live ops spine, Blake AI, backups and a clear ops checklist.
+            One named-company package: Core through Field, Blake AI, backups and a clear ops checklist.
             simPRO stays optional until NeXa is the system of record.
           </p>
           <div className={styles.earlyAccessActions}>
@@ -473,7 +477,7 @@ export function NexaSalesExperience() {
 
       <footer className={styles.footer}>
         <Image src="/brand/nexa-command-lockup-dark.svg" width={132} height={34} alt="NeXa" />
-        <span>Bound into one command centre.</span>
+        <span>One package for the whole job.</span>
         <div><a href="#product">Product</a><a href="#demo">Demos</a><a href="/early-access">Early access</a><a href="/login">Sign in</a></div>
         <small>© 2026 NeXa. Product demonstration data is synthetic.</small>
       </footer>

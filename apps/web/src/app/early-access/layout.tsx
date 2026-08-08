@@ -5,11 +5,11 @@ import { sora, sourceSans } from "./fonts";
 export const metadata: Metadata = {
   title: "NeXa · Company Production Early Access",
   description:
-    "NeXa as production for your company — early access scope, what’s included, commercial terms, and how to start.",
+    "One company package — Core, Survey, Takeoff, Heat Design and Field. Early access scope, terms, and how to start.",
   openGraph: {
     title: "NeXa · Company Production Early Access",
     description:
-      "Paid early access for a named company: live ops spine, Blake AI, backups, and a clear ops checklist.",
+      "Paid early access to the full NeXa package: Core through Field, Blake AI, backups, and a clear ops checklist.",
     url: "/early-access",
     siteName: "NeXa",
     type: "website",
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary",
     title: "NeXa · Company Production Early Access",
-    description: "Production for your company — not a generic SaaS launch.",
+    description: "One company package — not a pile of project apps.",
     images: ["/app-icons/nexa-core-icon-512.png"],
   },
 };
