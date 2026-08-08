@@ -46,6 +46,7 @@ import {
   appendLinearWithAutoFittings,
   pipeSpecById,
 } from "@/lib/takeoff-studio-pipe";
+import { measureTakeoffPagesWithVision } from "@/lib/takeoff-blake-vision";
 import { POST as skillPost } from "../skill/route";
 
 export const runtime = "nodejs";
@@ -88,6 +89,15 @@ type ClientStrokeRun = {
   pageHeight?: number;
 };
 
+type BlakePageImage = {
+  documentId?: string;
+  fileName?: string;
+  pageNumber?: number;
+  dataUrl?: string;
+  width?: number;
+  height?: number;
+};
+
 type BlakeRunBody = {
   clientExtracts?: ClientExtract[];
   clientStrokeRuns?: Array<{
@@ -96,7 +106,25 @@ type BlakeRunBody = {
     runs?: ClientStrokeRun[];
     colouredStrokeCount?: number;
   }>;
+  /** JPEG screenshots of open pages — vision fallback for scanned PDFs. */
+  pageImages?: BlakePageImage[];
 };
+
+function normalizePageImages(raw: BlakePageImage[] | undefined) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((row) => row && typeof row.documentId === "string" && typeof row.dataUrl === "string")
+    .filter((row) => String(row.dataUrl).startsWith("data:image"))
+    .map((row) => ({
+      documentId: String(row.documentId),
+      fileName: typeof row.fileName === "string" ? row.fileName : undefined,
+      pageNumber: Number(row.pageNumber) || 1,
+      dataUrl: String(row.dataUrl),
+      width: Number(row.width) || undefined,
+      height: Number(row.height) || undefined,
+    }))
+    .slice(0, 2);
+}
 
 function skillRequest(request: NextRequest, id: string, body: Record<string, unknown>) {
   return new NextRequest(new URL(`/api/takeoff-projects/${id}/skill`, request.url), {
@@ -479,6 +507,7 @@ export async function POST(
     });
   const clientColouredStrokeCount = (Array.isArray(body?.clientStrokeRuns) ? body!.clientStrokeRuns : [])
     .reduce((sum, doc) => sum + (Number(doc?.colouredStrokeCount) || 0), 0);
+  const pageImages = normalizePageImages(body?.pageImages);
 
   try {
     const learning = takeoffLearningPreferences();
@@ -486,6 +515,8 @@ export async function POST(
     let measured: MeasuredRow[] = [];
     let pinCount = 0;
     let usedFallback = false;
+    let visionUsed = false;
+    let visionSummary = "";
     let diagnostics = {
       textItemCount: 0,
       hasSelectableText: false,
@@ -576,6 +607,31 @@ export async function POST(
     if (!pipeExtract.runs.length) {
       pipeExtract = await serverExtractPipeRuns(getTakeoffProject(id) || project);
     }
+
+    // Scanned / image sheets: look at page screenshots when text+vector found nothing.
+    if (pinCount === 0 && !pipeExtract.runs.length && pageImages.length) {
+      try {
+        const vision = await measureTakeoffPagesWithVision(pageImages);
+        if (vision.used) {
+          measured = vision.measured.map((row) => ({
+            ...row,
+            tagMatches: row.tagMatches || [],
+          }));
+          pinCount = pinCountOf(measured);
+          usedFallback = true;
+          visionUsed = true;
+          visionSummary = vision.summary;
+          diagnostics = {
+            ...diagnostics,
+            docsRead: Math.max(diagnostics.docsRead, pageImages.length),
+            source: diagnostics.source || "client",
+          };
+        }
+      } catch {
+        // Vision is best-effort — Length mark-up remains available.
+      }
+    }
+
     const latest = getTakeoffProject(id) || project;
     const baseStudio = latest.studio ?? createDefaultStudioState();
 
@@ -677,7 +733,8 @@ export async function POST(
     }
 
     const pipeRunCount = nextStudio.geometries.filter((geo) => geo.kind === "linear" && geo.id.startsWith("ai-pipe-")).length;
-    const useful = pinCount > 0 || pipeRunCount > 0;
+    const visionQty = measured.some((row) => (row.quantity || 0) > 0);
+    const useful = pinCount > 0 || pipeRunCount > 0 || visionQty;
     const reviewStatus = useful ? "pending" as const : undefined;
     nextStudio = {
       ...nextStudio,
@@ -715,11 +772,20 @@ export async function POST(
                 : ""
             }`
           : null,
+        visionUsed && !pinCount && !pipeRunCount ? "vision estimate from the open sheet" : null,
+        visionUsed && (pinCount > 0 || pipeRunCount > 0) ? "incl. vision assist" : null,
         scaled.appliedLabel ? `scale ${scaled.appliedLabel}` : null,
         !scaled.appliedLabel && pipeRunCount > 0 ? "set scale to lock metres" : null,
         learning.eventCount >= 2 ? "using your takeoff habits" : null,
       ].filter(Boolean);
-      message = `Blake found ${bits.join(" · ")}. Review on the sheet${studioHasAiPipeRuns(nextStudio) ? " — trim/extend runs if needed" : ""}.`;
+      message = `Blake found ${bits.join(" · ")}. Review on the sheet${studioHasAiPipeRuns(nextStudio) ? " — trim/extend runs if needed" : ""}${
+        visionUsed ? " · vision pins need a quick check" : ""
+      }.`;
+      if (visionUsed && visionSummary) {
+        message = `${message} ${visionSummary}`;
+      }
+    } else if (pageImages.length && !visionUsed) {
+      message = `${message} Vision had a look at the open page but couldn’t lock quantities — Set scale → Draw as → Length still builds the BOQ.`;
     }
 
     return NextResponse.json({
@@ -742,6 +808,7 @@ export async function POST(
         defaultTrade: learning.defaultTrade,
         summary: learning.summary,
       },
+      visionUsed,
       usedFallback,
       diagnostics,
       focus: firstAi

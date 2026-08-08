@@ -1220,12 +1220,34 @@
     background: linear-gradient(180deg, #f4f8fb 70%, rgba(244, 248, 251, 0));
   }
 
-  .nexa-studio-size-note {
+  .nexa-studio-service-bar,
+  .nexa-studio-size-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 5px;
+    padding: 6px 8px;
+  }
+
+  .nexa-studio-service-bar button,
+  .nexa-studio-size-bar button {
+    flex: 0 0 auto;
+    padding: 5px 8px;
+    font-size: 11px;
+  }
+
+  .nexa-studio-service-active,
+  .nexa-studio-size-note,
+  .nexa-studio-fitting-tally {
     display: none;
   }
 
   .nexa-studio-boq-sheet:not(:has(.nexa-studio-boq-panel)) {
     margin-bottom: 4px;
+  }
+
+  .nexa-studio-body.rail-collapsed .nexa-studio-stage {
+    min-height: 66dvh;
   }
 
   .nexa-studio-top {
