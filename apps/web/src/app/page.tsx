@@ -12169,7 +12169,8 @@ export default function Dashboard() {
     () =>
       leads
         .map((lead) => ({ lead, followUp: getLeadQuoteFollowUp(lead) }))
-        .filter((item): item is { lead: Lead; followUp: NonNullable<ReturnType<typeof getLeadQuoteFollowUp>> } => Boolean(item.followUp)),
+        .filter((item): item is { lead: Lead; followUp: NonNullable<ReturnType<typeof getLeadQuoteFollowUp>> } => Boolean(item.followUp))
+        .sort((left, right) => compareReferenceDesc(left.lead.ref, right.lead.ref)),
     [getLeadQuoteFollowUp, leads],
   );
 
@@ -12177,7 +12178,8 @@ export default function Dashboard() {
     () =>
       quotes
         .map((quote) => ({ quote, followUp: getQuoteResponseFollowUp(quote) }))
-        .filter((item): item is { quote: Quote; followUp: NonNullable<ReturnType<typeof getQuoteResponseFollowUp>> } => Boolean(item.followUp)),
+        .filter((item): item is { quote: Quote; followUp: NonNullable<ReturnType<typeof getQuoteResponseFollowUp>> } => Boolean(item.followUp))
+        .sort((left, right) => compareReferenceDesc(left.quote.ref, right.quote.ref)),
     [getQuoteResponseFollowUp, quotes],
   );
 
