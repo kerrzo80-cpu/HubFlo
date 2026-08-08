@@ -4,7 +4,9 @@ import { getAccessProfileFromHeaders } from "@/lib/access";
 import { hasBootstrapAdminConfiguration, listAuthUsers } from "@/lib/auth-store";
 import { getHubDetailState } from "@/lib/hub-detail-store";
 import { getLeads } from "@/lib/lead-store";
+import { openAiKeySource, resolveOpenAiApiKey } from "@/lib/openai-env";
 import { getClientSites, getClients } from "@/lib/people-data";
+import { currentStoreVerification } from "@/lib/pilot-backup";
 import { getSimproBridgeStatus } from "@/lib/simpro-bridge";
 import { getEstimates, getSurveys } from "@/lib/survey-estimator-store";
 import { getTakeoffProjects } from "@/lib/takeoff-data";
@@ -22,6 +24,9 @@ export async function GET(request: Request) {
   const hubState = getHubDetailState();
   const workspaceMode = getWorkspaceMode();
   const simpro = getSimproBridgeStatus();
+  const openaiConnected = Boolean(resolveOpenAiApiKey());
+  const openaiSource = openAiKeySource();
+  const backup = currentStoreVerification();
   const counts = {
     clients: getClients().length,
     sites: getClientSites().length,
@@ -57,6 +62,24 @@ export async function GET(request: Request) {
         : "Individual server-verified accounts must replace the shared pilot login before launch.",
     },
     {
+      id: "openai",
+      status: openaiConnected ? "ready" : "blocked",
+      label: openaiConnected ? `OpenAI key via ${openaiSource}` : "OpenAI key missing",
+      detail: openaiConnected
+        ? "Blake / Survey / Takeoff AI can resolve a key (env preferred, then in-app)."
+        : "Set OPENAI_API_KEY / NEXA_OPENAI_API_KEY on Render, or paste a key in Setup → Blake AI.",
+    },
+    {
+      id: "backup",
+      status: backup.ok && backup.presentStoreCount > 0 ? "ready" : "warning",
+      label: backup.ok
+        ? `Backup export (${backup.presentStoreCount}/${backup.storeCount} stores)`
+        : "Backup export unavailable",
+      detail: backup.ok
+        ? `${Math.round(backup.totalBytes / 1024)} KB exportable · restore dry-run available at /api/prototype-backup/restore`
+        : "Could not summarise pilot stores for export.",
+    },
+    {
       id: "simpro",
       status: simpro.configured ? "warning" : "blocked",
       label: simpro.configured ? `Simpro ${simpro.mode} connection detected` : "Simpro connection incomplete",
@@ -71,6 +94,17 @@ export async function GET(request: Request) {
     authMode,
     counts,
     checks,
+    openai: {
+      connected: openaiConnected,
+      source: openaiSource,
+    },
+    backup: backup.ok
+      ? {
+          presentStoreCount: backup.presentStoreCount,
+          storeCount: backup.storeCount,
+          totalBytes: backup.totalBytes,
+        }
+      : null,
     simpro: {
       configured: simpro.configured,
       mode: simpro.mode,

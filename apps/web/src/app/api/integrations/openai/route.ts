@@ -30,8 +30,8 @@ function status() {
     model: stored.model?.trim() || DEFAULT_OPENAI_MODEL,
     updatedAt: stored.updatedAt,
     envKeyName: openAiApiKeyEnvName(),
-    // Never return the key itself; only whether an in-app key is saved.
-    hasInAppKey: source === "in-app",
+    // True when an in-app key is saved — even if env currently wins.
+    hasInAppKey: Boolean(stored.apiKey?.trim()),
   };
 }
 

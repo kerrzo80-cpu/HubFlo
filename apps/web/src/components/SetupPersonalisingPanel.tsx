@@ -452,11 +452,6 @@ export function SetupPersonalisingPanel({
                 <span>{String(businessSettings[app.nameField] ?? app.label)}</span>
               </a>
             ))}
-            <a className="personalising-home-preview" href="/estimator" target="_blank" rel="noreferrer">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={resolveBrandIconUrl(businessSettings, "estimator")} alt="" />
-              <span>Estimator</span>
-            </a>
           </div>
         </>
       ) : null}

@@ -86,6 +86,9 @@ async function runSmoke(origin: string) {
     checkPath(origin, "/field/sw.js", [200]),
     checkPath(origin, "/api/manifest/field", [200]),
     checkPath(origin, "/heat-design", [200]),
+    checkPath(origin, "/survey", [200, 302, 307]),
+    checkPath(origin, "/ai-intake", [200, 302, 307]),
+    checkPath(origin, "/ai-first", [200, 302, 307, 308]),
     checkPath(origin, "/api/branding", [200]),
   ]);
 

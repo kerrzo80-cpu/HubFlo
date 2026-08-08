@@ -7,7 +7,7 @@ const pilotPin = process.env.NEXA_PILOT_PIN;
 const pilotUser = process.env.NEXA_PILOT_USER?.trim() || "nexa";
 const pilotSessionCookie = "nexa_pilot_session";
 const pilotSessionMaxAgeSeconds = 60 * 60 * 24 * 30;
-const publicPagePrefixes = ["/ai-first", "/heat-design", "/client"];
+const publicPagePrefixes = ["/heat-design", "/client"];
 const publicAssetPrefixes = ["/app-icons/", "/brand/", "/api/manifest/"];
 const publicApiPrefixes = [
   "/api/quote-portal",
@@ -23,9 +23,7 @@ const userAuthPublicPaths = new Set([
   "/api/health/smoke",
   "/api/branding",
   "/api/postcode-lookup",
-  "/ai-first",
   "/heat-design",
-  "/nexa-ai-first.html",
 ]);
 const publicAssetPaths = new Set([
   "/ewg-logo.png",
@@ -37,7 +35,6 @@ const publicAssetPaths = new Set([
   "/favicon.ico",
   "/sw-field.js",
   "/field/sw.js",
-  "/nexa-ai-first.html",
   "/manifest-core.json",
   "/manifest-estimator.json",
   "/manifest-field.json",

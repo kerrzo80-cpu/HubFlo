@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { openAiKeySource, resolveOpenAiApiKey } from "@/lib/openai-env";
 import { getServerStoreBackend } from "@/lib/server-store";
 import { readDayworkSheetsStore } from "@/lib/daywork-sheets-store";
 import { readDayworkWriteLog } from "@/lib/daywork-write-log";
@@ -19,11 +20,17 @@ export async function GET() {
 
   const writeLog = readDayworkWriteLog();
   const lastWrite = writeLog.attempts[0] || null;
+  const openaiConnected = Boolean(resolveOpenAiApiKey());
+  const openaiSource = openAiKeySource();
 
   return NextResponse.json({
     ok: true,
     app: "nexa",
     store: getServerStoreBackend(),
+    openai: {
+      connected: openaiConnected,
+      source: openaiSource,
+    },
     deployment: {
       branch: process.env.RENDER_GIT_BRANCH ?? "local",
       commit: process.env.RENDER_GIT_COMMIT ?? "local",
@@ -149,6 +156,10 @@ export async function GET() {
       priceLedger: "budget-guide-rfq-firm-v1",
       leadsRecordFix: "lead-quote-map-tdz-v1",
       e2eTestJobs: "numbered-pilot-jobs-v1",
+      opsHarden: "backup-restore-openai-dualpath-v1",
+      pilotBackup: "export-verify-dryrun-v2",
+      openaiOps: "status-smoke-hasinapp-v1",
+      dualPathCleanup: "ai-first-redirect-survey-canonical-v1",
       renderBuildFix: "no-sqlite-in-client-v1",
       setupIndependent: "integrations-one-panel-v1",
       bootTabsReady: "auth-only-v1",

@@ -220,6 +220,10 @@ const OpenAiKeyCard = dynamic(() => import("./OpenAiKeyCard").then((mod) => mod.
   ssr: false,
   loading: () => panelSkeleton("Loading integrations…"),
 });
+const SetupLiveReadinessPanel = dynamic(
+  () => import("@/components/SetupLiveReadinessPanel").then((mod) => mod.SetupLiveReadinessPanel),
+  { ssr: false, loading: () => panelSkeleton("Loading readiness…") },
+);
 const SumUpKeyCard = dynamic(() => import("@/components/SumUpKeyCard").then((mod) => mod.SumUpKeyCard), {
   ssr: false,
   loading: () => panelSkeleton("Loading SumUp…"),
@@ -35218,8 +35222,8 @@ export default function CoreApp() {
                   <span className="addon-icon"><ClipboardCheck size={20} /></span>
                   <div>
                     <strong>{businessSettings.surveyAppName}</strong>
-                    <p>Guided site capture with Blake, photos, measurements and AI estimate packs.</p>
-                    <small>Outputs survey evidence, assumptions, materials, labour and Estimator handoff.</small>
+                    <p>Site capture with Blake, photos, measurements and AI estimate packs.</p>
+                    <small>Outputs survey evidence, assumptions, materials, labour and Core quote handoff.</small>
                   </div>
                   <ChevronRight size={17} />
                 </a>
@@ -35235,9 +35239,9 @@ export default function CoreApp() {
                 <a className="addon-product-card" href="/estimator">
                   <span className="addon-icon"><FileText size={20} /></span>
                   <div>
-                    <strong>Estimator</strong>
-                    <p>Review AI-built materials and labour, then push a Core quote.</p>
-                    <small>Outputs editable estimates, RFQs and simPRO-ready quote lines.</small>
+                    <strong>Estimate review</strong>
+                    <p>Optional review of survey material/labour packs before they land in Core.</p>
+                    <small>Prefer Survey → Send to quote for the main path. Use this for RFQ tidy-up.</small>
                   </div>
                   <ChevronRight size={17} />
                 </a>
@@ -43876,44 +43880,7 @@ export default function CoreApp() {
                     <SumUpKeyCard />
                   ) : null}
 
-                  {activeSetupCategory === "overview" ? (
-                    <section className="setup-panel setup-readiness">
-                      <div className="documents-toolbar">
-                        <div>
-                          <span className="permission-heading">Live readiness</span>
-                          <h2>Core systems</h2>
-                        </div>
-                        <div className="setup-template-actions">
-                          <a className="secondary-button" href="/api/prototype-backup" download>
-                            Export pilot backup
-                          </a>
-                          <span className="setup-status-label">Build status: on track</span>
-                        </div>
-                      </div>
-                      <div className="setup-readiness-grid">
-                        <article>
-                          <span>Data persistence</span>
-                          <strong>Quotes, jobs, leads and POs persist to workspace</strong>
-                          <small>Stored in the hosted pilot database or local JSON files.</small>
-                        </article>
-                        <article>
-                          <span>Audit trail</span>
-                          <strong>History retained across app restarts</strong>
-                          <small>Create, linked and status-change events are preserved.</small>
-                        </article>
-                        <article>
-                          <span>Engineer path</span>
-                          <strong>Routes and job actions remain active</strong>
-                          <small>Cost centres can now carry assigned engineer stop/go flows.</small>
-                        </article>
-                        <article>
-                          <span>Client registry</span>
-                          <strong>New customers and sites can be reused across leads and quotes</strong>
-                          <small>No duplicate creation for repeated enquiries from the same contact.</small>
-                        </article>
-                      </div>
-                    </section>
-                  ) : null}
+                  {activeSetupCategory === "overview" ? <SetupLiveReadinessPanel /> : null}
 
                   {activeSetupCategory === "business" ? (
                     <SetupPersonalisingPanel

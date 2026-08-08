@@ -321,7 +321,7 @@ async function main() {
     }
 
     // Addon routes
-    for (const route of ["/takeoff", "/survey", "/estimator"]) {
+    for (const route of ["/takeoff", "/survey", "/heat-design", "/ai-intake"]) {
       await page.goto(`${BASE}${route}`, { waitUntil: "domcontentloaded", timeout: 60000 });
       await sleep(1200);
       await shot(page, `addon-${route.replace(/\W+/g, "_")}`);

@@ -12459,6 +12459,22 @@ h1 {
   padding: 8px 12px;
 }
 
+.setup-status-label.warn {
+  background: #fff4e5;
+  color: #9a5b00;
+}
+
+.setup-status-label.blocked {
+  background: #fde8e8;
+  color: #9b1c1c;
+}
+
+.setup-inline-note {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+
 .documents-toolbar {
   align-items: center;
   display: flex;

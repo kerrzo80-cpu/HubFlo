@@ -2,8 +2,8 @@
 
 import {
   ArrowRight,
-  BarChart3,
   Bot,
+  Flame,
   CalendarDays,
   Check,
   ChevronRight,
@@ -74,8 +74,8 @@ const demoFrames: Record<DemoKey, Array<{ label: string; title: string; copy: st
   surveyor: [
     {
       label: "Capture",
-      title: "Guided survey on site",
-      copy: "Questions adapt to the actual work instead of forcing a fixed checklist.",
+      title: "Survey on site",
+      copy: "Capture the real job with photos, rooms and scope — not a fixed paper checklist.",
     },
     {
       label: "Measure",
@@ -90,7 +90,7 @@ const demoFrames: Record<DemoKey, Array<{ label: string; title: string; copy: st
     {
       label: "Send",
       title: "Cost centres arrive in Core",
-      copy: "The confirmed estimate becomes an editable quote, ready for approval.",
+      copy: "Survey → Send to quote lands an editable Core quote, ready for approval.",
     },
   ],
 };
@@ -106,7 +106,7 @@ const moduleRows = [
     icon: ScanLine,
     name: "Surveyor",
     statement: "Capture the job properly",
-    detail: "Guided surveys, photos, measurements, LiDAR, heat loss and evidence gates.",
+    detail: "Surveys, photos, measurements, LiDAR, heat loss and evidence gates.",
   },
   {
     icon: Layers3,
@@ -115,10 +115,10 @@ const moduleRows = [
     detail: "Mark up drawings, build quantities by floor, flat, system and cost centre.",
   },
   {
-    icon: BarChart3,
-    name: "Estimator",
-    statement: "Know the commercial position",
-    detail: "Assemblies, supplier pricing, labour build-up, markup and margin review.",
+    icon: Flame,
+    name: "Heat Design",
+    statement: "Size the heating system",
+    detail: "Floor plans, emitters, pipe routes and kit that push into Takeoff and Core quotes.",
   },
   {
     icon: HardHat,
