@@ -8,6 +8,7 @@ import {
   elbowPointsAlongRun,
   isRightAngleBend,
   previewFittingsForDraft,
+  countUnscaledStudioLinears,
   summariseStudioBoq,
   summariseStudioPipeBoq,
   updateLinearPointsWithFittings,
@@ -105,7 +106,7 @@ describe("studio pipe auto fittings", () => {
     assert.equal(heatingOnly.length, 0);
   });
 
-  it("keeps unsized/unscaled runs visible in the BOQ", () => {
+  it("keeps unscaled runs off the BOQ (warn separately, never Push as fake qty)", () => {
     let studio = createDefaultStudioState();
     studio = {
       ...studio,
@@ -126,9 +127,8 @@ describe("studio pipe auto fittings", () => {
       ],
     };
     const boq = summariseStudioBoq(studio, "hot-cold");
-    assert.equal(boq.length, 1);
-    assert.equal(boq[0]?.unit, "run");
-    assert.match(boq[0]?.description || "", /set scale/i);
+    assert.equal(boq.length, 0);
+    assert.equal(countUnscaledStudioLinears(studio, "hot-cold"), 1);
   });
 
   it("updates AI pipe vertices, regenerates fittings, and accepts as manual", () => {

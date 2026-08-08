@@ -343,11 +343,8 @@ export function summariseStudioBoq(
       if (metres > 0) {
         const key = `pipe|${layerId}|${geo.material || ""}|${geo.diameter || ""}|${cls?.id || "run"}`;
         bump(key, layerId, "Pipework", baseDescription, metres, "m");
-      } else {
-        // Keep Done-run / Blake pipes visible before scale is set.
-        const key = `pipe-unscaled|${layerId}|${geo.material || ""}|${geo.diameter || ""}|${cls?.id || "run"}`;
-        bump(key, layerId, "Pipework", `${baseDescription} · set scale for m`, 1, "run");
       }
+      // Unscaled runs are not BOQ lines (avoids fake "1 run" / "0 run" junk). Call out via countUnscaledStudioLinears.
       continue;
     }
 
@@ -394,7 +391,7 @@ export function summariseStudioBoq(
     });
 }
 
-/** Pipework + fittings only (Core push materials). */
+/** Pipework + fittings only (Core push materials). Never includes unscaled placeholder runs. */
 export function summariseStudioPipeBoq(studio: StudioState): Array<{
   id: string;
   section: string;
@@ -404,6 +401,7 @@ export function summariseStudioPipeBoq(studio: StudioState): Array<{
 }> {
   return summariseStudioBoq(studio, "all")
     .filter((row) => row.section === "Pipework" || row.section === "Fittings")
+    .filter((row) => row.unit !== "run" && row.quantity > 0)
     .map((row) => ({
       id: row.id,
       section: row.section,
@@ -411,6 +409,24 @@ export function summariseStudioPipeBoq(studio: StudioState): Array<{
       quantity: row.quantity,
       unit: row.unit,
     }));
+}
+
+/** Linears that exist on the sheet but cannot become metres until scale is set. */
+export function countUnscaledStudioLinears(
+  studio: StudioState,
+  layerFilter: StudioServiceLayerId | "all" = "all",
+): number {
+  let count = 0;
+  for (const geo of studio.geometries) {
+    if (geo.kind !== "linear") continue;
+    const layerId = layerForGeometry(studio, geo);
+    if (layerFilter !== "all" && layerId !== layerFilter) continue;
+    const scale = scaleForPage(studio, geo.documentId, geo.page);
+    const mpu = scale?.metresPerUnit || 0;
+    if (mpu > 0) continue;
+    if (polylineLength(geo.points) > 0) count += 1;
+  }
+  return count;
 }
 
 export function createLinearId() {

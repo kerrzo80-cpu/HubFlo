@@ -742,43 +742,47 @@ export async function POST(
     );
     const wastePipeSpec = pipeSpecById("waste-40");
 
-    if (pipeExtract.runs.length) {
-      nextStudio = importPipeRunsIntoStudio(
-        nextStudio,
-        pipeExtract.runs.map((run) => ({
-          documentId: run.documentId,
-          pageNumber: run.pageNumber,
-          points: run.points,
-          role: run.role,
-          pageHeight: run.pageHeight,
-          colourHex: run.colourHex,
-        })),
-        {
-          replaceExistingAiPipes: true,
-          aiReviewStatus: "pending",
-          // Vision screenshot coords are already page-pixel space; vector strokes stay at 1.35.
-          renderScale: visionPipeRuns.length ? 1 : 1.35,
-          pipeSpec: preferredPipeSpec,
-          wastePipeSpec,
-        },
-      );
-      // Size + auto elbows/couplings so Blake runs land in the BOQ like manual Length.
-      for (const geo of [...nextStudio.geometries]) {
-        if (geo.kind !== "linear" || !geo.id.startsWith("ai-pipe-")) continue;
-        if (!geo.material || !geo.diameter) continue;
-        nextStudio = appendLinearWithAutoFittings(nextStudio, geo);
-      }
-      measured = mergePipeMeasuredRows(measured, nextStudio);
+    // Always replace prior Blake pipes (empty extract clears them + orphan fittings).
+    nextStudio = importPipeRunsIntoStudio(
+      nextStudio,
+      pipeExtract.runs.map((run) => ({
+        documentId: run.documentId,
+        pageNumber: run.pageNumber,
+        points: run.points,
+        role: run.role,
+        pageHeight: run.pageHeight,
+        colourHex: run.colourHex,
+      })),
+      {
+        replaceExistingAiPipes: true,
+        // Pipe runs are reviewed on the sheet/BOQ — not the pin review board.
+        aiReviewStatus: undefined,
+        // Vision screenshot coords are already page-pixel space; vector strokes stay at 1.35.
+        renderScale: visionPipeRuns.length ? 1 : 1.35,
+        pipeSpec: preferredPipeSpec,
+        wastePipeSpec,
+      },
+    );
+    // Size + auto elbows/couplings so Blake runs land in the BOQ like manual Length.
+    for (const geo of [...nextStudio.geometries]) {
+      if (geo.kind !== "linear" || !geo.id.startsWith("ai-pipe-")) continue;
+      if (!geo.material || !geo.diameter) continue;
+      nextStudio = appendLinearWithAutoFittings(nextStudio, geo);
     }
+    // Keep pipe metre summary for the response toast only — do not feed the pin review board.
+    const pipeMeasured = mergePipeMeasuredRows([], nextStudio);
 
     const pipeRunCount = nextStudio.geometries.filter((geo) => geo.kind === "linear" && geo.id.startsWith("ai-pipe-")).length;
-    const visionQty = measured.some((row) => (row.quantity || 0) > 0);
+    const visionQty = pipeMeasured.some((row) => (row.quantity || 0) > 0)
+      || measured.some((row) => (row.quantity || 0) > 0 && row.unit === "nr");
     const useful = pinCount > 0 || pipeRunCount > 0 || visionQty;
-    const reviewStatus = useful ? "pending" as const : undefined;
+    // Hard review is for fixture/count pins only. Pipe runs are already on the sheet → BOQ.
+    const pinMeasured = measured.filter((row) => row.unit === "nr");
+    const reviewStatus = pinCount > 0 ? "pending" as const : undefined;
     nextStudio = {
       ...nextStudio,
       aiReviewStatus: reviewStatus,
-      aiReviewMeasured: useful ? measured : undefined,
+      aiReviewMeasured: pinCount > 0 ? pinMeasured : undefined,
       aiReviewUpdatedAt: useful ? new Date().toISOString() : nextStudio.aiReviewUpdatedAt,
     };
 
@@ -818,9 +822,15 @@ export async function POST(
         !scaled.appliedLabel && pipeRunCount > 0 ? "set scale to lock metres" : null,
         learning.eventCount >= 2 ? "using your takeoff habits" : null,
       ].filter(Boolean);
-      message = `Blake found ${bits.join(" · ")}. Review on the sheet${studioHasAiPipeRuns(nextStudio) ? " — trim/extend runs if needed" : ""}${
-        visionUsed ? " · vision pins need a quick check" : ""
-      }.`;
+      if (pinCount > 0 && pipeRunCount > 0) {
+        message = `Blake found ${bits.join(" · ")}. Pipe runs are already in the BOQ — Confirm fixture pins, then Push.`;
+      } else if (pinCount > 0) {
+        message = `Blake found ${bits.join(" · ")}. Confirm or reject the fixture pins before Push.`;
+      } else if (pipeRunCount > 0) {
+        message = `Blake found ${bits.join(" · ")}. Already on the sheet and in the BOQ — Edit to trim, then Push (no pin review needed).`;
+      } else {
+        message = `Blake found ${bits.join(" · ")}. Check the sheet and BOQ.`;
+      }
       if (visionUsed && visionSummary) {
         message = `${message} ${visionSummary}`;
       }

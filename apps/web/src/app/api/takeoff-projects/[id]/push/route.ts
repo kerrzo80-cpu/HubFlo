@@ -35,7 +35,7 @@ export async function POST(
   if (project?.studio && studioNeedsAiReview(project.studio) && !body.allowPendingAiReview) {
     return NextResponse.json(
       {
-        error: "Blake AI count pins are pending human review. Confirm/reject them or explicitly override before pushing to Core.",
+        error: "Blake fixture pins are pending human review. Confirm/reject them or explicitly override before pushing to Core. Pipe runs already on the sheet are not blocked.",
         code: "AI_REVIEW_PENDING",
       },
       { status: 409 },
