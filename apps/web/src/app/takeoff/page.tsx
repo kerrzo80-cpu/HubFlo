@@ -1404,8 +1404,8 @@ export default function TakeoffStudioPage() {
                   <button type="button" className={boqOpen ? "on" : undefined} onClick={() => setBoqOpen((open) => !open)}>
                     BOQ · {boqForPanel.length || 0}
                   </button>
-                  <button type="button" disabled={busy === "blake"} onClick={() => void runAiAssist()}>
-                    {busy === "blake" ? "Blake…" : "Ask Blake"}
+                  <button type="button" disabled={busy === "ai"} onClick={() => void runAiAssist()}>
+                    {busy === "ai" ? "Blake…" : "Ask Blake"}
                   </button>
                   <button type="button" disabled={busy === "push"} onClick={() => void pushToCore()}>
                     {selected.linkedQuoteId ? "Push" : "New quote"}
