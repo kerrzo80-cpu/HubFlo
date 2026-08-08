@@ -1,22 +1,18 @@
 /**
- * Default takeoff rates for Push → Core when no catalog/prebuild price is set.
- * Intentionally simple UK MEP defaults — override later via Core / prebuilds.
+ * Apply takeoff rates (editable library → prebuilds → built-in defaults) and assemblies.
  */
 
 import { listPrebuilds } from "@/lib/prebuild-data";
+import {
+  expandTakeoffAssemblies,
+  getTakeoffRateLibrary,
+  lookupLibraryRate,
+  type MaterialLine,
+} from "@/lib/takeoff-rate-library";
 
-export type TakeoffRateLine = {
-  id: string;
-  section: string;
-  description: string;
-  quantity: number;
-  unit: string;
-  unitCost: number;
-  markupPercent: number;
-  supplierRequired: boolean;
-};
+export type TakeoffRateLine = MaterialLine;
 
-/** £/m or £/nr defaults keyed by size / fitting / common codes. */
+/** Built-in fallbacks when library has no match. */
 const DEFAULT_RATES: Array<{ match: RegExp; unitCost: number; unitHint?: string }> = [
   { match: /\b15\s*mm\b.*copper|15\s*cu\b/i, unitCost: 4.2, unitHint: "m" },
   { match: /\b22\s*mm\b.*copper|22\s*cu\b/i, unitCost: 7.8, unitHint: "m" },
@@ -75,18 +71,24 @@ function lookupPrebuildRate(description: string): number {
 
 /** Fill unitCost on takeoff material lines before Push to Core. */
 export function applyTakeoffRatesToMaterials<T extends TakeoffRateLine>(lines: T[]): T[] {
+  const library = getTakeoffRateLibrary();
   return lines.map((line) => {
     if (line.unitCost > 0) return line;
+    const fromLibrary = lookupLibraryRate(line.description, line.unit, library);
+    if (fromLibrary > 0) return { ...line, unitCost: fromLibrary };
     const fromPrebuild = lookupPrebuildRate(line.description);
-    if (fromPrebuild > 0) {
-      return { ...line, unitCost: fromPrebuild };
-    }
+    if (fromPrebuild > 0) return { ...line, unitCost: fromPrebuild };
     const fromDefault = lookupDefaultRate(line.description, line.unit);
-    if (fromDefault > 0) {
-      return { ...line, unitCost: fromDefault };
-    }
+    if (fromDefault > 0) return { ...line, unitCost: fromDefault };
     return line;
   });
+}
+
+/** Price lines, then expand enabled assembly kits (WC / WHB / rad ancillaries). */
+export function priceAndExpandTakeoffMaterials<T extends TakeoffRateLine>(lines: T[]): T[] {
+  const priced = applyTakeoffRatesToMaterials(lines);
+  const expanded = expandTakeoffAssemblies(priced);
+  return applyTakeoffRatesToMaterials(expanded);
 }
 
 export function summarisePricedMaterials(lines: Array<{ quantity: number; unitCost: number }>) {
