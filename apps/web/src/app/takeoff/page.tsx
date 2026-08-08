@@ -40,6 +40,12 @@ import {
   type StudioState,
 } from "@/lib/takeoff-studio";
 import {
+  ensurePlantClassifications,
+  PLANT_CLASS_DEFS,
+  type BlakeEmitterMode,
+  type BlakePlantKind,
+} from "@/lib/takeoff-blake-propose";
+import {
   buildStudioMarkedDrawingSvg,
   buildStudioMarkedSnapshot,
   layersWithStudioMarks,
@@ -135,6 +141,11 @@ export default function TakeoffStudioPage() {
   const [ratesOpen, setRatesOpen] = useState(false);
   const [ratesBusy, setRatesBusy] = useState(false);
   const [takeoffAudit, setTakeoffAudit] = useState<AuditEvent[]>([]);
+  const [proposeOpen, setProposeOpen] = useState(false);
+  const [proposePlant, setProposePlant] = useState<BlakePlantKind>("boiler");
+  const [proposeEmitters, setProposeEmitters] = useState<BlakeEmitterMode>("radiators");
+  const [proposeCylinder, setProposeCylinder] = useState(true);
+  const [proposeQuestions, setProposeQuestions] = useState<string[]>([]);
   const saveTimer = useRef<number | null>(null);
   const historyRef = useRef<StudioState[]>([]);
   const futureRef = useRef<StudioState[]>([]);
@@ -146,7 +157,9 @@ export default function TakeoffStudioPage() {
     [projects, selectedId],
   );
 
-  const studio: StudioState = ensureServiceClassifications(selected?.studio ?? createDefaultStudioState());
+  const studio: StudioState = ensurePlantClassifications(
+    ensureServiceClassifications(selected?.studio ?? createDefaultStudioState()),
+  );
   const drawingDocs = (selected?.documents || []).filter(
     (doc) => doc.kind === "Drawing" || doc.kind === "Marked-up drawing" || (doc.mimeType || "").includes("pdf"),
   );
@@ -158,9 +171,15 @@ export default function TakeoffStudioPage() {
     activeLayerId === "all" ? true : classificationLayer(cls) === activeLayerId,
   );
   // Always show every preset service + any custom linears/counts so Draw as isn't stuck on Hot/Cold only.
-  const presetIds = new Set(SERVICE_CLASS_DEFS.map((def) => def.id));
+  const presetIds = new Set([
+    ...SERVICE_CLASS_DEFS.map((def) => def.id),
+    ...PLANT_CLASS_DEFS.map((def) => def.id),
+  ]);
   const pipeServiceClasses = [
     ...SERVICE_CLASS_DEFS
+      .map((def) => studio.classifications.find((cls) => cls.id === def.id))
+      .filter((cls): cls is StudioClassification => Boolean(cls)),
+    ...PLANT_CLASS_DEFS
       .map((def) => studio.classifications.find((cls) => cls.id === def.id))
       .filter((cls): cls is StudioClassification => Boolean(cls)),
     ...studio.classifications.filter((cls) => !presetIds.has(cls.id) && (cls.kind === "linear" || cls.kind === "count")),
@@ -275,12 +294,12 @@ export default function TakeoffStudioPage() {
   useEffect(() => {
     if (!selected || seededServicesRef.current === selected.id) return;
     const raw = selected.studio ?? createDefaultStudioState();
-    const ensured = ensureServiceClassifications(raw);
+    const ensured = ensurePlantClassifications(ensureServiceClassifications(raw));
     seededServicesRef.current = selected.id;
     if (ensured !== raw) {
       void persistStudio(ensured, {}, { skipHistory: true, immediate: true });
     }
-    // Seed service classes once per project; persistStudio is defined below in this component.
+    // Seed service + plant classes once per project; persistStudio is defined below in this component.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id]);
 
@@ -772,6 +791,102 @@ export default function TakeoffStudioPage() {
     }
   }
 
+  function plantClassIdForPropose(kind: BlakePlantKind) {
+    return kind === "ashp" ? "cls-ai-P-ASHP" : "cls-ai-P-BOILER";
+  }
+
+  function placeProposePlant() {
+    if (!selected || !activeDoc) {
+      setError("Upload a drawing first, then tap where the plant goes.");
+      return;
+    }
+    const classId = plantClassIdForPropose(proposePlant);
+    void persistStudio({
+      ...studio,
+      activeDocumentId: activeDoc.id,
+      activeLayerId: "heating",
+      activeClassificationId: classId,
+      tool: "count",
+    });
+    setProposeOpen(true);
+    show(
+      `Count tool on — tap the ${proposePlant === "ashp" ? "ASHP" : "boiler"} position on the sheet, then Propose routes.`,
+      12000,
+    );
+  }
+
+  async function runBlakePropose() {
+    if (!selected || !activeDoc) {
+      setError("Upload a drawing first.");
+      return;
+    }
+    setBusy("propose");
+    setError(null);
+    setBlakeStep("Blake is proposing plant, routes and equipment…");
+    try {
+      const classId = plantClassIdForPropose(proposePlant);
+      const existingPlant = [...studio.geometries]
+        .reverse()
+        .find(
+          (geo) =>
+            geo.kind === "count"
+            && geo.classificationId === classId
+            && geo.documentId === activeDoc.id
+            && geo.page === (studio.activePage || 1),
+        );
+      const plantPoint = existingPlant && existingPlant.kind === "count" ? existingPlant.point : undefined;
+      const includeCylinder = proposePlant === "ashp" ? true : proposeCylinder;
+      const response = await apiFetch(`/api/takeoff-projects/${selected.id}/blake-propose`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          plantKind: proposePlant,
+          emitterMode: proposeEmitters,
+          includeCylinder,
+          documentId: activeDoc.id,
+          page: studio.activePage || 1,
+          pageWidth: 1200,
+          pageHeight: 850,
+          plantPoint,
+          pipeSpecId: studio.activePipeSpecId,
+          actor: authName || "Office",
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        summary?: string;
+        questions?: string[];
+        project?: TakeoffProject;
+        actor?: string;
+      };
+      if (!response.ok || !payload.ok || !payload.project) {
+        throw new Error(payload.error || `Propose failed (${response.status}).`);
+      }
+      upsert({
+        ...payload.project,
+        studio: payload.project.studio ?? createDefaultStudioState(),
+      });
+      setSaveState("saved");
+      setProposeQuestions(payload.questions || []);
+      setProposeOpen(true);
+      setBoqOpen(true);
+      setReviewOpen(false);
+      show(
+        `${payload.summary || "Blake proposed a layout."}${
+          payload.actor && payload.actor !== "Blake" ? ` · ${payload.actor}` : ""
+        }`,
+        16000,
+      );
+      void refreshTakeoffAudit(selected.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Blake could not propose routes.");
+    } finally {
+      setBusy(null);
+      setBlakeStep(null);
+    }
+  }
+
   async function confirmAiReview(reviewed: StudioAiReviewMeasuredQuantity[]) {
     if (!selected) return;
     setBusy("ai-review");
@@ -831,10 +946,13 @@ export default function TakeoffStudioPage() {
         tagMatches: (row.tagMatches || []).map((match) => ({ ...match, excluded: true })),
         notes: "Rejected during human AI count review",
       }));
-      // Keep Blake/vision pipe runs + fittings; only strip AI count pins.
-      const remainingGeometries = studio.geometries.filter(
-        (geo) => !(geo.kind === "count" && isAiStudioGeometry(geo) && !geo.autoGenerated),
-      );
+      // Keep Blake/vision pipe runs, fittings, and propose-* plant pins; only strip measured AI count pins.
+      const remainingGeometries = studio.geometries.filter((geo) => {
+        if (geo.kind !== "count" || geo.autoGenerated) return true;
+        if (!isAiStudioGeometry(geo)) return true;
+        if (geo.id.startsWith("ai-propose-")) return true;
+        return false;
+      });
       const usedClassifications = new Set(remainingGeometries.map((geo) => geo.classificationId));
       const nextStudio: StudioState = {
         ...studio,
@@ -1753,9 +1871,102 @@ export default function TakeoffStudioPage() {
                   <button type="button" disabled={busy === "ai"} onClick={() => void runAiAssist()}>
                     {busy === "ai" ? "Blake…" : "Ask Blake"}
                   </button>
+                  <button
+                    type="button"
+                    className={proposeOpen ? "on" : undefined}
+                    disabled={busy === "propose"}
+                    onClick={() => setProposeOpen((open) => !open)}
+                  >
+                    Propose
+                  </button>
                   <button type="button" disabled={busy === "push"} onClick={() => void pushToCore()}>
                     {selected.linkedQuoteId ? "Push" : "New quote"}
                   </button>
+                </div>
+              ) : null}
+              {proposeOpen ? (
+                <div className="nexa-studio-propose-panel" aria-label="Blake route and equipment proposer">
+                  <header>
+                    <strong>Blake propose</strong>
+                    <span>Place plant → answer a few questions → routes + equipment land in the BOQ</span>
+                  </header>
+                  <div className="nexa-studio-propose-row" role="group" aria-label="Heat source">
+                    <em>Heat source</em>
+                    {(
+                      [
+                        ["boiler", "Boiler"],
+                        ["ashp", "ASHP"],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        className={proposePlant === id ? "on" : undefined}
+                        onClick={() => {
+                          setProposePlant(id);
+                          if (id === "ashp") setProposeCylinder(true);
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="nexa-studio-propose-row" role="group" aria-label="Emitters">
+                    <em>Emitters</em>
+                    {(
+                      [
+                        ["radiators", "Rads"],
+                        ["ufh", "UFH"],
+                        ["mixed", "Mixed"],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        className={proposeEmitters === id ? "on" : undefined}
+                        onClick={() => setProposeEmitters(id)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <label className="nexa-studio-propose-check">
+                    <input
+                      type="checkbox"
+                      checked={proposePlant === "ashp" ? true : proposeCylinder}
+                      disabled={proposePlant === "ashp"}
+                      onChange={(event) => setProposeCylinder(event.target.checked)}
+                    />
+                    Include hot water cylinder{proposePlant === "ashp" ? " (usual with ASHP)" : ""}
+                  </label>
+                  <div className="nexa-studio-propose-actions">
+                    <button type="button" className="ghost" onClick={placeProposePlant}>
+                      Tap plant on sheet
+                    </button>
+                    <button
+                      type="button"
+                      className="nexa-studio-primary"
+                      disabled={busy === "propose"}
+                      onClick={() => void runBlakePropose()}
+                    >
+                      {busy === "propose" ? <Loader2 className="spin" size={14} /> : <Sparkles size={14} />}
+                      Propose routes
+                    </button>
+                  </div>
+                  {proposeQuestions.length ? (
+                    <div className="nexa-studio-propose-questions">
+                      <strong>Blake still needs</strong>
+                      <ul>
+                        {proposeQuestions.map((question) => (
+                          <li key={question}>{question}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <p className="muted">
+                      Tip: tap plant position first for a better layout. Edit dashed proposed runs like any Blake mark.
+                    </p>
+                  )}
                 </div>
               ) : null}
               {takeoffAudit.length ? (

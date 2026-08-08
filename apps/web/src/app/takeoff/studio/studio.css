@@ -785,6 +785,120 @@
   line-height: 1.35;
 }
 
+.nexa-studio-propose-panel {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f7fbfc 0%, #eef5f8 100%);
+}
+
+.nexa-studio-propose-panel > header {
+  display: grid;
+  gap: 2px;
+}
+
+.nexa-studio-propose-panel > header strong {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.nexa-studio-propose-panel > header span,
+.nexa-studio-propose-panel > p.muted {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.nexa-studio-propose-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.nexa-studio-propose-row em {
+  flex: 0 0 auto;
+  min-width: 72px;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.nexa-studio-propose-row button,
+.nexa-studio-propose-actions button {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nexa-studio-propose-row button.on {
+  border-color: var(--blue);
+  background: #e8f4fb;
+  color: var(--blue-deep);
+}
+
+.nexa-studio-propose-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.nexa-studio-propose-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.nexa-studio-propose-actions .nexa-studio-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.nexa-studio-propose-questions {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+
+.nexa-studio-propose-questions strong {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.nexa-studio-propose-questions ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
 .nexa-studio-boq-panel .nexa-studio-boq-scale-warn {
   margin: 0 0 8px;
 }
