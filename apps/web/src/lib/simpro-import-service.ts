@@ -120,8 +120,11 @@ function importQuoteRecord(companyId: string, record: UnknownRecord, preview: bo
     return { action: "created" as const, message: `Would create quote for ${mapped.customer}`, nexaId: undefined, externalId };
   }
 
-  const { externalId: _e, externalNumber, sourceModifiedAt: _s, ...payload } = mapped;
-  const quote = createQuote(payload);
+  const { externalId: _e, externalNumber, sourceModifiedAt, ...payload } = mapped;
+  const createdAt = sourceModifiedAt && Number.isFinite(Date.parse(sourceModifiedAt))
+    ? new Date(sourceModifiedAt).toISOString()
+    : undefined;
+  const quote = createQuote({ ...payload, createdAt });
   upsertSimproEntityLink({
     companyId,
     entityType: "quote",
@@ -184,8 +187,11 @@ function importJobRecord(companyId: string, record: UnknownRecord, preview: bool
     return { action: "created" as const, message: `Would create job for ${mapped.customer}`, nexaId: undefined, externalId };
   }
 
-  const { externalId: _e, externalNumber, sourceModifiedAt: _s, ...payload } = mapped;
-  const job = createJob(payload);
+  const { externalId: _e, externalNumber, sourceModifiedAt, ...payload } = mapped;
+  const createdAt = sourceModifiedAt && Number.isFinite(Date.parse(sourceModifiedAt))
+    ? new Date(sourceModifiedAt).toISOString()
+    : undefined;
+  const job = createJob({ ...payload, createdAt });
   upsertSimproEntityLink({
     companyId,
     entityType: "job",

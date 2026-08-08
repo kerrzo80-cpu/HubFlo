@@ -56,6 +56,8 @@ export interface Job {
   value: number;
   next: string;
   due: string;
+  /** ISO timestamp used for newest-first directory ordering. */
+  createdAt?: string;
 }
 
 export interface Quote {
@@ -83,6 +85,8 @@ export interface Quote {
   simproQuoteId?: string;
   simproStatus?: "Queued" | "Sent" | "Failed";
   simproSentAt?: string;
+  /** ISO timestamp used for newest-first directory ordering. */
+  createdAt?: string;
 }
 
 export interface PurchaseRequest {
@@ -172,6 +176,7 @@ const seedJobs: Job[] = [
     value: 2840,
     next: "Order pump valves",
     due: "Today",
+    createdAt: "2026-06-18T09:00:00.000Z",
   },
   {
     id: "job-1052",
@@ -187,6 +192,7 @@ const seedJobs: Job[] = [
     value: 18900,
     next: "Engineer visit",
     due: "Tomorrow",
+    createdAt: "2026-06-20T10:00:00.000Z",
   },
   {
     id: "job-1056",
@@ -200,6 +206,7 @@ const seedJobs: Job[] = [
     value: 9450,
     next: "Review variation V-003",
     due: "Today",
+    createdAt: "2026-06-22T11:00:00.000Z",
   },
   {
     id: "job-1041",
@@ -213,6 +220,7 @@ const seedJobs: Job[] = [
     value: 24760,
     next: "Raise final invoice",
     due: "Today",
+    createdAt: "2026-06-15T08:00:00.000Z",
   },
   {
     id: "job-1039",
@@ -228,6 +236,7 @@ const seedJobs: Job[] = [
     value: 1260,
     next: "Attend site",
     due: "24 Jun",
+    createdAt: "2026-06-12T08:00:00.000Z",
   },
 ];
 
@@ -244,6 +253,7 @@ const seedQuotes: Quote[] = [
     value: 4200,
     next: "Await customer signature",
     due: "Today",
+    createdAt: "2026-06-20T09:00:00.000Z",
   },
   {
     id: "quote-2062",
@@ -257,6 +267,7 @@ const seedQuotes: Quote[] = [
     value: 9300,
     next: "Create job and schedule",
     due: "Today",
+    createdAt: "2026-06-21T10:00:00.000Z",
   },
   {
     id: "quote-2063",
@@ -270,6 +281,7 @@ const seedQuotes: Quote[] = [
     value: 1800,
     next: "Awaiting re-quote request",
     due: "Tomorrow",
+    createdAt: "2026-06-22T11:00:00.000Z",
   },
 ];
 
@@ -285,7 +297,7 @@ const seedPurchaseRequests: PurchaseRequest[] = [
     reason: "Need additional fittings for non-standard route",
     status: "Approved",
     poNumber: "PO-1003",
-    createdAt: "Today",
+    createdAt: "2026-06-21T09:00:00.000Z",
   },
   {
     id: "po-02",
@@ -298,7 +310,7 @@ const seedPurchaseRequests: PurchaseRequest[] = [
     reason: "Pump failed, no stock equivalent available",
     status: "Requested",
     poNumber: "",
-    createdAt: "13:20",
+    createdAt: "2026-06-22T13:20:00.000Z",
   },
 ];
 
@@ -432,10 +444,11 @@ export function getJobs(): Job[] {
   } catch {
     // Trial bootstrap is best-effort.
   }
+  backfillCreatedAtFromSimproLinks();
   return clone(getStore().jobs).sort((left, right) =>
     compareNewestRecord(
-      { ref: left.ref, externalId: left.simproJobId },
-      { ref: right.ref, externalId: right.simproJobId },
+      { ref: left.ref, date: left.createdAt, externalId: left.simproJobId },
+      { ref: right.ref, date: right.createdAt, externalId: right.simproJobId },
     ),
   );
 }
@@ -527,15 +540,57 @@ export function createJob(
     site: site?.address ?? payload.site,
     ref: nextRef,
     health: payload.health ?? deriveJobHealth(payload.status),
+    createdAt: payload.createdAt || new Date().toISOString(),
   };
   return saveJob(created);
 }
 
+function backfillCreatedAtFromSimproLinks() {
+  try {
+    const { findSimproEntityLinkByNexa } = require("@/lib/simpro-entity-links") as {
+      findSimproEntityLinkByNexa: (input: {
+        entityType: "quote" | "job";
+        nexaId: string;
+      }) => { sourceModifiedAt?: string } | null;
+    };
+    const store = getStore();
+    let mutated = false;
+    for (const quote of store.quotes) {
+      if (quote.createdAt || !quote.simproQuoteId) continue;
+      const link = findSimproEntityLinkByNexa({ entityType: "quote", nexaId: quote.id });
+      if (link?.sourceModifiedAt && Number.isFinite(Date.parse(link.sourceModifiedAt))) {
+        quote.createdAt = new Date(link.sourceModifiedAt).toISOString();
+        mutated = true;
+      }
+    }
+    for (const job of store.jobs) {
+      if (job.createdAt || !job.simproJobId) continue;
+      const link = findSimproEntityLinkByNexa({ entityType: "job", nexaId: job.id });
+      if (link?.sourceModifiedAt && Number.isFinite(Date.parse(link.sourceModifiedAt))) {
+        job.createdAt = new Date(link.sourceModifiedAt).toISOString();
+        mutated = true;
+      }
+    }
+    if (mutated) persistWorkflowStore();
+  } catch {
+    // Link lookup is best-effort for directory ordering.
+  }
+}
+
 export function getQuotes(): Quote[] {
+  backfillCreatedAtFromSimproLinks();
   return clone(getStore().quotes).sort((left, right) =>
     compareNewestRecord(
-      { ref: left.ref, date: left.sentAt || left.respondedAt, externalId: left.simproQuoteId },
-      { ref: right.ref, date: right.sentAt || right.respondedAt, externalId: right.simproQuoteId },
+      {
+        ref: left.ref,
+        date: left.createdAt || left.sentAt || left.respondedAt,
+        externalId: left.simproQuoteId,
+      },
+      {
+        ref: right.ref,
+        date: right.createdAt || right.sentAt || right.respondedAt,
+        externalId: right.simproQuoteId,
+      },
     ),
   );
 }
@@ -568,6 +623,7 @@ export function createQuote(payload: Omit<Quote, "id" | "ref"> & { id?: string; 
     simproQuoteId: payload.simproQuoteId,
     simproStatus: payload.simproStatus,
     simproSentAt: payload.simproSentAt,
+    createdAt: payload.createdAt || new Date().toISOString(),
     ref: payload.ref || determineNextQuoteRef(store.quotes),
   };
   store.quotes = [created, ...store.quotes];
@@ -760,12 +816,18 @@ export function createPurchaseRequest(
 ): PurchaseRequest {
   const store = getStore();
   const status = payload.status ?? "Requested";
+  const createdAt =
+    payload.createdAt && Number.isFinite(Date.parse(payload.createdAt))
+      ? new Date(payload.createdAt).toISOString()
+      : new Date().toISOString();
   const created: PurchaseRequest = {
     id: crypto.randomUUID(),
     status,
     poNumber: payload.poNumber ?? (purchaseStatusIssuesPoNumber(status) ? nextPoNumber(store.purchaseRequests) : ""),
-    createdAt: payload.createdAt,
-    updatedAt: payload.updatedAt ?? payload.createdAt,
+    createdAt,
+    updatedAt: payload.updatedAt && Number.isFinite(Date.parse(payload.updatedAt))
+      ? new Date(payload.updatedAt).toISOString()
+      : createdAt,
     estimatedCost: payload.estimatedCost,
     actualCost: payload.actualCost,
     item: payload.item,

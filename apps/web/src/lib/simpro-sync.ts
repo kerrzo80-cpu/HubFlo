@@ -500,39 +500,47 @@ export function isImportableSimproLead(record: UnknownRecord) {
 
 /** Apply live working-set rules so we don't import archive/history that crashes the app. */
 export function scopeSimproRecords(entity: Exclude<SimproSyncEntity, "schedules">, records: UnknownRecord[]) {
+  // Keep the working set as the newest N records, then import oldest→newest.
+  // Creates prepend, so the final store ends newest-first.
   if (entity === "quotes") {
     return records
       .filter(isOpenSimproQuote)
       .sort((left, right) => recordModifiedTime(right) - recordModifiedTime(left))
-      .slice(0, SIMPRO_QUOTE_IMPORT_LIMIT);
+      .slice(0, SIMPRO_QUOTE_IMPORT_LIMIT)
+      .sort((left, right) => recordModifiedTime(left) - recordModifiedTime(right) || Number(identifier(left) || 0) - Number(identifier(right) || 0));
   }
   if (entity === "jobs") {
     return records
       .filter(isImportableSimproJob)
       .sort((left, right) => recordModifiedTime(right) - recordModifiedTime(left))
-      .slice(0, SIMPRO_JOB_IMPORT_LIMIT);
+      .slice(0, SIMPRO_JOB_IMPORT_LIMIT)
+      .sort((left, right) => recordModifiedTime(left) - recordModifiedTime(right) || Number(identifier(left) || 0) - Number(identifier(right) || 0));
   }
   if (entity === "leads") {
     return records
       .filter(isImportableSimproLead)
       .sort((left, right) => recordModifiedTime(right) - recordModifiedTime(left) || Number(identifier(right) || 0) - Number(identifier(left) || 0))
-      .slice(0, SIMPRO_LEAD_IMPORT_LIMIT);
+      .slice(0, SIMPRO_LEAD_IMPORT_LIMIT)
+      .sort((left, right) => recordModifiedTime(left) - recordModifiedTime(right) || Number(identifier(left) || 0) - Number(identifier(right) || 0));
   }
   if (entity === "invoices") {
     return records
       .filter(isUnpaidSimproInvoice)
       .sort((left, right) => invoiceIssuedTime(right) - invoiceIssuedTime(left))
-      .slice(0, SIMPRO_INVOICE_IMPORT_LIMIT);
+      .slice(0, SIMPRO_INVOICE_IMPORT_LIMIT)
+      .sort((left, right) => invoiceIssuedTime(left) - invoiceIssuedTime(right) || Number(identifier(left) || 0) - Number(identifier(right) || 0));
   }
   if (entity === "clients") {
     return records
       .sort((left, right) => recordModifiedTime(right) - recordModifiedTime(left) || Number(identifier(right) || 0) - Number(identifier(left) || 0))
-      .slice(0, SIMPRO_CLIENT_IMPORT_LIMIT);
+      .slice(0, SIMPRO_CLIENT_IMPORT_LIMIT)
+      .sort((left, right) => recordModifiedTime(left) - recordModifiedTime(right) || Number(identifier(left) || 0) - Number(identifier(right) || 0));
   }
   if (entity === "sites") {
     return records
       .sort((left, right) => recordModifiedTime(right) - recordModifiedTime(left) || Number(identifier(right) || 0) - Number(identifier(left) || 0))
-      .slice(0, SIMPRO_SITE_IMPORT_LIMIT);
+      .slice(0, SIMPRO_SITE_IMPORT_LIMIT)
+      .sort((left, right) => recordModifiedTime(left) - recordModifiedTime(right) || Number(identifier(left) || 0) - Number(identifier(right) || 0));
   }
   return records;
 }
@@ -1278,6 +1286,13 @@ function dueLabelFromSimpro(record: UnknownRecord, keys: string[]) {
   return new Date(time).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
+function createdAtFromSimproRecord(record: UnknownRecord, keys: string[]) {
+  const raw = firstString(record, keys);
+  if (!raw) return new Date().toISOString();
+  const time = Date.parse(raw);
+  return Number.isFinite(time) ? new Date(time).toISOString() : new Date().toISOString();
+}
+
 export function buildQuoteInput(record: UnknownRecord, client?: ClientRecord, site?: ClientSite): Omit<Quote, "id" | "ref"> {
   const simproStatus = firstString(record, ["Status.Name", "Status", "Stage", "Stage.Name"]);
   const status = quoteStatusFromSimpro(simproStatus);
@@ -1303,6 +1318,7 @@ export function buildQuoteInput(record: UnknownRecord, client?: ClientRecord, si
     simproQuoteId: identifier(record),
     simproStatus: "Sent",
     simproSentAt: new Date().toISOString(),
+    createdAt: createdAtFromSimproRecord(record, ["DateModified", "DateIssued", "DateCreated", "CreatedDate", "Modified", "UpdatedAt"]),
   };
 }
 
@@ -1331,6 +1347,7 @@ export function buildJobInput(record: UnknownRecord, client?: ClientRecord, site
     next: "Review imported job",
     due: dueLabelFromSimpro(record, ["DueDate", "DateCreated", "CreatedDate", "StartDate"]),
     simproJobId: identifier(record),
+    createdAt: createdAtFromSimproRecord(record, ["DateModified", "DateCreated", "CreatedDate", "StartDate", "Modified", "UpdatedAt"]),
   };
 }
 

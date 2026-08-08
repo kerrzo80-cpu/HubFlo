@@ -79,9 +79,11 @@ export function sortableDateValue(value?: string | null) {
   if (!value) return null;
   const text = String(value).trim();
   if (!text) return null;
-  if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
+  // Keep calendar dates timezone-stable so issuedDate order does not flip near midnight.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return `${text}T00:00:00.000Z`;
+  if (/^\d{4}-\d{2}-\d{2}[T\s]/.test(text)) {
     const time = Date.parse(text);
-    return Number.isFinite(time) ? new Date(time).toISOString() : text.slice(0, 10);
+    return Number.isFinite(time) ? new Date(time).toISOString() : null;
   }
   if (/^\d{1,2} [A-Za-z]{3,9} \d{4}/.test(text)) {
     const time = Date.parse(text);
@@ -104,9 +106,12 @@ export function compareNewestRecord(
   if (leftDate && rightDate && leftDate !== rightDate) {
     return rightDate < leftDate ? -1 : 1;
   }
+  // If only one side has a usable date, prefer the dated record (usually the newer/imported one).
+  if (leftDate && !rightDate) return -1;
+  if (!leftDate && rightDate) return 1;
 
-  const leftExternal = Number(left.externalId);
-  const rightExternal = Number(right.externalId);
+  const leftExternal = Number(String(left.externalId ?? "").replace(/[^0-9.-]+/g, ""));
+  const rightExternal = Number(String(right.externalId ?? "").replace(/[^0-9.-]+/g, ""));
   if (
     Number.isFinite(leftExternal) &&
     leftExternal > 0 &&

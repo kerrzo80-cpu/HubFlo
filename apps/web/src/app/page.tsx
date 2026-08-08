@@ -11588,12 +11588,12 @@ export default function Dashboard() {
         compareNewestRecord(
           {
             ref: left.ref,
-            date: left.sentAt || left.respondedAt,
+            date: left.createdAt || left.sentAt || left.respondedAt,
             externalId: left.simproQuoteId,
           },
           {
             ref: right.ref,
-            date: right.sentAt || right.respondedAt,
+            date: right.createdAt || right.sentAt || right.respondedAt,
             externalId: right.simproQuoteId,
           },
         ),
@@ -11616,10 +11616,12 @@ export default function Dashboard() {
         compareNewestRecord(
           {
             ref: left.ref,
+            date: left.createdAt,
             externalId: left.simproJobId,
           },
           {
             ref: right.ref,
+            date: right.createdAt,
             externalId: right.simproJobId,
           },
         ),
@@ -12226,12 +12228,12 @@ export default function Dashboard() {
           compareNewestRecord(
             {
               ref: left.quote.ref,
-              date: left.quote.sentAt || left.quote.respondedAt,
+              date: left.quote.createdAt || left.quote.sentAt || left.quote.respondedAt,
               externalId: left.quote.simproQuoteId,
             },
             {
               ref: right.quote.ref,
-              date: right.quote.sentAt || right.quote.respondedAt,
+              date: right.quote.createdAt || right.quote.sentAt || right.quote.respondedAt,
               externalId: right.quote.simproQuoteId,
             },
           ),
@@ -15959,7 +15961,8 @@ export default function Dashboard() {
           existingRefs.add(ref.toLowerCase());
           imported += 1;
         }
-        if (created.length) setQuotes((current) => [...created, ...current]);
+        // API prepends each create, so the loop's last row is newest — reverse before merging.
+        if (created.length) setQuotes((current) => [...created].reverse().concat(current));
       }
 
       if (businessImportType === "jobs") {
@@ -16006,7 +16009,7 @@ export default function Dashboard() {
           existingRefs.add(ref.toLowerCase());
           imported += 1;
         }
-        if (created.length) setJobs((current) => [...created, ...current]);
+        if (created.length) setJobs((current) => [...created].reverse().concat(current));
       }
 
       if (businessImportType === "invoices") {

@@ -52,4 +52,17 @@ describe("compareNewestRecord", () => {
     assert.ok(sortableDateValue("08 Aug 2026 21:30"));
     assert.equal(sortableDateValue("Today"), null);
   });
+
+  it("keeps YYYY-MM-DD dates timezone stable", () => {
+    assert.equal(sortableDateValue("2026-06-30"), "2026-06-30T00:00:00.000Z");
+    assert.equal(sortableDateValue("2026-07-01"), "2026-07-01T00:00:00.000Z");
+  });
+
+  it("prefers a dated record over an undated one", () => {
+    const rows = [
+      { ref: "Q-2002", date: undefined, externalId: undefined },
+      { ref: "Q-2001", date: "2026-08-01", externalId: undefined },
+    ];
+    assert.equal([...rows].sort(compareNewestRecord)[0]?.ref, "Q-2001");
+  });
 });
