@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { SurveyScrollUnlock } from "./survey-scroll-unlock";
+import "./survey.css";
 
 export const metadata: Metadata = {
   title: "Survey",

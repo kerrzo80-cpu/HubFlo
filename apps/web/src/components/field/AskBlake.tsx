@@ -264,6 +264,12 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
   }
 
   const canAddMore = attachments.length < ASK_BLAKE_MAX_PHOTOS;
+  const lastAssistantIndex = (() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i]?.role === "assistant") return i;
+    }
+    return -1;
+  })();
 
   return (
     <section className="ask-blake" aria-label="Ask Blake">
@@ -276,7 +282,15 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
             {message.role === "assistant" ? (
               <span className="ask-blake-avatar">
                 <BlakeCharacter
-                  mood={index === 0 ? "idle" : "good"}
+                  mood={
+                    error && index === lastAssistantIndex
+                      ? "alert"
+                      : index === 0
+                        ? "idle"
+                        : index === lastAssistantIndex
+                          ? "good"
+                          : "guide"
+                  }
                   size="sm"
                 />
               </span>

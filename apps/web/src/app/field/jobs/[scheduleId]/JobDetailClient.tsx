@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   Camera,
   CheckCircle2,
+  ChevronRight,
   ClipboardCheck,
   FileUp,
   Layers,
@@ -18,6 +19,7 @@ import {
   Video,
   Wrench,
 } from "lucide-react";
+import { BlakeCharacter } from "@/components/field/BlakeCharacter";
 import { ProgrammeBoard } from "@/components/field/ProgrammeBoard";
 import { DayworkSheetForm } from "@/components/field/DayworkSheetForm";
 import { useNexaClient } from "@/lib/field/nexa";
@@ -1356,8 +1358,16 @@ export default function JobDetailPage() {
         ) : null}
       </div>
 
-      <Link href={fieldPath(`/ask?job=${encodeURIComponent(job.scheduleId)}`)} className="field-ask-blake-link">
-        Ask Blake about this job
+      <Link
+        href={fieldPath(`/ask?job=${encodeURIComponent(job.scheduleId)}`)}
+        className="field-blake-row"
+      >
+        <BlakeCharacter mood="guide" size="md" />
+        <span className="field-blake-row-copy">
+          <strong>Ask Blake</strong>
+          <small>Fault diagnosis, checks and next steps for this job</small>
+        </span>
+        <ChevronRight size={18} aria-hidden className="field-blake-row-chevron" />
       </Link>
 
       <div className="site-block">

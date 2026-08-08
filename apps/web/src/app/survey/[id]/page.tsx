@@ -608,8 +608,17 @@ export default function SimpleSurveyWorkspacePage() {
         </div>
         <div className="survey-simple-top-actions">
           <span className={`survey-simple-ai ${aiStatus?.connected ? "connected" : "missing"}`}>
-            <Sparkles size={14} />
-            {aiStatus == null ? "Checking AI…" : aiStatus.connected ? `AI ready · ${aiStatus.model || "OpenAI"}` : "AI key missing"}
+            <BuddyCharacter
+              mood={aiStatus == null ? "thinking" : aiStatus.connected ? "good" : "alert"}
+              size="sm"
+              interactive={false}
+              title="Blake"
+            />
+            {aiStatus == null
+              ? "Checking Blake…"
+              : aiStatus.connected
+                ? `Blake ready · ${aiStatus.model || "OpenAI"}`
+                : "Blake key missing"}
           </span>
           <span className={`survey-simple-save ${saveState.toLowerCase()}`}>
             {saveState === "Saving" ? <Loader2 className="spin" size={14} /> : saveState === "Saved" ? <CheckCircle2 size={14} /> : <Save size={14} />}
@@ -621,8 +630,9 @@ export default function SimpleSurveyWorkspacePage() {
 
       <section className="survey-simple-stage">
         <div className="survey-simple-hero">
+          <p className="survey-simple-eyebrow">Blake · survey backbone</p>
           <h1>Site survey</h1>
-          <p>Capture photos and drawings first. Link the Core record, add the works note, then let Blake build cost centres.</p>
+          <p>Capture photos and drawings first. Link the Core record, add the works note, then let Blake build cost centres and RFQ checks.</p>
         </div>
 
         {aiStatus && !aiStatus.connected ? (
@@ -817,9 +827,13 @@ export default function SimpleSurveyWorkspacePage() {
         </label>
 
         <div className="survey-simple-cta-row">
-          <button type="button" className="survey-simple-primary" disabled={generating || sendingToQuote || !survey.customerRequirements.trim()} onClick={() => void generateCostCentres()}>
-            {generating ? <Loader2 className="spin" size={17} /> : <Sparkles size={17} />}
-            {generating ? "Building…" : costCentres.length ? "Rebuild cost centres" : "Generate cost centres"}
+          <button type="button" className="survey-simple-primary is-blake" disabled={generating || sendingToQuote || !survey.customerRequirements.trim()} onClick={() => void generateCostCentres()}>
+            {generating ? (
+              <Loader2 className="spin" size={17} />
+            ) : (
+              <BuddyCharacter mood={costCentres.length ? "guide" : "thinking"} size="sm" interactive={false} title="Blake" />
+            )}
+            {generating ? "Blake building…" : costCentres.length ? "Rebuild with Blake" : "Ask Blake for cost centres"}
           </button>
           <button
             type="button"
@@ -848,8 +862,8 @@ export default function SimpleSurveyWorkspacePage() {
               </h2>
               <p>
                 {openBuddyQuestions.length
-                  ? `Blake needs ${openBuddyQuestions.length} answer${openBuddyQuestions.length === 1 ? "" : "s"} before the RFQ is tight. Answer below, then rebuild.`
-                  : "Blake’s checks are answered. Rebuild cost centres to tighten materials and labour."}
+                  ? `Blake needs ${openBuddyQuestions.length} answer${openBuddyQuestions.length === 1 ? "" : "s"} before the RFQ is tight. Answer below, then rebuild with Blake.`
+                  : "Blake’s checks are answered. Rebuild with Blake to tighten materials and labour."}
               </p>
             </header>
             <div className="survey-simple-buddy-list">

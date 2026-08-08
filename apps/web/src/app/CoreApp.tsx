@@ -32098,12 +32098,12 @@ export default function CoreApp() {
                     {buddyMood === "alert"
                       ? "Spotted something that’s not right"
                       : buddyMood === "thinking"
-                        ? "Working in the background"
+                        ? "Working across Core for you"
                         : buddyMood === "guide"
-                          ? "Checking things over"
+                          ? "Checking the job over"
                           : buddyMood === "good"
-                            ? "All good!"
-                            : buddyMemory.habits[0] || "Ask Blake anytime"}
+                            ? "All good — Blake’s on it"
+                            : buddyMemory.habits[0] || "Your AI backbone · ask anytime"}
                   </small>
                 </div>
               </div>

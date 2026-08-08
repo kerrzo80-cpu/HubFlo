@@ -389,8 +389,9 @@ export default function SurveyDirectoryPage() {
       <section className="survey-simple-directory">
         <div className="survey-simple-directory-head">
           <div>
+            <p className="survey-simple-eyebrow">Blake · survey backbone</p>
             <h1>Surveys</h1>
-            <p>Link a Core quote, lead or job, then upload evidence and generate cost centres.</p>
+            <p>Link a Core quote, lead or job, then upload evidence and let Blake generate cost centres and RFQ checks.</p>
           </div>
           <div className="survey-simple-directory-actions">
             <label className="survey-simple-toggle">

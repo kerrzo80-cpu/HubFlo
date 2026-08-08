@@ -3,17 +3,18 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Clock3, MessageCircle, RefreshCw } from "lucide-react";
+import { CalendarDays, Clock3, RefreshCw } from "lucide-react";
 import { useBrand } from "@/components/BrandProvider";
+import { BlakeCharacter } from "@/components/field/BlakeCharacter";
 import { resolveBrandChromeLogoUrl } from "@/lib/branding";
 import { countPendingOutbox, flushOutbox, subscribeOutbox } from "@/lib/field/offline-outbox";
 import { FIELD_BASE, fieldPath } from "@/lib/field/routes";
 
 /** Site Field chrome — My Day / Ask Blake / Hours only (no Connect / Talk). */
 const links = [
-  { href: fieldPath("/"), label: "My Day", icon: CalendarDays },
-  { href: fieldPath("/ask"), label: "Ask Blake", icon: MessageCircle },
-  { href: fieldPath("/time-check"), label: "Hours", icon: Clock3 },
+  { href: fieldPath("/"), label: "My Day", kind: "icon" as const, icon: CalendarDays },
+  { href: fieldPath("/ask"), label: "Ask Blake", kind: "blake" as const },
+  { href: fieldPath("/time-check"), label: "Hours", kind: "icon" as const, icon: Clock3 },
 ];
 
 export function AppChrome({ children }: { children: React.ReactNode }) {
@@ -102,10 +103,21 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
             link.href === FIELD_BASE
               ? pathname === FIELD_BASE || pathname === `${FIELD_BASE}/`
               : pathname.startsWith(link.href);
-          const Icon = link.icon;
           return (
-            <Link key={link.href} href={link.href} className={active ? "active" : undefined}>
-              <Icon size={18} />
+            <Link
+              key={link.href}
+              href={link.href}
+              className={[active ? "active" : "", link.kind === "blake" ? "is-blake" : ""]
+                .filter(Boolean)
+                .join(" ") || undefined}
+            >
+              {link.kind === "blake" ? (
+                <span className="field-tabbar-blake" aria-hidden>
+                  <BlakeCharacter mood={active ? "good" : "idle"} size="sm" />
+                </span>
+              ) : (
+                <link.icon size={18} />
+              )}
               <span>{link.label}</span>
             </Link>
           );

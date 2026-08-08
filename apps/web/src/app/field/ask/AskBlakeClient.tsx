@@ -89,18 +89,27 @@ export default function AskBlakePage() {
     };
   }, []);
 
+  const blakeMood =
+    status == null ? "idle" : status.connected === false ? "alert" : job ? "guide" : "idle";
+
   return (
     <main className="field-screen ask-blake-page">
       <header className="ask-blake-hero">
-        <BlakeCharacter mood="idle" size="hero" />
+        <BlakeCharacter mood={blakeMood} size="hero" />
         <div>
-          <p className="eyebrow">Ask Blake</p>
-          <h1>Type, photos or video</h1>
+          <p className="eyebrow">Blake · on-site AI</p>
+          <h1>Ask Blake</h1>
           <p className="field-page-sub">
             {job?.jobRef
-              ? `${job.jobRef} · ${job.customer ?? "Job"}`
-              : "Describe the fault or attach a photo or short video — likely cause, checks, next steps."}
+              ? `${job.jobRef} · ${job.customer ?? "Job"} — describe the fault or attach media.`
+              : "Your site backbone. Describe the fault, or attach a photo or short video for cause, checks and next steps."}
           </p>
+          {status ? (
+            <span className={`ask-blake-live-chip ${status.connected ? "is-live" : "is-soft"}`}>
+              <BlakeCharacter mood={status.connected ? "good" : "alert"} size="sm" />
+              {status.connected ? "Blake live" : "Blake fallback"}
+            </span>
+          ) : null}
         </div>
       </header>
 
