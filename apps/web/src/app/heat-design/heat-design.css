@@ -632,19 +632,28 @@
   vertical-align: middle;
 }
 
-.hd-price-chip.is-budget {
+.hd-price-chip.is-budget,
+.hd-price-chip.price-ledger-chip.is-budget {
   background: #e6f4fb;
   color: var(--hd-accent-deep);
 }
 
-.hd-price-chip.is-guide {
+.hd-price-chip.is-guide,
+.hd-price-chip.price-ledger-chip.is-guide {
   background: #eef2f6;
   color: var(--hd-muted);
 }
 
-.hd-price-chip.is-rfq {
+.hd-price-chip.is-rfq,
+.hd-price-chip.price-ledger-chip.is-rfq {
   background: #fff4ee;
   color: var(--hd-warn);
+}
+
+.hd-price-chip.is-firm,
+.hd-price-chip.price-ledger-chip.is-firm {
+  background: #e8f7ef;
+  color: #176b45;
 }
 
 .hd-forms {

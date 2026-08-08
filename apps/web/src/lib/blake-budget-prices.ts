@@ -5,6 +5,12 @@
 
 import { applyGuidePricesToKit, summariseGuidePricing } from "@/lib/ai-guide-prices";
 import type { KitLine, KitPricingSource } from "@/lib/heat-design/types";
+import {
+  pricingStateFromSource,
+  stampBudgetPrice,
+  stampGuidePrice,
+  stampRfqPrice,
+} from "@/lib/price-ledger";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
 
 const BUDGET_NOTE =
@@ -24,11 +30,23 @@ function tagLine(
   source: KitPricingSource,
   note?: string,
 ): KitLine {
+  if (!(unitCost > 0)) {
+    return stampRfqPrice({ ...line, unitCost: 0 }, note) as KitLine;
+  }
+  if (source === "blake-budget") {
+    return stampBudgetPrice(line, unitCost, note || BUDGET_NOTE) as KitLine;
+  }
+  if (source === "rate-library" || source === "rule" || source === "catalogue") {
+    return stampGuidePrice(line, unitCost, source, note) as KitLine;
+  }
+  const state = pricingStateFromSource(source, unitCost);
   return {
     ...line,
     unitCost,
     pricingSource: source,
-    pricingNote: note || (source === "blake-budget" ? BUDGET_NOTE : line.pricingNote),
+    pricingState: state,
+    pricingNote: note || line.pricingNote,
+    pricedAt: new Date().toISOString(),
   };
 }
 

@@ -114,6 +114,7 @@ import {
 } from "@/lib/buddy-memory";
 import { BuddyCharacter } from "@/lib/BuddyCharacter";
 import { buddyWatchSummary, watchQuoteReadiness, type BuddyWatchFinding } from "@/lib/buddy-quote-watch";
+import { applyFirmSupplierCost } from "@/lib/price-ledger";
 import {
   employeeHeaderName,
   getAccessProfile,
@@ -1763,6 +1764,11 @@ type QuoteCostLine = {
   unitSell: number;
   supplierRequired?: boolean;
   rateSource?: "ratebook" | "manual";
+  /** Price Ledger commercial state */
+  pricingState?: "budget" | "guide" | "rfq" | "firm";
+  pricingSource?: string;
+  pricingNote?: string;
+  pricedAt?: string;
 };
 
 type QuoteSupplierLineScopeRef = {
@@ -27628,17 +27634,25 @@ export default function CoreApp() {
           if (!requestedLineIdsForCentre.has(line.id)) return line;
           const imported = importedById.get(line.id) ?? importedByGroup.get(supplierRequestGroupKey(line));
           if (!imported) return line;
+          const firm = applyFirmSupplierCost(line, imported.unitCost, {
+            note: `Firm from ${draft.fileName}`,
+          });
           return {
-            ...line,
-            unitCost: imported.unitCost,
+            ...firm,
             unitSell: imported.unitSell,
             rateSource: "manual" as const,
+            supplierRequired: false,
           };
         });
         const append = linesForCentre
           .map((entry) => entry.line)
           .filter((line) => !centre.lines.some((existing) => existing.id === line.id))
-          .map((line) => ({ ...line, rateSource: "manual" as const }));
+          .map((line) => {
+            const firm = applyFirmSupplierCost(line, line.unitCost, {
+              note: `Firm from ${draft.fileName}`,
+            });
+            return { ...firm, rateSource: "manual" as const, supplierRequired: false };
+          });
 
         return {
           ...centre,
@@ -27647,17 +27661,39 @@ export default function CoreApp() {
       }),
     }));
 
+    const learnRows = requested
+      .map((entry) => {
+        const imported = importedById.get(entry.line.id) ?? importedByGroup.get(supplierRequestGroupKey(entry.line));
+        if (!imported || !(imported.unitCost > 0)) return null;
+        return {
+          description: entry.line.description,
+          unit: "nr",
+          unitCost: imported.unitCost,
+        };
+      })
+      .filter((row): row is { description: string; unit: string; unitCost: number } => Boolean(row));
+
+    if (learnRows.length) {
+      void fetch("/api/takeoff-rates", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ learn: learnRows }),
+      }).catch(() => {
+        // Learning is best-effort — firm costs remain on the quote either way.
+      });
+    }
+
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa",
       action: "imported",
       recordType: "quote",
       recordId: selectedQuote.id,
-      summary: `Supplier quote ${draft.fileName} applied into ${selectedQuote.ref}: ${quotedLineCount} staged line(s) across ${centreCount || 1} cost centre(s) at ${draft.markupPercent}% markup.`,
+      summary: `Supplier quote ${draft.fileName} applied into ${selectedQuote.ref}: ${quotedLineCount} Firm line(s) across ${centreCount || 1} cost centre(s) at ${draft.markupPercent}% markup · Price Ledger learn queued.`,
       source: "web",
       importance: "normal",
     });
 
-    showNotice(`${draft.lines.length} supplier lines applied to ${selectedQuote.ref}.`);
+    showNotice(`${draft.lines.length} Firm supplier lines applied to ${selectedQuote.ref} · guides will learn.`);
   }
 
   function addQuoteLine(centreId: string, catalogItemId: string) {

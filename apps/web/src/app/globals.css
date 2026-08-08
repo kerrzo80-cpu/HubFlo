@@ -39254,3 +39254,38 @@ button.nexa-kpi-card,
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* —— Price Ledger chips (Budget / Guide / RFQ / Firm) —— */
+.price-ledger-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.3rem;
+  padding: 0.1rem 0.38rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.price-ledger-chip.is-budget {
+  background: #e6f4fb;
+  color: #0f5f7d;
+}
+
+.price-ledger-chip.is-guide {
+  background: #eef2f6;
+  color: #5f6f79;
+}
+
+.price-ledger-chip.is-rfq {
+  background: #fff4ee;
+  color: #9a3412;
+}
+
+.price-ledger-chip.is-firm {
+  background: #e8f7ef;
+  color: #176b45;
+}

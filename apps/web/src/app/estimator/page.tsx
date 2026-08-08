@@ -22,6 +22,12 @@ import {
 import type { EstimateLabourLine, EstimateMaterialLine, EstimateRecord, SurveyRecord } from "@hubflo/domain";
 import { useBrand } from "@/components/BrandProvider";
 import { resolveBrandLogoUrl } from "@/lib/branding";
+import {
+  chipClassForPricingState,
+  derivePricingState,
+  PRICING_STATE_HINT,
+  PRICING_STATE_LABEL,
+} from "@/lib/price-ledger";
 
 const requestHeaders: HeadersInit = {
   "x-hubflo-role": "Office",
@@ -223,12 +229,26 @@ export default function EstimatorPage() {
     setWorking(true);
     setError("");
     try {
+      const materialCost = (editValues.unitCost || "").trim() ? numberValue(editValues.unitCost) : undefined;
       const patch = editing.type === "Material" ? {
         quantity: numberValue(editValues.quantity),
-        unitCost: (editValues.unitCost || "").trim() ? numberValue(editValues.unitCost) : undefined,
+        unitCost: materialCost,
         markupPercent: numberValue(editValues.markupPercent),
         supplier: editValues.supplier,
         notes: editValues.notes,
+        ...(materialCost !== undefined
+          ? {
+              pricingState: "firm" as const,
+              pricingSource: "manual",
+              pricingNote: "Firm cost entered in Estimator",
+              pricedAt: new Date().toISOString(),
+              status: "Confirmed" as const,
+            }
+          : {
+              pricingState: "rfq" as const,
+              pricingSource: "supplier",
+              status: "Supplier RFQ" as const,
+            }),
       } : {
         hours: numberValue(editValues.hours),
         costRate: numberValue(editValues.costRate),
@@ -462,7 +482,47 @@ export default function EstimatorPage() {
 }
 
 function EstimateMaterialTable({ lines, onEdit }: { lines: EstimateMaterialLine[]; onEdit: (line: EstimateMaterialLine) => void }) {
-  return <div className="estimate-table material"><div className="head"><span>Description</span><span>Qty</span><span>Cost</span><span>Markup</span><span>Sell</span><span>Status</span><span /></div>{lines.map((line) => { const cost = (line.unitCost || 0) * line.quantity; const sell = cost * (1 + line.markupPercent / 100); return <div className="row" key={line.id}><span data-label="Description"><strong>{line.description}</strong><small>{line.calculationExplanation}</small></span><span data-label="Qty">{line.quantity} {line.unit}</span><span data-label="Cost">{line.unitCost === undefined ? "Unpriced" : money(cost)}</span><span data-label="Markup">{line.markupPercent}%</span><span data-label="Sell">{line.unitCost === undefined ? "-" : money(sell)}</span><span data-label="Status"><b data-line-status={line.status}>{line.status}</b></span><span><button type="button" title="Edit material line" onClick={() => onEdit(line)}><Pencil size={15} /></button></span></div>; })}</div>;
+  return (
+    <div className="estimate-table material">
+      <div className="head">
+        <span>Description</span>
+        <span>Qty</span>
+        <span>Cost</span>
+        <span>Markup</span>
+        <span>Sell</span>
+        <span>Status</span>
+        <span />
+      </div>
+      {lines.map((line) => {
+        const cost = (line.unitCost || 0) * line.quantity;
+        const sell = cost * (1 + line.markupPercent / 100);
+        const state = derivePricingState(line);
+        return (
+          <div className="row" key={line.id}>
+            <span data-label="Description">
+              <strong>
+                {line.description}{" "}
+                <span className={chipClassForPricingState(state)} title={line.pricingNote || PRICING_STATE_HINT[state]}>
+                  {PRICING_STATE_LABEL[state]}
+                </span>
+              </strong>
+              <small>{line.calculationExplanation}</small>
+            </span>
+            <span data-label="Qty">{line.quantity} {line.unit}</span>
+            <span data-label="Cost">{line.unitCost === undefined ? "Unpriced" : money(cost)}</span>
+            <span data-label="Markup">{line.markupPercent}%</span>
+            <span data-label="Sell">{line.unitCost === undefined ? "-" : money(sell)}</span>
+            <span data-label="Status"><b data-line-status={line.status}>{line.status}</b></span>
+            <span>
+              <button type="button" title="Edit material line" onClick={() => onEdit(line)}>
+                <Pencil size={15} />
+              </button>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function EstimateLabourTable({ lines, onEdit }: { lines: EstimateLabourLine[]; onEdit: (line: EstimateLabourLine) => void }) {

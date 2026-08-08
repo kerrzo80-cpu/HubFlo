@@ -3,6 +3,12 @@
  * Complements plant kit + sized pipe fittings (elbows/couplings/reducers).
  */
 
+import {
+  derivePricingState,
+  isProvisionalState,
+  PRICING_STATE_HINT,
+  type PricingState,
+} from "@/lib/price-ledger";
 import type { HeatingFittingsSummary } from "./blake-route";
 import { summariseHeatingFittings } from "./blake-route";
 import type { HeatingSystemKind } from "./systems";
@@ -22,6 +28,10 @@ export type BlakeTakeoffAllowance = {
   markupPercent: number;
   supplierRequired: boolean;
   blakeNote?: string;
+  pricingState?: PricingState;
+  pricingSource?: string;
+  pricingNote?: string;
+  pricedAt?: string;
 };
 
 export type BlakeKitInput = {
@@ -220,10 +230,8 @@ export function blakeKitMaterialAllowances(
   return kitLines
     .filter((row) => row.qty > 0 && row.unitCost >= 0)
     .map((row) => {
-      const isBudget =
-        row.pricingSource === "blake-budget"
-        || row.pricingSource === "rate-library"
-        || !(row.unitCost > 0);
+      const pricingState = derivePricingState(row);
+      const provisional = isProvisionalState(pricingState);
       return {
         id: `studio-mat-${projectId}-blake-${row.id.replace(/^kit-blake-/, "")}`,
         section: row.category || "Ancillaries",
@@ -232,12 +240,16 @@ export function blakeKitMaterialAllowances(
         unit: row.unit || "nr",
         unitCost: row.unitCost,
         markupPercent: 0,
-        // Budget lines still want a supplier check — unitCost is provisional.
-        supplierRequired: isBudget,
+        // Budget / guide / RFQ still want a supplier check — unitCost is provisional.
+        supplierRequired: provisional,
+        pricingState,
+        pricingSource: row.pricingSource,
+        pricingNote: row.pricingNote || PRICING_STATE_HINT[pricingState],
+        pricedAt: row.pricedAt,
         blakeNote:
           row.pricingNote
-          || (isBudget
-            ? "Blake budget — amend when supplier quote uploaded"
+          || (provisional
+            ? "Provisional Price Ledger cost — amend when supplier quote uploaded"
             : "Blake ancillaries kit from Heat Design"),
       };
     });

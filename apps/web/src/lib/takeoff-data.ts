@@ -171,6 +171,11 @@ export type TakeoffMaterialAllowance = {
   parentMaterialId?: string;
   /** Why Blake added this line (drawing / rule of thumb). */
   blakeNote?: string;
+  /** Price Ledger: budget | guide | rfq | firm */
+  pricingState?: "budget" | "guide" | "rfq" | "firm";
+  pricingSource?: string;
+  pricingNote?: string;
+  pricedAt?: string;
 };
 
 export type TakeoffLabourAllowance = {
@@ -468,6 +473,10 @@ type QuoteCostLine = {
   unitSell: number;
   supplierRequired?: boolean;
   rateSource?: "ratebook" | "manual";
+  pricingState?: "budget" | "guide" | "rfq" | "firm";
+  pricingSource?: string;
+  pricingNote?: string;
+  pricedAt?: string;
 };
 
 type QuoteTakeoffRow = {
@@ -1298,6 +1307,9 @@ function costCentreKey(value: string) {
 }
 
 function materialLineToQuoteLine(line: TakeoffMaterialAllowance): QuoteCostLine {
+  const pricingState =
+    line.pricingState
+    || (line.supplierRequired || !(line.unitCost > 0) ? "rfq" : "guide");
   return {
     id: `takeoff-material-line-${line.id}`,
     catalogItemId: "takeoff-boq",
@@ -1305,7 +1317,11 @@ function materialLineToQuoteLine(line: TakeoffMaterialAllowance): QuoteCostLine 
     quantity: line.quantity,
     unitCost: line.unitCost,
     unitSell: lineSellFromMarkup(line.unitCost, line.markupPercent),
-    supplierRequired: line.supplierRequired,
+    supplierRequired: line.supplierRequired || pricingState !== "firm",
+    pricingState,
+    pricingSource: line.pricingSource,
+    pricingNote: line.pricingNote || line.blakeNote,
+    pricedAt: line.pricedAt,
   };
 }
 

@@ -146,6 +146,7 @@ export async function GET() {
       premiumPolish: "core-survey-field-v1",
       heatDesignMobile: "core-nav-iphone-v1",
       routeAudit: "handoffs-core-nav-v1",
+      priceLedger: "budget-guide-rfq-firm-v1",
       renderBuildFix: "no-sqlite-in-client-v1",
       setupIndependent: "integrations-one-panel-v1",
       bootTabsReady: "auth-only-v1",

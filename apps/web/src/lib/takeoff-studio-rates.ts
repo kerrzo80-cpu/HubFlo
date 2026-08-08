@@ -53,13 +53,48 @@ export function applyTakeoffRatesToMaterials<T extends TakeoffRateLine>(
   library?: TakeoffRateLibrary | null,
 ): T[] {
   const lib = library || defaultTakeoffRateLibrary();
+  const now = new Date().toISOString();
   return lines.map((line) => {
-    if (line.unitCost > 0) return line;
+    if (line.unitCost > 0) {
+      if (line.pricingState) return line;
+      return {
+        ...line,
+        pricingState: "guide" as const,
+        pricingSource: line.pricingSource || "rate-library",
+        pricedAt: line.pricedAt || now,
+      };
+    }
     const fromLibrary = lookupLibraryRate(line.description, line.unit, lib);
-    if (fromLibrary > 0) return { ...line, unitCost: fromLibrary };
+    if (fromLibrary > 0) {
+      return {
+        ...line,
+        unitCost: fromLibrary,
+        pricingState: "guide" as const,
+        pricingSource: "rate-library",
+        pricingNote: "Rate library guide — amend when supplier quote lands",
+        pricedAt: now,
+        supplierRequired: true,
+      };
+    }
     const fromDefault = lookupDefaultRate(line.description, line.unit);
-    if (fromDefault > 0) return { ...line, unitCost: fromDefault };
-    return line;
+    if (fromDefault > 0) {
+      return {
+        ...line,
+        unitCost: fromDefault,
+        pricingState: "guide" as const,
+        pricingSource: "rule",
+        pricingNote: "Built-in guide — amend when supplier quote lands",
+        pricedAt: now,
+        supplierRequired: true,
+      };
+    }
+    return {
+      ...line,
+      pricingState: "rfq" as const,
+      pricingSource: line.pricingSource || "supplier",
+      pricingNote: line.pricingNote || "Supplier price required",
+      supplierRequired: true,
+    };
   });
 }
 

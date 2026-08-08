@@ -202,6 +202,11 @@ export type MaterialLine = {
   unitCost: number;
   markupPercent: number;
   supplierRequired: boolean;
+  /** Price Ledger: budget | guide | rfq | firm */
+  pricingState?: "budget" | "guide" | "rfq" | "firm";
+  pricingSource?: string;
+  pricingNote?: string;
+  pricedAt?: string;
 };
 
 /** Expand enabled assembly kits from primary fixture counts already on the BOQ. */

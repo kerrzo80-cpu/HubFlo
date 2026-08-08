@@ -2118,17 +2118,33 @@ export default function TakeoffStudioPage() {
                             <div key={section} className="nexa-studio-boq-section">
                               <strong>{section}</strong>
                               <ul>
-                                {rows.map((row) => (
-                                  <li key={row.id}>
-                                    <span>{row.description}</span>
-                                    <em>
-                                      {row.quantity} {row.unit}
-                                      {row.unitCost > 0
-                                        ? ` · £${(row.quantity * row.unitCost).toFixed(0)}`
-                                        : ""}
-                                    </em>
-                                  </li>
-                                ))}
+                                {rows.map((row) => {
+                                  const state =
+                                    row.pricingState
+                                    || (row.supplierRequired || !(row.unitCost > 0) ? "rfq" : "guide");
+                                  return (
+                                    <li key={row.id}>
+                                      <span>
+                                        {row.description}{" "}
+                                        <small className={`price-ledger-chip is-${state}`}>
+                                          {state === "budget"
+                                            ? "Budget"
+                                            : state === "guide"
+                                              ? "Guide"
+                                              : state === "firm"
+                                                ? "Firm"
+                                                : "RFQ"}
+                                        </small>
+                                      </span>
+                                      <em>
+                                        {row.quantity} {row.unit}
+                                        {row.unitCost > 0
+                                          ? ` · £${(row.quantity * row.unitCost).toFixed(0)}`
+                                          : " · RFQ"}
+                                      </em>
+                                    </li>
+                                  );
+                                })}
                               </ul>
                             </div>
                           );

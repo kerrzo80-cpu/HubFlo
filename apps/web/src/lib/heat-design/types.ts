@@ -249,6 +249,9 @@ export type KitPricingSource =
   | "supplier"
   | "manual";
 
+/** Commercial Price Ledger state — budget/guide are planning; firm is confirmed. */
+export type KitPricingState = "budget" | "guide" | "rfq" | "firm";
+
 export type KitLine = {
   id: string;
   category: string;
@@ -260,6 +263,10 @@ export type KitLine = {
   /** blake-budget = live AI UK trade ballpark; replace when supplier quote lands. */
   pricingSource?: KitPricingSource;
   pricingNote?: string;
+  /** Honest commercial state for Budget / Guide / RFQ / Firm chips. */
+  pricingState?: KitPricingState;
+  /** ISO timestamp when this unit cost was last stamped. */
+  pricedAt?: string;
 };
 
 /** Last live / fallback Blake proposal stored on the Heat Design project. */

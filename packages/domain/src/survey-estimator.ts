@@ -350,6 +350,11 @@ export type EstimateMaterialLine = {
   calculationExplanation: string;
   supplier?: string;
   notes: string;
+  /** Price Ledger: budget | guide | rfq | firm */
+  pricingState?: "budget" | "guide" | "rfq" | "firm";
+  pricingSource?: string;
+  pricingNote?: string;
+  pricedAt?: string;
 };
 
 export type EstimateLabourLine = {

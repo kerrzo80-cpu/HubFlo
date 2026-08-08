@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { employeeHeaderName } from "@/lib/access";
 import { appendAuditEvent } from "@/lib/people-data";
+import { learnFirmCostsIntoRateLibrary } from "@/lib/price-ledger-server";
 import {
   getTakeoffRateLibrary,
   resetTakeoffRateLibrary,
@@ -29,6 +30,8 @@ export async function PUT(req: Request) {
       rates?: TakeoffRateEntry[];
       assemblies?: TakeoffAssemblyKit[];
       reset?: boolean;
+      /** Firm supplier costs to learn into the guide library. */
+      learn?: Array<{ description?: string; unit?: string; unitCost?: number }>;
     } | null;
     if (!body || typeof body !== "object") {
       return NextResponse.json({ ok: false, error: "Invalid rate library body" }, { status: 400 });
@@ -51,6 +54,37 @@ export async function PUT(req: Request) {
       }
       return NextResponse.json({ ok: true, library });
     }
+
+    if (Array.isArray(body.learn) && body.learn.length) {
+      const result = learnFirmCostsIntoRateLibrary(
+        body.learn.map((row) => ({
+          description: String(row?.description || ""),
+          unit: String(row?.unit || "nr"),
+          unitCost: Number(row?.unitCost) || 0,
+        })),
+      );
+      try {
+        appendAuditEvent({
+          actor,
+          action: "rates_learned",
+          recordType: "takeoff_rate_library",
+          recordId: "workspace",
+          summary: `Price Ledger learned ${result.learned} firm cost(s) · ${result.updated} updated · ${result.created} new`,
+          source: "price ledger",
+          importance: "normal",
+        });
+      } catch {
+        // ignore
+      }
+      return NextResponse.json({
+        ok: true,
+        library: result.library,
+        learned: result.learned,
+        updated: result.updated,
+        created: result.created,
+      });
+    }
+
     const library = saveTakeoffRateLibrary({
       rates: body.rates,
       assemblies: body.assemblies,

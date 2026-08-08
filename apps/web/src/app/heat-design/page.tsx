@@ -44,6 +44,12 @@ import {
 } from "@/lib/heat-design";
 import { useBrand } from "@/components/BrandProvider";
 import { resolveBrandLogoUrl } from "@/lib/branding";
+import {
+  chipClassForPricingState,
+  derivePricingState,
+  PRICING_STATE_HINT,
+  PRICING_STATE_LABEL,
+} from "@/lib/price-ledger";
 import { FloorPlanCanvas } from "./FloorPlanCanvas";
 import { MaterialsWizard } from "./MaterialsWizard";
 import { DesignReport } from "./DesignReport";
@@ -1908,42 +1914,43 @@ export default function HeatDesignLabPage() {
                     Live AI UK trade ballpark — replace with supplier quotes when uploaded.
                   </span>
                 </div>
-                {project.blakeProposal?.kitLines?.some((line) => line.pricingSource === "blake-budget") ? (
-                  <div className="hd-banner" style={{ marginBottom: 12 }}>
-                    Budget costs on this kit are from Blake AI. When the merchant quote lands, edit unit costs /
-                    Push again — supplier price wins.
-                  </div>
-                ) : null}
+                <div className="hd-banner" style={{ marginBottom: 12 }}>
+                  Price Ledger: <strong>Budget</strong> / <strong>Guide</strong> are planning figures.{" "}
+                  <strong>RFQ</strong> awaits the merchant. <strong>Firm</strong> is a confirmed supplier cost —
+                  that wins, and feeds the rate library.
+                </div>
                 <div className="hd-kit-table">
                   <div className="hd-kit-row hd-kit-head">
                     <span>Item</span>
                     <span>Qty</span>
                     <span>Cost</span>
                   </div>
-                  {design.kit.map((line) => (
-                    <div key={line.id} className="hd-kit-row">
-                      <span>
-                        <strong>
-                          {line.description}
-                          {line.pricingSource === "blake-budget" ? (
-                            <span className="hd-price-chip is-budget">Budget</span>
-                          ) : line.pricingSource === "rate-library" ? (
-                            <span className="hd-price-chip is-guide">Guide</span>
-                          ) : line.unitCost === 0 ? (
-                            <span className="hd-price-chip is-rfq">RFQ</span>
-                          ) : null}
-                        </strong>
-                        <small>{line.category}</small>
-                      </span>
-                      <span>
-                        {line.qty}
-                        {line.unit ? ` ${line.unit}` : ""}
-                      </span>
-                      <span>{line.unitCost === 0 ? "RFQ" : money(line.qty * line.unitCost)}</span>
-                    </div>
-                  ))}
+                  {design.kit.map((line) => {
+                    const state = derivePricingState(line);
+                    return (
+                      <div key={line.id} className="hd-kit-row">
+                        <span>
+                          <strong>
+                            {line.description}
+                            <span
+                              className={`hd-price-chip ${chipClassForPricingState(state)}`}
+                              title={line.pricingNote || PRICING_STATE_HINT[state]}
+                            >
+                              {PRICING_STATE_LABEL[state]}
+                            </span>
+                          </strong>
+                          <small>{line.category}</small>
+                        </span>
+                        <span>
+                          {line.qty}
+                          {line.unit ? ` ${line.unit}` : ""}
+                        </span>
+                        <span>{state === "rfq" && !(line.unitCost > 0) ? "RFQ" : money(line.qty * line.unitCost)}</span>
+                      </div>
+                    );
+                  })}
                   <div className="hd-kit-row hd-kit-total">
-                    <span>Kit total (budget materials ex VAT)</span>
+                    <span>Kit total (materials ex VAT — provisional until Firm)</span>
                     <span />
                     <span>{money(design.kitTotal)}</span>
                   </div>
