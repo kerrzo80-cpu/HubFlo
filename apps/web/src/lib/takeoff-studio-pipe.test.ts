@@ -7,6 +7,7 @@ import {
   couplingPointsAlongRun,
   elbowPointsAlongRun,
   isRightAngleBend,
+  previewFittingsForDraft,
   summariseStudioPipeBoq,
 } from "./takeoff-studio-pipe";
 
@@ -20,6 +21,27 @@ describe("studio pipe auto fittings", () => {
       isRightAngleBend({ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 80, y: 5 }),
       false,
     );
+    // Finger-tap corner that is a bit short / not perfectly square still counts
+    assert.equal(
+      isRightAngleBend({ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 22, y: 18 }),
+      true,
+    );
+  });
+
+  it("previews elbows/couplings before Done run", () => {
+    const preview = previewFittingsForDraft(
+      [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+        { x: 100, y: 80 },
+        { x: 160, y: 80 },
+        { x: 160, y: 20 },
+      ],
+      { metresPerUnit: 0.1, stockLengthM: 3, autoElbows: true, autoCouplings: true },
+    );
+    assert.equal(preview.elbows, 3);
+    assert.ok((preview.metres || 0) > 20);
+    assert.ok(preview.couplings >= 6);
   });
 
   it("places elbows at direction changes", () => {

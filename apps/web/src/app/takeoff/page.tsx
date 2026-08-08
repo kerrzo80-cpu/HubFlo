@@ -1389,6 +1389,7 @@ export default function TakeoffStudioPage() {
                   if (!fittingRows.length) return null;
                   return (
                     <div className="nexa-studio-fitting-tally" aria-label="Sized fittings tally">
+                      <span className="nexa-studio-fitting-tally-label">On sheet (after Done run)</span>
                       {fittingRows.map((row) => (
                         <span key={row.id}>
                           <strong>{row.quantity}</strong> {row.description}
