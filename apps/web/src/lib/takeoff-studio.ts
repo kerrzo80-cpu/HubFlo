@@ -47,12 +47,22 @@ export type StudioAiReviewMeasuredQuantity = {
   }>;
 };
 
+/** Service layer — filter takeoff work like CAD layers (hot/cold vs heating vs waste). */
+export type StudioServiceLayerId =
+  | "hot-cold"
+  | "heating"
+  | "sanitary-waste"
+  | "gas"
+  | "general";
+
 export type StudioClassification = {
   id: string;
   kind: StudioClassKind;
   name: string;
   colour: string;
   unit: "m2" | "m" | "nr";
+  /** Service layer for filter / hide — optional for older projects. */
+  layer?: StudioServiceLayerId;
   notes?: string;
 };
 
@@ -112,6 +122,8 @@ export type StudioState = {
   activeDocumentId?: string;
   activePage: number;
   activeClassificationId?: string;
+  /** Filter geometries / class list by service layer (`all` = show everything). */
+  activeLayerId?: StudioServiceLayerId | "all";
   tool: StudioTool;
   classifications: StudioClassification[];
   geometries: StudioGeometry[];
@@ -124,19 +136,53 @@ export type StudioState = {
 
 const COLOURS = ["#1998cf", "#2e8c7d", "#c45c26", "#7a4f9a", "#b43a3a", "#b36a16", "#14618c", "#5b6b7a"];
 
+export const STUDIO_SERVICE_LAYERS: Array<{ id: StudioServiceLayerId | "all"; label: string }> = [
+  { id: "all", label: "Master / all" },
+  { id: "hot-cold", label: "Hot & cold" },
+  { id: "heating", label: "Heating" },
+  { id: "sanitary-waste", label: "Sanitary & waste" },
+  { id: "gas", label: "Gas" },
+  { id: "general", label: "General" },
+];
+
+/** Preset pipe / fixture services with fixed colours — tap these instead of guessing. */
+export const SERVICE_CLASS_DEFS: Array<StudioClassification & { role?: "hot" | "cold" | "waste" }> = [
+  { id: "cls-ai-P-PIPE-H", kind: "linear", name: "Hot pipe runs", colour: "#d64545", unit: "m", layer: "hot-cold", role: "hot", notes: "Domestic hot water" },
+  { id: "cls-ai-P-PIPE-C", kind: "linear", name: "Cold pipe runs", colour: "#2878c8", unit: "m", layer: "hot-cold", role: "cold", notes: "Domestic cold water" },
+  { id: "cls-linear-heating-flow", kind: "linear", name: "Heating flow", colour: "#f97316", unit: "m", layer: "heating", notes: "CH flow" },
+  { id: "cls-linear-heating-return", kind: "linear", name: "Heating return", colour: "#7c3aed", unit: "m", layer: "heating", notes: "CH return" },
+  { id: "cls-linear-ufh", kind: "linear", name: "UFH loops", colour: "#2ea66f", unit: "m", layer: "heating", notes: "Underfloor heating" },
+  { id: "cls-ai-P-WASTE", kind: "linear", name: "Waste / soil runs", colour: "#8a5a32", unit: "m", layer: "sanitary-waste", role: "waste", notes: "Waste and soil" },
+  { id: "cls-count-sanitary", kind: "count", name: "Sanitary ware", colour: "#7a4f9a", unit: "nr", layer: "sanitary-waste", notes: "WC, WHB, bath, shower" },
+  { id: "cls-linear-gas", kind: "linear", name: "Gas pipe runs", colour: "#d2a400", unit: "m", layer: "gas", notes: "Gas pipework" },
+];
+
+const PIPE_CLASS_DEFS = SERVICE_CLASS_DEFS.filter((def) => def.role === "hot" || def.role === "cold" || def.role === "waste") as Array<{
+  id: string;
+  kind: "linear";
+  name: string;
+  colour: string;
+  unit: "m";
+  layer: StudioServiceLayerId;
+  role: "hot" | "cold" | "waste";
+  notes?: string;
+}>;
+
 export function createDefaultStudioState(): StudioState {
   const stamp = new Date().toISOString();
   const classifications: StudioClassification[] = [
-    { id: "cls-area-rooms", kind: "area", name: "Rooms", colour: COLOURS[0] || "#1998cf", unit: "m2" },
-    { id: "cls-linear-walls", kind: "linear", name: "Walls", colour: COLOURS[1] || "#2e8c7d", unit: "m" },
-    { id: "cls-count-doors", kind: "count", name: "Doors", colour: COLOURS[2] || "#c45c26", unit: "nr" },
-    { id: "cls-count-plumbing", kind: "count", name: "Plumbing fixtures", colour: COLOURS[3] || "#7a4f9a", unit: "nr" },
+    { id: "cls-area-rooms", kind: "area", name: "Rooms", colour: COLOURS[0] || "#1998cf", unit: "m2", layer: "general" },
+    { id: "cls-linear-walls", kind: "linear", name: "Walls", colour: COLOURS[1] || "#2e8c7d", unit: "m", layer: "general" },
+    { id: "cls-count-doors", kind: "count", name: "Doors", colour: COLOURS[2] || "#c45c26", unit: "nr", layer: "general" },
+    ...SERVICE_CLASS_DEFS.map(({ role: _role, ...cls }) => cls),
   ];
+  const cold = classifications.find((cls) => cls.id === "cls-ai-P-PIPE-C");
   return {
     version: 1,
     activePage: 1,
     tool: "pan",
-    activeClassificationId: classifications[3]!.id,
+    activeLayerId: "all",
+    activeClassificationId: cold?.id || classifications[0]?.id,
     classifications,
     geometries: [],
     scales: [],
@@ -228,27 +274,85 @@ export function studioHasAiPipeRuns(studio: StudioState): boolean {
   return studio.geometries.some((geo) => geo.kind === "linear" && isAiStudioGeometry(geo));
 }
 
-const PIPE_CLASS_DEFS = [
-  { id: "cls-ai-P-PIPE-H", code: "P-PIPE-H", name: "Hot pipe runs", colour: "#d64545", role: "hot" as const },
-  { id: "cls-ai-P-PIPE-C", code: "P-PIPE-C", name: "Cold pipe runs", colour: "#1f8f5f", role: "cold" as const },
-  { id: "cls-ai-P-WASTE", code: "P-WASTE", name: "Waste / soil runs", colour: "#c47a1a", role: "waste" as const },
-];
-
-export function ensurePipeRunClassifications(studio: StudioState): StudioState {
+/** Ensure preset coloured pipe/service classes exist (Hot/Cold/Heating/Waste…). Does not overwrite user colour edits. */
+export function ensureServiceClassifications(studio: StudioState): StudioState {
   const classifications = [...studio.classifications];
-  for (const def of PIPE_CLASS_DEFS) {
-    if (!classifications.some((cls) => cls.id === def.id)) {
-      classifications.push({
-        id: def.id,
-        kind: "linear",
-        name: def.name,
-        colour: def.colour,
-        unit: "m",
-        notes: `Blake pipe run · ${def.code}`,
-      });
+  let changed = false;
+  for (const def of SERVICE_CLASS_DEFS) {
+    const idx = classifications.findIndex((cls) => cls.id === def.id);
+    if (idx < 0) {
+      const { role: _role, ...cls } = def;
+      classifications.push(cls);
+      changed = true;
+      continue;
+    }
+    const existing = classifications[idx]!;
+    let next = existing;
+    // Backfill layer on older projects without changing colour the user may have edited.
+    if (!existing.layer && def.layer) {
+      next = { ...next, layer: def.layer };
+    }
+    // Migrate Blake's old green "cold" swatch to standard plumbing blue (only exact prior default).
+    if (def.id === "cls-ai-P-PIPE-C" && existing.colour.toLowerCase() === "#1f8f5f") {
+      next = { ...next, colour: def.colour };
+    }
+    if (next !== existing) {
+      classifications[idx] = next;
+      changed = true;
     }
   }
-  return { ...studio, classifications };
+  if (!changed) return studio;
+  return { ...studio, classifications, updatedAt: new Date().toISOString() };
+}
+
+/** @deprecated alias — Blake pipe import path */
+export function ensurePipeRunClassifications(studio: StudioState): StudioState {
+  return ensureServiceClassifications(studio);
+}
+
+export function classificationLayer(cls: StudioClassification): StudioServiceLayerId {
+  return cls.layer || "general";
+}
+
+export function setStudioActiveLayer(
+  studio: StudioState,
+  layerId: StudioServiceLayerId | "all",
+): StudioState {
+  const next = ensureServiceClassifications(studio);
+  if (layerId === "all") {
+    return { ...next, activeLayerId: "all", updatedAt: new Date().toISOString() };
+  }
+  const inLayer = next.classifications.filter((cls) => classificationLayer(cls) === layerId);
+  const keepActive = inLayer.some((cls) => cls.id === next.activeClassificationId);
+  const preferred =
+    inLayer.find((cls) => cls.kind === "linear")
+    || inLayer[0]
+    || next.classifications.find((cls) => cls.id === next.activeClassificationId);
+  return {
+    ...next,
+    activeLayerId: layerId,
+    activeClassificationId: keepActive ? next.activeClassificationId : preferred?.id,
+    tool: preferred?.kind || next.tool,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function setClassificationColour(
+  studio: StudioState,
+  classificationId: string,
+  colour: string,
+): StudioState {
+  const nextColour = /^#?[0-9a-fA-F]{6}$/.test(colour.trim())
+    ? (colour.startsWith("#") ? colour : `#${colour}`)
+    : null;
+  if (!nextColour) return studio;
+  return {
+    ...studio,
+    classifications: studio.classifications.map((cls) =>
+      cls.id === classificationId ? { ...cls, colour: nextColour } : cls,
+    ),
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 /** Apply the first scale ratio hint found in drawing text to every page that lacks a scale. */

@@ -20,7 +20,13 @@ import {
   summariseStrokeRunsByRole,
   type PdfStrokeRun,
 } from "@/lib/takeoff-pdf-strokes";
-import { buildAssembliesForScope, focusOptionsForTrade, type TakeoffTradeId } from "@/lib/takeoff-skill";
+import {
+  buildAssembliesForScope,
+  focusOptionsForTrade,
+  type TakeoffConfidence,
+  type TakeoffMeasureMethod,
+  type TakeoffTradeId,
+} from "@/lib/takeoff-skill";
 import {
   applyScaleHintsToStudio,
   createDefaultStudioState,
@@ -41,8 +47,8 @@ type MeasuredRow = {
   description: string;
   unit: string;
   quantity?: number;
-  method?: string;
-  confidence?: string;
+  method?: TakeoffMeasureMethod;
+  confidence?: TakeoffConfidence;
   notes?: string;
   tagMatches?: Array<{
     id: string;
@@ -62,8 +68,24 @@ type ClientExtract = {
   pages: ExtractedPdfPage[];
 };
 
+type ClientStrokeRun = {
+  pageNumber?: number;
+  points?: Array<{ x?: number; y?: number }>;
+  lengthPdfUnits?: number;
+  colourHex?: string;
+  role?: "hot" | "cold" | "waste" | "other";
+  pageWidth?: number;
+  pageHeight?: number;
+};
+
 type BlakeRunBody = {
   clientExtracts?: ClientExtract[];
+  clientStrokeRuns?: Array<{
+    documentId?: string;
+    fileName?: string;
+    runs?: ClientStrokeRun[];
+    colouredStrokeCount?: number;
+  }>;
 };
 
 function skillRequest(request: NextRequest, id: string, body: Record<string, unknown>) {
@@ -253,17 +275,17 @@ function emptyMessage(
   },
   strokeInfo?: { colouredStrokeCount: number; runCount: number },
 ) {
+  if (strokeInfo && strokeInfo.colouredStrokeCount > 0 && strokeInfo.runCount === 0) {
+    return "Blake saw coloured lines but they look like boxes/grid rather than pipe runs. Set scale, pick Hot/Cold pipe, and use Length to trace the run.";
+  }
   if (diagnostics.docsRead === 0 && diagnostics.docsMissing > 0 && diagnostics.docsExtractFailed === 0) {
     return "Blake found the drawing on the project, but the PDF file is missing from disk. Re-upload the PDF (files can drop after a host restart), then ask Blake again.";
   }
   if (diagnostics.docsRead === 0 && diagnostics.docsExtractFailed > 0) {
-    return "Blake could not read this PDF on the server. Keep the drawing open in Studio and try Ask Blake again. For pipe runs: set scale, then use Length to trace the coloured lines.";
+    return "Blake could not parse this PDF automatically. Keep the drawing open, tap Ask Blake again once it has finished loading, or set scale and use Length to trace the coloured pipe lines.";
   }
   if (diagnostics.docsRead === 0) {
-    return "Blake could not open any drawing PDFs. Re-upload a PDF, make sure it opens on the canvas, then ask Blake again.";
-  }
-  if (strokeInfo && strokeInfo.colouredStrokeCount > 0 && strokeInfo.runCount === 0) {
-    return "Blake saw coloured lines but they look like boxes/grid rather than pipe runs. Set scale, pick Hot/Cold pipe, and use Length to trace the run.";
+    return "Blake could not open any drawing PDFs. Keep the sheet open until it finishes loading, tap Ask Blake again, or re-upload the PDF.";
   }
   if (!diagnostics.hasSelectableText || diagnostics.textItemCount < 8) {
     return "This PDF looks scanned or image-only (no text layer and no coloured vector pipe strokes Blake can measure). Set scale, then use Length to trace pipe runs, or Count to tap fixtures.";
@@ -419,31 +441,37 @@ export async function POST(
   const actor = request.headers.get(employeeHeaderName) || "Blake";
   const body = await parseJsonRequestBody<BlakeRunBody>(request);
   const clientExtracts = normalizeClientExtracts(body?.clientExtracts);
+  const clientPipeRuns = (Array.isArray(body?.clientStrokeRuns) ? body!.clientStrokeRuns : [])
+    .flatMap((doc) => {
+      const documentId = String(doc?.documentId || "");
+      if (!documentId) return [];
+      return (Array.isArray(doc.runs) ? doc.runs : [])
+        .filter((run) => run && (run.role === "hot" || run.role === "cold" || run.role === "waste"))
+        .map((run) => ({
+          documentId,
+          pageNumber: Number(run.pageNumber) || 1,
+          points: (Array.isArray(run.points) ? run.points : [])
+            .map((point) => ({ x: Number(point?.x) || 0, y: Number(point?.y) || 0 }))
+            .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y)),
+          role: run.role as "hot" | "cold" | "waste",
+          pageWidth: Number(run.pageWidth) || 1,
+          pageHeight: Number(run.pageHeight) || 1,
+          colourHex: typeof run.colourHex === "string" ? run.colourHex : "#000000",
+          lengthPdfUnits: Number(run.lengthPdfUnits) || 0,
+        }))
+        .filter((run) => run.points.length >= 2);
+    });
+  const clientColouredStrokeCount = (Array.isArray(body?.clientStrokeRuns) ? body!.clientStrokeRuns : [])
+    .reduce((sum, doc) => sum + (Number(doc?.colouredStrokeCount) || 0), 0);
 
   try {
-    const analysed = await skillJson(request, id, { action: "analyse", actor });
-    const trade = tradeFromSheets(analysed.skill?.drawingIndex?.sheets);
-    await skillJson(request, id, {
-      action: "set-scope",
-      actor,
-      trade,
-      focusLabels: focusOptionsForTrade(trade),
-    });
-    const plan = await skillJson(request, id, { action: "build-plan", actor, trade });
-    const assemblies = plan.skill?.assemblies || buildAssembliesForScope({
-      trade,
-      focusLabels: focusOptionsForTrade(trade),
-      outputFormats: ["excel-boq", "marked-pdf", "quote-push"],
-      notes: "",
-    });
-    await skillJson(request, id, { action: "approve-plan", actor, assemblies });
-    const measuredRes = await skillJson(request, id, { action: "measure", actor });
-    let measured = measuredRes.skill?.measured || [];
-    let pinCount = pinCountOf(measured);
+    let trade: TakeoffTradeId = "plumbing";
+    let measured: MeasuredRow[] = [];
+    let pinCount = 0;
     let usedFallback = false;
     let diagnostics = {
       textItemCount: 0,
-      hasSelectableText: Boolean(analysed.skill?.drawingIndex?.sheets?.some((sheet) => sheet.hasSelectableText)),
+      hasSelectableText: false,
       sample: "",
       docsRead: 0,
       docsMissing: 0,
@@ -451,14 +479,47 @@ export async function POST(
       source: "server" as "client" | "server",
     };
 
-    if (pinCount === 0 && clientExtracts.length) {
+    // Prefer client extracts first on phones — server PDF parse often fails while Studio shows the sheet.
+    if (clientExtracts.length) {
       const fromClient = measuredFromExtracts(clientExtracts);
       diagnostics = fromClient.diagnostics;
-      if (pinCountOf(fromClient.measured) > 0) {
-        measured = fromClient.measured;
+      measured = fromClient.measured;
+      pinCount = pinCountOf(measured);
+      usedFallback = pinCount > 0;
+    }
+
+    try {
+      const analysed = await skillJson(request, id, { action: "analyse", actor });
+      trade = tradeFromSheets(analysed.skill?.drawingIndex?.sheets);
+      await skillJson(request, id, {
+        action: "set-scope",
+        actor,
+        trade,
+        focusLabels: focusOptionsForTrade(trade),
+      });
+      const plan = await skillJson(request, id, { action: "build-plan", actor, trade });
+      const assemblies = plan.skill?.assemblies || buildAssembliesForScope({
+        trade,
+        focusLabels: focusOptionsForTrade(trade),
+        outputFormats: ["excel-boq", "marked-pdf", "quote-push"],
+        notes: "",
+      });
+      await skillJson(request, id, { action: "approve-plan", actor, assemblies });
+      const measuredRes = await skillJson(request, id, { action: "measure", actor });
+      const skillMeasured = measuredRes.skill?.measured || [];
+      if (pinCountOf(skillMeasured) > pinCount) {
+        measured = skillMeasured;
         pinCount = pinCountOf(measured);
-        usedFallback = true;
+        usedFallback = false;
       }
+      diagnostics = {
+        ...diagnostics,
+        hasSelectableText: diagnostics.hasSelectableText
+          || Boolean(analysed.skill?.drawingIndex?.sheets?.some((sheet) => sheet.hasSelectableText)),
+      };
+    } catch {
+      // Client-only path still useful when skill/server PDF parse fails.
+      trade = tradeFromSheets([]);
     }
 
     if (pinCount === 0) {
@@ -468,12 +529,21 @@ export async function POST(
         pinCount = pinCountOf(measured);
         usedFallback = true;
         diagnostics = fallback.diagnostics;
-      } else if (!clientExtracts.length || diagnostics.docsRead === 0) {
+      } else if (!clientExtracts.length && diagnostics.docsRead === 0) {
         diagnostics = fallback.diagnostics;
       }
     }
 
-    const pipeExtract = await serverExtractPipeRuns(getTakeoffProject(id) || project);
+    let pipeExtract = {
+      runs: clientPipeRuns as Array<PdfStrokeRun & { documentId: string }>,
+      colouredStrokeCount: clientColouredStrokeCount,
+      docsTried: clientPipeRuns.length ? 1 : 0,
+      summary: summariseStrokeRunsByRole(clientPipeRuns),
+    };
+
+    if (!pipeExtract.runs.length) {
+      pipeExtract = await serverExtractPipeRuns(getTakeoffProject(id) || project);
+    }
     const latest = getTakeoffProject(id) || project;
     const baseStudio = latest.studio ?? createDefaultStudioState();
 
