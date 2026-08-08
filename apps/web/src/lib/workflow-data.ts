@@ -6,7 +6,7 @@ import {
 } from "@/lib/people-data";
 import { checkQuoteConversion } from "@hubflo/domain";
 import { getHubDetailState } from "@/lib/hub-detail-store";
-import { compareReferenceDesc, numberedReference } from "@/lib/numbering";
+import { compareNewestRecord, numberedReference } from "@/lib/numbering";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { useDemoSeedData } from "@/lib/workspace-mode";
 
@@ -432,7 +432,12 @@ export function getJobs(): Job[] {
   } catch {
     // Trial bootstrap is best-effort.
   }
-  return clone(getStore().jobs).sort((left, right) => compareReferenceDesc(left.ref, right.ref));
+  return clone(getStore().jobs).sort((left, right) =>
+    compareNewestRecord(
+      { ref: left.ref, externalId: left.simproJobId },
+      { ref: right.ref, externalId: right.simproJobId },
+    ),
+  );
 }
 
 export function resetWorkflowStore(): WorkflowStore {
@@ -527,7 +532,12 @@ export function createJob(
 }
 
 export function getQuotes(): Quote[] {
-  return clone(getStore().quotes).sort((left, right) => compareReferenceDesc(left.ref, right.ref));
+  return clone(getStore().quotes).sort((left, right) =>
+    compareNewestRecord(
+      { ref: left.ref, date: left.sentAt || left.respondedAt, externalId: left.simproQuoteId },
+      { ref: right.ref, date: right.sentAt || right.respondedAt, externalId: right.simproQuoteId },
+    ),
+  );
 }
 
 export function createQuote(payload: Omit<Quote, "id" | "ref"> & { id?: string; ref?: string }): Quote {
@@ -727,7 +737,16 @@ export function convertQuoteToJob(
 
 export function getPurchaseRequests(): PurchaseRequest[] {
   return clone(getStore().purchaseRequests).sort((left, right) =>
-    compareReferenceDesc(left.poNumber, right.poNumber),
+    compareNewestRecord(
+      {
+        ref: left.poNumber || left.id,
+        date: left.updatedAt || left.sentAt || left.createdAt,
+      },
+      {
+        ref: right.poNumber || right.id,
+        date: right.updatedAt || right.sentAt || right.createdAt,
+      },
+    ),
   );
 }
 

@@ -113,7 +113,7 @@ import {
   type Weekday,
   weekDays,
 } from "@/lib/access";
-import { compareReferenceDesc, numberedReference, referenceNumber } from "@/lib/numbering";
+import { compareNewestRecord, compareReferenceDesc, numberedReference } from "@/lib/numbering";
 import {
   DIRECTORY_ALPHABET_LETTERS,
   filterDirectoryList,
@@ -7738,10 +7738,10 @@ export default function Dashboard() {
     invoices: [],
     "purchase-orders": [],
   });
-  const [activeQuoteFolderKey, setActiveQuoteFolderKey] = useState("incomplete");
+  const [activeQuoteFolderKey, setActiveQuoteFolderKey] = useState("all");
   const [activeJobFolderKey, setActiveJobFolderKey] = useState("all");
   const [activeLeadFolderKey, setActiveLeadFolderKey] = useState<"all" | "followup">("all");
-  const [activeInvoiceFolderKey, setActiveInvoiceFolderKey] = useState("overdue");
+  const [activeInvoiceFolderKey, setActiveInvoiceFolderKey] = useState("all");
   const [markingDayworkDealtWith, setMarkingDayworkDealtWith] = useState(false);
   const [reportDateRange, setReportDateRange] = useState<ReportDateRange>("All time");
   const [reportCustomStartDate, setReportCustomStartDate] = useState(startOfScheduleWeek(currentOperatingDate));
@@ -11584,7 +11584,20 @@ export default function Dashboard() {
         const matchesStatus = quoteStatusFilter === "All quotes" || quote.status === quoteStatusFilter;
         return matchesSearch && matchesStatus;
       })
-      .sort((left, right) => compareReferenceDesc(left.ref, right.ref));
+      .sort((left, right) =>
+        compareNewestRecord(
+          {
+            ref: left.ref,
+            date: left.sentAt || left.respondedAt,
+            externalId: left.simproQuoteId,
+          },
+          {
+            ref: right.ref,
+            date: right.sentAt || right.respondedAt,
+            externalId: right.simproQuoteId,
+          },
+        ),
+      );
   }, [quotes, quoteStatusFilter, search]);
 
   const filteredJobs = useMemo(() => {
@@ -11599,7 +11612,18 @@ export default function Dashboard() {
         const matchesStatus = statusFilter === "All statuses" || job.status === statusFilter;
         return matchesSearch && matchesStatus;
       })
-      .sort((left, right) => compareReferenceDesc(left.ref, right.ref));
+      .sort((left, right) =>
+        compareNewestRecord(
+          {
+            ref: left.ref,
+            externalId: left.simproJobId,
+          },
+          {
+            ref: right.ref,
+            externalId: right.simproJobId,
+          },
+        ),
+      );
   }, [jobs, search, statusFilter]);
 
   const searchFilteredInvoices = useMemo(() => {
@@ -11622,14 +11646,20 @@ export default function Dashboard() {
           );
         return matchesSearch;
       })
-      .sort((left, right) => {
-        const leftDate = left.issuedDate || "";
-        const rightDate = right.issuedDate || "";
-        if (leftDate && rightDate && leftDate !== rightDate) {
-          return rightDate.localeCompare(leftDate);
-        }
-        return compareReferenceDesc(left.ref, right.ref);
-      });
+      .sort((left, right) =>
+        compareNewestRecord(
+          {
+            ref: left.ref,
+            date: left.issuedDate || left.sentAt || left.xeroExportedAt,
+            externalId: left.simproInvoiceId,
+          },
+          {
+            ref: right.ref,
+            date: right.issuedDate || right.sentAt || right.xeroExportedAt,
+            externalId: right.simproInvoiceId,
+          },
+        ),
+      );
   }, [invoices, search]);
 
   const filteredInvoices = useMemo(() => {
@@ -11680,13 +11710,18 @@ export default function Dashboard() {
         return matchesSearch && matchesStatus;
       })
       .sort((left, right) => {
-        const leftNum = referenceNumber(left.request.poNumber);
-        const rightNum = referenceNumber(right.request.poNumber);
-        const leftHasNumber = leftNum > 0;
-        const rightHasNumber = rightNum > 0;
-        if (leftHasNumber && rightHasNumber && leftNum !== rightNum) return rightNum - leftNum;
-        // Draft / unnumbered POs are usually the newest creates — keep them above older numbered rows.
-        if (leftHasNumber !== rightHasNumber) return leftHasNumber ? 1 : -1;
+        const byRecency = compareNewestRecord(
+          {
+            ref: left.request.poNumber || left.request.id,
+            date: left.request.updatedAt || left.request.sentAt || left.request.createdAt,
+          },
+          {
+            ref: right.request.poNumber || right.request.id,
+            date: right.request.updatedAt || right.request.sentAt || right.request.createdAt,
+          },
+        );
+        if (byRecency !== 0) return byRecency;
+        // Newer creates are prepended, so lower store index is newer.
         return (requestOrder.get(left.request.id) ?? 0) - (requestOrder.get(right.request.id) ?? 0);
       });
   }, [jobs, purchaseOrderStatusFilter, purchaseRequests, search]);
@@ -11897,12 +11932,20 @@ export default function Dashboard() {
     ];
   }, [currentOperatingDate, searchFilteredInvoices]);
 
-  const visibleInvoiceDirectoryGroups = useMemo(
-    () => activeInvoiceFolderKey === "all"
-      ? invoiceDirectoryGroups
-      : invoiceDirectoryGroups.filter((group) => group.key === activeInvoiceFolderKey),
-    [activeInvoiceFolderKey, invoiceDirectoryGroups],
-  );
+  const visibleInvoiceDirectoryGroups = useMemo(() => {
+    if (activeInvoiceFolderKey === "all") {
+      return [
+        {
+          key: "all",
+          label: "All invoices",
+          detail: "Every invoice matching the current search and status filter",
+          tone: "blue",
+          items: filteredInvoices,
+        },
+      ];
+    }
+    return invoiceDirectoryGroups.filter((group) => group.key === activeInvoiceFolderKey);
+  }, [activeInvoiceFolderKey, filteredInvoices, invoiceDirectoryGroups]);
 
   const filteredClients = useMemo(
     () =>
@@ -12179,7 +12222,20 @@ export default function Dashboard() {
       quotes
         .map((quote) => ({ quote, followUp: getQuoteResponseFollowUp(quote) }))
         .filter((item): item is { quote: Quote; followUp: NonNullable<ReturnType<typeof getQuoteResponseFollowUp>> } => Boolean(item.followUp))
-        .sort((left, right) => compareReferenceDesc(left.quote.ref, right.quote.ref)),
+        .sort((left, right) =>
+          compareNewestRecord(
+            {
+              ref: left.quote.ref,
+              date: left.quote.sentAt || left.quote.respondedAt,
+              externalId: left.quote.simproQuoteId,
+            },
+            {
+              ref: right.quote.ref,
+              date: right.quote.sentAt || right.quote.respondedAt,
+              externalId: right.quote.simproQuoteId,
+            },
+          ),
+        ),
     [getQuoteResponseFollowUp, quotes],
   );
 
@@ -12199,14 +12255,21 @@ export default function Dashboard() {
     [quoteDirectoryGroups, quoteFollowUpDirectoryGroup],
   );
 
-  const visibleQuoteDirectoryGroups = useMemo(
-    () => activeQuoteFolderKey === "all"
-      ? quoteDirectoryGroups
-      : activeQuoteFolderKey === "followup"
-        ? [quoteFollowUpDirectoryGroup]
-        : quoteDirectoryGroups.filter((group) => group.key === activeQuoteFolderKey),
-    [activeQuoteFolderKey, quoteDirectoryGroups, quoteFollowUpDirectoryGroup],
-  );
+  const visibleQuoteDirectoryGroups = useMemo(() => {
+    if (activeQuoteFolderKey === "all") {
+      return [
+        {
+          key: "all",
+          label: "All quotes",
+          detail: "Every quote matching the current search and status filter",
+          tone: "blue",
+          items: filteredQuotes,
+        },
+      ];
+    }
+    if (activeQuoteFolderKey === "followup") return [quoteFollowUpDirectoryGroup];
+    return quoteDirectoryGroups.filter((group) => group.key === activeQuoteFolderKey);
+  }, [activeQuoteFolderKey, filteredQuotes, quoteDirectoryGroups, quoteFollowUpDirectoryGroup]);
 
   const approvedQuotesAwaitingScheduling = useMemo(
     () =>

@@ -74,6 +74,52 @@ export function compareReferenceDesc(left?: string | null, right?: string | null
   return String(right ?? "").localeCompare(String(left ?? ""), undefined, { numeric: true, sensitivity: "base" });
 }
 
+/** Parse values that are safe to compare as timestamps (ISO or "08 Aug 2026 …"). */
+export function sortableDateValue(value?: string | null) {
+  if (!value) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
+    const time = Date.parse(text);
+    return Number.isFinite(time) ? new Date(time).toISOString() : text.slice(0, 10);
+  }
+  if (/^\d{1,2} [A-Za-z]{3,9} \d{4}/.test(text)) {
+    const time = Date.parse(text);
+    return Number.isFinite(time) ? new Date(time).toISOString() : null;
+  }
+  return null;
+}
+
+/**
+ * Newest-first for directory lists.
+ * Prefer real dates, then external/simPRO ids (import order often assigns low NeXa refs to newest rows),
+ * then sequential reference numbers.
+ */
+export function compareNewestRecord(
+  left: { ref?: string | null; date?: string | null; externalId?: string | null },
+  right: { ref?: string | null; date?: string | null; externalId?: string | null },
+) {
+  const leftDate = sortableDateValue(left.date);
+  const rightDate = sortableDateValue(right.date);
+  if (leftDate && rightDate && leftDate !== rightDate) {
+    return rightDate < leftDate ? -1 : 1;
+  }
+
+  const leftExternal = Number(left.externalId);
+  const rightExternal = Number(right.externalId);
+  if (
+    Number.isFinite(leftExternal) &&
+    leftExternal > 0 &&
+    Number.isFinite(rightExternal) &&
+    rightExternal > 0 &&
+    leftExternal !== rightExternal
+  ) {
+    return rightExternal - leftExternal;
+  }
+
+  return compareReferenceDesc(left.ref, right.ref);
+}
+
 export function nextReferenceNumber(
   kind: NumberingKind,
   settings: NumberingSettingsLike,
