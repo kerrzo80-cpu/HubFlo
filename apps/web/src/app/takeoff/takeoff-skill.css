@@ -4,13 +4,16 @@
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 12px;
-  padding: 10px 18px;
-  border-bottom: 1px solid #d9e2ec;
-  background: #173344;
+  padding: 11px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    radial-gradient(ellipse 50% 120% at 0% 50%, rgba(25, 152, 207, 0.18), transparent 55%),
+    linear-gradient(180deg, #1a3a4d 0%, #173344 100%);
   color: #e8f3f8;
   position: sticky;
   top: 0;
   z-index: 20;
+  backdrop-filter: blur(8px);
 }
 
 .takeoff-chrome.compact {
@@ -129,22 +132,36 @@
 
 .takeoff-v2-banner {
   margin: 12px 18px 0;
-  padding: 10px 14px;
-  border-radius: 10px;
+  padding: 11px 15px;
+  border-radius: 12px;
   border: 1px solid var(--line);
   background: #fff;
   font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 6px 16px rgba(23, 51, 68, 0.04);
+  animation: takeoff-banner-in 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes takeoff-banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .takeoff-v2-banner.error {
   border-color: #f0b4b0;
-  background: #fff5f4;
+  background: linear-gradient(135deg, #fff7f6 0%, #fff5f4 100%);
   color: #9b2c2c;
 }
 
 .takeoff-v2-banner.ok {
   border-color: #b7e0c8;
-  background: #f1faf4;
+  background: linear-gradient(135deg, #f3fbf6 0%, #f1faf4 100%);
   color: #1f6b45;
 }
 

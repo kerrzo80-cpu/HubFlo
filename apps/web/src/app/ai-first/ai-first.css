@@ -1504,3 +1504,42 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Premium polish pass — spine micro-motion */
+.ai-spine-live {
+  position: relative;
+  overflow: hidden;
+}
+
+.ai-spine-live::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 120%;
+  height: 3px;
+  background: linear-gradient(90deg, var(--verdigris), var(--brass-light), transparent);
+  opacity: 0.85;
+}
+
+.ai-spine-actions .primary {
+  transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 160ms ease;
+  box-shadow: 0 10px 22px rgba(94, 74, 36, 0.18);
+}
+
+.ai-spine-actions .primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(94, 74, 36, 0.22);
+}
+
+.ai-spine-steps li {
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.ai-spine-steps li:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(32, 42, 54, 0.06);
+}
+
+.ai-spine-result {
+  animation: af-panel-in 0.4s ease both;
+}

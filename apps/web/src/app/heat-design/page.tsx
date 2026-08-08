@@ -879,7 +879,8 @@ export default function HeatDesignLabPage() {
   if (!project || !design) {
     return (
       <main className="hd-lab">
-        <div className="hd-shell">
+        <div className="hd-shell hd-loading-shell">
+          <div className="hd-loading-pulse" aria-hidden />
           <p className="hd-lead">Loading Heat Design…</p>
         </div>
       </main>
@@ -953,7 +954,11 @@ export default function HeatDesignLabPage() {
           </div>
         </header>
 
-        {notice ? <div className="hd-banner">{notice}</div> : null}
+        {notice ? (
+          <div className="hd-banner is-toast" role="status">
+            {notice}
+          </div>
+        ) : null}
 
         <nav className="hd-tabs" aria-label="Heat design sections">
           {(
@@ -1876,17 +1881,17 @@ export default function HeatDesignLabPage() {
                   {design.kit.map((line) => (
                     <div key={line.id} className="hd-kit-row">
                       <span>
-                        <strong>{line.description}</strong>
-                        <small>
-                          {line.category}
-                          {line.pricingSource === "blake-budget"
-                            ? " · Budget (Blake)"
-                            : line.pricingSource === "rate-library"
-                              ? " · Guide rate"
-                              : line.unitCost === 0
-                                ? " · Supplier RFQ"
-                                : ""}
-                        </small>
+                        <strong>
+                          {line.description}
+                          {line.pricingSource === "blake-budget" ? (
+                            <span className="hd-price-chip is-budget">Budget</span>
+                          ) : line.pricingSource === "rate-library" ? (
+                            <span className="hd-price-chip is-guide">Guide</span>
+                          ) : line.unitCost === 0 ? (
+                            <span className="hd-price-chip is-rfq">RFQ</span>
+                          ) : null}
+                        </strong>
+                        <small>{line.category}</small>
                       </span>
                       <span>
                         {line.qty}
