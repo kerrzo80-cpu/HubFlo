@@ -595,6 +595,28 @@
   font-weight: 600;
 }
 
+.nexa-studio-fitting-tally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.nexa-studio-fitting-tally span {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 3px 8px;
+}
+
+.nexa-studio-fitting-tally strong {
+  color: var(--blue-deep);
+}
+
 .nexa-studio-create.class input[type="color"] {
   width: 40px;
   min-width: 40px;
