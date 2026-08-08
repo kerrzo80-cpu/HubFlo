@@ -75,18 +75,21 @@ function cookieFrom(setCookie) {
 
 async function main() {
   note("info", `Base ${BASE}`);
-  if (!PASS) {
+  let cookie = "";
+  if (PASS) {
+    const login = await request("POST", "/api/auth/login", { username: USER, password: PASS });
+    if (login.status >= 400) {
+      note("issue", "Login failed", { detail: JSON.stringify(login.json) });
+      process.exit(2);
+    }
+    cookie = cookieFrom(login.setCookie);
+    note("info", "Logged in", { detail: login.json?.user?.name || USER });
+  } else if (/onrender\.com|nexa-live/i.test(BASE)) {
     note("issue", "NEXA_E2E_PASSWORD required for live ops drill");
     process.exit(2);
+  } else {
+    note("info", "No password — open/dev headers mode");
   }
-
-  const login = await request("POST", "/api/auth/login", { username: USER, password: PASS });
-  if (login.status >= 400) {
-    note("issue", "Login failed", { detail: JSON.stringify(login.json) });
-    process.exit(2);
-  }
-  const cookie = cookieFrom(login.setCookie);
-  note("info", "Logged in", { detail: login.json?.user?.name || USER });
 
   const health = await request("GET", "/api/health", null, cookie);
   note("info", "Health", {
