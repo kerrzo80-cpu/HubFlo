@@ -1358,8 +1358,21 @@ export default function TakeoffStudioPage() {
                   );
                 })}
                 <span className="nexa-studio-size-note">
-                  Copper/Hep: elbows at bends · couplings every 3 m (needs scale)
+                  Fittings match the Size chip (e.g. 22 Cu → 22mm Copper elbows &amp; couplings every 3 m). Scale required for metres/couplings.
                 </span>
+                {(() => {
+                  const fittingRows = summariseStudioPipeBoq(studio).filter((row) => row.section === "Fittings");
+                  if (!fittingRows.length) return null;
+                  return (
+                    <div className="nexa-studio-fitting-tally" aria-label="Sized fittings tally">
+                      {fittingRows.map((row) => (
+                        <span key={row.id}>
+                          <strong>{row.quantity}</strong> {row.description}
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
               <StudioCanvas
                 projectId={selected.id}
