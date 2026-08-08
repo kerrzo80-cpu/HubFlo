@@ -28,7 +28,9 @@ import {
 } from "@/lib/takeoff-studio";
 import {
   appendLinearWithAutoFittings,
+  elbowPointsAlongRun,
   pipeSpecById,
+  previewFittingsForDraft,
   removeLinearAndFittings,
 } from "@/lib/takeoff-studio-pipe";
 import { recordTakeoffLearningClient } from "@/lib/takeoff-learning-client";
@@ -306,6 +308,22 @@ export default function StudioCanvas({
       }
       ctx.stroke();
       ctx.setLineDash([]);
+      if (studio.tool === "linear" && draftPoints.length >= 3) {
+        for (const point of elbowPointsAlongRun(draftPoints)) {
+          const s = 6;
+          ctx.beginPath();
+          ctx.moveTo(point.x, point.y - s);
+          ctx.lineTo(point.x + s, point.y);
+          ctx.lineTo(point.x, point.y + s);
+          ctx.lineTo(point.x - s, point.y);
+          ctx.closePath();
+          ctx.fillStyle = draftColour;
+          ctx.fill();
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth = 1.4;
+          ctx.stroke();
+        }
+      }
       for (const p of draftPoints) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
@@ -849,11 +867,19 @@ export default function StudioCanvas({
       }
     }
     if (studio.tool === "linear" && draftPoints.length >= 2) {
-      const units = polylineLength(draftPoints);
-      const metres = pageScale ? units * pageScale.metresPerUnit : null;
-      return metres != null
-        ? `Length so far ≈ ${metres.toFixed(2)} m — tap Done run when finished.`
-        : "Length draft started — Set scale for metres, then Done run.";
+      const spec = pipeSpecById(studio.activePipeSpecId);
+      const preview = previewFittingsForDraft(draftPoints, {
+        metresPerUnit: pageScale?.metresPerUnit,
+        stockLengthM: spec.stockLengthM,
+        autoElbows: spec.autoElbows,
+        autoCouplings: spec.autoCouplings,
+      });
+      const bits = [
+        preview.metres != null ? `≈ ${preview.metres.toFixed(2)} m` : "length draft",
+        preview.elbows ? `${preview.elbows} elbow${preview.elbows === 1 ? "" : "s"}` : null,
+        preview.couplings ? `${preview.couplings} coupling${preview.couplings === 1 ? "" : "s"}` : null,
+      ].filter(Boolean);
+      return `${bits.join(" · ")} — tap Done run to add to quantities.`;
     }
     if (studio.tool === "area" && draftPoints.length >= 3) {
       const closePt = draftPoints[0];

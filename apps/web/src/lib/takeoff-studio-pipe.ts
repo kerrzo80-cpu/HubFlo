@@ -67,7 +67,10 @@ export function ensureFittingClassifications(studio: StudioState): StudioState {
   return changed ? { ...studio, classifications, updatedAt: new Date().toISOString() } : studio;
 }
 
-/** ~70–110° bends count as elbows (same rule as legacy markups). */
+/**
+ * Bends that count as 90° elbows.
+ * Mobile finger taps are rarely perfect — accept ~55–125° and short corner legs.
+ */
 export function isRightAngleBend(previous: StudioPoint, bend: StudioPoint, next: StudioPoint) {
   const firstX = previous.x - bend.x;
   const firstY = previous.y - bend.y;
@@ -75,9 +78,25 @@ export function isRightAngleBend(previous: StudioPoint, bend: StudioPoint, next:
   const secondY = next.y - bend.y;
   const firstLength = Math.hypot(firstX, firstY);
   const secondLength = Math.hypot(secondX, secondY);
-  if (firstLength < 8 || secondLength < 8) return false;
+  if (firstLength < 4 || secondLength < 4) return false;
   const cosine = Math.abs((firstX * secondX + firstY * secondY) / (firstLength * secondLength));
-  return cosine <= 0.35;
+  // cos(55°) ≈ 0.57 — still rejects shallow wiggles / near-straight taps
+  return cosine <= 0.55;
+}
+
+/** Live estimate while Length draft is open (before Done run). */
+export function previewFittingsForDraft(
+  points: StudioPoint[],
+  options: { metresPerUnit?: number; stockLengthM?: number; autoElbows?: boolean; autoCouplings?: boolean } = {},
+): { elbows: number; couplings: number; metres: number | null } {
+  const metresPerUnit = options.metresPerUnit || 0;
+  const metres = metresPerUnit > 0 ? polylineLength(points) * metresPerUnit : null;
+  const elbows = options.autoElbows === false ? 0 : elbowPointsAlongRun(points).length;
+  const couplings =
+    options.autoCouplings === false || !(metresPerUnit > 0)
+      ? 0
+      : couplingPointsAlongRun(points, metresPerUnit, options.stockLengthM || 3).length;
+  return { elbows, couplings, metres };
 }
 
 export function elbowPointsAlongRun(points: StudioPoint[]): StudioPoint[] {

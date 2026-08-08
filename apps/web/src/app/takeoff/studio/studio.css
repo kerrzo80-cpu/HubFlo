@@ -598,12 +598,25 @@
 .nexa-studio-fitting-tally {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px 10px;
   width: 100%;
   margin-top: 2px;
 }
 
-.nexa-studio-fitting-tally span {
+.nexa-studio-fitting-tally-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  width: 100%;
+}
+
+.nexa-studio-fitting-tally span:not(.nexa-studio-fitting-tally-label) {
   font-size: 11px;
   font-weight: 700;
   color: var(--ink);
