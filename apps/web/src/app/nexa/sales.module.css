@@ -10,8 +10,11 @@
   --white: #fff;
   --verdigris: #2e8c7d;
   --blue: #2188b3;
+  --display: var(--font-nexa-display), "Sora", sans-serif;
+  --ui: var(--font-nexa-ui), "Source Sans 3", sans-serif;
   background: var(--white);
   color: var(--ink);
+  font-family: var(--ui);
   min-height: 100vh;
   overflow-x: hidden;
 }
@@ -160,8 +163,10 @@
 
 .hero h1 {
   color: var(--slate);
-  font-size: 82px;
-  font-weight: 750;
+  font-family: var(--display);
+  font-size: clamp(56px, 9vw, 86px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
   line-height: 0.95;
   margin: 14px 0 22px;
 }
@@ -493,9 +498,13 @@
 .demoBand h2,
 .blakeBand h2,
 .controlBand h2,
+.earlyAccessBand h2,
 .ctaBand h2 {
   color: var(--slate);
-  font-size: 42px;
+  font-family: var(--display);
+  font-size: clamp(30px, 4vw, 42px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
   line-height: 1.12;
   margin: 14px 0 18px;
 }
@@ -1267,6 +1276,35 @@
 .controlPoints small {
   color: var(--steel);
   font-size: 11px;
+}
+
+.earlyAccessBand {
+  background:
+    radial-gradient(700px 280px at 12% 0%, rgba(142, 116, 62, 0.12), transparent 60%),
+    radial-gradient(640px 260px at 88% 50%, rgba(33, 136, 179, 0.1), transparent 55%),
+    var(--porcelain);
+  padding: 88px 5vw;
+}
+
+.earlyAccessInner {
+  display: grid;
+  gap: 18px;
+  max-width: 720px;
+}
+
+.earlyAccessBand p {
+  color: var(--steel);
+  font-size: 17px;
+  line-height: 1.55;
+  margin: 0;
+  max-width: 52ch;
+}
+
+.earlyAccessActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
 }
 
 .ctaBand {

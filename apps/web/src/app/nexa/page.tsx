@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 import { NexaSalesExperience } from "./sales-experience";
 
 export const metadata: Metadata = {
-  title: "NeXa | The AI operating system for service work",
+  title: "NeXa | Company production for service work",
   description:
-    "Quote, schedule, deliver and invoice service work from one connected command centre, with Blake AI working across the full operation.",
+    "Quote, survey, schedule, deliver and invoice from one connected command centre. Company production early access for named operators.",
 };
 
 export default function NexaSalesPage() {
