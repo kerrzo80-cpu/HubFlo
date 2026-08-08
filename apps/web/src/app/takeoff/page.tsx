@@ -54,6 +54,7 @@ import {
   STUDIO_PIPE_SPECS,
   summariseStudioPipeBoq,
 } from "@/lib/takeoff-studio-pipe";
+import { recordTakeoffLearningClient } from "@/lib/takeoff-learning-client";
 
 import TakeoffOverlayReview from "./TakeoffOverlayReview";
 import StudioCanvas from "./studio/StudioCanvas";
@@ -640,12 +641,19 @@ export default function TakeoffStudioPage() {
       nextStudio.aiReviewUpdatedAt = stamp;
       nextStudio.updatedAt = stamp;
       await persistStudio(nextStudio, {}, { immediate: true, skipHistory: true });
+      recordTakeoffLearningClient({
+        type: "ai_confirm",
+        projectId: selected.id,
+        codes: reviewed.map((row) => row.code).filter(Boolean),
+        pipeSpecId: studio.activePipeSpecId,
+        trade: "plumbing",
+      });
       setReviewOpen(false);
       const activePins = reviewed.reduce(
         (sum, row) => sum + (row.tagMatches || []).filter((match) => !match.excluded).length,
         0,
       );
-      show(`AI counts confirmed — ${activePins} pin(s) ready for Core.`);
+      show(`AI counts confirmed — ${activePins} pin(s) ready for Core. Blake noted what you kept.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not confirm AI counts.");
     } finally {
@@ -680,8 +688,14 @@ export default function TakeoffStudioPage() {
         updatedAt: stamp,
       };
       await persistStudio(nextStudio, {}, { immediate: true, skipHistory: true });
+      recordTakeoffLearningClient({
+        type: "ai_reject",
+        projectId: selected.id,
+        codes: aiReviewRows.map((row) => row.code).filter(Boolean),
+        trade: "plumbing",
+      });
       setReviewOpen(false);
-      show("AI counts rejected — Blake pins were excluded from the Core push.");
+      show("AI counts rejected — Blake will avoid those codes next time.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not reject AI counts.");
     } finally {
@@ -1350,7 +1364,17 @@ export default function TakeoffStudioPage() {
                       key={spec.id}
                       type="button"
                       className={active ? "on" : undefined}
-                      onClick={() => void persistStudio({ ...studio, activePipeSpecId: spec.id, tool: "linear" })}
+                      onClick={() => {
+                        void persistStudio({ ...studio, activePipeSpecId: spec.id, tool: "linear" });
+                        if (selected) {
+                          recordTakeoffLearningClient({
+                            type: "pipe_spec_choice",
+                            projectId: selected.id,
+                            pipeSpecId: spec.id,
+                            trade: "plumbing",
+                          });
+                        }
+                      }}
                       title={`${spec.diameter} ${spec.material}${spec.autoCouplings ? ` · couplings every ${spec.stockLengthM}m` : ""}${spec.autoElbows ? " · auto elbows" : ""}`}
                     >
                       {spec.label}

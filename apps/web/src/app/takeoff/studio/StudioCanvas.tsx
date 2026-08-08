@@ -31,6 +31,7 @@ import {
   pipeSpecById,
   removeLinearAndFittings,
 } from "@/lib/takeoff-studio-pipe";
+import { recordTakeoffLearningClient } from "@/lib/takeoff-learning-client";
 
 type Props = {
   projectId: string;
@@ -460,6 +461,12 @@ export default function StudioCanvas({
     ];
     setScaleDraft([]);
     patchStudio({ scales: nextScales, tool: activeClass?.kind || "count" });
+    recordTakeoffLearningClient({
+      type: "scale_choice",
+      projectId,
+      scaleLabel: `${metres} m`,
+      trade: "plumbing",
+    });
   }
 
   function applyRatioHint(label: string) {
@@ -478,6 +485,12 @@ export default function StudioCanvas({
     ];
     setScaleDraft([]);
     patchStudio({ scales: nextScales, tool: activeClass?.kind || "count" });
+    recordTakeoffLearningClient({
+      type: "scale_choice",
+      projectId,
+      scaleLabel: label,
+      trade: "plumbing",
+    });
   }
 
   function onPointerDown(event: ReactPointerEvent) {
@@ -714,6 +727,14 @@ export default function StudioCanvas({
     const next = appendLinearWithAutoFittings(studio, geo);
     onChange(next);
     setSelectedId(geo.id);
+    recordTakeoffLearningClient({
+      type: "manual_linear",
+      projectId,
+      classificationId: activeClass.id,
+      pipeSpecId: spec.id,
+      codes: [activeClass.name],
+      trade: "plumbing",
+    });
   }
 
   function deleteSelected() {

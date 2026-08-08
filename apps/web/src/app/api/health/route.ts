@@ -145,6 +145,7 @@ export async function GET() {
       takeoffSkill: "drawing-first-v8-routes-page",
       takeoffAiConfirm: "overlay-review-v1",
       takeoffBlakePipeRuns: "vector-stroke-v1",
+      takeoffBlakeLearn: "habits-v1",
       recurringServices: "upcoming-4w-v1",
       recurringGenerate: "server-v1",
       poStockReceive: "idempotent-v1",
