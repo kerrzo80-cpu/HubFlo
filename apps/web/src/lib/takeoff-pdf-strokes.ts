@@ -33,6 +33,26 @@ function polylineLength(points: PdfStrokePoint[]) {
   return total;
 }
 
+function asNumericArray(value: unknown): number[] {
+  if (!value && value !== 0) return [];
+  if (typeof value === "number" && Number.isFinite(value)) return [value];
+  if (ArrayBuffer.isView(value)) {
+    return Array.from(value as ArrayLike<number>).map(Number).filter(Number.isFinite);
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => asNumericArray(item));
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record)
+      .filter((key) => /^\d+$/.test(key))
+      .map(Number)
+      .sort((a, b) => a - b);
+    return keys.flatMap((key) => asNumericArray(record[String(key)]));
+  }
+  return [];
+}
+
 function parseRgb(value: unknown): { r: number; g: number; b: number } | null {
   if (typeof value === "string") {
     const hex = value.trim();
@@ -43,16 +63,36 @@ function parseRgb(value: unknown): { r: number; g: number; b: number } | null {
     }
     return null;
   }
-  if (Array.isArray(value) && value.length >= 3) {
-    const r = Number(value[0]);
-    const g = Number(value[1]);
-    const b = Number(value[2]);
-    if (![r, g, b].every(Number.isFinite)) return null;
+  const nums = asNumericArray(value);
+  if (nums.length >= 3) {
+    const r = nums[0]!;
+    const g = nums[1]!;
+    const b = nums[2]!;
     // pdf.js sometimes gives 0–1, sometimes 0–255
     const scale = Math.max(r, g, b) > 1.5 ? 255 : 1;
     return { r: r / scale, g: g / scale, b: b / scale };
   }
   return null;
+}
+
+/** Rough CMYK → RGB for coloured CAD strokes. */
+function parseCmyk(value: unknown): { r: number; g: number; b: number } | null {
+  const nums = asNumericArray(value);
+  if (nums.length < 4) return null;
+  let [c, m, y, k] = nums;
+  if (![c, m, y, k].every((n) => Number.isFinite(n))) return null;
+  const max = Math.max(c!, m!, y!, k!);
+  if (max > 1.5) {
+    c = c! / 255;
+    m = m! / 255;
+    y = y! / 255;
+    k = k! / 255;
+  }
+  return {
+    r: (1 - c!) * (1 - k!),
+    g: (1 - m!) * (1 - k!),
+    b: (1 - y!) * (1 - k!),
+  };
 }
 
 function toHex(rgb: { r: number; g: number; b: number }) {
@@ -67,79 +107,131 @@ export function classifyStrokeRole(rgb: { r: number; g: number; b: number }): Pd
   const min = Math.min(r, g, b);
   const sat = max - min;
   // Ignore greys / near-black grid / annotation ink
-  if (sat < 0.18 || max < 0.2) return "other";
+  if (sat < 0.12 || max < 0.18) return "other";
 
   // Waste / soil first: brown / orange / amber (red+green, low blue)
-  if (r > 0.4 && g > 0.22 && g < r * 0.85 && b < Math.min(r, g) * 0.7 && r - b > 0.18) return "waste";
-  // Hot: red / magenta / pink (green stays low)
-  if (r > 0.45 && r >= g + 0.18 && r >= b + 0.08 && g < 0.45) return "hot";
+  if (r > 0.4 && g > 0.22 && g < r * 0.9 && b < Math.min(r, g) * 0.75 && r - b > 0.15) return "waste";
+  // Hot: red / magenta / pink / purple CAD accents
+  if (r > 0.4 && r >= g + 0.12 && (r >= b + 0.05 || b >= g + 0.12) && g < 0.55) return "hot";
   // Cold: green / cyan / blue
-  if ((g > 0.4 && g >= r + 0.08) || (b > 0.45 && b >= r + 0.1)) return "cold";
+  if ((g > 0.35 && g >= r + 0.05) || (b > 0.4 && b >= r + 0.08)) return "cold";
   return "other";
 }
 
-function asNumberList(value: unknown): number[] {
-  if (!value || typeof value !== "object") return [];
-  if (Array.isArray(value)) return value.map(Number).filter(Number.isFinite);
-  const record = value as Record<string, unknown>;
-  const keys = Object.keys(record)
-    .filter((key) => /^\d+$/.test(key))
-    .map(Number)
-    .sort((a, b) => a - b);
-  return keys.map((key) => Number(record[String(key)])).filter(Number.isFinite);
-}
-
 /**
- * Path payload from pdf.js constructPath:
- * interleaved ops + coords: 0=moveTo, 1=lineTo, 2/3=curve, 4=close…
+ * Path payload from pdf.js constructPath.
+ * Supports:
+ * - interleaved DrawOPS (0 move / 1 line / 2–3 curve / 4 close / 19 rect)
+ * - interleaved OPS (13 move / 14 line / 15–17 curve / 18 close / 19 rect)
+ * - TypedArray (Float32Array) buffers from modern pdf.js
  */
 export function pointsFromConstructPathArgs(pathArgs: unknown): PdfStrokePoint[] {
-  const data = asNumberList(pathArgs);
+  const data = asNumericArray(pathArgs);
   const points: PdfStrokePoint[] = [];
   let i = 0;
-  let cursor: PdfStrokePoint | null = null;
   while (i < data.length) {
     const op = data[i];
     if (op === undefined) break;
-    if (op === 0 || op === 1) {
+
+    // moveTo / lineTo — DrawOPS 0/1 or OPS 13/14
+    if (op === 0 || op === 1 || op === 13 || op === 14) {
       const x = data[i + 1];
       const y = data[i + 2];
       i += 3;
       if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-      const point = { x: x!, y: y! };
-      if (op === 0 || !cursor) {
-        points.push(point);
-      } else {
-        points.push(point);
-      }
-      cursor = point;
+      points.push({ x: x!, y: y! });
       continue;
     }
-    if (op === 2 || op === 3) {
-      // cubic/quadratic — take end point
-      const x = data[i + (op === 2 ? 5 : 3)];
-      const y = data[i + (op === 2 ? 6 : 4)];
-      i += op === 2 ? 7 : 5;
+
+    // cubic curveTo — DrawOPS 2 or OPS 15
+    if (op === 2 || op === 15) {
+      const x = data[i + 5];
+      const y = data[i + 6];
+      i += 7;
       if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-      const point = { x: x!, y: y! };
-      points.push(point);
-      cursor = point;
+      points.push({ x: x!, y: y! });
       continue;
     }
-    if (op === 4) {
-      // closePath
+
+    // quadratic-ish curveTo2/3 — DrawOPS 3 or OPS 16/17
+    if (op === 3 || op === 16 || op === 17) {
+      const x = data[i + 3];
+      const y = data[i + 4];
+      i += 5;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      points.push({ x: x!, y: y! });
+      continue;
+    }
+
+    // closePath — DrawOPS 4 or OPS 18
+    if (op === 4 || op === 18) {
       i += 1;
       if (points[0]) points.push({ ...points[0] });
       continue;
     }
+
+    // rectangle — OPS/DrawOPS 19: x, y, w, h
+    if (op === 19) {
+      const x = data[i + 1];
+      const y = data[i + 2];
+      const w = data[i + 3];
+      const h = data[i + 4];
+      i += 5;
+      if (![x, y, w, h].every(Number.isFinite)) continue;
+      points.push(
+        { x: x!, y: y! },
+        { x: x! + w!, y: y! },
+        { x: x! + w!, y: y! + h! },
+        { x: x!, y: y! + h! },
+        { x: x!, y: y! },
+      );
+      continue;
+    }
+
     i += 1;
   }
-  // Deduplicate consecutive identical points
+
   return points.filter((point, index) => {
     if (index === 0) return true;
     const prev = points[index - 1]!;
     return Math.hypot(point.x - prev.x, point.y - prev.y) > 0.2;
   });
+}
+
+/** Pull path geometry out of a constructPath args tuple from pdf.js. */
+export function pathArgsFromConstructPath(args: unknown): unknown {
+  if (!Array.isArray(args) && !ArrayBuffer.isView(args)) return args;
+  const list = Array.isArray(args) ? args : [args];
+  // Common: [drawOp, pathBuffer, bbox]
+  if (list.length >= 2 && (ArrayBuffer.isView(list[1]) || Array.isArray(list[1]))) {
+    return list[1];
+  }
+  // Alternate: [opsBuffer, coordsBuffer, bbox]
+  if (list.length >= 2 && ArrayBuffer.isView(list[0]) && ArrayBuffer.isView(list[1])) {
+    const ops = Array.from(list[0] as ArrayLike<number>);
+    const coords = Array.from(list[1] as ArrayLike<number>);
+    const merged: number[] = [];
+    let ci = 0;
+    for (const op of ops) {
+      merged.push(op);
+      const need = op === 0 || op === 1 || op === 13 || op === 14
+        ? 2
+        : op === 2 || op === 15
+          ? 6
+          : op === 3 || op === 16 || op === 17
+            ? 4
+            : op === 19
+              ? 4
+              : 0;
+      for (let n = 0; n < need; n += 1) {
+        const value = coords[ci];
+        ci += 1;
+        if (Number.isFinite(value)) merged.push(value!);
+      }
+    }
+    return merged;
+  }
+  return list.length === 1 ? list[0] : list;
 }
 
 /** Thin long paths look like pipe runs; fat closed boxes are UI chrome. */
@@ -210,13 +302,20 @@ export async function extractPdfStrokeRuns(
       const fn = opList.fnArray[i];
       const args = opList.argsArray[i];
 
-      if (fn === OPS.setStrokeRGBColor || fn === OPS.setFillRGBColor) {
-        // Prefer stroke colour; fill colour also tracked for filled thin pipes.
-        const rgb = parseRgb(Array.isArray(args) ? (args.length >= 3 ? args : args[0]) : args);
-        if (rgb && fn === OPS.setStrokeRGBColor) {
+      if (
+        fn === OPS.setStrokeRGBColor
+        || fn === OPS.setFillRGBColor
+        || fn === OPS.setStrokeCMYKColor
+        || fn === OPS.setFillCMYKColor
+      ) {
+        const raw = Array.isArray(args) ? (args.length >= 3 ? args : args[0]) : args;
+        const rgb = (fn === OPS.setStrokeCMYKColor || fn === OPS.setFillCMYKColor)
+          ? parseCmyk(raw)
+          : parseRgb(raw);
+        if (rgb && (fn === OPS.setStrokeRGBColor || fn === OPS.setStrokeCMYKColor)) {
           strokeRgb = rgb;
           strokeHex = toHex(rgb);
-        } else if (rgb && fn === OPS.setFillRGBColor && classifyStrokeRole(rgb) !== "other") {
+        } else if (rgb && classifyStrokeRole(rgb) !== "other") {
           strokeRgb = rgb;
           strokeHex = toHex(rgb);
         }
@@ -225,7 +324,7 @@ export async function extractPdfStrokeRuns(
 
       if (fn === OPS.constructPath) {
         const drawOp = Number(Array.isArray(args) ? args[0] : NaN);
-        const pathArgs = Array.isArray(args) ? args[1] : null;
+        const pathArgs = pathArgsFromConstructPath(args);
         // 20=stroke, 21=closeStroke, 22=fill, 23=eoFill, 24=fillStroke, …
         const isStrokeLike = drawOp === OPS.stroke
           || drawOp === OPS.closeStroke
@@ -236,7 +335,9 @@ export async function extractPdfStrokeRuns(
           || drawOp === 20
           || drawOp === 21
           || drawOp === 24
-          || drawOp === 25;
+          || drawOp === 25
+          || drawOp === 26
+          || drawOp === 27;
         if (!isStrokeLike) continue;
         strokeCount += 1;
         const role = classifyStrokeRole(strokeRgb);

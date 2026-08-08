@@ -282,15 +282,15 @@ function emptyMessage(
     return "Blake found the drawing on the project, but the PDF file is missing from disk. Re-upload the PDF (files can drop after a host restart), then ask Blake again.";
   }
   if (diagnostics.docsRead === 0 && diagnostics.docsExtractFailed > 0) {
-    return "Blake could not parse this PDF automatically. Keep the drawing open, tap Ask Blake again once it has finished loading, or set scale and use Length to trace the coloured pipe lines.";
+    return "Blake opened the sheet but could not auto-measure pipe vectors on it yet. Tap a Draw as colour (Cold/Hot/Heating), then Length — or Ask Blake again after the drawing has fully loaded.";
   }
   if (diagnostics.docsRead === 0) {
     return "Blake could not open any drawing PDFs. Keep the sheet open until it finishes loading, tap Ask Blake again, or re-upload the PDF.";
   }
   if (!diagnostics.hasSelectableText || diagnostics.textItemCount < 8) {
-    return "This PDF looks scanned or image-only (no text layer and no coloured vector pipe strokes Blake can measure). Set scale, then use Length to trace pipe runs, or Count to tap fixtures.";
+    return "This PDF looks scanned or image-only (no text layer and no coloured vector pipe strokes Blake can measure). Tap Draw as → Cold/Hot/Heating, set scale, then Length — or Count for fixtures.";
   }
-  return `Blake read ${diagnostics.textItemCount} text item(s) but found no fixture tags (WC/WHB/RAD) and no coloured vector pipe runs. Set scale, then use Length on the green/red pipe lines, or Count for fixtures.`;
+  return `Blake read ${diagnostics.textItemCount} text item(s) but found no fixture tags (WC/WHB/RAD) and no coloured vector pipe runs. Tap Draw as to pick Cold/Hot/Heating, then Length — or Count for fixtures.`;
 }
 
 async function serverExtractPipeRuns(project: TakeoffProject) {
@@ -537,9 +537,18 @@ export async function POST(
     let pipeExtract = {
       runs: clientPipeRuns as Array<PdfStrokeRun & { documentId: string }>,
       colouredStrokeCount: clientColouredStrokeCount,
-      docsTried: clientPipeRuns.length ? 1 : 0,
+      docsTried: clientPipeRuns.length || clientColouredStrokeCount ? 1 : 0,
       summary: summariseStrokeRunsByRole(clientPipeRuns),
     };
+
+    // Client opened the same PDF Studio is showing — count that as a successful read.
+    if (clientExtracts.length || clientPipeRuns.length || clientColouredStrokeCount > 0) {
+      diagnostics = {
+        ...diagnostics,
+        docsRead: Math.max(diagnostics.docsRead, clientExtracts.length || 1),
+        docsExtractFailed: clientExtracts.length || clientPipeRuns.length ? 0 : diagnostics.docsExtractFailed,
+      };
+    }
 
     if (!pipeExtract.runs.length) {
       pipeExtract = await serverExtractPipeRuns(getTakeoffProject(id) || project);

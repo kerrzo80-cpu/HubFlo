@@ -116,11 +116,14 @@ export default function TakeoffStudioPage() {
   const visibleClassifications = studio.classifications.filter((cls) =>
     activeLayerId === "all" ? true : classificationLayer(cls) === activeLayerId,
   );
-  const pipeServiceClasses = SERVICE_CLASS_DEFS
-    .filter((def) => def.kind === "linear")
-    .map((def) => studio.classifications.find((cls) => cls.id === def.id))
-    .filter((cls): cls is StudioClassification => Boolean(cls))
-    .filter((cls) => activeLayerId === "all" || classificationLayer(cls) === activeLayerId);
+  // Always show every preset service + any custom linears/counts so Draw as isn't stuck on Hot/Cold only.
+  const presetIds = new Set(SERVICE_CLASS_DEFS.map((def) => def.id));
+  const pipeServiceClasses = [
+    ...SERVICE_CLASS_DEFS
+      .map((def) => studio.classifications.find((cls) => cls.id === def.id))
+      .filter((cls): cls is StudioClassification => Boolean(cls)),
+    ...studio.classifications.filter((cls) => !presetIds.has(cls.id) && (cls.kind === "linear" || cls.kind === "count")),
+  ];
   const quantities = summariseStudioQuantities(studio);
   const linkedQuote = quotes.find((q) => q.id === selected?.linkedQuoteId);
   const aiReviewRows = studio.aiReviewMeasured || [];
@@ -445,6 +448,30 @@ export default function TakeoffStudioPage() {
       activeClassificationId: cls.id,
       tool: cls.kind,
       activeLayerId: classificationLayer(cls),
+    });
+  }
+
+  function quickAddDrawItem() {
+    const name = window.prompt("Name for this mark-up (e.g. Condensate, Gas branch, Radiators)", "");
+    if (name == null) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const kindAnswer = window.prompt("Type: linear (pipe length) or count (tap fixtures)", "linear");
+    const kind: StudioClassKind = kindAnswer?.trim().toLowerCase() === "count" ? "count" : "linear";
+    const colour = kind === "count" ? "#7a4f9a" : nextClassificationColour(studio.classifications);
+    const cls: StudioClassification = {
+      id: studioId("cls"),
+      kind,
+      name: trimmed,
+      colour,
+      unit: kind === "count" ? "nr" : "m",
+      layer: activeLayerId === "all" ? "general" : activeLayerId,
+    };
+    void persistStudio({
+      ...studio,
+      classifications: [...studio.classifications, cls],
+      activeClassificationId: cls.id,
+      tool: kind,
     });
   }
 
@@ -1277,12 +1304,24 @@ export default function TakeoffStudioPage() {
                     title={`Draw ${cls.name} in this colour`}
                   >
                     <i style={{ background: cls.colour }} />
-                    {cls.name.replace(/ pipe runs$/i, "").replace(/ runs$/i, "")}
+                    {cls.name
+                      .replace(/ pipe runs$/i, "")
+                      .replace(/ runs$/i, "")
+                      .replace(/ ware$/i, "")}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  className="nexa-studio-service-add"
+                  onClick={quickAddDrawItem}
+                  title="Add another item to draw (gas, condensate, radiators…)"
+                >
+                  <Plus size={14} />
+                  Add
+                </button>
                 {activeClass ? (
                   <strong className="nexa-studio-service-active" style={{ color: activeClass.colour }}>
-                    {activeClass.name}
+                    Drawing: {activeClass.name}
                   </strong>
                 ) : null}
               </div>

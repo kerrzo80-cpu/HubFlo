@@ -2,6 +2,7 @@ import type { ExtractedPdfDocument, ExtractedPdfPage } from "@/lib/takeoff-pdf-e
 import {
   classifyStrokeRole,
   looksLikePipeRun,
+  pathArgsFromConstructPath,
   pointsFromConstructPathArgs,
   summariseStrokeRunsByRole,
   type PdfStrokeRun,
@@ -168,22 +169,47 @@ export async function extractTakeoffPdfStrokesInBrowser(
       const fn = opList.fnArray[i];
       const args = opList.argsArray[i];
 
-      if (fn === OPS.setStrokeRGBColor || fn === OPS.setFillRGBColor) {
+      if (
+        fn === OPS.setStrokeRGBColor
+        || fn === OPS.setFillRGBColor
+        || fn === OPS.setStrokeCMYKColor
+        || fn === OPS.setFillCMYKColor
+      ) {
         const raw = Array.isArray(args) ? (args.length >= 3 ? args : args[0]) : args;
         let rgb: { r: number; g: number; b: number } | null = null;
-        if (typeof raw === "string" && /^#?[0-9a-f]{6}$/i.test(raw.trim())) {
+        if (fn === OPS.setStrokeCMYKColor || fn === OPS.setFillCMYKColor) {
+          const nums = ArrayBuffer.isView(raw)
+            ? Array.from(raw as ArrayLike<number>)
+            : Array.isArray(raw)
+              ? raw.map(Number)
+              : [];
+          if (nums.length >= 4 && nums.slice(0, 4).every(Number.isFinite)) {
+            let [c, m, y, k] = nums as number[];
+            const max = Math.max(c!, m!, y!, k!);
+            if (max > 1.5) {
+              c = c! / 255; m = m! / 255; y = y! / 255; k = k! / 255;
+            }
+            rgb = {
+              r: (1 - c!) * (1 - k!),
+              g: (1 - m!) * (1 - k!),
+              b: (1 - y!) * (1 - k!),
+            };
+          }
+        } else if (typeof raw === "string" && /^#?[0-9a-f]{6}$/i.test(raw.trim())) {
           const n = Number.parseInt(raw.replace("#", ""), 16);
           rgb = { r: ((n >> 16) & 255) / 255, g: ((n >> 8) & 255) / 255, b: (n & 255) / 255 };
-        } else if (Array.isArray(raw) && raw.length >= 3) {
-          const r = Number(raw[0]);
-          const g = Number(raw[1]);
-          const b = Number(raw[2]);
-          if ([r, g, b].every(Number.isFinite)) {
-            const scale = Math.max(r, g, b) > 1.5 ? 255 : 1;
-            rgb = { r: r / scale, g: g / scale, b: b / scale };
+        } else {
+          const nums = ArrayBuffer.isView(raw)
+            ? Array.from(raw as ArrayLike<number>)
+            : Array.isArray(raw)
+              ? raw.map(Number)
+              : [];
+          if (nums.length >= 3 && nums.slice(0, 3).every(Number.isFinite)) {
+            const scale = Math.max(nums[0]!, nums[1]!, nums[2]!) > 1.5 ? 255 : 1;
+            rgb = { r: nums[0]! / scale, g: nums[1]! / scale, b: nums[2]! / scale };
           }
         }
-        if (rgb && (fn === OPS.setStrokeRGBColor || classifyStrokeRole(rgb) !== "other")) {
+        if (rgb && (fn === OPS.setStrokeRGBColor || fn === OPS.setStrokeCMYKColor || classifyStrokeRole(rgb) !== "other")) {
           strokeRgb = rgb;
           const clamp = (n: number) => Math.max(0, Math.min(255, Math.round(n * 255)));
           strokeHex = `#${[clamp(rgb.r), clamp(rgb.g), clamp(rgb.b)].map((n) => n.toString(16).padStart(2, "0")).join("")}`;
@@ -193,7 +219,7 @@ export async function extractTakeoffPdfStrokesInBrowser(
 
       if (fn === OPS.constructPath) {
         const drawOp = Number(Array.isArray(args) ? args[0] : NaN);
-        const pathArgs = Array.isArray(args) ? args[1] : null;
+        const pathArgs = pathArgsFromConstructPath(args);
         const isStrokeLike = drawOp === OPS.stroke
           || drawOp === OPS.closeStroke
           || drawOp === OPS.fillStroke
@@ -203,7 +229,9 @@ export async function extractTakeoffPdfStrokesInBrowser(
           || drawOp === 20
           || drawOp === 21
           || drawOp === 24
-          || drawOp === 25;
+          || drawOp === 25
+          || drawOp === 26
+          || drawOp === 27;
         if (!isStrokeLike) continue;
         strokeCount += 1;
         const role = classifyStrokeRole(strokeRgb);

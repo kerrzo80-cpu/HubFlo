@@ -8,8 +8,9 @@ import {
   summariseStrokeRunsByRole,
 } from "./takeoff-pdf-strokes";
 
-test("classifyStrokeRole maps red/green/brown", () => {
+test("classifyStrokeRole maps red/green/brown/purple", () => {
   assert.equal(classifyStrokeRole({ r: 0.9, g: 0.1, b: 0.1 }), "hot");
+  assert.equal(classifyStrokeRole({ r: 0.75, g: 0.15, b: 0.7 }), "hot");
   assert.equal(classifyStrokeRole({ r: 0.1, g: 0.85, b: 0.2 }), "cold");
   assert.equal(classifyStrokeRole({ r: 0.1, g: 0.35, b: 0.9 }), "cold");
   assert.equal(classifyStrokeRole({ r: 0.7, g: 0.4, b: 0.1 }), "waste");
@@ -31,6 +32,19 @@ test("pointsFromConstructPathArgs reads move/line pairs", () => {
   assert.equal(points.length, 3);
   assert.equal(points[0]?.x, 10);
   assert.equal(points[2]?.y, 80);
+});
+
+test("pointsFromConstructPathArgs reads Float32Array DrawOPS buffers", () => {
+  const points = pointsFromConstructPathArgs(new Float32Array([0, 10, 20, 1, 110, 20, 1, 110, 80]));
+  assert.equal(points.length, 3);
+  assert.equal(points[0]?.x, 10);
+  assert.equal(points[2]?.y, 80);
+});
+
+test("pointsFromConstructPathArgs reads OPS 13/14 move/line", () => {
+  const points = pointsFromConstructPathArgs(new Float32Array([13, 5, 6, 14, 50, 6, 14, 50, 40]));
+  assert.equal(points.length, 3);
+  assert.equal(points[1]?.x, 50);
 });
 
 test("looksLikePipeRun rejects fat closed boxes", () => {
