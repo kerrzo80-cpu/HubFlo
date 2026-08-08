@@ -411,8 +411,8 @@ export default function TakeoffStudioPage() {
     const steps = [
       "Blake is analysing your drawings…",
       "Building a measurement plan…",
-      "Reading PDF text tags…",
-      "Placing count pins on the sheet…",
+      "Reading PDF text tags and coloured pipe runs…",
+      "Placing pins and tracing pipe runs on the sheet…",
     ];
     let stepIndex = 0;
     setBlakeStep(steps[0] || "Blake is working…");
@@ -455,6 +455,7 @@ export default function TakeoffStudioPage() {
         message?: string;
         measured?: StudioAiReviewMeasuredQuantity[];
         pinCount?: number;
+        pipeRunCount?: number;
         project?: TakeoffProject;
         focus?: { documentId: string; page: number; classificationId: string } | null;
       };
@@ -474,11 +475,16 @@ export default function TakeoffStudioPage() {
       });
       setSaveState("saved");
       const message = payload.message || "Blake finished.";
-      setBlakeStep(payload.pinCount ? `Done — ${payload.pinCount} pin(s) placed.` : "Done — no tags found.");
+      const found = (payload.pinCount || 0) + (payload.pipeRunCount || 0);
+      setBlakeStep(
+        found
+          ? `Done — ${payload.pinCount || 0} pin(s) · ${payload.pipeRunCount || 0} pipe run(s).`
+          : "Done — nothing Blake could auto-measure yet.",
+      );
       await new Promise((resolve) => window.setTimeout(resolve, 700));
-      if ((payload.pinCount || 0) > 0) {
+      if (found > 0) {
         setReviewOpen(true);
-        show(message, 12000);
+        show(message, 14000);
       } else {
         setNotice(null);
         setError(message);
@@ -900,7 +906,7 @@ export default function TakeoffStudioPage() {
                   <button type="button" className="ghost" onClick={addClassification}>Add</button>
                 </div>
                 <p className="muted nexa-studio-hint">
-                  Pick a classification, then draw. Green <strong>Ask Blake</strong> auto-counts PDF text tags onto the sheet.
+                  Pick a classification, then draw. Green <strong>Ask Blake</strong> counts fixture text tags and traces coloured vector pipe runs (hot/cold/waste). Set scale for metres.
                 </p>
               </section>
 

@@ -144,6 +144,7 @@ export async function GET() {
       mailboxPersist: "verify-disk-v2",
       takeoffSkill: "drawing-first-v8-routes-page",
       takeoffAiConfirm: "overlay-review-v1",
+      takeoffBlakePipeRuns: "vector-stroke-v1",
       recurringServices: "upcoming-4w-v1",
       recurringGenerate: "server-v1",
       poStockReceive: "idempotent-v1",

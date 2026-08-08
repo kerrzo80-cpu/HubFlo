@@ -78,6 +78,10 @@ export type StudioGeometry =
       page: number;
       points: StudioPoint[];
       closed?: boolean;
+      source?: "manual" | "ai";
+      confidence?: TakeoffConfidence;
+      reviewStatus?: StudioAiReviewStatus;
+      notes?: string;
     }
   | {
       id: string;
@@ -87,6 +91,7 @@ export type StudioGeometry =
       page: number;
       points: StudioPoint[];
       closed: boolean;
+      source?: "manual" | "ai";
     };
 
 export type StudioPageScale = {
@@ -98,6 +103,7 @@ export type StudioPageScale = {
   calibrateFrom?: StudioPoint;
   calibrateTo?: StudioPoint;
   knownMetres?: number;
+  /** e.g. "1:50" when applied from a sheet ratio hint. */
   label?: string;
 };
 
@@ -208,18 +214,138 @@ export function scaleForPage(studio: StudioState, documentId: string, page: numb
 }
 
 export function isAiStudioGeometry(geo: StudioGeometry): boolean {
-  return geo.kind === "count" && (geo.source === "ai" || geo.id.startsWith("ai-"));
+  return geo.source === "ai" || geo.id.startsWith("ai-");
 }
 
 export function studioHasAiCounts(studio: StudioState): boolean {
-  return studio.geometries.some(isAiStudioGeometry)
+  return studio.geometries.some((geo) => geo.kind === "count" && isAiStudioGeometry(geo))
     || Boolean(studio.aiReviewMeasured?.some((row) =>
       (row.tagMatches || []).some((match) => !match.excluded),
     ));
 }
 
+export function studioHasAiPipeRuns(studio: StudioState): boolean {
+  return studio.geometries.some((geo) => geo.kind === "linear" && isAiStudioGeometry(geo));
+}
+
+const PIPE_CLASS_DEFS = [
+  { id: "cls-ai-P-PIPE-H", code: "P-PIPE-H", name: "Hot pipe runs", colour: "#d64545", role: "hot" as const },
+  { id: "cls-ai-P-PIPE-C", code: "P-PIPE-C", name: "Cold pipe runs", colour: "#1f8f5f", role: "cold" as const },
+  { id: "cls-ai-P-WASTE", code: "P-WASTE", name: "Waste / soil runs", colour: "#c47a1a", role: "waste" as const },
+];
+
+export function ensurePipeRunClassifications(studio: StudioState): StudioState {
+  const classifications = [...studio.classifications];
+  for (const def of PIPE_CLASS_DEFS) {
+    if (!classifications.some((cls) => cls.id === def.id)) {
+      classifications.push({
+        id: def.id,
+        kind: "linear",
+        name: def.name,
+        colour: def.colour,
+        unit: "m",
+        notes: `Blake pipe run · ${def.code}`,
+      });
+    }
+  }
+  return { ...studio, classifications };
+}
+
+/** Apply the first scale ratio hint found in drawing text to every page that lacks a scale. */
+export function applyScaleHintsToStudio(
+  studio: StudioState,
+  pages: Array<{ documentId: string; pageNumber: number; fullText?: string }>,
+  renderScale = 1.35,
+): { studio: StudioState; appliedLabel: string | null } {
+  let appliedLabel: string | null = null;
+  let metresPerUnit: number | null = null;
+  for (const page of pages) {
+    const hints = detectScaleRatioHints(page.fullText || "");
+    if (!hints[0]) continue;
+    const denom = parseScaleRatioLabel(hints[0]);
+    if (!denom) continue;
+    metresPerUnit = metresPerUnitFromRatio(denom, renderScale);
+    appliedLabel = hints[0];
+    break;
+  }
+  if (!metresPerUnit || !appliedLabel) return { studio, appliedLabel: null };
+
+  const scales = [...studio.scales];
+  for (const page of pages) {
+    const exists = scales.some((row) => row.documentId === page.documentId && row.page === page.pageNumber);
+    if (exists) continue;
+    scales.push({
+      documentId: page.documentId,
+      page: page.pageNumber,
+      metresPerUnit,
+      label: appliedLabel,
+    });
+  }
+  return {
+    studio: { ...studio, scales, updatedAt: new Date().toISOString() },
+    appliedLabel,
+  };
+}
+
+export function importPipeRunsIntoStudio(
+  studio: StudioState,
+  runs: Array<{
+    documentId: string;
+    pageNumber: number;
+    points: StudioPoint[];
+    role: "hot" | "cold" | "waste" | "other";
+    pageHeight: number;
+    colourHex?: string;
+  }>,
+  options?: {
+    renderScale?: number;
+    replaceExistingAiPipes?: boolean;
+    aiReviewStatus?: StudioAiReviewStatus;
+  },
+): StudioState {
+  const renderScale = options?.renderScale ?? 1.35;
+  let next = ensurePipeRunClassifications(studio);
+  const keep = options?.replaceExistingAiPipes
+    ? next.geometries.filter((geo) => !(geo.kind === "linear" && isAiStudioGeometry(geo)))
+    : next.geometries;
+  const geometries = [...keep];
+
+  for (const [index, run] of runs.entries()) {
+    if (run.role === "other" || run.points.length < 2) continue;
+    const def = PIPE_CLASS_DEFS.find((row) => row.role === run.role);
+    if (!def) continue;
+    const points = run.points.map((point) => ({
+      x: point.x * renderScale,
+      y: (run.pageHeight - point.y) * renderScale,
+    }));
+    geometries.push({
+      id: `ai-pipe-${run.documentId}-${run.pageNumber}-${index}`,
+      classificationId: def.id,
+      kind: "linear",
+      documentId: run.documentId,
+      page: run.pageNumber,
+      points,
+      source: "ai",
+      confidence: "Medium",
+      reviewStatus: options?.aiReviewStatus ?? "pending",
+      notes: `Blake vector stroke · ${run.colourHex || run.role}`,
+    });
+  }
+
+  const firstPipe = geometries.find((geo) => geo.kind === "linear" && isAiStudioGeometry(geo));
+  return {
+    ...next,
+    geometries,
+    activeDocumentId: firstPipe?.documentId || next.activeDocumentId,
+    activePage: firstPipe?.page || next.activePage,
+    activeClassificationId: firstPipe?.classificationId || next.activeClassificationId,
+    tool: firstPipe ? "select" : next.tool,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export function studioNeedsAiReview(studio: StudioState): boolean {
-  return studio.aiReviewStatus === "pending" && studioHasAiCounts(studio);
+  return studio.aiReviewStatus === "pending" && (studioHasAiCounts(studio) || studioHasAiPipeRuns(studio));
 }
 
 export type StudioQuantityRow = {
