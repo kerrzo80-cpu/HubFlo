@@ -144,6 +144,7 @@ export async function GET() {
       guidePrices: "rate-library-v1",
       blakeBudgetPrices: "openai-uk-trade-v1",
       premiumPolish: "hd-takeoff-spine-v1",
+      renderBuildFix: "no-sqlite-in-client-v1",
       setupIndependent: "integrations-one-panel-v1",
       bootTabsReady: "auth-only-v1",
       deploySmoke: "retry-settle-hourly-v2",

@@ -8,5 +8,6 @@ export * from "./flow";
 export * from "./quote-export";
 export * from "./blake-route";
 export * from "./blake-kit";
-export * from "./blake-ai";
+// blake-ai stays server-only (OpenAI + budget pricing → must not enter client bundles).
+// Import from `@/lib/heat-design/blake-ai` in API routes.
 export * from "./takeoff-export";

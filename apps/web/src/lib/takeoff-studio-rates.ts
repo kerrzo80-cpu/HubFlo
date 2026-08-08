@@ -1,14 +1,15 @@
 /**
- * Apply takeoff rates (editable library → prebuilds → built-in defaults) and assemblies.
+ * Apply takeoff rates (editable library → built-in defaults) and assemblies.
+ * Client-safe: no SQLite / prebuild store. Pass a library from API state when available.
  */
 
-import { listPrebuilds } from "@/lib/prebuild-data";
 import {
+  defaultTakeoffRateLibrary,
   expandTakeoffAssemblies,
-  getTakeoffRateLibrary,
   lookupLibraryRate,
   type MaterialLine,
-} from "@/lib/takeoff-rate-library";
+  type TakeoffRateLibrary,
+} from "@/lib/takeoff-rate-core";
 
 export type TakeoffRateLine = MaterialLine;
 
@@ -46,38 +47,16 @@ function lookupDefaultRate(description: string, unit: string): number {
   return 0;
 }
 
-function lookupPrebuildRate(description: string): number {
-  try {
-    const kits = listPrebuilds();
-    const hay = description.toLowerCase();
-    for (const kit of kits) {
-      for (const line of kit.lines) {
-        if (line.kind !== "Material" || !(line.unitCost > 0)) continue;
-        const needle = line.description.toLowerCase();
-        if (hay.includes(needle) || needle.includes(hay.slice(0, 18))) {
-          return line.unitCost;
-        }
-      }
-      if (hay.includes(kit.name.toLowerCase()) || hay.includes(kit.category.toLowerCase())) {
-        const material = kit.lines.find((line) => line.kind === "Material" && line.unitCost > 0);
-        if (material) return material.unitCost;
-      }
-    }
-  } catch {
-    // Prebuild store may be empty in tests.
-  }
-  return 0;
-}
-
 /** Fill unitCost on takeoff material lines before Push to Core. */
-export function applyTakeoffRatesToMaterials<T extends TakeoffRateLine>(lines: T[]): T[] {
-  const library = getTakeoffRateLibrary();
+export function applyTakeoffRatesToMaterials<T extends TakeoffRateLine>(
+  lines: T[],
+  library?: TakeoffRateLibrary | null,
+): T[] {
+  const lib = library || defaultTakeoffRateLibrary();
   return lines.map((line) => {
     if (line.unitCost > 0) return line;
-    const fromLibrary = lookupLibraryRate(line.description, line.unit, library);
+    const fromLibrary = lookupLibraryRate(line.description, line.unit, lib);
     if (fromLibrary > 0) return { ...line, unitCost: fromLibrary };
-    const fromPrebuild = lookupPrebuildRate(line.description);
-    if (fromPrebuild > 0) return { ...line, unitCost: fromPrebuild };
     const fromDefault = lookupDefaultRate(line.description, line.unit);
     if (fromDefault > 0) return { ...line, unitCost: fromDefault };
     return line;
@@ -85,10 +64,14 @@ export function applyTakeoffRatesToMaterials<T extends TakeoffRateLine>(lines: T
 }
 
 /** Price lines, then expand enabled assembly kits (WC / WHB / rad ancillaries). */
-export function priceAndExpandTakeoffMaterials<T extends TakeoffRateLine>(lines: T[]): T[] {
-  const priced = applyTakeoffRatesToMaterials(lines);
-  const expanded = expandTakeoffAssemblies(priced);
-  return applyTakeoffRatesToMaterials(expanded);
+export function priceAndExpandTakeoffMaterials<T extends TakeoffRateLine>(
+  lines: T[],
+  library?: TakeoffRateLibrary | null,
+): T[] {
+  const lib = library || defaultTakeoffRateLibrary();
+  const priced = applyTakeoffRatesToMaterials(lines, lib);
+  const expanded = expandTakeoffAssemblies(priced, lib);
+  return applyTakeoffRatesToMaterials(expanded, lib);
 }
 
 export function summarisePricedMaterials(lines: Array<{ quantity: number; unitCost: number }>) {

@@ -4,6 +4,8 @@ import { getAccessProfileFromHeaders } from "@/lib/access";
 import {
   applyBlakePipeSizeHints,
   proposeHeatDesignWithBlake,
+} from "@/lib/heat-design/blake-ai";
+import {
   summariseHeatingFittings,
   type HeatDesignBlakeProposal,
 } from "@/lib/heat-design";
