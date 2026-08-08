@@ -52,7 +52,9 @@ import {
 import {
   DEFAULT_STUDIO_PIPE_SPEC_ID,
   STUDIO_PIPE_SPECS,
+  summariseStudioBoq,
   summariseStudioPipeBoq,
+  type StudioBoqRow,
 } from "@/lib/takeoff-studio-pipe";
 import { recordTakeoffLearningClient } from "@/lib/takeoff-learning-client";
 
@@ -100,6 +102,7 @@ export default function TakeoffStudioPage() {
   const [blakeStep, setBlakeStep] = useState<string | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
+  const [boqOpen, setBoqOpen] = useState(false);
   const saveTimer = useRef<number | null>(null);
   const historyRef = useRef<StudioState[]>([]);
   const futureRef = useRef<StudioState[]>([]);
@@ -131,6 +134,11 @@ export default function TakeoffStudioPage() {
     ...studio.classifications.filter((cls) => !presetIds.has(cls.id) && (cls.kind === "linear" || cls.kind === "count")),
   ];
   const quantities = summariseStudioQuantities(studio);
+  const layerBoq = summariseStudioBoq(studio, activeLayerId);
+  const masterBoq = summariseStudioBoq(studio, "all");
+  const boqForPanel = activeLayerId === "all" ? masterBoq : layerBoq;
+  const boqLayerLabel =
+    STUDIO_SERVICE_LAYERS.find((layer) => layer.id === activeLayerId)?.label || "Master / all";
   const linkedQuote = quotes.find((q) => q.id === selected?.linkedQuoteId);
   const aiReviewRows = studio.aiReviewMeasured || [];
   const aiReviewPinCount = aiReviewRows.reduce(
@@ -1185,6 +1193,42 @@ export default function TakeoffStudioPage() {
                 </p>
               </section>
 
+              <section className="nexa-studio-boq-rail">
+                <header>
+                  <h2>Bill of quantities</h2>
+                </header>
+                <p className="muted nexa-studio-hint">
+                  Totals for <strong>{boqLayerLabel}</strong>
+                  {activeLayerId === "all" ? " (master — all layers)" : ""}.
+                  Switch Layers above to see each service BOQ. Push BOQ sends the master total into Core.
+                </p>
+                {boqForPanel.length ? (
+                  <div className="nexa-studio-boq-list" aria-label={`Bill of quantities · ${boqLayerLabel}`}>
+                    {(["Pipework", "Fittings", "Counts", "Areas"] as const).map((section) => {
+                      const rows = boqForPanel.filter((row) => row.section === section);
+                      if (!rows.length) return null;
+                      return (
+                        <div key={section} className="nexa-studio-boq-section">
+                          <strong>{section}</strong>
+                          <ul>
+                            {rows.map((row: StudioBoqRow) => (
+                              <li key={row.id}>
+                                <span>{row.description}</span>
+                                <em>
+                                  {row.quantity} {row.unit}
+                                </em>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="muted">No quantities on this layer yet — finish a Length run (Done run) or Count pins.</p>
+                )}
+              </section>
+
               <section>
                 <header>
                   <h2>Classifications</h2>
@@ -1398,6 +1442,57 @@ export default function TakeoffStudioPage() {
                     </div>
                   );
                 })()}
+              </div>
+              <div className="nexa-studio-boq-sheet">
+                <button
+                  type="button"
+                  className="nexa-studio-boq-toggle"
+                  aria-expanded={boqOpen}
+                  onClick={() => setBoqOpen((open) => !open)}
+                >
+                  <span>Bill of quantities · {boqLayerLabel}</span>
+                  <strong>
+                    {boqForPanel.length
+                      ? `${boqForPanel.length} line${boqForPanel.length === 1 ? "" : "s"}`
+                      : "Empty"}
+                  </strong>
+                </button>
+                {boqOpen ? (
+                  <div className="nexa-studio-boq-panel" aria-label={`Bill of quantities · ${boqLayerLabel}`}>
+                    <p>
+                      {activeLayerId === "all"
+                        ? "Master total across every layer. Pick a Layer in Projects to see Hot & cold / Heating / Waste on their own."
+                        : `Showing ${boqLayerLabel} only. Switch to Master / all for the full takeoff BOQ.`}
+                      {" "}
+                      Page 1/2 under the drawing is the PDF page — not the BOQ.
+                    </p>
+                    {boqForPanel.length ? (
+                      <div className="nexa-studio-boq-list">
+                        {(["Pipework", "Fittings", "Counts", "Areas"] as const).map((section) => {
+                          const rows = boqForPanel.filter((row) => row.section === section);
+                          if (!rows.length) return null;
+                          return (
+                            <div key={section} className="nexa-studio-boq-section">
+                              <strong>{section}</strong>
+                              <ul>
+                                {rows.map((row) => (
+                                  <li key={row.id}>
+                                    <span>{row.description}</span>
+                                    <em>
+                                      {row.quantity} {row.unit}
+                                    </em>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="empty">Nothing on this layer yet — tap Done run after Length, or Count fixtures.</p>
+                    )}
+                  </div>
+                ) : null}
               </div>
               <StudioCanvas
                 projectId={selected.id}

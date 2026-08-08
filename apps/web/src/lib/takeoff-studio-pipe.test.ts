@@ -8,6 +8,7 @@ import {
   elbowPointsAlongRun,
   isRightAngleBend,
   previewFittingsForDraft,
+  summariseStudioBoq,
   summariseStudioPipeBoq,
 } from "./takeoff-studio-pipe";
 
@@ -95,5 +96,11 @@ describe("studio pipe auto fittings", () => {
     assert.ok(boq.some((row) => row.unit === "m" && row.description.includes("22mm Copper")));
     assert.ok(boq.some((row) => row.description.includes("90° elbow")));
     assert.ok(boq.some((row) => row.description.includes("Coupling")));
+
+    const hotCold = summariseStudioBoq(next, "hot-cold");
+    assert.ok(hotCold.some((row) => row.section === "Pipework"));
+    assert.ok(hotCold.every((row) => row.layerId === "hot-cold"));
+    const heatingOnly = summariseStudioBoq(next, "heating");
+    assert.equal(heatingOnly.length, 0);
   });
 });
