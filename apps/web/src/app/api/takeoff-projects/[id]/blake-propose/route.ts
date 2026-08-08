@@ -9,6 +9,7 @@ import {
   type BlakeEmitterMode,
   type BlakePlantKind,
 } from "@/lib/takeoff-blake-propose";
+import { proposeTakeoffPlacementWithAi } from "@/lib/takeoff-blake-propose-ai";
 import { createDefaultStudioState } from "@/lib/takeoff-studio";
 
 export const runtime = "nodejs";
@@ -24,6 +25,11 @@ type ProposeBody = {
   plantPoint?: { x: number; y: number };
   pipeSpecId?: string;
   actor?: string;
+  message?: string;
+  /** Optional page screenshot (data URL) for drawing-aware placement. */
+  pageImageDataUrl?: string;
+  /** Skip OpenAI and use rule stubs only. */
+  rulesOnly?: boolean;
 };
 
 export async function POST(
@@ -42,10 +48,10 @@ export async function POST(
   }
 
   const body = (await parseJsonRequestBody<ProposeBody>(request)) || {};
-  const plantKind: BlakePlantKind = body.plantKind === "ashp" ? "ashp" : "boiler";
-  const emitterMode: BlakeEmitterMode =
+  let plantKind: BlakePlantKind = body.plantKind === "ashp" ? "ashp" : "boiler";
+  let emitterMode: BlakeEmitterMode =
     body.emitterMode === "ufh" || body.emitterMode === "mixed" ? body.emitterMode : "radiators";
-  const includeCylinder = Boolean(body.includeCylinder) || plantKind === "ashp";
+  let includeCylinder = Boolean(body.includeCylinder) || plantKind === "ashp";
 
   const studio = project.studio ?? createDefaultStudioState();
   const drawings = (project.documents || []).filter(
@@ -59,12 +65,48 @@ export async function POST(
   const page = Math.max(1, Number(body.page) || studio.activePage || 1);
   const pageWidth = Math.max(100, Number(body.pageWidth) || 1200);
   const pageHeight = Math.max(100, Number(body.pageHeight) || 850);
-  const plantPoint =
+  let plantPoint =
     body.plantPoint
     && Number.isFinite(body.plantPoint.x)
     && Number.isFinite(body.plantPoint.y)
       ? { x: body.plantPoint.x, y: body.plantPoint.y }
       : undefined;
+
+  let aiNarrative: string | undefined;
+  let aiQuestions: string[] | undefined;
+  let emitterPoints: { x: number; y: number }[] | undefined;
+  let aiUsed = false;
+  let aiConnected = false;
+  let aiError: string | undefined;
+  let aiModel: string | undefined;
+
+  if (!body.rulesOnly) {
+    const placement = await proposeTakeoffPlacementWithAi({
+      plantKind,
+      emitterMode,
+      includeCylinder,
+      pageWidth,
+      pageHeight,
+      plantPoint,
+      projectName: project.name,
+      site: project.site,
+      description: project.description,
+      message: body.message,
+      existingPinCount: (studio.geometries || []).filter((geo) => geo.page === page).length,
+      pageImageDataUrl: body.pageImageDataUrl,
+    });
+    aiUsed = placement.aiUsed;
+    aiConnected = placement.connected;
+    aiError = placement.error;
+    aiModel = placement.model;
+    aiNarrative = placement.narrative || undefined;
+    aiQuestions = placement.questions;
+    plantKind = placement.plantKind;
+    emitterMode = placement.emitterMode;
+    includeCylinder = placement.includeCylinder;
+    if (placement.plantPoint) plantPoint = placement.plantPoint;
+    if (placement.emitterPoints.length) emitterPoints = placement.emitterPoints;
+  }
 
   const result = applyBlakeProposal(studio, {
     plantKind,
@@ -75,8 +117,11 @@ export async function POST(
     pageWidth,
     pageHeight,
     plantPoint,
+    emitterPoints,
     pipeSpecId: body.pipeSpecId || studio.activePipeSpecId,
     replaceExistingProposal: true,
+    aiNarrative,
+    aiQuestions,
   });
 
   const updated = updateTakeoffProject(id, { studio: result.studio });
@@ -91,7 +136,7 @@ export async function POST(
       action: "blake_propose",
       recordType: "takeoff_project",
       recordId: id,
-      summary: `Blake propose · ${plantKind} · ${emitterMode} · ${result.routeCount} route(s)`,
+      summary: `Blake propose${aiUsed ? " (AI)" : " (rules)"} · ${plantKind} · ${emitterMode} · ${result.routeCount} route(s)`,
       source: "takeoff add-on",
       importance: "high",
     });
@@ -106,6 +151,10 @@ export async function POST(
     equipment: result.equipment,
     routeCount: result.routeCount,
     questions: result.questions,
+    aiUsed,
+    connected: aiConnected,
+    model: aiModel,
+    error: aiError,
     actor,
   });
 }

@@ -262,7 +262,14 @@ export default function TakeoffStudioPage() {
       ...project,
       studio: project.studio ?? createDefaultStudioState(),
     })));
-    setSelectedId((current) => current ?? list[0]?.id ?? null);
+    const wantedId =
+      typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("projectId")
+        : null;
+    setSelectedId((current) => {
+      if (wantedId && list.some((project) => project.id === wantedId)) return wantedId;
+      return current ?? list[0]?.id ?? null;
+    });
     if (quoteRes.ok) {
       const quoteList = (await quoteRes.json()) as Array<Record<string, unknown>>;
       setQuotes(
@@ -859,6 +866,8 @@ export default function TakeoffStudioPage() {
         questions?: string[];
         project?: TakeoffProject;
         actor?: string;
+        aiUsed?: boolean;
+        connected?: boolean;
       };
       if (!response.ok || !payload.ok || !payload.project) {
         throw new Error(payload.error || `Propose failed (${response.status}).`);
@@ -872,8 +881,13 @@ export default function TakeoffStudioPage() {
       setProposeOpen(true);
       setBoqOpen(true);
       setReviewOpen(false);
+      const aiTag = payload.aiUsed
+        ? " · live AI"
+        : payload.connected
+          ? " · rule stubs (AI miss)"
+          : " · rule stubs (OpenAI off)";
       show(
-        `${payload.summary || "Blake proposed a layout."}${
+        `${payload.summary || "Blake proposed a layout."}${aiTag}${
           payload.actor && payload.actor !== "Blake" ? ` · ${payload.actor}` : ""
         }`,
         16000,

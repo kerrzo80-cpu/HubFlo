@@ -39,6 +39,7 @@ import {
   type PlaybookId,
   type ScreenId,
 } from "./data";
+import { AiSpineLive } from "./AiSpineLive";
 import "./ai-first.css";
 
 type LeadStatus = "none" | "thinking" | "draft" | "enriching" | "ready";
@@ -543,12 +544,13 @@ export function AiFirstPrototype() {
   return (
     <div className="ai-first-root">
       <div className="ai-first-shell">
+        <AiSpineLive />
         <header className="ai-first-topbar">
           <div className="ai-first-brand">
             <img src="/brand/nexa-command-mark.svg" alt="NeXa" />
             <div className="ai-first-brand-copy">
               <strong>NeXa</strong>
-              <span>AI-first operating system · clickable prototype</span>
+              <span>AI-first · live spine + clickable prototype</span>
             </div>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>

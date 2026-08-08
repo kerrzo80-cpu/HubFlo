@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import { AiFirstPrototype } from "./AiFirstPrototype";
 
 export const metadata: Metadata = {
-  title: "NeXa · AI-First Prototype",
+  title: "NeXa · AI-First",
   description:
-    "Clickable front-end prototype of NeXa’s AI-first workflow — intake to invoice with human approval.",
+    "Live AI spine — Heat Design + Takeoff handoff — plus the clickable intake→invoice prototype.",
 };
 
 export default function AiFirstPage() {

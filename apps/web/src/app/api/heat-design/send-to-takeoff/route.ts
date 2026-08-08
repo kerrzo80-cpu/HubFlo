@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
+import { applyGuidePricesToKit } from "@/lib/ai-guide-prices";
 import { getHeatDesignProject, saveHeatDesignProject } from "@/lib/heat-design-store";
 import {
   applyBlakePipeSizing,
@@ -16,6 +17,7 @@ import { parseJsonRequestBody } from "@/lib/http";
 import { appendAuditEvent } from "@/lib/people-data";
 import { surveyRequestContext } from "@/lib/survey-api";
 import { createTakeoffProject, getTakeoffProject, updateTakeoffProject } from "@/lib/takeoff-data";
+import { applyTakeoffRatesToMaterials } from "@/lib/takeoff-studio-rates";
 
 function blakeAllowancePrefix(takeoffId: string) {
   return `studio-mat-${takeoffId}-blake-`;
@@ -73,7 +75,7 @@ export async function POST(request: Request) {
     const reducers = reducerMaterialAllowances(fittings, takeoffId);
     // Prefer live Blake AI kit when present; else rule ancillaries.
     // Elbows/couplings already land via studio auto fittings on runs.
-    const kitLines =
+    const kitLines = applyGuidePricesToKit(
       project.blakeProposal?.kitLines?.length
         ? project.blakeProposal.kitLines
         : buildBlakeAncillariesKit({
@@ -82,9 +84,12 @@ export async function POST(request: Request) {
             layout: sizedLayout,
             fittings,
             roomCount: project.rooms.length,
-          });
-    const ancillaries = blakeKitMaterialAllowances(kitLines, takeoffId);
-    return [...reducers, ...ancillaries];
+          }),
+    );
+    const ancillaries = applyTakeoffRatesToMaterials(
+      blakeKitMaterialAllowances(kitLines, takeoffId),
+    );
+    return [...applyTakeoffRatesToMaterials(reducers), ...ancillaries];
   };
 
   if (!takeoff) {

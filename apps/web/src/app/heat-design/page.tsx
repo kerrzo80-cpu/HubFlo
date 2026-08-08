@@ -144,6 +144,7 @@ export default function HeatDesignLabPage() {
     const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
     const jobId = params?.get("jobId") || "";
     const quoteId = params?.get("quoteId") || "";
+    const projectId = params?.get("projectId") || "";
 
     function applyIncomingLinks(input: HeatDesignProject) {
       if (!jobId && !quoteId) return input;
@@ -186,8 +187,14 @@ export default function HeatDesignLabPage() {
         const data = await res.json();
         const serverProjects = (Array.isArray(data) ? data : []).map((item) => normaliseProject(item as HeatDesignProject));
         if (serverProjects.length > 0) {
-          const active = serverProjects.find((item) => item.id === cachedProject?.id) ?? serverProjects[0]!;
+          const active =
+            (projectId ? serverProjects.find((item) => item.id === projectId) : undefined)
+            ?? serverProjects.find((item) => item.id === cachedProject?.id)
+            ?? serverProjects[0]!;
           activate(serverProjects, active, "saved");
+          if (projectId && active.id === projectId) {
+            setNotice(`Opened Heat Design from AI spine · ${active.name}`);
+          }
           return;
         }
 

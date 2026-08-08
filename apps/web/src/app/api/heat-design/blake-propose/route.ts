@@ -17,6 +17,7 @@ export const runtime = "nodejs";
 type Body = {
   projectId?: string;
   message?: string;
+  regenerateLayout?: boolean;
   /** Persist proposal + apply sizing onto the project (default true). */
   apply?: boolean;
 };
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
   const { actor } = surveyRequestContext(request);
   const proposal = await proposeHeatDesignWithBlake(project, {
     message: body.message,
+    regenerateLayout: body.regenerateLayout,
   });
 
   const apply = body.apply !== false;
@@ -64,7 +66,7 @@ export async function POST(request: Request) {
       error: proposal.error,
     };
 
-    let heatingLayout = project.heatingLayout;
+    let heatingLayout = proposal.layout || project.heatingLayout;
     if (proposal.applySizing && heatingLayout?.pipes?.length) {
       heatingLayout = applyBlakePipeSizeHints(heatingLayout, proposal.pipeSizes);
       fittings = summariseHeatingFittings(heatingLayout);
@@ -73,27 +75,27 @@ export async function POST(request: Request) {
     nextProject = saveHeatDesignProject({
       ...project,
       blakeProposal,
+      chosenSystemId: proposal.chosenSystemId || project.chosenSystemId,
+      emitterMode: proposal.emitterMode || project.emitterMode,
       heatingLayout: heatingLayout ?? project.heatingLayout,
       updatedAt: new Date().toISOString(),
     });
 
-    appendAuditEvent({
-      actor,
-      action: "heat_design.blake_propose",
-      entityType: "heat_design_project",
-      entityId: project.id,
-      summary: proposal.aiUsed
-        ? `Blake AI proposed kit (${proposal.kitLines.length} lines)${proposal.model ? ` · ${proposal.model}` : ""}`
-        : `Blake rule fallback kit (${proposal.kitLines.length} lines)`,
-      detail: {
-        aiUsed: proposal.aiUsed,
-        connected: proposal.connected,
-        model: proposal.model,
-        error: proposal.error,
-        kitCount: proposal.kitLines.length,
-        questions: proposal.clarifyingQuestions.length,
-      },
-    });
+    try {
+      appendAuditEvent({
+        actor,
+        action: "heat_design.blake_propose",
+        recordType: "heat_design_project",
+        recordId: project.id,
+        summary: proposal.aiUsed
+          ? `Blake AI proposed kit (${proposal.kitLines.length} lines)${proposal.model ? ` · ${proposal.model}` : ""}`
+          : `Blake rule fallback kit (${proposal.kitLines.length} lines)`,
+        source: "heat-design",
+        importance: "high",
+      });
+    } catch {
+      // non-blocking
+    }
   }
 
   return NextResponse.json({
@@ -105,6 +107,7 @@ export async function POST(request: Request) {
     summary: proposal.summary,
     narrative: proposal.narrative,
     applySizing: proposal.applySizing,
+    regenerateLayout: proposal.regenerateLayout,
     kitLines: proposal.kitLines,
     clarifyingQuestions: proposal.clarifyingQuestions,
     routeNotes: proposal.routeNotes,
