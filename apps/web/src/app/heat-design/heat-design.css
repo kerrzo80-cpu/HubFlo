@@ -295,10 +295,10 @@
 .hd-panel {
   background: var(--hd-panel);
   border: 1px solid var(--hd-line);
-  border-radius: 0.85rem;
-  padding: 1rem 1.05rem 1.15rem;
+  border-radius: 1rem;
+  padding: 1.05rem 1.1rem 1.2rem;
   box-shadow: var(--hd-shadow);
-  animation: hd-rise 220ms ease both;
+  animation: hd-rise 280ms var(--hd-ease) both;
 }
 
 .hd-panel.is-plan-panel {
