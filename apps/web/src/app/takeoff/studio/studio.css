@@ -552,6 +552,15 @@
   font-weight: 800;
 }
 
+.nexa-studio-service-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px dashed var(--blue-deep) !important;
+  color: var(--blue-deep) !important;
+  background: #eef7fc !important;
+}
+
 .nexa-studio-create.class input[type="color"] {
   width: 40px;
   min-width: 40px;
