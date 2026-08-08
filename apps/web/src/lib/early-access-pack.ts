@@ -14,6 +14,7 @@ export const EARLY_ACCESS_PACK = {
   supportOwner: "Brian Kerr",
   supportEmail: "brian.kerr@errolwatsongroup.com",
   supportWindow: "Business hours, same working day for blocking issues",
+  mailtoSubject: "NeXa Early Access — accept company production",
   included: [
     "Live ops spine: lead → survey / heat / takeoff → quote → job → invoice",
     "Core office command centre + Field engineer app",
@@ -27,6 +28,20 @@ export const EARLY_ACCESS_PACK = {
     "Public marketplace or white-label reseller programme",
     "simPRO as permanent system of record (optional bridge only)",
     "Guaranteed two-way simPRO reconciliation",
+  ],
+  startSteps: [
+    {
+      title: "Accept the pack",
+      detail: "Confirm early access by email. Scope, support and exit terms stay on this page.",
+    },
+    {
+      title: "Check readiness",
+      detail: "Open Setup → Ops checklist. Workspace, auth, OpenAI and backup should read green.",
+    },
+    {
+      title: "Run live work",
+      detail: "Use Core for the daily path: lead → quote → job → invoice. Plumbing sales stay in Core.",
+    },
   ],
   simproStance:
     "simPRO stays as an optional bridge until NeXa is clearly the system of record. It is not a go-live blocker.",

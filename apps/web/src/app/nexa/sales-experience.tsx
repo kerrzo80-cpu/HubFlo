@@ -339,9 +339,9 @@ export function NexaSalesExperience() {
           <a href="#blake" onClick={() => setMenuOpen(false)}>Blake AI</a>
           <a href="#modules" onClick={() => setMenuOpen(false)}>Modules</a>
           <a href="#demo" onClick={() => setMenuOpen(false)}>Demos</a>
+          <a href="/early-access" onClick={() => setMenuOpen(false)}>Early access</a>
         </nav>
         <div className={styles.headerActions}>
-          <a className={styles.textAction} href="/early-access">Early access</a>
           <a className={styles.textAction} href="/login">Sign in</a>
           <a className={styles.primaryAction} href="/early-access">Company production <ArrowRight size={16} /></a>
         </div>
@@ -351,9 +351,9 @@ export function NexaSalesExperience() {
       </header>
 
       <section className={styles.hero} id="top">
+        <div className={styles.heroAtmosphere} aria-hidden />
         <div className={styles.heroProduct}><ProductShell /></div>
         <div className={styles.heroCopy}>
-          <span className={styles.eyebrow}>AI operating system for service work</span>
           <h1>NeXa</h1>
           <p>Quote, survey, schedule, deliver and invoice from one live command centre — with Blake across the operation.</p>
           <div className={styles.heroActions}>
@@ -363,11 +363,6 @@ export function NexaSalesExperience() {
             <a className={styles.secondaryAction} href="#demo">
               <Play size={16} /> See it move
             </a>
-          </div>
-          <div className={styles.heroProof}>
-            <span><Check size={15} /> Quote to cash</span>
-            <span><Check size={15} /> Office to field</span>
-            <span><Check size={15} /> Human-controlled AI</span>
           </div>
         </div>
       </section>
@@ -460,7 +455,7 @@ export function NexaSalesExperience() {
       <section className={styles.earlyAccessBand} id="early-access">
         <div className={styles.earlyAccessInner}>
           <span className={styles.eyebrow}>Company production</span>
-          <h2>Ready to sell as early access.</h2>
+          <h2>Sell it as early access.</h2>
           <p>
             One named-company offer: live ops spine, Blake AI, backups and a clear ops checklist.
             simPRO stays optional until NeXa is the system of record.
@@ -469,24 +464,10 @@ export function NexaSalesExperience() {
             <a className={styles.primaryAction} href="/early-access">
               View early access pack <ArrowRight size={16} />
             </a>
-            <a className={styles.secondaryAction} href="/login?next=/setup">
-              Open ops checklist
+            <a className={styles.secondaryAction} href="/login">
+              Sign in to Core
             </a>
           </div>
-        </div>
-      </section>
-
-      <section className={styles.ctaBand}>
-        <Image src="/brand/nexa-command-mark.svg" width={58} height={58} alt="" />
-        <h2>Open the workspace.</h2>
-        <p>Sign in to Core when you are ready to run live work in NeXa.</p>
-        <div>
-          <a className={styles.primaryAction} href="/login">
-            Sign in to NeXa <ArrowRight size={16} />
-          </a>
-          <a className={styles.secondaryAction} href="/early-access">
-            Early access terms
-          </a>
         </div>
       </section>
 

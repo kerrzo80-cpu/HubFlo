@@ -164,7 +164,7 @@ export async function GET() {
       restoreFireDrill: "shadow-roundtrip-v1",
       earlyAccessPack: "company-production-v1",
       opsServicesMonitor: "thin-status-v1",
-      salesPagesPolish: "early-access-nexa-v1",
+      salesPagesPolish: "sell-ready-v2",
       renderBuildFix: "no-sqlite-in-client-v1",
       setupIndependent: "integrations-one-panel-v1",
       bootTabsReady: "auth-only-v1",

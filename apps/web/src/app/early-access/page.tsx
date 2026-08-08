@@ -5,6 +5,39 @@ import { EARLY_ACCESS_PACK as pack } from "@/lib/early-access-pack";
 
 import styles from "./early-access.module.css";
 
+const acceptHref = `mailto:${pack.supportEmail}?subject=${encodeURIComponent(pack.mailtoSubject)}`;
+
+function ProductPreview() {
+  return (
+    <div className={styles.productPreview} aria-hidden>
+      <div className={styles.previewTop}>
+        <Image src="/brand/nexa-command-mark.svg" width={22} height={22} alt="" />
+        <span>Core</span>
+        <em>Live</em>
+      </div>
+      <div className={styles.previewBody}>
+        <div className={styles.previewMetric}>
+          <small>Revenue this month</small>
+          <strong>£184,620</strong>
+        </div>
+        <div className={styles.previewMetric}>
+          <small>Ready to invoice</small>
+          <strong>6</strong>
+        </div>
+        <div className={styles.previewFlow}>
+          {["Lead", "Quote", "Job", "Invoice"].map((step) => (
+            <span key={step}>{step}</span>
+          ))}
+        </div>
+        <div className={styles.previewBlake}>
+          <Image src="/brand/blake-poses/blake-guide.png" width={44} height={44} alt="" />
+          <p>Two approved quotes are ready to schedule.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function EarlyAccessPage() {
   return (
     <main className={styles.page}>
@@ -19,7 +52,7 @@ export default function EarlyAccessPage() {
           <a className={styles.secondary} href="/login">
             Sign in
           </a>
-          <a className={styles.primary} href={`mailto:${pack.supportEmail}?subject=NeXa%20Early%20Access`}>
+          <a className={styles.primary} href={acceptHref}>
             Accept early access <ArrowRight size={16} />
           </a>
         </div>
@@ -27,6 +60,9 @@ export default function EarlyAccessPage() {
 
       <section className={styles.hero} aria-label="NeXa early access">
         <div className={styles.heroAtmosphere} aria-hidden />
+        <div className={styles.heroVisual} aria-hidden>
+          <ProductPreview />
+        </div>
         <div className={styles.heroInner}>
           <Image
             className={styles.heroBrand}
@@ -41,11 +77,11 @@ export default function EarlyAccessPage() {
             Paid early access for {pack.buyer} — live ops, Blake AI, and company backups. Not a generic SaaS launch.
           </p>
           <div className={styles.heroActions}>
-            <a className={styles.primary} href={`mailto:${pack.supportEmail}?subject=NeXa%20Early%20Access`}>
+            <a className={styles.primary} href={acceptHref}>
               Accept early access <ArrowRight size={16} />
             </a>
-            <a className={styles.secondary} href="/login?next=/setup">
-              Open ops checklist
+            <a className={styles.secondary} href="#terms">
+              See commercial terms
             </a>
           </div>
         </div>
@@ -83,7 +119,26 @@ export default function EarlyAccessPage() {
         </ul>
       </section>
 
-      <section className={`${styles.section} ${styles.sectionNarrow}`}>
+      <section className={`${styles.section} ${styles.sectionNarrow}`} id="start">
+        <p className={styles.sectionLabel}>How we start</p>
+        <h2>Three steps after you accept.</h2>
+        <p className={styles.sectionIntro}>
+          No second sales stack. Accept the pack, prove readiness, then run live work.
+        </p>
+        <ol className={styles.steps}>
+          {pack.startSteps.map((step, index) => (
+            <li key={step.title}>
+              <span className={styles.stepNum}>{String(index + 1).padStart(2, "0")}</span>
+              <div>
+                <strong>{step.title}</strong>
+                <p>{step.detail}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className={`${styles.section} ${styles.sectionNarrow}`} id="terms">
         <p className={styles.sectionLabel}>Commercial terms</p>
         <h2>Simple company pricing.</h2>
         <div className={styles.termsBlock}>
@@ -93,8 +148,13 @@ export default function EarlyAccessPage() {
               <span>company-wide</span>
             </div>
             <p className={styles.sectionIntro}>{pack.pricingNote}</p>
+            <a className={styles.primary} href={acceptHref}>
+              Accept early access <ArrowRight size={16} />
+            </a>
           </div>
           <dl className={styles.termsMeta}>
+            <dt>Buyer</dt>
+            <dd>{pack.buyer}</dd>
             <dt>Support</dt>
             <dd>
               {pack.supportOwner} · {pack.supportWindow}
@@ -132,11 +192,11 @@ export default function EarlyAccessPage() {
             Accept the pack, then verify readiness in Setup. Plumbing sales stay in Core — service health stays in the ops checklist.
           </p>
           <div className={styles.closeActions}>
-            <a className={styles.primary} href={`mailto:${pack.supportEmail}?subject=NeXa%20Early%20Access%20-%20start`}>
+            <a className={styles.primary} href={acceptHref}>
               Start early access <ArrowRight size={16} />
             </a>
-            <a className={styles.secondary} href="/nexa">
-              Product overview
+            <a className={styles.secondary} href="/login?next=/setup">
+              Open ops checklist
             </a>
           </div>
         </div>
