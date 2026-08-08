@@ -205,8 +205,10 @@ export default function StudioCanvas({
           activeLayer === "all"
           && Boolean(studio.activeClassificationId && geo.classificationId !== studio.activeClassificationId && !selected)
         );
+      // Fresh layer view: hide other layers entirely (master still soft-dims inactive classes).
+      if (offLayer) continue;
       ctx.save();
-      ctx.globalAlpha = offLayer ? 0.08 : dimmed ? 0.22 : 1;
+      ctx.globalAlpha = dimmed ? 0.22 : 1;
       ctx.lineWidth = selected ? 3.5 : 2.2;
       ctx.strokeStyle = colour;
       ctx.fillStyle = colour;

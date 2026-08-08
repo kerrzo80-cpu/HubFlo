@@ -36,6 +36,15 @@ import {
   type StudioClassification,
   type StudioState,
 } from "@/lib/takeoff-studio";
+import {
+  buildStudioMarkedDrawingSvg,
+  buildStudioMarkedSnapshot,
+  layersWithStudioMarks,
+  markedDrawingFileName,
+  renderTakeoffPdfPageDataUrl,
+  studioLayerLabel,
+  type StudioExportLayerId,
+} from "@/lib/takeoff-studio-marked-export";
 import { extractTakeoffPdfInBrowser } from "@/lib/takeoff-pdf-browser";
 
 import TakeoffOverlayReview from "./TakeoffOverlayReview";
@@ -612,6 +621,120 @@ export default function TakeoffStudioPage() {
     }
   }
 
+  async function saveStudioLayerDrawing(
+    layerId: StudioExportLayerId,
+    options: { quiet?: boolean } = {},
+  ): Promise<{ saved: boolean; attached: boolean; empty: boolean }> {
+    if (!selected || !activeDoc) {
+      if (!options.quiet) setError("Open a drawing before saving a marked layer.");
+      return { saved: false, attached: false, empty: true };
+    }
+    const background = await renderTakeoffPdfPageDataUrl(
+      selected.id,
+      activeDoc.id,
+      studio.activePage || 1,
+      1400,
+    );
+    const width = background?.width || 1200;
+    const height = background?.height || 850;
+    const snapshot = buildStudioMarkedSnapshot(studio, layerId, {
+      documentId: activeDoc.id,
+      page: studio.activePage || 1,
+      width,
+      height,
+    });
+    if (!snapshot.geometries.length) {
+      if (!options.quiet) setError(`Nothing on ${studioLayerLabel(layerId)} to save yet.`);
+      return { saved: false, attached: false, empty: true };
+    }
+
+    const svg = buildStudioMarkedDrawingSvg(studio, snapshot, {
+      projectReference: selected.reference,
+      drawingFileName: activeDoc.fileName,
+      backgroundDataUrl: background?.dataUrl,
+    });
+    const fileName = markedDrawingFileName(
+      selected.reference,
+      activeDoc.fileName,
+      snapshot.layerLabel,
+      snapshot.page,
+    );
+    const body = new FormData();
+    body.append("kind", "Marked-up drawing");
+    body.append("files", new Blob([svg], { type: "image/svg+xml" }), fileName);
+    const upload = await apiFetch(`/api/takeoff-projects/${selected.id}/documents`, {
+      method: "POST",
+      body,
+    });
+    if (!upload.ok) {
+      if (!options.quiet) setError("Could not store the marked layer drawing.");
+      return { saved: false, attached: false, empty: false };
+    }
+    const payload = (await upload.json()) as { project?: TakeoffProject; documents?: TakeoffDocument[] };
+    if (payload.project) upsert({ ...payload.project, studio: payload.project.studio ?? studio });
+    const documentId = payload.documents?.[0]?.id;
+    if (!documentId) {
+      if (!options.quiet) setError("Marked drawing saved but document id was missing.");
+      return { saved: true, attached: false, empty: false };
+    }
+
+    if (!selected.linkedQuoteId && !payload.project?.linkedQuoteId) {
+      if (!options.quiet) {
+        show(`${studioLayerLabel(layerId)} saved on the takeoff. Link a quote to put it in Core Documents.`);
+      }
+      return { saved: true, attached: false, empty: false };
+    }
+
+    const attach = await apiFetch(`/api/takeoff-projects/${selected.id}/marked-drawing`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ documentId, actor: authName || "NeXa Takeoff" }),
+    });
+    if (!attach.ok) {
+      if (!options.quiet) {
+        show(`${studioLayerLabel(layerId)} saved on the takeoff. Quote document attach needs a linked quote.`);
+      }
+      return { saved: true, attached: false, empty: false };
+    }
+    if (!options.quiet) {
+      show(`${studioLayerLabel(layerId)} saved into quote Documents. It will show on the job after conversion.`);
+    }
+    return { saved: true, attached: true, empty: false };
+  }
+
+  async function saveAllStudioLayerDrawings(options: { quiet?: boolean } = {}) {
+    if (!selected || !activeDoc) {
+      if (!options.quiet) setError("Open a drawing before saving layers.");
+      return { saved: 0, attached: 0 };
+    }
+    const layerIds = layersWithStudioMarks(studio, {
+      documentId: activeDoc.id,
+      page: studio.activePage || 1,
+    });
+    if (!layerIds.length) {
+      if (!options.quiet) setError("Mark the drawing before saving layer drawings.");
+      return { saved: 0, attached: 0 };
+    }
+    let saved = 0;
+    let attached = 0;
+    for (const layerId of layerIds) {
+      const result = await saveStudioLayerDrawing(layerId, { quiet: true });
+      if (result.saved) saved += 1;
+      if (result.attached) attached += 1;
+    }
+    if (!options.quiet) {
+      show(
+        `Saved ${saved} marked drawing${saved === 1 ? "" : "s"} (master + layers). ${
+          attached
+            ? `${attached} attached to quote Documents — they stay with the job after conversion.`
+            : "Link a Core quote to attach them to Documents."
+        }`,
+        12000,
+      );
+    }
+    return { saved, attached };
+  }
+
   async function pushToCore(options: { allowPendingAiReview?: boolean } = {}) {
     if (!selected) return;
     if (!selected.linkedQuoteId) {
@@ -664,7 +787,16 @@ export default function TakeoffStudioPage() {
       }
       const result = (await push.json()) as { project: TakeoffProject; quote: { id: string; ref: string } };
       upsert(result.project);
-      show(`Pushed into Core quote ${result.quote.ref}`);
+      const drawings = await saveAllStudioLayerDrawings({ quiet: true });
+      show(
+        `Pushed BOQ into quote ${result.quote.ref}`
+        + (drawings.attached
+          ? ` · ${drawings.attached} layer drawing(s) in quote Documents (carry to job on convert).`
+          : drawings.saved
+            ? ` · ${drawings.saved} layer drawing(s) saved on takeoff.`
+            : ""),
+        14000,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Push failed");
     } finally {
@@ -915,8 +1047,37 @@ export default function TakeoffStudioPage() {
                     </button>
                   ))}
                 </div>
+                <div className="nexa-studio-layer-actions">
+                  <button
+                    type="button"
+                    className="ghost"
+                    disabled={busy === "save-layer" || !activeDoc}
+                    onClick={() => {
+                      setBusy("save-layer");
+                      void saveStudioLayerDrawing(activeLayerId)
+                        .finally(() => setBusy(null));
+                    }}
+                  >
+                    {busy === "save-layer" ? <Loader2 className="spin" size={14} /> : null}
+                    Save this layer
+                  </button>
+                  <button
+                    type="button"
+                    className="nexa-studio-primary"
+                    disabled={busy === "save-layers" || !activeDoc}
+                    onClick={() => {
+                      setBusy("save-layers");
+                      void saveAllStudioLayerDrawings()
+                        .finally(() => setBusy(null));
+                    }}
+                  >
+                    {busy === "save-layers" ? <Loader2 className="spin" size={14} /> : null}
+                    Save all layers to quote
+                  </button>
+                </div>
                 <p className="muted nexa-studio-hint">
-                  Work one layer at a time — e.g. Hot &amp; cold, then Heating, then Sanitary &amp; waste. Other layers stay dimmed on the sheet.
+                  Like old markups: <strong>Master / all</strong> shows everything; each service layer is a fresh drawing view.
+                  Save writes a marked SVG into takeoff + linked quote Documents (then onto the job when the quote converts).
                 </p>
               </section>
 
@@ -1000,7 +1161,8 @@ export default function TakeoffStudioPage() {
                   <h2>Core link</h2>
                 </header>
                 <p className="muted nexa-studio-hint">
-                  Marks auto-save on this takeoff project. <strong>Push BOQ</strong> writes quantities into the linked Core <strong>quote</strong> (not the job). Jobs pick it up after the quote is converted.
+                  Marks auto-save here. <strong>Push BOQ</strong> sends quantities plus master/layer marked drawings into the linked quote Documents.
+                  When that quote converts to a job, those drawings stay available on the job.
                 </p>
                 <label>
                   Quote
@@ -1032,7 +1194,7 @@ export default function TakeoffStudioPage() {
                   onClick={() => void pushToCore()}
                 >
                   {busy === "push" ? <Loader2 className="spin" size={14} /> : null}
-                  Push BOQ to quote
+                  Push BOQ + drawings
                 </button>
               </section>
             </>

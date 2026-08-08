@@ -137,7 +137,7 @@ export type StudioState = {
 const COLOURS = ["#1998cf", "#2e8c7d", "#c45c26", "#7a4f9a", "#b43a3a", "#b36a16", "#14618c", "#5b6b7a"];
 
 export const STUDIO_SERVICE_LAYERS: Array<{ id: StudioServiceLayerId | "all"; label: string }> = [
-  { id: "all", label: "All layers" },
+  { id: "all", label: "Master / all" },
   { id: "hot-cold", label: "Hot & cold" },
   { id: "heating", label: "Heating" },
   { id: "sanitary-waste", label: "Sanitary & waste" },

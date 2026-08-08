@@ -477,6 +477,20 @@
   color: #fff;
 }
 
+.nexa-studio-layer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.nexa-studio-layer-actions .ghost,
+.nexa-studio-layer-actions .nexa-studio-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .nexa-studio-service-bar {
   display: flex;
   flex-wrap: wrap;
