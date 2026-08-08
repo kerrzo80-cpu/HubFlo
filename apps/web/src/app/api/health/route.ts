@@ -146,6 +146,7 @@ export async function GET() {
       takeoffAiConfirm: "overlay-review-v1",
       takeoffBlakePipeRuns: "vector-stroke-v1",
       takeoffBlakeLearn: "habits-v1",
+      takeoffEleven: "sprint-1",
       recurringServices: "upcoming-4w-v1",
       recurringGenerate: "server-v1",
       poStockReceive: "idempotent-v1",

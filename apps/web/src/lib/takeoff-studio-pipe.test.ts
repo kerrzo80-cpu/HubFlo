@@ -103,4 +103,30 @@ describe("studio pipe auto fittings", () => {
     const heatingOnly = summariseStudioBoq(next, "heating");
     assert.equal(heatingOnly.length, 0);
   });
+
+  it("keeps unsized/unscaled runs visible in the BOQ", () => {
+    let studio = createDefaultStudioState();
+    studio = {
+      ...studio,
+      geometries: [
+        {
+          id: "run-unscaled",
+          classificationId: "cls-ai-P-PIPE-C",
+          kind: "linear",
+          documentId: "doc-1",
+          page: 1,
+          points: [
+            { x: 0, y: 0 },
+            { x: 40, y: 0 },
+          ],
+          material: "Copper",
+          diameter: "15mm",
+        },
+      ],
+    };
+    const boq = summariseStudioBoq(studio, "hot-cold");
+    assert.equal(boq.length, 1);
+    assert.equal(boq[0]?.unit, "run");
+    assert.match(boq[0]?.description || "", /set scale/i);
+  });
 });

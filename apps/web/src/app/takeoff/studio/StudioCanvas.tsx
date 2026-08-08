@@ -44,6 +44,12 @@ type Props = {
   onRedo?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
+  onLinearFinished?: (summary: {
+    metres: number | null;
+    elbows: number;
+    couplings: number;
+    label: string;
+  }) => void;
 };
 
 function dist(a: StudioPoint, b: StudioPoint) {
@@ -61,6 +67,7 @@ export default function StudioCanvas({
   onRedo,
   canUndo,
   canRedo,
+  onLinearFinished,
 }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -745,6 +752,18 @@ export default function StudioCanvas({
     const next = appendLinearWithAutoFittings(studio, geo);
     onChange(next);
     setSelectedId(geo.id);
+    const preview = previewFittingsForDraft(points, {
+      metresPerUnit: scaleForPage(studio, document.id, page)?.metresPerUnit,
+      stockLengthM: spec.stockLengthM,
+      autoElbows: spec.autoElbows,
+      autoCouplings: spec.autoCouplings,
+    });
+    onLinearFinished?.({
+      metres: preview.metres,
+      elbows: preview.elbows,
+      couplings: preview.couplings,
+      label: `${activeClass.name} · ${spec.diameter} ${spec.material}`,
+    });
     recordTakeoffLearningClient({
       type: "manual_linear",
       projectId,

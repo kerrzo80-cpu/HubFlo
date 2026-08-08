@@ -42,6 +42,10 @@ import {
   applyLearningToMeasuredRows,
   takeoffLearningPreferences,
 } from "@/lib/takeoff-learning-store";
+import {
+  appendLinearWithAutoFittings,
+  pipeSpecById,
+} from "@/lib/takeoff-studio-pipe";
 import { POST as skillPost } from "../skill/route";
 
 export const runtime = "nodejs";
@@ -288,21 +292,21 @@ function emptyMessage(
   strokeInfo?: { colouredStrokeCount: number; runCount: number },
 ) {
   if (strokeInfo && strokeInfo.colouredStrokeCount > 0 && strokeInfo.runCount === 0) {
-    return "Blake saw coloured lines but they look like boxes/grid rather than pipe runs. Set scale, pick Hot/Cold pipe, and use Length to trace the run.";
+    return "Blake saw colour on the sheet but couldn’t lock clean pipe runs yet. Next: Set scale → Draw as Cold/Hot → Length along the run (elbows/couplings auto).";
   }
   if (diagnostics.docsRead === 0 && diagnostics.docsMissing > 0 && diagnostics.docsExtractFailed === 0) {
-    return "Blake found the drawing on the project, but the PDF file is missing from disk. Re-upload the PDF (files can drop after a host restart), then ask Blake again.";
+    return "The PDF file is missing from disk (host restart can drop files). Re-upload the drawing, keep it open until it loads, then Ask Blake again.";
   }
   if (diagnostics.docsRead === 0 && diagnostics.docsExtractFailed > 0) {
-    return "Blake opened the sheet but could not auto-measure pipe vectors on it yet. Tap a Draw as colour (Cold/Hot/Heating), then Length — or Ask Blake again after the drawing has fully loaded.";
+    return "Blake couldn’t read vectors on this pass. Keep the sheet open until it finishes loading, Ask Blake again — or Draw as Cold/Hot and Length.";
   }
   if (diagnostics.docsRead === 0) {
-    return "Blake could not open any drawing PDFs. Keep the sheet open until it finishes loading, tap Ask Blake again, or re-upload the PDF.";
+    return "Keep the drawing open until it finishes loading, then Ask Blake again. If it still won’t open, re-upload the PDF.";
   }
   if (!diagnostics.hasSelectableText || diagnostics.textItemCount < 8) {
-    return "This PDF looks scanned or image-only (no text layer and no coloured vector pipe strokes Blake can measure). Tap Draw as → Cold/Hot/Heating, set scale, then Length — or Count for fixtures.";
+    return "Scanned / image PDF — Blake can’t auto-read text or vectors here. Set scale → Draw as Cold/Hot/Heating → Length (or Count for fixtures). Your marks still build the BOQ.";
   }
-  return `Blake read ${diagnostics.textItemCount} text item(s) but found no fixture tags (WC/WHB/RAD) and no coloured vector pipe runs. Tap Draw as to pick Cold/Hot/Heating, then Length — or Count for fixtures.`;
+  return `Blake read the sheet (${diagnostics.textItemCount} text items) but found no WC/WHB/RAD tags or coloured pipe vectors. Set scale → Draw as → Length, or Count fixtures — BOQ updates as you mark.`;
 }
 
 async function serverExtractPipeRuns(project: TakeoffProject) {
@@ -639,6 +643,11 @@ export async function POST(
       { replaceExistingAi: true, aiReviewStatus: pinCount > 0 ? "pending" : undefined },
     );
 
+    const preferredPipeSpec = pipeSpecById(
+      baseStudio.activePipeSpecId || learning.defaultPipeSpecId || nextStudio.activePipeSpecId,
+    );
+    const wastePipeSpec = pipeSpecById("waste-40");
+
     if (pipeExtract.runs.length) {
       nextStudio = importPipeRunsIntoStudio(
         nextStudio,
@@ -650,8 +659,20 @@ export async function POST(
           pageHeight: run.pageHeight,
           colourHex: run.colourHex,
         })),
-        { replaceExistingAiPipes: true, aiReviewStatus: "pending", renderScale: 1.35 },
+        {
+          replaceExistingAiPipes: true,
+          aiReviewStatus: "pending",
+          renderScale: 1.35,
+          pipeSpec: preferredPipeSpec,
+          wastePipeSpec,
+        },
       );
+      // Size + auto elbows/couplings so Blake runs land in the BOQ like manual Length.
+      for (const geo of [...nextStudio.geometries]) {
+        if (geo.kind !== "linear" || !geo.id.startsWith("ai-pipe-")) continue;
+        if (!geo.material || !geo.diameter) continue;
+        nextStudio = appendLinearWithAutoFittings(nextStudio, geo);
+      }
       measured = mergePipeMeasuredRows(measured, nextStudio);
     }
 
@@ -668,8 +689,8 @@ export async function POST(
     if (!nextStudio.activeDocumentId) {
       nextStudio.activeDocumentId = drawings[0]?.id || baseStudio.activeDocumentId;
     }
-    if (!baseStudio.activePipeSpecId && learning.defaultPipeSpecId) {
-      nextStudio.activePipeSpecId = learning.defaultPipeSpecId;
+    if (!nextStudio.activePipeSpecId) {
+      nextStudio.activePipeSpecId = preferredPipeSpec.id;
     }
     nextStudio.tool = "select";
     nextStudio.updatedAt = new Date().toISOString();

@@ -308,13 +308,18 @@ export function summariseStudioBoq(
 
     if (geo.kind === "linear") {
       const metres = polylineLength(geo.points) * mpu;
-      if (!(metres > 0)) continue;
       const sized = Boolean(geo.material || geo.diameter);
-      const description = sized
+      const baseDescription = sized
         ? `${geo.diameter || ""} ${geo.material || "Pipe"} · ${cls?.name || "Pipe run"}`.replace(/\s+/g, " ").trim()
         : (cls?.name || "Pipe run");
-      const key = `pipe|${layerId}|${geo.material || ""}|${geo.diameter || ""}|${cls?.id || "run"}`;
-      bump(key, layerId, "Pipework", description, metres, "m");
+      if (metres > 0) {
+        const key = `pipe|${layerId}|${geo.material || ""}|${geo.diameter || ""}|${cls?.id || "run"}`;
+        bump(key, layerId, "Pipework", baseDescription, metres, "m");
+      } else {
+        // Keep Done-run / Blake pipes visible before scale is set.
+        const key = `pipe-unscaled|${layerId}|${geo.material || ""}|${geo.diameter || ""}|${cls?.id || "run"}`;
+        bump(key, layerId, "Pipework", `${baseDescription} · set scale for m`, 1, "run");
+      }
       continue;
     }
 
