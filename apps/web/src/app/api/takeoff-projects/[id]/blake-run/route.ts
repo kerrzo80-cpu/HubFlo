@@ -20,7 +20,13 @@ import {
   summariseStrokeRunsByRole,
   type PdfStrokeRun,
 } from "@/lib/takeoff-pdf-strokes";
-import { buildAssembliesForScope, focusOptionsForTrade, type TakeoffTradeId } from "@/lib/takeoff-skill";
+import {
+  buildAssembliesForScope,
+  focusOptionsForTrade,
+  type TakeoffConfidence,
+  type TakeoffMeasureMethod,
+  type TakeoffTradeId,
+} from "@/lib/takeoff-skill";
 import {
   applyScaleHintsToStudio,
   createDefaultStudioState,
@@ -41,8 +47,8 @@ type MeasuredRow = {
   description: string;
   unit: string;
   quantity?: number;
-  method?: string;
-  confidence?: string;
+  method?: TakeoffMeasureMethod;
+  confidence?: TakeoffConfidence;
   notes?: string;
   tagMatches?: Array<{
     id: string;
