@@ -2107,6 +2107,67 @@
   font-size: 0.9rem;
 }
 
+.hd-blake-route-panel {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0.85rem 0 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--hd-line);
+  border-radius: 0.9rem;
+  background: linear-gradient(180deg, #f7fbfc 0%, #eef5f8 100%);
+}
+
+.hd-blake-route-panel > header {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.hd-blake-route-panel > header strong {
+  color: var(--hd-accent-deep);
+  font-size: 0.95rem;
+}
+
+.hd-blake-route-panel > header span {
+  color: var(--hd-muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.hd-blake-route-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.hd-blake-fit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.hd-blake-fit-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--hd-line);
+  border-radius: 0.55rem;
+  background: #fff;
+  font-size: 0.85rem;
+}
+
+.hd-blake-fit-list strong {
+  color: var(--hd-accent-deep);
+}
+
+.hd-blake-fit-list span {
+  color: var(--hd-muted);
+  font-weight: 600;
+  text-align: right;
+}
+
 .hd-link-target-toggle {
   display: inline-flex;
   gap: 0.35rem;

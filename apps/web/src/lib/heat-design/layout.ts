@@ -178,18 +178,51 @@ function makePlant(
   };
 }
 
+export type HeatingPipeSizeTier = {
+  diameterMm: 15 | 22 | 28;
+  pipeSpecId: string;
+  material: string;
+};
+
+/** Blake size policy: mains 28 · branches 22 · rad/UFH tails 15. */
+export function sizeTierForPipe(kind: HeatingPipeKind, label: string): HeatingPipeSizeTier {
+  const text = `${kind} ${label}`.toLowerCase();
+  if (kind === "primary" || kind === "refrigerant") {
+    return { diameterMm: 28, pipeSpecId: "cu-28", material: "Copper" };
+  }
+  if (kind === "gas" || kind === "oil") {
+    return { diameterMm: 22, pipeSpecId: "cu-22", material: "Copper" };
+  }
+  if (kind === "dhw") {
+    return { diameterMm: 22, pipeSpecId: "cu-22", material: "Copper" };
+  }
+  // Flow/return: tails to emitters are 15; anything labelled branch/spine/main steps up.
+  if (/\b(main|spine|branch|riser)\b/.test(text)) {
+    return { diameterMm: 22, pipeSpecId: "cu-22", material: "Copper" };
+  }
+  if (kind === "flow" || kind === "return") {
+    return { diameterMm: 15, pipeSpecId: "cu-15", material: "Copper" };
+  }
+  return { diameterMm: 22, pipeSpecId: "cu-22", material: "Copper" };
+}
+
 function makePipe(
   kind: HeatingPipeKind,
   label: string,
   points: PlanPoint[],
   floorLevel: FloorLevel,
+  size?: HeatingPipeSizeTier,
 ): HeatingPipeRun {
+  const tier = size || sizeTierForPipe(kind, label);
   return {
     id: uid(`pipe-${kind}`),
     kind,
     label,
     points: points.map((p) => ({ x: p.x, y: p.y })),
     floorLevel,
+    diameterMm: tier.diameterMm,
+    pipeSpecId: tier.pipeSpecId,
+    material: tier.material,
   };
 }
 
@@ -495,24 +528,31 @@ export function seedHeatingLayout(
   };
 }
 
-export function pipeStroke(kind: HeatingPipeKind): { stroke: string; dash?: string; width: number } {
-  switch (kind) {
-    case "flow":
-      return { stroke: "#dc2626", width: 3.2 };
-    case "return":
-      return { stroke: "#2563eb", width: 3.2 };
-    case "refrigerant":
-      return { stroke: "#7c3aed", width: 4, dash: "8 4" };
-    case "gas":
-      return { stroke: "#ca8a04", width: 3.5, dash: "5 4" };
-    case "oil":
-      return { stroke: "#92400e", width: 3.5, dash: "6 3" };
-    case "dhw":
-      return { stroke: "#0891b2", width: 3 };
-    case "primary":
-    default:
-      return { stroke: "#157fa8", width: 3.5 };
-  }
+export function pipeStroke(
+  kind: HeatingPipeKind,
+  diameterMm?: number,
+): { stroke: string; dash?: string; width: number } {
+  const sizeBoost = diameterMm === 28 ? 1.35 : diameterMm === 22 ? 1.1 : diameterMm === 15 ? 0.85 : 1;
+  const base = (() => {
+    switch (kind) {
+      case "flow":
+        return { stroke: "#dc2626", width: 3.2 };
+      case "return":
+        return { stroke: "#2563eb", width: 3.2 };
+      case "refrigerant":
+        return { stroke: "#7c3aed", width: 4, dash: "8 4" };
+      case "gas":
+        return { stroke: "#ca8a04", width: 3.5, dash: "5 4" };
+      case "oil":
+        return { stroke: "#92400e", width: 3.5, dash: "6 3" };
+      case "dhw":
+        return { stroke: "#0891b2", width: 3 };
+      case "primary":
+      default:
+        return { stroke: "#157fa8", width: 3.5 };
+    }
+  })();
+  return { ...base, width: Number((base.width * sizeBoost).toFixed(2)) };
 }
 
 export function plantFill(kind: HeatingPlantKind): string {

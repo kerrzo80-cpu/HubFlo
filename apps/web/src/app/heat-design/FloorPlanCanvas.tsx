@@ -1220,11 +1220,12 @@ export function FloorPlanCanvas({
 
           {showLayout
             ? floorPipes.map((pipe) => {
-                const style = pipeStroke(pipe.kind);
+                const style = pipeStroke(pipe.kind, pipe.diameterMm);
                 const active = pipe.id === selectedPipeId;
                 const pointsAttr = pipe.points
                   .map((p) => `${px(p.x)},${py(p.y)}`)
                   .join(" ");
+                const mid = pipe.points[Math.floor(pipe.points.length / 2)];
                 return (
                   <g
                     key={pipe.id}
@@ -1253,6 +1254,19 @@ export function FloorPlanCanvas({
                         setDrag({ mode: "pipe-move", pipeId: pipe.id, origin: pipe.points, grab });
                       }}
                     />
+                    {mid && pipe.diameterMm ? (
+                      <text
+                        x={px(mid.x)}
+                        y={py(mid.y) - 6}
+                        textAnchor="middle"
+                        fontSize={11}
+                        fontWeight={700}
+                        fill={style.stroke}
+                        style={{ pointerEvents: "none" }}
+                      >
+                        {pipe.diameterMm}
+                      </text>
+                    ) : null}
                     {layoutMode
                       ? pipe.points.map((p, index) => (
                           <circle
