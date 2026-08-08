@@ -2,6 +2,7 @@
 
 import {
   ArrowRight,
+  BarChart3,
   Bot,
   Flame,
   CalendarDays,
