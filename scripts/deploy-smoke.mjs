@@ -107,6 +107,19 @@ function assertHealth(json) {
   if (json?.deployment?.coreRoutes !== "url-modules-v1") {
     throw new Error(`/api/health coreRoutes=${json?.deployment?.coreRoutes}, expected url-modules-v1`);
   }
+  // Optional: when CI sets NEXA_SMOKE_EXPECT_COMMIT (full SHA or prefix), fail if
+  // Render is still serving an older deploy (stale instance after failed build).
+  const expectCommit = (process.env.NEXA_SMOKE_EXPECT_COMMIT || "").trim().toLowerCase();
+  if (expectCommit) {
+    const live = String(json.deployment.commit || "").toLowerCase();
+    if (!live.startsWith(expectCommit) && !expectCommit.startsWith(live)) {
+      const err = new Error(
+        `/api/health commit=${live.slice(0, 12)} stale; expected ${expectCommit.slice(0, 12)} (Render build likely failed)`,
+      );
+      err.transient = true;
+      throw err;
+    }
+  }
 }
 
 async function runOnce() {

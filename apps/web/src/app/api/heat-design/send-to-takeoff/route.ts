@@ -86,10 +86,12 @@ export async function POST(request: Request) {
             roomCount: project.rooms.length,
           }),
     );
+    const rates = getTakeoffRateLibrary();
     const ancillaries = applyTakeoffRatesToMaterials(
       blakeKitMaterialAllowances(kitLines, takeoffId),
+      rates,
     );
-    return [...applyTakeoffRatesToMaterials(reducers), ...ancillaries];
+    return [...applyTakeoffRatesToMaterials(reducers, rates), ...ancillaries];
   };
 
   if (!takeoff) {

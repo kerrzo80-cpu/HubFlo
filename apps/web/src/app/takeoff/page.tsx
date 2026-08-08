@@ -72,7 +72,7 @@ import {
   priceAndExpandTakeoffMaterials,
   summarisePricedMaterials,
 } from "@/lib/takeoff-studio-rates";
-import type { TakeoffAssemblyKit, TakeoffRateEntry, TakeoffRateLibrary } from "@/lib/takeoff-rate-library";
+import type { TakeoffAssemblyKit, TakeoffRateEntry, TakeoffRateLibrary } from "@/lib/takeoff-rate-core";
 import type { AuditEvent } from "@/lib/people-seed-data";
 
 import TakeoffOverlayReview from "./TakeoffOverlayReview";
@@ -199,6 +199,7 @@ export default function TakeoffStudioPage() {
       markupPercent: 0,
       supplierRequired: false,
     })),
+    rateLibrary,
   );
   const boqMaterialCost = summarisePricedMaterials(pricedBoqForPanel).materialCost;
   const boqLayerLabel =

@@ -1,4 +1,4 @@
-import { applyTaggedGuidePrices } from "@/lib/blake-budget-prices";
+import { applySoftGuidePricesToKit } from "@/lib/ai-soft-guide-prices";
 
 import {
   buildKitLines,
@@ -305,7 +305,9 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
     emitterMode,
     designLoadKw,
   });
-  const blakeKit = applyTaggedGuidePrices(
+  // Soft guides only here — full rate-library / OpenAI budget pricing is server-side
+  // (blake-budget-prices). Do not import SQLite-backed modules into this client path.
+  const blakeKit = applySoftGuidePricesToKit(
     project.blakeProposal?.kitLines?.length
       ? project.blakeProposal.kitLines
       : buildBlakeAncillariesKit({
