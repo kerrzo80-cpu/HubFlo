@@ -2168,6 +2168,115 @@
   text-align: right;
 }
 
+.hd-blake-ask-label {
+  display: block;
+  margin: 0;
+}
+
+.hd-blake-ask-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 3.2rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--hd-line);
+  border-radius: 0.65rem;
+  background: #fff;
+  color: var(--hd-ink, #14202a);
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.hd-blake-ask-input:focus {
+  outline: 2px solid color-mix(in srgb, var(--hd-accent-deep) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.hd-blake-ai-output {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid var(--hd-line);
+  border-radius: 0.7rem;
+  background: #fff;
+}
+
+.hd-blake-ai-badge {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--hd-accent-deep);
+}
+
+.hd-blake-ai-summary {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--hd-ink, #14202a);
+}
+
+.hd-blake-ai-narrative {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--hd-muted);
+}
+
+.hd-blake-ai-notes {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--hd-muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.hd-blake-ai-questions {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.hd-blake-ai-questions > strong {
+  font-size: 0.8rem;
+  color: var(--hd-accent-deep);
+}
+
+.hd-blake-ai-questions ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.hd-blake-ai-questions li {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.hd-blake-q-btn {
+  text-align: left;
+  border: 1px solid var(--hd-line);
+  border-radius: 0.55rem;
+  background: #f7fbfc;
+  padding: 0.45rem 0.55rem;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--hd-ink, #14202a);
+  cursor: pointer;
+}
+
+.hd-blake-q-btn:hover {
+  border-color: var(--hd-accent-deep);
+}
+
+.hd-blake-ai-questions small {
+  color: var(--hd-muted);
+  font-size: 0.78rem;
+  padding-left: 0.15rem;
+}
+
 .hd-link-target-toggle {
   display: inline-flex;
   gap: 0.35rem;

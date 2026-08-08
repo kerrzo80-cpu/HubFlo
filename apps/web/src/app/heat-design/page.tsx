@@ -120,6 +120,8 @@ export default function HeatDesignLabPage() {
   const [pendingPrint, setPendingPrint] = useState(false);
   const [layoutMode, setLayoutMode] = useState(false);
   const [takeoffBusy, setTakeoffBusy] = useState(false);
+  const [blakeBusy, setBlakeBusy] = useState(false);
+  const [blakeMessage, setBlakeMessage] = useState("");
   const [fittingsSummary, setFittingsSummary] = useState<HeatingFittingsSummary | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkTarget, setLinkTarget] = useState<LinkTarget>("job");
@@ -708,8 +710,63 @@ export default function HeatDesignLabPage() {
     setFittingsSummary(summary);
     setLayoutMode(true);
     setNotice(
-      `Blake sized routes · ${summary.totalMetres} m · ${summary.totalElbows} elbows · ${summary.totalCouplings} couplings · ${summary.totalReducers} reducers (28→22→15).`,
+      `Rule size · ${summary.totalMetres} m · ${summary.totalElbows} elbows · ${summary.totalCouplings} couplings · ${summary.totalReducers} reducers (28→22→15). Prefer Ask Blake for live AI.`,
     );
+  }
+
+  async function askBlakeLive() {
+    if (!project?.id) return;
+    if (!project.chosenSystemId && !project.heatingLayout?.pipes?.length) {
+      setNotice("Pick a system or design on plan first, then Ask Blake.");
+      return;
+    }
+    setBlakeBusy(true);
+    try {
+      const res = await fetch("/api/heat-design/blake-propose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: project.id,
+          message: blakeMessage.trim() || undefined,
+          apply: true,
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        aiUsed?: boolean;
+        connected?: boolean;
+        summary?: string;
+        narrative?: string;
+        fittings?: HeatingFittingsSummary;
+        project?: HeatDesignProject;
+        clarifyingQuestions?: Array<{ key: string; question: string; why: string }>;
+      };
+      if (!res.ok || !body.ok) {
+        throw new Error(body.error || `Ask Blake failed (${res.status})`);
+      }
+      if (body.project) {
+        patchProject({
+          blakeProposal: body.project.blakeProposal,
+          heatingLayout: body.project.heatingLayout ?? project.heatingLayout,
+        });
+      }
+      if (body.fittings) setFittingsSummary(body.fittings);
+      setLayoutMode(true);
+      const qCount = body.clarifyingQuestions?.length || 0;
+      setNotice(
+        body.aiUsed
+          ? `Blake (live AI)${qCount ? ` · ${qCount} question${qCount === 1 ? "" : "s"}` : ""} — ${body.summary || "proposal ready."}`
+          : body.connected
+            ? `Blake fell back to rules — ${body.summary || "OpenAI could not finish."}`
+            : `OpenAI not connected — rule kit applied. Set OPENAI_API_KEY on Render for live Blake.`,
+      );
+      setBlakeMessage("");
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Ask Blake could not reply.");
+    } finally {
+      setBlakeBusy(false);
+    }
   }
 
   async function sendLayoutToTakeoff(options: { createNew?: boolean } = {}) {
@@ -1068,68 +1125,133 @@ export default function HeatDesignLabPage() {
                     setNotice("Surveyed plan locked in — pick a system and design flow temperature next.");
                   }}
                 />
-                {project.heatingLayout?.pipes?.length ? (
-                  <div className="hd-blake-route-panel" aria-label="Blake route planner">
-                    <header>
-                      <strong>Blake route planner</strong>
-                      <span>
-                        Size mains 28 · branches 22 · tails 15, count elbows / couplings / reducers, plus valves,
-                        TRVs, drains, clips and system bits — then Send to Takeoff for the full BOQ.
-                      </span>
-                    </header>
-                    <div className="hd-blake-route-actions">
-                      <button type="button" className="hd-btn hd-btn-primary" onClick={blakeSizeRoutes}>
-                        Blake size routes
-                      </button>
+                <div className="hd-blake-route-panel" aria-label="Ask Blake heat design">
+                  <header>
+                    <strong>Ask Blake</strong>
+                    <span>
+                      Live OpenAI proposes pipe sizes, valves, TRVs, drains, clips and plant bits from this design —
+                      then Send to Takeoff for the BOQ. Rules only kick in if OpenAI is offline.
+                    </span>
+                  </header>
+                  <label className="hd-blake-ask-label">
+                    <span className="sr-only">Message for Blake</span>
+                    <textarea
+                      className="hd-blake-ask-input"
+                      rows={2}
+                      value={blakeMessage}
+                      onChange={(event) => setBlakeMessage(event.target.value)}
+                      placeholder="Optional — e.g. existing TRVs stay, cylinder in airing cupboard, UFH in kitchen only…"
+                      disabled={blakeBusy}
+                    />
+                  </label>
+                  <div className="hd-blake-route-actions">
+                    <button
+                      type="button"
+                      className="hd-btn hd-btn-primary"
+                      disabled={blakeBusy}
+                      onClick={() => void askBlakeLive()}
+                    >
+                      {blakeBusy ? "Blake thinking…" : "Ask Blake"}
+                    </button>
+                    <button
+                      type="button"
+                      className="hd-btn"
+                      disabled={takeoffBusy || !project.heatingLayout?.pipes?.length}
+                      onClick={() => void sendLayoutToTakeoff()}
+                    >
+                      {takeoffBusy ? "Sending…" : project.linkedTakeoffRef ? "Update Takeoff" : "Send to Takeoff"}
+                    </button>
+                    <button
+                      type="button"
+                      className="hd-btn hd-btn-ghost"
+                      disabled={!project.heatingLayout?.pipes?.length || blakeBusy}
+                      onClick={blakeSizeRoutes}
+                      title="Local rule tiers only — prefer Ask Blake"
+                    >
+                      Size only (rules)
+                    </button>
+                    {project.linkedTakeoffRef ? (
                       <button
                         type="button"
-                        className="hd-btn"
+                        className="hd-btn hd-btn-ghost"
                         disabled={takeoffBusy}
-                        onClick={() => void sendLayoutToTakeoff()}
+                        onClick={() => void sendLayoutToTakeoff({ createNew: true })}
                       >
-                        {takeoffBusy ? "Sending…" : project.linkedTakeoffRef ? "Update Takeoff" : "Send to Takeoff"}
+                        New takeoff
                       </button>
-                      {project.linkedTakeoffRef ? (
-                        <button
-                          type="button"
-                          className="hd-btn hd-btn-ghost"
-                          disabled={takeoffBusy}
-                          onClick={() => void sendLayoutToTakeoff({ createNew: true })}
-                        >
-                          New takeoff
-                        </button>
+                    ) : null}
+                  </div>
+                  {project.blakeProposal ? (
+                    <div className="hd-blake-ai-output">
+                      <p className="hd-blake-ai-badge">
+                        {project.blakeProposal.aiUsed
+                          ? `Live AI${project.blakeProposal.model ? ` · ${project.blakeProposal.model}` : ""}`
+                          : project.blakeProposal.connected
+                            ? "Rule fallback (OpenAI error)"
+                            : "Rule fallback (OpenAI not connected)"}
+                      </p>
+                      <p className="hd-blake-ai-summary">{project.blakeProposal.summary}</p>
+                      {project.blakeProposal.narrative ? (
+                        <p className="hd-blake-ai-narrative">{project.blakeProposal.narrative}</p>
+                      ) : null}
+                      {project.blakeProposal.routeNotes?.length ? (
+                        <ul className="hd-blake-ai-notes">
+                          {project.blakeProposal.routeNotes.map((note) => (
+                            <li key={note}>{note}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      {project.blakeProposal.clarifyingQuestions?.length ? (
+                        <div className="hd-blake-ai-questions">
+                          <strong>Blake still needs</strong>
+                          <ul>
+                            {project.blakeProposal.clarifyingQuestions.map((q) => (
+                              <li key={q.key}>
+                                <button
+                                  type="button"
+                                  className="hd-blake-q-btn"
+                                  onClick={() => setBlakeMessage(q.question)}
+                                >
+                                  {q.question}
+                                </button>
+                                {q.why ? <small>{q.why}</small> : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                       ) : null}
                     </div>
-                    {project.linkedTakeoffRef ? (
-                      <p className="hd-lead" style={{ margin: 0 }}>
-                        Linked takeoff <strong>{project.linkedTakeoffRef}</strong>
-                      </p>
-                    ) : null}
-                    {(fittingsSummary || project.heatingLayout.pipes.some((p) => p.diameterMm)) && (
-                      <ul className="hd-blake-fit-list">
-                        {(fittingsSummary || summariseHeatingFittings(project.heatingLayout)).bySize.map((row) => (
-                          <li key={row.diameterMm}>
-                            <strong>{row.diameterMm} mm</strong>
-                            <span>
-                              {row.metres} m · {row.elbows} elbow{row.elbows === 1 ? "" : "s"} · {row.couplings}{" "}
-                              coupling{row.couplings === 1 ? "" : "s"}
-                            </span>
-                          </li>
-                        ))}
-                        {(fittingsSummary || summariseHeatingFittings(project.heatingLayout)).reducers.map((row) => (
-                          <li key={`${row.fromMm}-${row.toMm}`}>
-                            <strong>
-                              {row.fromMm}→{row.toMm}
-                            </strong>
-                            <span>
-                              {row.count} reducer{row.count === 1 ? "" : "s"}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                ) : null}
+                  ) : null}
+                  {project.linkedTakeoffRef ? (
+                    <p className="hd-lead" style={{ margin: 0 }}>
+                      Linked takeoff <strong>{project.linkedTakeoffRef}</strong>
+                    </p>
+                  ) : null}
+                  {project.heatingLayout?.pipes?.length &&
+                  (fittingsSummary || project.heatingLayout.pipes.some((p) => p.diameterMm)) ? (
+                    <ul className="hd-blake-fit-list">
+                      {(fittingsSummary || summariseHeatingFittings(project.heatingLayout)).bySize.map((row) => (
+                        <li key={row.diameterMm}>
+                          <strong>{row.diameterMm} mm</strong>
+                          <span>
+                            {row.metres} m · {row.elbows} elbow{row.elbows === 1 ? "" : "s"} · {row.couplings}{" "}
+                            coupling{row.couplings === 1 ? "" : "s"}
+                          </span>
+                        </li>
+                      ))}
+                      {(fittingsSummary || summariseHeatingFittings(project.heatingLayout)).reducers.map((row) => (
+                        <li key={`${row.fromMm}-${row.toMm}`}>
+                          <strong>
+                            {row.fromMm}→{row.toMm}
+                          </strong>
+                          <span>
+                            {row.count} reducer{row.count === 1 ? "" : "s"}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
               </>
             ) : null}
 
@@ -1515,26 +1637,33 @@ export default function HeatDesignLabPage() {
                 </div>
 
                 <div className="hd-job-link-panel">
-                  <strong>Takeoff harmony</strong>
+                  <strong>Ask Blake → Takeoff</strong>
                   <p>
-                    Blake sizes routes (28 / 22 / 15), fittings, valves, TRVs, drains, clips and plant ancillaries.
-                    Send to Takeoff builds that BOQ; kit push below still sends the full materials list into Core.
+                    Live Blake proposes sizes and the ancillaries kit from OpenAI. Send to Takeoff builds that BOQ;
+                    kit push below still sends the full materials list into Core.
                   </p>
+                  {project.blakeProposal ? (
+                    <div className={`hd-banner${project.blakeProposal.aiUsed ? "" : " warn"}`} style={{ marginBottom: 10 }}>
+                      {project.blakeProposal.aiUsed ? "Live AI kit on this design" : "Rule fallback kit"}
+                      {" — "}
+                      {project.blakeProposal.summary}
+                    </div>
+                  ) : null}
                   <div className="hd-blake-route-actions" style={{ marginBottom: 10 }}>
                     <button
                       type="button"
-                      className="hd-btn"
-                      disabled={!project.heatingLayout?.pipes?.length}
+                      className="hd-btn hd-btn-primary"
+                      disabled={blakeBusy}
                       onClick={() => {
                         setTab("plan");
-                        blakeSizeRoutes();
+                        void askBlakeLive();
                       }}
                     >
-                      Blake size routes
+                      {blakeBusy ? "Blake thinking…" : "Ask Blake"}
                     </button>
                     <button
                       type="button"
-                      className="hd-btn hd-btn-primary"
+                      className="hd-btn"
                       disabled={takeoffBusy || !project.heatingLayout?.pipes?.length}
                       onClick={() => void sendLayoutToTakeoff()}
                     >

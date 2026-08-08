@@ -303,13 +303,16 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
     emitterMode,
     designLoadKw,
   });
-  const blakeKit = buildBlakeAncillariesKit({
-    systemKind,
-    emitterMode,
-    layout: project.heatingLayout,
-    roomCount: project.rooms.length,
-    floorAreaM2: totalFloorArea,
-  });
+  const blakeKit =
+    project.blakeProposal?.kitLines?.length
+      ? project.blakeProposal.kitLines
+      : buildBlakeAncillariesKit({
+          systemKind,
+          emitterMode,
+          layout: project.heatingLayout,
+          roomCount: project.rooms.length,
+          floorAreaM2: totalFloorArea,
+        });
   const kit = [...baseKit, ...blakeKit];
   const kitTotal = kit.reduce((sum, line) => sum + line.qty * line.unitCost, 0);
   const materialsComplete =
@@ -393,6 +396,7 @@ export function normaliseProject(project: HeatDesignProject): HeatDesignProject 
     outdoorUnitDistanceM: project.outdoorUnitDistanceM || 3,
     nearestNeighbourDistanceM: project.nearestNeighbourDistanceM || 8,
     kitExtras: project.kitExtras ?? [],
+    blakeProposal: project.blakeProposal ?? null,
     activeFloor: project.activeFloor ?? "ground",
     selectedWallConstructionIds: project.selectedWallConstructionIds ?? ["cav-mw-100-wp"],
     primaryWallConstructionId: project.primaryWallConstructionId ?? "cav-mw-100-wp",

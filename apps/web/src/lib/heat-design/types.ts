@@ -205,6 +205,8 @@ export type HeatDesignProject = {
   outdoorUnitDistanceM: number;
   nearestNeighbourDistanceM: number;
   kitExtras: string[];
+  /** Latest Ask Blake (live OpenAI or rule fallback) proposal for kit / guidance. */
+  blakeProposal?: HeatDesignBlakeProposal | null;
   revisions?: HeatDesignRevision[];
   updatedAt: string;
 };
@@ -246,6 +248,20 @@ export type KitLine = {
   unitCost: number;
   required: boolean;
   unit?: string;
+};
+
+/** Last live / fallback Blake proposal stored on the Heat Design project. */
+export type HeatDesignBlakeProposal = {
+  at: string;
+  summary: string;
+  narrative: string;
+  kitLines: KitLine[];
+  clarifyingQuestions: Array<{ key: string; question: string; why: string }>;
+  routeNotes: string[];
+  aiUsed: boolean;
+  connected: boolean;
+  model?: string;
+  error?: string;
 };
 
 export type SystemDesignResult = {

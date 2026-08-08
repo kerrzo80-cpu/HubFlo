@@ -137,6 +137,7 @@ export async function GET() {
       heatDesignPlan: "save-race-walls-v1",
       heatDesignBlakeRoutes: "size-fittings-takeoff-v1",
       heatDesignBlakeKit: "ancillaries-valves-v1",
+      heatDesignBlakeAi: "live-propose-v1",
       setupIndependent: "integrations-one-panel-v1",
       bootTabsReady: "auth-only-v1",
       deploySmoke: "retry-settle-hourly-v2",
