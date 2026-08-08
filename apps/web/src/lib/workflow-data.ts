@@ -6,7 +6,7 @@ import {
 } from "@/lib/people-data";
 import { checkQuoteConversion } from "@hubflo/domain";
 import { getHubDetailState } from "@/lib/hub-detail-store";
-import { numberedReference } from "@/lib/numbering";
+import { compareReferenceDesc, numberedReference } from "@/lib/numbering";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { useDemoSeedData } from "@/lib/workspace-mode";
 
@@ -434,7 +434,7 @@ export function getJobs(): Job[] {
   } catch {
     // Trial bootstrap is best-effort.
   }
-  return clone(getStore().jobs);
+  return clone(getStore().jobs).sort((left, right) => compareReferenceDesc(left.ref, right.ref));
 }
 
 export function resetWorkflowStore(): WorkflowStore {
@@ -460,7 +460,7 @@ export function saveJob(job: Job): Job {
     persistWorkflowStore();
     return clone(current);
   }
-  store.jobs = [...store.jobs, job];
+  store.jobs = [job, ...store.jobs];
   persistWorkflowStore();
   return clone(job);
 }
@@ -529,7 +529,7 @@ export function createJob(
 }
 
 export function getQuotes(): Quote[] {
-  return clone(getStore().quotes);
+  return clone(getStore().quotes).sort((left, right) => compareReferenceDesc(left.ref, right.ref));
 }
 
 export function createQuote(payload: Omit<Quote, "id" | "ref"> & { id?: string; ref?: string }): Quote {
@@ -563,7 +563,7 @@ export function createQuote(payload: Omit<Quote, "id" | "ref"> & { id?: string; 
     metadata: payload.metadata,
     ref: payload.ref || determineNextQuoteRef(store.quotes),
   };
-  store.quotes = [...store.quotes, created];
+  store.quotes = [created, ...store.quotes];
   persistWorkflowStore();
   return clone(created);
 }
@@ -729,7 +729,9 @@ export function convertQuoteToJob(
 }
 
 export function getPurchaseRequests(): PurchaseRequest[] {
-  return clone(getStore().purchaseRequests);
+  return clone(getStore().purchaseRequests).sort((left, right) =>
+    compareReferenceDesc(left.poNumber || left.id, right.poNumber || right.id),
+  );
 }
 
 export type PurchaseRequestInput = Omit<PurchaseRequest, "id" | "status" | "poNumber"> & {

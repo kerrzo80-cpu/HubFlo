@@ -132,7 +132,7 @@ import {
   type Weekday,
   weekDays,
 } from "@/lib/access";
-import { numberedReference } from "@/lib/numbering";
+import { compareReferenceDesc, numberedReference } from "@/lib/numbering";
 import {
   DEFAULT_XERO_ACCOUNT_CODES,
   XERO_ACCOUNT_CODE_FIELDS,
@@ -8184,10 +8184,10 @@ export default function CoreApp() {
     invoices: [],
     "purchase-orders": [],
   });
-  const [activeQuoteFolderKey, setActiveQuoteFolderKey] = useState("incomplete");
+  const [activeQuoteFolderKey, setActiveQuoteFolderKey] = useState("all");
   const [activeJobFolderKey, setActiveJobFolderKey] = useState("all");
   const [activeLeadFolderKey, setActiveLeadFolderKey] = useState<"all" | "followup">("all");
-  const [activeInvoiceFolderKey, setActiveInvoiceFolderKey] = useState("overdue");
+  const [activeInvoiceFolderKey, setActiveInvoiceFolderKey] = useState("all");
   const [markingDayworkDealtWith, setMarkingDayworkDealtWith] = useState(false);
   const [reportDateRange, setReportDateRange] = useState<ReportDateRange>("All time");
   const [reportCustomStartDate, setReportCustomStartDate] = useState(startOfScheduleWeek(currentOperatingDate));
@@ -12068,24 +12068,26 @@ export default function CoreApp() {
 
   const filteredLeads = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return leads.filter((lead) => {
-      const matchesSearch =
-        !query ||
-        [
-          lead.ref,
-          lead.customerName,
-          lead.phone,
-          lead.email,
-          lead.address,
-          lead.description,
-          lead.source,
-          lead.status,
-          lead.surveyor,
-          lead.createdBy,
-        ].some((value) => String(value ?? "").toLowerCase().includes(query));
-      const matchesStatus = leadStatusFilter === "All leads" || lead.status === leadStatusFilter;
-      return matchesSearch && matchesStatus;
-    });
+    return leads
+      .filter((lead) => {
+        const matchesSearch =
+          !query ||
+          [
+            lead.ref,
+            lead.customerName,
+            lead.phone,
+            lead.email,
+            lead.address,
+            lead.description,
+            lead.source,
+            lead.status,
+            lead.surveyor,
+            lead.createdBy,
+          ].some((value) => String(value ?? "").toLowerCase().includes(query));
+        const matchesStatus = leadStatusFilter === "All leads" || lead.status === leadStatusFilter;
+        return matchesSearch && matchesStatus;
+      })
+      .sort((left, right) => compareReferenceDesc(left.ref, right.ref));
   }, [leadStatusFilter, leads, search]);
 
   function getLeadQuoteFollowUp(lead: Lead) {
@@ -12223,49 +12225,55 @@ export default function CoreApp() {
 
   const filteredQuotes = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return quotes.filter((quote) => {
-      const matchesSearch =
-        !query ||
-        [quote.ref, quote.customer, quote.description, quote.owner, quote.status].some((value) =>
-          value.toLowerCase().includes(query),
-        );
-      const matchesStatus = quoteStatusFilter === "All quotes" || quote.status === quoteStatusFilter;
-      return matchesSearch && matchesStatus;
-    });
+    return quotes
+      .filter((quote) => {
+        const matchesSearch =
+          !query ||
+          [quote.ref, quote.customer, quote.description, quote.owner, quote.status].some((value) =>
+            value.toLowerCase().includes(query),
+          );
+        const matchesStatus = quoteStatusFilter === "All quotes" || quote.status === quoteStatusFilter;
+        return matchesSearch && matchesStatus;
+      })
+      .sort((left, right) => compareReferenceDesc(left.ref, right.ref));
   }, [quotes, quoteStatusFilter, search]);
 
   const filteredJobs = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return jobs.filter((job) => {
-      const matchesSearch =
-        !query ||
-        [job.ref, job.customer, job.site, job.description, job.manager, job.status].some((value) =>
-          value.toLowerCase().includes(query),
-        );
-      const matchesStatus = statusFilter === "All statuses" || job.status === statusFilter;
-      return matchesSearch && matchesStatus;
-    });
+    return jobs
+      .filter((job) => {
+        const matchesSearch =
+          !query ||
+          [job.ref, job.customer, job.site, job.description, job.manager, job.status].some((value) =>
+            value.toLowerCase().includes(query),
+          );
+        const matchesStatus = statusFilter === "All statuses" || job.status === statusFilter;
+        return matchesSearch && matchesStatus;
+      })
+      .sort((left, right) => compareReferenceDesc(left.ref, right.ref));
   }, [jobs, search, statusFilter]);
 
   const searchFilteredInvoices = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return invoices.filter((invoice) => {
-      const matchesSearch =
-        !query ||
-        [
-          invoice.ref,
-          invoice.sourceRef,
-          invoice.sourceName,
-          invoice.customer,
-          invoice.title,
-          invoice.status,
-          invoice.claimType ?? "",
-          invoice.valuationStatus ?? "",
-        ].some((value) =>
-          value.toLowerCase().includes(query),
-        );
-      return matchesSearch;
-    });
+    return invoices
+      .filter((invoice) => {
+        const matchesSearch =
+          !query ||
+          [
+            invoice.ref,
+            invoice.sourceRef,
+            invoice.sourceName,
+            invoice.customer,
+            invoice.title,
+            invoice.status,
+            invoice.claimType ?? "",
+            invoice.valuationStatus ?? "",
+          ].some((value) =>
+            value.toLowerCase().includes(query),
+          );
+        return matchesSearch;
+      })
+      .sort((left, right) => compareReferenceDesc(left.ref, right.ref));
   }, [invoices, search]);
 
   const filteredInvoices = useMemo(() => {
@@ -12313,7 +12321,10 @@ export default function CoreApp() {
         const matchesStatus =
           purchaseOrderStatusFilter === "All POs" || row.request.status === purchaseOrderStatusFilter;
         return matchesSearch && matchesStatus;
-      });
+      })
+      .sort((left, right) =>
+        compareReferenceDesc(left.request.poNumber || left.orderNo, right.request.poNumber || right.orderNo),
+      );
   }, [jobs, purchaseOrderStatusFilter, purchaseRequests, search]);
 
   const purchaseOrderFolders = useMemo(
@@ -12535,12 +12546,20 @@ export default function CoreApp() {
     ];
   }, [currentOperatingDate, searchFilteredInvoices, reportRetentionTotals.outstanding, reportRetentionTotals.jobs]);
 
-  const visibleInvoiceDirectoryGroups = useMemo(
-    () => activeInvoiceFolderKey === "all"
-      ? invoiceDirectoryGroups.filter((group) => group.key !== "retention")
-      : invoiceDirectoryGroups.filter((group) => group.key === activeInvoiceFolderKey),
-    [activeInvoiceFolderKey, invoiceDirectoryGroups],
-  );
+  const visibleInvoiceDirectoryGroups = useMemo(() => {
+    if (activeInvoiceFolderKey === "all") {
+      return [
+        {
+          key: "all",
+          label: "All invoices",
+          detail: "Every invoice matching the current search and status filter",
+          tone: "blue",
+          items: filteredInvoices,
+        },
+      ];
+    }
+    return invoiceDirectoryGroups.filter((group) => group.key === activeInvoiceFolderKey);
+  }, [activeInvoiceFolderKey, filteredInvoices, invoiceDirectoryGroups]);
 
   function openJobRetentionRecord(jobId: string) {
     const related = invoices.filter(
@@ -12859,14 +12878,21 @@ export default function CoreApp() {
     [quoteDirectoryGroups, quoteFollowUpDirectoryGroup],
   );
 
-  const visibleQuoteDirectoryGroups = useMemo(
-    () => activeQuoteFolderKey === "all"
-      ? quoteDirectoryGroups
-      : activeQuoteFolderKey === "followup"
-        ? [quoteFollowUpDirectoryGroup]
-        : quoteDirectoryGroups.filter((group) => group.key === activeQuoteFolderKey),
-    [activeQuoteFolderKey, quoteDirectoryGroups, quoteFollowUpDirectoryGroup],
-  );
+  const visibleQuoteDirectoryGroups = useMemo(() => {
+    if (activeQuoteFolderKey === "all") {
+      return [
+        {
+          key: "all",
+          label: "All quotes",
+          detail: "Every quote matching the current search and status filter",
+          tone: "blue",
+          items: filteredQuotes,
+        },
+      ];
+    }
+    if (activeQuoteFolderKey === "followup") return [quoteFollowUpDirectoryGroup];
+    return quoteDirectoryGroups.filter((group) => group.key === activeQuoteFolderKey);
+  }, [activeQuoteFolderKey, filteredQuotes, quoteDirectoryGroups, quoteFollowUpDirectoryGroup]);
 
   const approvedQuotesAwaitingScheduling = useMemo(
     () =>
