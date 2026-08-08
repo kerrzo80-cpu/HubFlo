@@ -219,17 +219,28 @@ export function blakeKitMaterialAllowances(
 ): BlakeTakeoffAllowance[] {
   return kitLines
     .filter((row) => row.qty > 0 && row.unitCost >= 0)
-    .map((row) => ({
-      id: `studio-mat-${projectId}-blake-${row.id.replace(/^kit-blake-/, "")}`,
-      section: row.category || "Ancillaries",
-      description: `Takeoff · ${row.description}`,
-      quantity: row.qty,
-      unit: row.unit || "nr",
-      unitCost: row.unitCost,
-      markupPercent: 0,
-      supplierRequired: false,
-      blakeNote: "Blake ancillaries kit from Heat Design",
-    }));
+    .map((row) => {
+      const isBudget =
+        row.pricingSource === "blake-budget"
+        || row.pricingSource === "rate-library"
+        || !(row.unitCost > 0);
+      return {
+        id: `studio-mat-${projectId}-blake-${row.id.replace(/^kit-blake-/, "")}`,
+        section: row.category || "Ancillaries",
+        description: `Takeoff · ${row.description}`,
+        quantity: row.qty,
+        unit: row.unit || "nr",
+        unitCost: row.unitCost,
+        markupPercent: 0,
+        // Budget lines still want a supplier check — unitCost is provisional.
+        supplierRequired: isBudget,
+        blakeNote:
+          row.pricingNote
+          || (isBudget
+            ? "Blake budget — amend when supplier quote uploaded"
+            : "Blake ancillaries kit from Heat Design"),
+      };
+    });
 }
 
 /** All Blake-derived takeoff allowances: reducers caller adds separately; this is valves + sized fittings. */

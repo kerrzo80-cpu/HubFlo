@@ -1,4 +1,4 @@
-import { applyGuidePricesToKit } from "@/lib/ai-guide-prices";
+import { applyTaggedGuidePrices } from "@/lib/blake-budget-prices";
 
 import {
   buildKitLines,
@@ -305,7 +305,7 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
     emitterMode,
     designLoadKw,
   });
-  const blakeKit = applyGuidePricesToKit(
+  const blakeKit = applyTaggedGuidePrices(
     project.blakeProposal?.kitLines?.length
       ? project.blakeProposal.kitLines
       : buildBlakeAncillariesKit({

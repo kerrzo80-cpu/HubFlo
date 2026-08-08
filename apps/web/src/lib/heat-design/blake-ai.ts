@@ -3,7 +3,7 @@
  * Rule kit / sizing are the safety net when OpenAI is offline or returns unusable JSON.
  */
 
-import { applyGuidePricesToKit } from "@/lib/ai-guide-prices";
+import { budgetPriceKitWithBlake } from "@/lib/blake-budget-prices";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
 
 import { buildBlakeAncillariesKit, layoutCounts, type BlakeKitInput } from "./blake-kit";
@@ -243,7 +243,7 @@ function ruleFallback(
     emitterMode,
     chosenSystemId: project.chosenSystemId,
     layout: seeded,
-    kitLines: applyGuidePricesToKit(kitLines),
+    kitLines,
     clarifyingQuestions: [],
     routeNotes: fittings?.notes || [
       "Design on plan, then Ask Blake again once OpenAI is connected for trade reasoning.",
@@ -254,6 +254,35 @@ function ruleFallback(
     connected: opts.connected,
     error: opts.error,
     at: new Date().toISOString(),
+  };
+}
+
+async function withBudgetPrices(
+  project: HeatDesignProject,
+  proposal: BlakeHeatProposal,
+): Promise<BlakeHeatProposal> {
+  const priced = await budgetPriceKitWithBlake(proposal.kitLines, {
+    forceRefreshBudget: true,
+    context: [
+      project.name,
+      project.customerName,
+      project.chosenSystemId,
+      project.emitterMode,
+      `${project.rooms.length} rooms`,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  });
+  return {
+    ...proposal,
+    kitLines: priced.lines,
+    narrative: priced.aiUsed
+      ? `${proposal.narrative} Budget unit costs from live Blake (UK trade ballpark) — amend when supplier quotes land.`
+      : proposal.narrative,
+    aiUsed: proposal.aiUsed || priced.aiUsed,
+    connected: proposal.connected || priced.connected,
+    model: proposal.model || priced.model,
+    error: proposal.error || priced.error,
   };
 }
 
@@ -290,10 +319,13 @@ export async function proposeHeatDesignWithBlake(
 ): Promise<BlakeHeatProposal> {
   const openAi = getTakeoffOpenAiConfig();
   if (!openAi.apiKey) {
-    return ruleFallback(project, {
-      connected: false,
-      error: "OpenAI key missing on this live service.",
-    });
+    return withBudgetPrices(
+      project,
+      ruleFallback(project, {
+        connected: false,
+        error: "OpenAI key missing on this live service.",
+      }),
+    );
   }
 
   const context = buildProjectContext(project);
@@ -305,7 +337,8 @@ export async function proposeHeatDesignWithBlake(
   const prompt = [
     "You are Blake — NeXa’s UK heating design co-pilot (Gas Safe trade mindset).",
     "You are looking at a Heat Design project: rooms, chosen plant, emitters and pipe routes on plan.",
-    "Propose a practical install kit and pipe-sizing guidance. Prefer rate-library-style UK guide costs; zero is OK if unsure (RFQ).",
+    "Propose a practical install kit and pipe-sizing guidance.",
+    "Every kitLines item MUST include a UK trade BUDGET unitCost (ex VAT) — typical merchant ballpark for comparing to supplier quotes later. Never leave unitCost at 0 unless truly free.",
     "Prefer concrete merchant lines (TRVs, lockshields, isolation valves, AAVs, clips, lagging, zone valves, G3 bits, ASHP flex kits, etc.).",
     "NEVER collapse into ‘lot’, ‘allowance’ or ‘sundry’ — itemise.",
     "If the layout has pipes, set applySizing true and optionally override individual pipe diameters via pipeSizes[{pipeId,diameterMm:15|22|28,reason}].",
@@ -349,29 +382,45 @@ export async function proposeHeatDesignWithBlake(
       const shortDetail = /quota|billing/i.test(detail)
         ? "OpenAI quota or billing limit reached on this API key."
         : detail;
-      return ruleFallback(project, {
-        connected: true,
-        error: shortDetail,
-        summaryExtra: `OpenAI is connected but Blake could not finish (${shortDetail}). Rule kit shown instead.`,
-      });
+      return withBudgetPrices(
+        project,
+        ruleFallback(project, {
+          connected: true,
+          error: shortDetail,
+          summaryExtra: `OpenAI is connected but Blake could not finish (${shortDetail}). Rule kit shown instead.`,
+        }),
+      );
     }
 
     const text = extractChatText(body);
     if (!text) {
-      return ruleFallback(project, {
-        connected: true,
-        error: "Empty OpenAI response",
-        summaryExtra: "OpenAI returned an empty proposal. Rule kit shown instead.",
-      });
+      return withBudgetPrices(
+        project,
+        ruleFallback(project, {
+          connected: true,
+          error: "Empty OpenAI response",
+          summaryExtra: "OpenAI returned an empty proposal. Rule kit shown instead.",
+        }),
+      );
     }
 
     const parsed = JSON.parse(text) as Record<string, unknown>;
-    let kitLines = applyGuidePricesToKit(normaliseKitLines(parsed.kitLines ?? parsed.kit));
+    let kitLines = normaliseKitLines(parsed.kitLines ?? parsed.kit).map((line) => ({
+      ...line,
+      pricingSource: line.unitCost > 0 ? ("blake-budget" as const) : undefined,
+      pricingNote:
+        line.unitCost > 0
+          ? "Blake budget (UK trade ballpark) — amend to supplier quote when uploaded"
+          : undefined,
+    }));
     if (!kitLines.length) {
-      const fallback = ruleFallback(project, {
-        connected: true,
-        error: "No kit lines in OpenAI JSON",
-      });
+      const fallback = await withBudgetPrices(
+        project,
+        ruleFallback(project, {
+          connected: true,
+          error: "No kit lines in OpenAI JSON",
+        }),
+      );
       kitLines = fallback.kitLines;
     }
 
@@ -413,7 +462,7 @@ export async function proposeHeatDesignWithBlake(
       fittings = summariseHeatingFittings(sized);
     }
 
-    return {
+    return withBudgetPrices(project, {
       summary:
         String(parsed.summary || "").trim() ||
         `Blake proposes ${kitLines.length} kit line${kitLines.length === 1 ? "" : "s"} for this design.`,
@@ -434,12 +483,15 @@ export async function proposeHeatDesignWithBlake(
       connected: true,
       model: openAi.model,
       at: new Date().toISOString(),
-    };
-  } catch (err) {
-    return ruleFallback(project, {
-      connected: true,
-      error: err instanceof Error ? err.message : "OpenAI request failed",
-      summaryExtra: "Blake hit a network error talking to OpenAI. Rule kit shown instead.",
     });
+  } catch (err) {
+    return withBudgetPrices(
+      project,
+      ruleFallback(project, {
+        connected: true,
+        error: err instanceof Error ? err.message : "OpenAI request failed",
+        summaryExtra: "Blake hit a network error talking to OpenAI. Rule kit shown instead.",
+      }),
+    );
   }
 }

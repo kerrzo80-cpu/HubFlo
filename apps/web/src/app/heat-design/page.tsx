@@ -122,6 +122,7 @@ export default function HeatDesignLabPage() {
   const [takeoffBusy, setTakeoffBusy] = useState(false);
   const [blakeBusy, setBlakeBusy] = useState(false);
   const [blakeMessage, setBlakeMessage] = useState("");
+  const [budgetBusy, setBudgetBusy] = useState(false);
   const [fittingsSummary, setFittingsSummary] = useState<HeatingFittingsSummary | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkTarget, setLinkTarget] = useState<LinkTarget>("job");
@@ -719,6 +720,42 @@ export default function HeatDesignLabPage() {
     setNotice(
       `Rule size · ${summary.totalMetres} m · ${summary.totalElbows} elbows · ${summary.totalCouplings} couplings · ${summary.totalReducers} reducers (28→22→15). Prefer Ask Blake for live AI.`,
     );
+  }
+
+  async function refreshBlakeBudgetPrices() {
+    if (!project?.id) return;
+    setBudgetBusy(true);
+    try {
+      const res = await fetch("/api/heat-design/budget-prices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: project.id, forceRefresh: true }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        aiUsed?: boolean;
+        pricedCount?: number;
+        stillOpenCount?: number;
+        budgetTotal?: number;
+        project?: HeatDesignProject;
+      };
+      if (!res.ok || !body.ok) {
+        throw new Error(body.error || `Budget prices failed (${res.status})`);
+      }
+      if (body.project) {
+        patchProject({ blakeProposal: body.project.blakeProposal });
+      }
+      setNotice(
+        body.aiUsed
+          ? `Blake budget costs · ${body.pricedCount ?? 0} lines · £${Number(body.budgetTotal || 0).toFixed(0)} — amend when supplier quotes land.`
+          : `Guide budget costs · ${body.pricedCount ?? 0} lines${body.stillOpenCount ? ` · ${body.stillOpenCount} still open` : ""}.`,
+      );
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Could not refresh budget prices.");
+    } finally {
+      setBudgetBusy(false);
+    }
   }
 
   async function askBlakeLive() {
@@ -1811,6 +1848,25 @@ export default function HeatDesignLabPage() {
                     );
                   })}
                 </div>
+                <div className="hd-blake-route-actions" style={{ marginBottom: 12 }}>
+                  <button
+                    type="button"
+                    className="hd-btn hd-btn-primary"
+                    disabled={budgetBusy || blakeBusy}
+                    onClick={() => void refreshBlakeBudgetPrices()}
+                  >
+                    {budgetBusy ? "Pricing…" : "Blake budget prices"}
+                  </button>
+                  <span className="hd-lead" style={{ margin: 0 }}>
+                    Live AI UK trade ballpark — replace with supplier quotes when uploaded.
+                  </span>
+                </div>
+                {project.blakeProposal?.kitLines?.some((line) => line.pricingSource === "blake-budget") ? (
+                  <div className="hd-banner" style={{ marginBottom: 12 }}>
+                    Budget costs on this kit are from Blake AI. When the merchant quote lands, edit unit costs /
+                    Push again — supplier price wins.
+                  </div>
+                ) : null}
                 <div className="hd-kit-table">
                   <div className="hd-kit-row hd-kit-head">
                     <span>Item</span>
@@ -1821,17 +1877,26 @@ export default function HeatDesignLabPage() {
                     <div key={line.id} className="hd-kit-row">
                       <span>
                         <strong>{line.description}</strong>
-                        <small>{line.category}</small>
+                        <small>
+                          {line.category}
+                          {line.pricingSource === "blake-budget"
+                            ? " · Budget (Blake)"
+                            : line.pricingSource === "rate-library"
+                              ? " · Guide rate"
+                              : line.unitCost === 0
+                                ? " · Supplier RFQ"
+                                : ""}
+                        </small>
                       </span>
                       <span>
                         {line.qty}
                         {line.unit ? ` ${line.unit}` : ""}
                       </span>
-                      <span>{line.unitCost === 0 ? "—" : money(line.qty * line.unitCost)}</span>
+                      <span>{line.unitCost === 0 ? "RFQ" : money(line.qty * line.unitCost)}</span>
                     </div>
                   ))}
                   <div className="hd-kit-row hd-kit-total">
-                    <span>Kit total (materials ex VAT)</span>
+                    <span>Kit total (budget materials ex VAT)</span>
                     <span />
                     <span>{money(design.kitTotal)}</span>
                   </div>
