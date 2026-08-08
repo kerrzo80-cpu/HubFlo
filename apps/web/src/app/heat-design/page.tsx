@@ -1073,8 +1073,8 @@ export default function HeatDesignLabPage() {
                     <header>
                       <strong>Blake route planner</strong>
                       <span>
-                        Size mains 28 · branches 22 · tails 15, count elbows / couplings / reducers, then send the
-                        network to Takeoff for BOQ + Push.
+                        Size mains 28 · branches 22 · tails 15, count elbows / couplings / reducers, plus valves,
+                        TRVs, drains, clips and system bits — then Send to Takeoff for the full BOQ.
                       </span>
                     </header>
                     <div className="hd-blake-route-actions">
@@ -1517,8 +1517,8 @@ export default function HeatDesignLabPage() {
                 <div className="hd-job-link-panel">
                   <strong>Takeoff harmony</strong>
                   <p>
-                    Blake sizes pipe routes on the plan (28 / 22 / 15 mm + fittings), then Send to Takeoff builds the
-                    pipework BOQ. Kit push below stays for plant/materials into Core.
+                    Blake sizes routes (28 / 22 / 15), fittings, valves, TRVs, drains, clips and plant ancillaries.
+                    Send to Takeoff builds that BOQ; kit push below still sends the full materials list into Core.
                   </p>
                   <div className="hd-blake-route-actions" style={{ marginBottom: 10 }}>
                     <button

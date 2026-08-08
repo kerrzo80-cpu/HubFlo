@@ -11,6 +11,7 @@ import {
   wallTypes,
   type RadiatorCatalogueItem,
 } from "./catalogue";
+import { buildBlakeAncillariesKit } from "./blake-kit";
 import { numberFromInput } from "./calc-number";
 import {
   exteriorPerimeter,
@@ -284,7 +285,8 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
     heatingSystemOptions.find((item) => item.id === "opt-ashp");
   const systemKind = chosenSystem?.kind ?? "ashp";
 
-  const kit = buildKitLines({
+  const emitterMode = project.emitterMode ?? project.heatingLayout?.emitterMode ?? "radiators";
+  const baseKit = buildKitLines({
     systemKind,
     systemLabel: chosenSystem?.label,
     pump: systemKind === "ashp" || systemKind === "hybrid" ? selectedPump : null,
@@ -298,9 +300,17 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
     pipeRunM: Math.round(totalFloorArea * 1.15 + project.rooms.length * 4),
     wallConstructionLabel: primaryWall ? `${primaryWall.label} (U=${primaryWall.uValue})` : undefined,
     radiatorLines,
-    emitterMode: project.emitterMode ?? project.heatingLayout?.emitterMode ?? "radiators",
+    emitterMode,
     designLoadKw,
   });
+  const blakeKit = buildBlakeAncillariesKit({
+    systemKind,
+    emitterMode,
+    layout: project.heatingLayout,
+    roomCount: project.rooms.length,
+    floorAreaM2: totalFloorArea,
+  });
+  const kit = [...baseKit, ...blakeKit];
   const kitTotal = kit.reduce((sum, line) => sum + line.qty * line.unitCost, 0);
   const materialsComplete =
     materialsNotes.length === 0 &&
