@@ -18,8 +18,10 @@ import {
   normaliseProject,
   pickRadiatorForRoom,
   recommendedRadiatorsForRoom,
+  applyBlakePipeSizing,
   seedHeatingLayout,
   suggestHeatPump,
+  summariseHeatingFittings,
   wattsLabel,
   buildEras,
   ceilingTypes,
@@ -35,6 +37,7 @@ import {
   type HeatDesignProject,
   type HeatDesignRoom,
   type HeatingEmitterMode,
+  type HeatingFittingsSummary,
   type HeatingSystemLayout,
 } from "@/lib/heat-design";
 import { useBrand } from "@/components/BrandProvider";
@@ -116,6 +119,8 @@ export default function HeatDesignLabPage() {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("loading");
   const [pendingPrint, setPendingPrint] = useState(false);
   const [layoutMode, setLayoutMode] = useState(false);
+  const [takeoffBusy, setTakeoffBusy] = useState(false);
+  const [fittingsSummary, setFittingsSummary] = useState<HeatingFittingsSummary | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkTarget, setLinkTarget] = useState<LinkTarget>("job");
   const [jobOptions, setJobOptions] = useState<Array<{ id: string; ref: string; customer: string; site: string }>>([]);
@@ -686,12 +691,82 @@ export default function HeatDesignLabPage() {
     const emitterMode = mode ?? project.emitterMode ?? project.heatingLayout?.emitterMode ?? "radiators";
     const layout = seedHeatingLayout(project, project.chosenSystemId, emitterMode);
     patchProject({ emitterMode, heatingLayout: layout });
+    setFittingsSummary(summariseHeatingFittings(layout));
     setLayoutMode(true);
     setNotice("Re-designed heating layout with the selected emitter type.");
   }
 
+  function blakeSizeRoutes() {
+    if (!project?.heatingLayout?.pipes?.length) {
+      setNotice("Design on plan first, then Blake can size 28 / 22 / 15 mm routes.");
+      return;
+    }
+    const layout = applyBlakePipeSizing(project.heatingLayout);
+    const summary = summariseHeatingFittings(layout);
+    patchProject({ heatingLayout: layout });
+    setFittingsSummary(summary);
+    setLayoutMode(true);
+    setNotice(
+      `Blake sized routes · ${summary.totalMetres} m · ${summary.totalElbows} elbows · ${summary.totalCouplings} couplings · ${summary.totalReducers} reducers (28→22→15).`,
+    );
+  }
+
+  async function sendLayoutToTakeoff(options: { createNew?: boolean } = {}) {
+    if (!project?.id) return;
+    if (!project.heatingLayout?.pipes?.length) {
+      setNotice("Design on plan first — nothing to send to Takeoff yet.");
+      setTab("plan");
+      return;
+    }
+    setTakeoffBusy(true);
+    try {
+      // Ensure sizes before handoff.
+      const layout = applyBlakePipeSizing(project.heatingLayout);
+      patchProject({ heatingLayout: layout });
+      const res = await fetch("/api/heat-design/send-to-takeoff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: project.id,
+          takeoffId: options.createNew ? undefined : project.linkedTakeoffId,
+          createNew: Boolean(options.createNew) || !project.linkedTakeoffId,
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        takeoff?: { id: string; reference: string; name: string };
+        fittings?: HeatingFittingsSummary;
+        project?: HeatDesignProject;
+        created?: boolean;
+      };
+      if (!res.ok || !body.ok || !body.takeoff) {
+        throw new Error(body.error || `Send failed (${res.status})`);
+      }
+      if (body.project) {
+        patchProject({
+          linkedTakeoffId: body.project.linkedTakeoffId,
+          linkedTakeoffRef: body.project.linkedTakeoffRef,
+          heatingLayout: body.project.heatingLayout ?? layout,
+        });
+      }
+      if (body.fittings) setFittingsSummary(body.fittings);
+      setNotice(
+        `${body.created ? "Created" : "Updated"} takeoff ${body.takeoff.reference} with sized routes + fittings. Open Takeoff to Push.`,
+      );
+      window.open(`/takeoff`, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Could not send to Takeoff.");
+    } finally {
+      setTakeoffBusy(false);
+    }
+  }
+
   function patchLayout(layout: HeatingSystemLayout) {
     patchProject({ heatingLayout: layout });
+    if (layout.pipes.some((pipe) => pipe.diameterMm)) {
+      setFittingsSummary(summariseHeatingFittings(layout));
+    }
   }
 
   function changeEmitterMode(mode: HeatingEmitterMode) {
@@ -992,6 +1067,68 @@ export default function HeatDesignLabPage() {
                     setNotice("Surveyed plan locked in — pick a system and design flow temperature next.");
                   }}
                 />
+                {project.heatingLayout?.pipes?.length ? (
+                  <div className="hd-blake-route-panel" aria-label="Blake route planner">
+                    <header>
+                      <strong>Blake route planner</strong>
+                      <span>
+                        Size mains 28 · branches 22 · tails 15, count elbows / couplings / reducers, then send the
+                        network to Takeoff for BOQ + Push.
+                      </span>
+                    </header>
+                    <div className="hd-blake-route-actions">
+                      <button type="button" className="hd-btn hd-btn-primary" onClick={blakeSizeRoutes}>
+                        Blake size routes
+                      </button>
+                      <button
+                        type="button"
+                        className="hd-btn"
+                        disabled={takeoffBusy}
+                        onClick={() => void sendLayoutToTakeoff()}
+                      >
+                        {takeoffBusy ? "Sending…" : project.linkedTakeoffRef ? "Update Takeoff" : "Send to Takeoff"}
+                      </button>
+                      {project.linkedTakeoffRef ? (
+                        <button
+                          type="button"
+                          className="hd-btn hd-btn-ghost"
+                          disabled={takeoffBusy}
+                          onClick={() => void sendLayoutToTakeoff({ createNew: true })}
+                        >
+                          New takeoff
+                        </button>
+                      ) : null}
+                    </div>
+                    {project.linkedTakeoffRef ? (
+                      <p className="hd-lead" style={{ margin: 0 }}>
+                        Linked takeoff <strong>{project.linkedTakeoffRef}</strong>
+                      </p>
+                    ) : null}
+                    {(fittingsSummary || project.heatingLayout.pipes.some((p) => p.diameterMm)) && (
+                      <ul className="hd-blake-fit-list">
+                        {(fittingsSummary || summariseHeatingFittings(project.heatingLayout)).bySize.map((row) => (
+                          <li key={row.diameterMm}>
+                            <strong>{row.diameterMm} mm</strong>
+                            <span>
+                              {row.metres} m · {row.elbows} elbow{row.elbows === 1 ? "" : "s"} · {row.couplings}{" "}
+                              coupling{row.couplings === 1 ? "" : "s"}
+                            </span>
+                          </li>
+                        ))}
+                        {(fittingsSummary || summariseHeatingFittings(project.heatingLayout)).reducers.map((row) => (
+                          <li key={`${row.fromMm}-${row.toMm}`}>
+                            <strong>
+                              {row.fromMm}→{row.toMm}
+                            </strong>
+                            <span>
+                              {row.count} reducer{row.count === 1 ? "" : "s"}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ) : null}
               </>
             ) : null}
 
@@ -1374,6 +1511,40 @@ export default function HeatDesignLabPage() {
                   {design.materialsComplete
                     ? "Materials checklist complete for this design."
                     : `Still needed: ${design.materialsNotes.join(" ")}`}
+                </div>
+
+                <div className="hd-job-link-panel">
+                  <strong>Takeoff harmony</strong>
+                  <p>
+                    Blake sizes pipe routes on the plan (28 / 22 / 15 mm + fittings), then Send to Takeoff builds the
+                    pipework BOQ. Kit push below stays for plant/materials into Core.
+                  </p>
+                  <div className="hd-blake-route-actions" style={{ marginBottom: 10 }}>
+                    <button
+                      type="button"
+                      className="hd-btn"
+                      disabled={!project.heatingLayout?.pipes?.length}
+                      onClick={() => {
+                        setTab("plan");
+                        blakeSizeRoutes();
+                      }}
+                    >
+                      Blake size routes
+                    </button>
+                    <button
+                      type="button"
+                      className="hd-btn hd-btn-primary"
+                      disabled={takeoffBusy || !project.heatingLayout?.pipes?.length}
+                      onClick={() => void sendLayoutToTakeoff()}
+                    >
+                      {takeoffBusy ? "Sending…" : project.linkedTakeoffRef ? "Update Takeoff" : "Send to Takeoff"}
+                    </button>
+                  </div>
+                  {project.linkedTakeoffRef ? (
+                    <div className="hd-banner" style={{ marginBottom: 10 }}>
+                      Takeoff <strong>{project.linkedTakeoffRef}</strong>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="hd-job-link-panel">
