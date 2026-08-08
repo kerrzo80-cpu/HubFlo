@@ -273,6 +273,8 @@ export function scaleForPage(studio: StudioState, documentId: string, page: numb
 }
 
 export function isAiStudioGeometry(geo: StudioGeometry): boolean {
+  // Explicit manual accept/edit wins over ai-* id prefixes from Blake/vision.
+  if (geo.source === "manual") return false;
   return geo.source === "ai" || geo.id.startsWith("ai-");
 }
 

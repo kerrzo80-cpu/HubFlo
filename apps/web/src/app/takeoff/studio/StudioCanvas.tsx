@@ -20,6 +20,7 @@ import {
   metresPerUnitFromRatio,
   parseScaleRatioLabel,
   scaleForPage,
+  isAiStudioGeometry,
   studioId,
   type StudioGeometry,
   type StudioPoint,
@@ -32,6 +33,7 @@ import {
   pipeSpecById,
   previewFittingsForDraft,
   removeLinearAndFittings,
+  updateLinearPointsWithFittings,
 } from "@/lib/takeoff-studio-pipe";
 import { recordTakeoffLearningClient } from "@/lib/takeoff-learning-client";
 
@@ -87,9 +89,15 @@ export default function StudioCanvas({
   const [scaleHints, setScaleHints] = useState<string[]>([]);
 
   const [dragPreview, setDragPreview] = useState<{ id: string; point: StudioPoint } | null>(null);
+  const [vertexDrag, setVertexDrag] = useState<{
+    linearId: string;
+    pointIndex: number;
+    points: StudioPoint[];
+  } | null>(null);
   const panRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const pinchRef = useRef<{ dist: number; scale: number; panX: number; panY: number; midX: number; midY: number } | null>(null);
   const dragGeoRef = useRef<{ id: string; origin: StudioPoint; start: StudioPoint } | null>(null);
+  const vertexDragRef = useRef<{ linearId: string; pointIndex: number; points: StudioPoint[] } | null>(null);
   const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const viewRef = useRef(view);
   viewRef.current = view;
@@ -229,6 +237,7 @@ export default function StudioCanvas({
       ctx.lineWidth = selected ? 3.5 : 2.2;
       ctx.strokeStyle = colour;
       ctx.fillStyle = colour;
+      const aiMark = isAiStudioGeometry(geo);
 
       if (geo.kind === "count") {
         const point = dragPreview?.id === geo.id ? dragPreview.point : geo.point;
@@ -265,11 +274,17 @@ export default function StudioCanvas({
           ctx.stroke();
         }
       } else {
-        const pts = geo.points;
+        const pts =
+          geo.kind === "linear" && vertexDrag?.linearId === geo.id
+            ? vertexDrag.points
+            : geo.points;
         const first = pts[0];
         if (!first) {
           ctx.restore();
           continue;
+        }
+        if (aiMark && geo.kind === "linear") {
+          ctx.setLineDash([8, 5]);
         }
         ctx.beginPath();
         ctx.moveTo(first.x, first.y);
@@ -283,13 +298,16 @@ export default function StudioCanvas({
           ctx.fill();
         }
         ctx.stroke();
+        ctx.setLineDash([]);
+        const showHandles = selected || (studio.tool === "select" && geo.kind === "linear");
         for (const p of pts) {
+          const handleR = selected ? (studio.tool === "select" ? 9 : 7) : showHandles ? 6 : 5;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, selected ? 7 : 5, 0, Math.PI * 2);
-          ctx.fillStyle = "#fff";
+          ctx.arc(p.x, p.y, handleR, 0, Math.PI * 2);
+          ctx.fillStyle = aiMark && geo.kind === "linear" ? "#fff8e8" : "#fff";
           ctx.fill();
           ctx.strokeStyle = colour;
-          ctx.lineWidth = 2;
+          ctx.lineWidth = selected ? 2.4 : 2;
           ctx.stroke();
         }
       }
@@ -373,7 +391,7 @@ export default function StudioCanvas({
       ctx.stroke();
       ctx.setLineDash([]);
     }
-  }, [studio, document, page, pageSize, draftPoints, scaleDraft, selectedId, activeClass, dragPreview, rectStart, rectCurrent]);
+  }, [studio, document, page, pageSize, draftPoints, scaleDraft, selectedId, activeClass, dragPreview, vertexDrag, rectStart, rectCurrent]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -441,6 +459,8 @@ export default function StudioCanvas({
     setRectStart(null);
     setRectCurrent(null);
     dragGeoRef.current = null;
+    vertexDragRef.current = null;
+    setVertexDrag(null);
     patchStudio({ tool });
   }
 
@@ -449,6 +469,29 @@ export default function StudioCanvas({
     setDraftPoints([]);
     setScaleDraft([]);
     patchStudio({ activePage: safe });
+  }
+
+  function hitTestLinearVertex(point: StudioPoint): {
+    geo: Extract<StudioGeometry, { kind: "linear" }>;
+    index: number;
+  } | null {
+    if (!document) return null;
+    const threshold = 16 / view.scale;
+    const linears = studio.geometries.filter(
+      (g): g is Extract<StudioGeometry, { kind: "linear" }> =>
+        g.kind === "linear" && g.documentId === document.id && g.page === page,
+    );
+    const ordered = [
+      ...linears.filter((g) => g.id === selectedId),
+      ...linears.filter((g) => g.id !== selectedId),
+    ];
+    for (const geo of ordered) {
+      for (let i = 0; i < geo.points.length; i += 1) {
+        const p = geo.points[i];
+        if (p && dist(p, point) <= threshold) return { geo, index: i };
+      }
+    }
+    return null;
   }
 
   function hitTest(point: StudioPoint): StudioGeometry | null {
@@ -539,6 +582,8 @@ export default function StudioCanvas({
       };
       panRef.current = null;
       dragGeoRef.current = null;
+      vertexDragRef.current = null;
+      setVertexDrag(null);
       return;
     }
 
@@ -556,6 +601,18 @@ export default function StudioCanvas({
     }
 
     if (tool === "select") {
+      const vertexHit = hitTestLinearVertex(point);
+      if (vertexHit) {
+        setSelectedId(vertexHit.geo.id);
+        const draft = {
+          linearId: vertexHit.geo.id,
+          pointIndex: vertexHit.index,
+          points: vertexHit.geo.points.map((p) => ({ ...p })),
+        };
+        vertexDragRef.current = draft;
+        setVertexDrag(draft);
+        return;
+      }
       if (hit) {
         setSelectedId(hit.id);
         if (hit.kind === "count") {
@@ -650,6 +707,19 @@ export default function StudioCanvas({
       return;
     }
 
+    if (vertexDragRef.current) {
+      const point = clientToPage(event.clientX, event.clientY);
+      if (!point) return;
+      const current = vertexDragRef.current;
+      const nextPoints = current.points.map((p, index) => (
+        index === current.pointIndex ? { ...point } : p
+      ));
+      const next = { ...current, points: nextPoints };
+      vertexDragRef.current = next;
+      setVertexDrag(next);
+      return;
+    }
+
     if (dragGeoRef.current) {
       const point = clientToPage(event.clientX, event.clientY);
       if (!point) return;
@@ -697,6 +767,13 @@ export default function StudioCanvas({
           setSelectedId(geo.id);
         }
       }
+      if (vertexDragRef.current) {
+        const draft = vertexDragRef.current;
+        onChange(updateLinearPointsWithFittings(studio, draft.linearId, draft.points, {
+          acceptAsManual: true,
+        }));
+        setSelectedId(draft.linearId);
+      }
       if (dragGeoRef.current && dragPreview) {
         const id = dragGeoRef.current.id;
         const point = dragPreview.point;
@@ -708,6 +785,8 @@ export default function StudioCanvas({
       }
       panRef.current = null;
       dragGeoRef.current = null;
+      vertexDragRef.current = null;
+      setVertexDrag(null);
       setDragPreview(null);
       setRectStart(null);
       setRectCurrent(null);
@@ -798,6 +877,22 @@ export default function StudioCanvas({
     setSelectedId(null);
   }
 
+  function acceptSelectedAiRun() {
+    if (!selectedId) return;
+    const selected = studio.geometries.find((geo) => geo.id === selectedId);
+    if (!selected || selected.kind !== "linear" || !isAiStudioGeometry(selected)) return;
+    onChange(updateLinearPointsWithFittings(studio, selectedId, selected.points, {
+      acceptAsManual: true,
+    }));
+  }
+
+  const selectedGeo = selectedId
+    ? studio.geometries.find((geo) => geo.id === selectedId) || null
+    : null;
+  const selectedAiLinear = Boolean(
+    selectedGeo?.kind === "linear" && isAiStudioGeometry(selectedGeo),
+  );
+
   function handleUndo() {
     if (draftPoints.length) {
       setDraftPoints((points) => points.slice(0, -1));
@@ -825,8 +920,8 @@ export default function StudioCanvas({
     },
     select: {
       label: "Edit",
-      title: "Select and move pins. Drag empty space to pan.",
-      hint: "Tap a pin to select it. Drag the pin to move it. Delete removes it.",
+      title: "Select pins and pipe vertices. Drag vertices to trim AI/vision runs.",
+      hint: "Tap a pin or pipe vertex. Drag vertices to trim/extend a run — fittings refresh. Accept AI clears the dashed AI mark.",
     },
     count: {
       label: "Count",
@@ -988,6 +1083,16 @@ export default function StudioCanvas({
             }}
           >
             Close area
+          </button>
+        ) : null}
+        {selectedAiLinear ? (
+          <button
+            type="button"
+            className="accent"
+            onClick={acceptSelectedAiRun}
+            title="Keep this AI/vision pipe run as a manual mark"
+          >
+            Accept AI run
           </button>
         ) : null}
         <button type="button" onClick={deleteSelected} disabled={!selectedId} title="Delete selected mark">Delete</button>

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { createDefaultStudioState } from "./takeoff-studio";
+import { createDefaultStudioState, isAiStudioGeometry } from "./takeoff-studio";
 import {
   appendLinearWithAutoFittings,
   couplingPointsAlongRun,
@@ -10,6 +10,7 @@ import {
   previewFittingsForDraft,
   summariseStudioBoq,
   summariseStudioPipeBoq,
+  updateLinearPointsWithFittings,
 } from "./takeoff-studio-pipe";
 
 describe("studio pipe auto fittings", () => {
@@ -128,5 +129,56 @@ describe("studio pipe auto fittings", () => {
     assert.equal(boq.length, 1);
     assert.equal(boq[0]?.unit, "run");
     assert.match(boq[0]?.description || "", /set scale/i);
+  });
+
+  it("updates AI pipe vertices, regenerates fittings, and accepts as manual", () => {
+    let studio = createDefaultStudioState();
+    studio = {
+      ...studio,
+      scales: [{ documentId: "doc-1", page: 1, metresPerUnit: 0.1 }],
+    };
+    studio = appendLinearWithAutoFittings(studio, {
+      id: "ai-run-1",
+      classificationId: "cls-ai-P-PIPE-C",
+      kind: "linear",
+      documentId: "doc-1",
+      page: 1,
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+        { x: 100, y: 50 },
+      ],
+      material: "Copper",
+      diameter: "22mm",
+      stockLengthM: 3,
+      pipeSpecId: "cu-22",
+      source: "ai",
+      notes: "Blake vision",
+    });
+    assert.equal(isAiStudioGeometry(studio.geometries.find((g) => g.id === "ai-run-1")!), true);
+
+    const next = updateLinearPointsWithFittings(
+      studio,
+      "ai-run-1",
+      [
+        { x: 0, y: 0 },
+        { x: 80, y: 0 },
+        { x: 80, y: 60 },
+        { x: 140, y: 60 },
+      ],
+      { acceptAsManual: true },
+    );
+    const linears = next.geometries.filter((geo) => geo.kind === "linear" && geo.id === "ai-run-1");
+    assert.equal(linears.length, 1);
+    const linear = linears[0];
+    assert.ok(linear && linear.kind === "linear");
+    assert.equal(linear.points.length, 4);
+    assert.equal(linear.source, "manual");
+    assert.equal(isAiStudioGeometry(linear), false);
+    assert.match(linear.notes || "", /Edited on sheet/);
+    const elbows = next.geometries.filter(
+      (geo) => geo.kind === "count" && geo.fittingKind === "90-elbow" && geo.linkedLinearId === "ai-run-1",
+    );
+    assert.equal(elbows.length, 2);
   });
 });
