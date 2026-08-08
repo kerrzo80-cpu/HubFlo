@@ -63,6 +63,7 @@ import {
   summarisePricedMaterials,
 } from "@/lib/takeoff-studio-rates";
 import type { TakeoffAssemblyKit, TakeoffRateEntry, TakeoffRateLibrary } from "@/lib/takeoff-rate-library";
+import type { AuditEvent } from "@/lib/people-seed-data";
 
 import TakeoffOverlayReview from "./TakeoffOverlayReview";
 import StudioCanvas from "./studio/StudioCanvas";
@@ -73,6 +74,26 @@ type QuoteOption = { id: string; ref: string; customer: string; site: string };
 type AuthState = "checking" | "signed-in" | "signed-out" | "pilot";
 
 let sessionActor = "Office";
+
+function isTakeoffAuditEvent(event: AuditEvent, projectId: string | null) {
+  if ((event.source || "").toLowerCase().includes("takeoff")) return true;
+  if ((event.recordType || "").startsWith("takeoff")) return true;
+  if (projectId && event.recordId === projectId) return true;
+  return false;
+}
+
+function formatAuditWhen(createdAt: string) {
+  const parsed = Date.parse(createdAt);
+  if (!Number.isFinite(parsed)) return createdAt;
+  const mins = Math.floor((Date.now() - parsed) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 14) return `${days}d ago`;
+  return createdAt;
+}
 
 async function apiFetch(input: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers || {});
@@ -109,6 +130,7 @@ export default function TakeoffStudioPage() {
   const [rateLibrary, setRateLibrary] = useState<TakeoffRateLibrary | null>(null);
   const [ratesOpen, setRatesOpen] = useState(false);
   const [ratesBusy, setRatesBusy] = useState(false);
+  const [takeoffAudit, setTakeoffAudit] = useState<AuditEvent[]>([]);
   const saveTimer = useRef<number | null>(null);
   const historyRef = useRef<StudioState[]>([]);
   const futureRef = useRef<StudioState[]>([]);
@@ -180,6 +202,20 @@ export default function TakeoffStudioPage() {
     setSelectedId(project.id);
   }, []);
 
+  const refreshTakeoffAudit = useCallback(async (projectId: string | null) => {
+    try {
+      const response = await apiFetch("/api/audit", { cache: "no-store" });
+      if (!response.ok) return;
+      const events = (await response.json()) as AuditEvent[];
+      const filtered = events
+        .filter((event) => isTakeoffAuditEvent(event, projectId))
+        .slice(0, 12);
+      setTakeoffAudit(filtered);
+    } catch {
+      // Audit strip is optional — studio still works offline of Core audit.
+    }
+  }, []);
+
   const refresh = useCallback(async () => {
     const [projectRes, quoteRes] = await Promise.all([
       apiFetch("/api/takeoff-projects"),
@@ -222,6 +258,10 @@ export default function TakeoffStudioPage() {
     setReviewOpen(false);
     seededServicesRef.current = null;
   }, [selectedId]);
+
+  useEffect(() => {
+    void refreshTakeoffAudit(selectedId);
+  }, [selectedId, refreshTakeoffAudit]);
 
   useEffect(() => {
     if (!selected || seededServicesRef.current === selected.id) return;
@@ -707,6 +747,7 @@ export default function TakeoffStudioPage() {
         show(message, 16000);
         setBoqOpen(true);
       }
+      void refreshTakeoffAudit(selected.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Blake could not finish. Keep the sheet open and try again, or Length the run.");
     } finally {
@@ -751,6 +792,7 @@ export default function TakeoffStudioPage() {
         0,
       );
       show(`AI counts confirmed — ${activePins} pin(s) ready for Core · ${authName || "Office"}.`);
+      void refreshTakeoffAudit(selected.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not confirm AI counts.");
     } finally {
@@ -794,6 +836,7 @@ export default function TakeoffStudioPage() {
       });
       setReviewOpen(false);
       show(`AI counts rejected — Blake will avoid those codes · ${authName || "Office"}.`);
+      void refreshTakeoffAudit(selected.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not reject AI counts.");
     } finally {
@@ -928,6 +971,7 @@ export default function TakeoffStudioPage() {
       if (!response.ok || !body.library) throw new Error(body.error || "Could not save rates");
       setRateLibrary(body.library);
       show("Rate library saved — Push will use these £ rates and assembly kits.", 8000);
+      void refreshTakeoffAudit(selectedId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save rates");
     } finally {
@@ -1368,6 +1412,37 @@ export default function TakeoffStudioPage() {
                 )}
               </section>
 
+              <section className="nexa-studio-audit-rail" aria-label="Takeoff activity">
+                <header>
+                  <h2>Activity</h2>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => void refreshTakeoffAudit(selectedId)}
+                    title="Refresh takeoff audit"
+                  >
+                    Refresh
+                  </button>
+                </header>
+                <p className="muted nexa-studio-hint">
+                  Blake runs, AI confirm/reject, and rate library saves for this takeoff.
+                </p>
+                {takeoffAudit.length ? (
+                  <ul className="nexa-studio-audit-list">
+                    {takeoffAudit.map((event) => (
+                      <li key={event.id}>
+                        <strong>{event.summary}</strong>
+                        <span>
+                          {event.actor} · {formatAuditWhen(event.createdAt)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="muted">No takeoff audit yet — Ask Blake or save rates to start the trail.</p>
+                )}
+              </section>
+
               <section>
                 <header>
                   <h2>Classifications</h2>
@@ -1630,6 +1705,19 @@ export default function TakeoffStudioPage() {
                   <button type="button" disabled={busy === "push"} onClick={() => void pushToCore()}>
                     {selected.linkedQuoteId ? "Push" : "New quote"}
                   </button>
+                </div>
+              ) : null}
+              {takeoffAudit.length ? (
+                <div className="nexa-studio-audit-strip" aria-label="Recent takeoff activity">
+                  <span className="nexa-studio-audit-strip-label">Activity</span>
+                  <ul>
+                    {takeoffAudit.slice(0, 3).map((event) => (
+                      <li key={event.id}>
+                        <strong>{event.summary}</strong>
+                        <em>{formatAuditWhen(event.createdAt)}</em>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               ) : null}
               <div className="nexa-studio-service-bar" aria-label="Pipe service colours">
