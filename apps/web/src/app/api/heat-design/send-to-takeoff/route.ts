@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
-import { applyGuidePricesToKit } from "@/lib/ai-guide-prices";
+import { applyTaggedGuidePrices } from "@/lib/blake-budget-prices";
 import { getHeatDesignProject, saveHeatDesignProject } from "@/lib/heat-design-store";
 import {
   applyBlakePipeSizing,
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
     const reducers = reducerMaterialAllowances(fittings, takeoffId);
     // Prefer live Blake AI kit when present; else rule ancillaries.
     // Elbows/couplings already land via studio auto fittings on runs.
-    const kitLines = applyGuidePricesToKit(
+    const kitLines = applyTaggedGuidePrices(
       project.blakeProposal?.kitLines?.length
         ? project.blakeProposal.kitLines
         : buildBlakeAncillariesKit({

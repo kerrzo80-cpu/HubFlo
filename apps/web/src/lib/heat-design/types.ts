@@ -240,6 +240,15 @@ export type HeatPumpOption = {
   typicalInstalledFrom: number;
 };
 
+/** Where a kit unit cost came from — budget can be overwritten by supplier quote. */
+export type KitPricingSource =
+  | "blake-budget"
+  | "rate-library"
+  | "rule"
+  | "catalogue"
+  | "supplier"
+  | "manual";
+
 export type KitLine = {
   id: string;
   category: string;
@@ -248,6 +257,9 @@ export type KitLine = {
   unitCost: number;
   required: boolean;
   unit?: string;
+  /** blake-budget = live AI UK trade ballpark; replace when supplier quote lands. */
+  pricingSource?: KitPricingSource;
+  pricingNote?: string;
 };
 
 /** Last live / fallback Blake proposal stored on the Heat Design project. */
