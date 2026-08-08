@@ -1,4 +1,4 @@
-/** Standalone heat-pump / heating design lab (HeatPunk-style floor plan workflow). */
+/** Standalone heat-pump / heating design lab (floor-plan-first workflow). */
 
 export type FloorLevel = "ground" | "cellar" | "first" | "second";
 
@@ -60,7 +60,7 @@ export type HeatDesignRoom = {
   planY: number;
   floorLevel: FloorLevel;
   openings: PlanOpening[];
-  /** Existing emitters on the surveyed plan (HeatPunk-style). */
+  /** Existing emitters on the surveyed plan. */
   surveyedEmitters?: SurveyedEmitter[];
   /** Override room-type default ACH (air changes per hour). */
   airChanges?: number;

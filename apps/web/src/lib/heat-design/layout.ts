@@ -632,7 +632,7 @@ export function translatePipe(layout: HeatingSystemLayout, pipeId: string, dx: n
   };
 }
 
-/** Place a surveyed (existing) radiator on a room wall — HeatPunk-style. */
+/** Place a surveyed (existing) radiator on a room wall. */
 export function placeSurveyedRadiatorOnWall(
   room: HeatDesignRoom,
   wallIndex: number,

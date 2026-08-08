@@ -222,7 +222,7 @@ export function edgesShareWall(
 }
 
 /**
- * HeatPunk-style: walls that sit against another room on the same floor become
+ * Walls that sit against another room on the same floor become
  * internal; everything else stays exterior.
  */
 export function autoMarkExteriorWalls(rooms: HeatDesignRoom[]): HeatDesignRoom[] {

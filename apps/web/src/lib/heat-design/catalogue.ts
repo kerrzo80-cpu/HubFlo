@@ -147,7 +147,7 @@ export const kitExtraOptions: Array<{ id: string; label: string; unitCost: numbe
 export const propertyTypes = ["Detached", "Semi-detached", "Terraced", "Bungalow", "Flat"];
 export const buildEras = ["Pre-1919", "1919–1944", "1945–1964", "1965–1990", "1991–2002", "2003–present"];
 
-/** HeatPunk-style wall constructions with U-values. */
+/** Wall constructions with U-values. */
 export const wallConstructions: WallConstruction[] = [
   { id: "cav-mw-100-wp", category: "cavity", label: "Insulated cavity", uValue: 0.45, thicknessMm: 275, layers: "mineral wool, 100mm block, wet plaster" },
   { id: "cav-none-100-wp", category: "cavity", label: "Uninsulated cavity", uValue: 0.87, thicknessMm: 275, layers: "No insulation, 100mm block, wet plaster" },

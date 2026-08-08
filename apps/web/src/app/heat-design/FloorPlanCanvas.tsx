@@ -1627,9 +1627,9 @@ export function FloorPlanCanvas({
         </div>
       ) : null}
       <p className="hp-canvas-hint">
-        <strong>HeatPunk-style plan:</strong> pick a room from the left palette → click canvas to place · snap rooms
-        together for automatic internal walls · place Window / Door / Roof light on a selected room wall · drag corner
-        handles to resize · click openings to set size &amp; material in the inspector.
+        <strong>Floor plan:</strong> pick a room from the palette → click the canvas to place · snap rooms together for
+        internal walls · place Window / Door / Roof light on a selected wall · drag corners to resize · tap openings to
+        set size in the inspector.
         {heatingLayout ? (
           <>
             {" "}

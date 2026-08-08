@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import Link from "next/link";
+import { LayoutDashboard } from "lucide-react";
 import {
   autoMarkExteriorWalls,
   calculateRoomHeatLoss,
@@ -913,16 +915,22 @@ export default function HeatDesignLabPage() {
     <main className={`hd-lab${tab === "plan" ? " is-plan-mode" : ""}`}>
       <div className="hd-shell">
         <header className="hd-topbar">
-          <div className="hd-brand">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img className="hd-brand-logo" src={resolveBrandLogoUrl(brand, "heat-design")} alt={brand.companyName} />
-            <div className="hd-brand-kicker">Live · links to Core quotes & jobs</div>
-            <h1>{brand.heatDesignAppName}</h1>
-            {tab !== "plan" ? (
-              <p>
-                Draw the house, size the system, then push materials into a Core quote or job — or create a new one.
-              </p>
-            ) : null}
+          <div className="hd-brand-row">
+            <div className="hd-brand">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img className="hd-brand-logo" src={resolveBrandLogoUrl(brand, "heat-design")} alt={brand.companyName} />
+              <div className="hd-brand-kicker">Live · links to Core quotes & jobs</div>
+              <h1>{brand.heatDesignAppName}</h1>
+              {tab !== "plan" ? (
+                <p className="hd-brand-lead">
+                  Draw the house, size the system, then push materials into a Core quote or job — or create a new one.
+                </p>
+              ) : null}
+            </div>
+            <Link href="/" className="hd-btn hd-btn-core" aria-label="Back to Core">
+              <LayoutDashboard size={16} aria-hidden />
+              Core
+            </Link>
           </div>
           <div className="hd-top-actions">
             <label className="hd-project-switcher">
@@ -936,21 +944,23 @@ export default function HeatDesignLabPage() {
               </select>
             </label>
             <span className={`hd-save-status is-${saveStatus}`}>{saveStatusLabel}</span>
-            <button type="button" className="hd-btn hd-btn-ghost" onClick={startBlankPlan}>
-              New project
-            </button>
-            <button type="button" className="hd-btn hd-btn-ghost" onClick={resetDemo}>
-              Load sample
-            </button>
-            <button type="button" className="hd-btn" onClick={addRoom}>
-              Add room
-            </button>
-            <button type="button" className="hd-btn" onClick={requestPrint}>
-              Print report
-            </button>
-            <button type="button" className="hd-btn hd-btn-primary" onClick={autoPickPump}>
-              Auto-size pump
-            </button>
+            <div className="hd-action-cluster" role="group" aria-label="Project actions">
+              <button type="button" className="hd-btn hd-btn-ghost" onClick={startBlankPlan}>
+                New project
+              </button>
+              <button type="button" className="hd-btn hd-btn-ghost hd-btn-desktop" onClick={resetDemo}>
+                Load sample
+              </button>
+              <button type="button" className="hd-btn" onClick={addRoom}>
+                Add room
+              </button>
+              <button type="button" className="hd-btn hd-btn-desktop" onClick={requestPrint}>
+                Print report
+              </button>
+              <button type="button" className="hd-btn hd-btn-primary" onClick={autoPickPump}>
+                Auto-size pump
+              </button>
+            </div>
           </div>
         </header>
 
