@@ -41,6 +41,7 @@ import {
 } from "@/lib/takeoff-studio";
 import {
   ensurePlantClassifications,
+  PLANT_CLASS_DEFS,
   type BlakeEmitterMode,
   type BlakePlantKind,
 } from "@/lib/takeoff-blake-propose";
@@ -170,9 +171,15 @@ export default function TakeoffStudioPage() {
     activeLayerId === "all" ? true : classificationLayer(cls) === activeLayerId,
   );
   // Always show every preset service + any custom linears/counts so Draw as isn't stuck on Hot/Cold only.
-  const presetIds = new Set(SERVICE_CLASS_DEFS.map((def) => def.id));
+  const presetIds = new Set([
+    ...SERVICE_CLASS_DEFS.map((def) => def.id),
+    ...PLANT_CLASS_DEFS.map((def) => def.id),
+  ]);
   const pipeServiceClasses = [
     ...SERVICE_CLASS_DEFS
+      .map((def) => studio.classifications.find((cls) => cls.id === def.id))
+      .filter((cls): cls is StudioClassification => Boolean(cls)),
+    ...PLANT_CLASS_DEFS
       .map((def) => studio.classifications.find((cls) => cls.id === def.id))
       .filter((cls): cls is StudioClassification => Boolean(cls)),
     ...studio.classifications.filter((cls) => !presetIds.has(cls.id) && (cls.kind === "linear" || cls.kind === "count")),
