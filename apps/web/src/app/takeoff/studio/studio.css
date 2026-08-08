@@ -1,0 +1,1565 @@
+.nexa-studio {
+  --ink: #173344;
+  --muted: #5f7583;
+  --line: #d5e2ea;
+  --surface: #ffffff;
+  --canvas: #dfe8ee;
+  --blue: #1998cf;
+  --blue-deep: #0879ab;
+  --green: #1f8a5b;
+  --ai: #16a34a;
+  min-height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  overflow: hidden;
+  touch-action: manipulation;
+}
+
+.nexa-studio-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  background: #103040;
+  color: #e8f3f8;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  flex: 0 0 auto;
+}
+
+.nexa-studio-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.nexa-studio-brand img {
+  height: 42px;
+  width: auto;
+  max-width: 160px;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 8px;
+  padding: 2px 6px;
+}
+
+.nexa-studio-brand strong {
+  display: block;
+  font-size: 15px;
+}
+
+.nexa-studio-brand span {
+  display: block;
+  font-size: 11px;
+  color: #9fc4d6;
+}
+
+.nexa-studio-modes {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.nexa-studio-flow {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.nexa-studio-flow button {
+  position: relative;
+  border: 0;
+  background: transparent;
+  color: #7fa9bb;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 7px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+  min-height: 34px;
+}
+
+.nexa-studio-flow button + button::before {
+  content: "›";
+  position: absolute;
+  left: -1px;
+  top: 50%;
+  transform: translateY(-52%);
+  color: #4f7486;
+  font-weight: 400;
+  pointer-events: none;
+}
+
+.nexa-studio-flow button.on {
+  background: #fff;
+  color: #103040;
+}
+
+.nexa-studio-flow button:hover {
+  color: #e8f3f8;
+}
+
+.nexa-studio-flow button.on:hover {
+  color: #103040;
+}
+
+.nexa-studio-flow button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (min-width: 720px) {
+  .nexa-studio-flow {
+    display: inline-flex;
+  }
+}
+
+.nexa-studio-modes a {
+  color: #b7d4e2;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 11px;
+  border-radius: 999px;
+}
+
+.nexa-studio-modes a.on {
+  background: #fff;
+  color: #103040;
+}
+
+.nexa-studio-core-pill {
+  color: #e8f3f8;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.nexa-studio-core-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.nexa-studio-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nexa-studio-top-actions .pill {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.nexa-studio-top-actions .muted-pill {
+  opacity: 0.75;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nexa-studio-banner.warn {
+  border-color: #f0d39a;
+  background: #fff8e8;
+  color: #8a5a00;
+}
+
+.nexa-studio-blake-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(16, 48, 64, 0.45);
+  padding: 24px;
+}
+
+.nexa-studio-blake-card {
+  width: min(360px, 100%);
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
+  background: #fff;
+  border-radius: 16px;
+  padding: 22px 20px;
+  box-shadow: 0 18px 50px rgba(16, 24, 40, 0.28);
+  color: var(--ink);
+}
+
+.nexa-studio-blake-card strong {
+  font-size: 18px;
+}
+
+.nexa-studio-blake-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.nexa-studio-ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 999px;
+  background: #16a34a;
+  color: #fff;
+  font-weight: 800;
+  font-size: 14px;
+  padding: 10px 16px;
+  cursor: pointer;
+  min-height: 44px;
+  box-shadow: 0 8px 18px rgba(22, 163, 74, 0.28);
+}
+
+.nexa-studio-ai:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.nexa-studio-banner {
+  margin: 8px 12px 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.nexa-studio-banner.error {
+  background: #fff5f4;
+  border-color: #f0b4b0;
+  color: #9b2c2c;
+}
+
+.nexa-studio-banner.ok {
+  background: #f1faf4;
+  border-color: #b7e0c8;
+  color: #1f6b45;
+}
+
+.nexa-studio-ai-review-banner {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.nexa-studio-ai-review-banner button {
+  border: 1px solid #f0d39a;
+  border-radius: 999px;
+  background: #fff;
+  color: #8a5a00;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 7px 12px;
+  white-space: nowrap;
+}
+
+.nexa-studio-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+}
+
+.nexa-studio-ai-review-panel {
+  min-height: 0;
+  padding: 12px;
+}
+
+.nexa-studio-rail {
+  min-height: 0;
+  overflow: auto;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  padding: 10px;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  -webkit-overflow-scrolling: touch;
+}
+
+.nexa-studio-rail-toggle {
+  display: none;
+}
+
+.nexa-studio-rail-body {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.nexa-studio-rail section {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  background: #fbfcfd;
+}
+
+.nexa-studio-rail header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.nexa-studio-rail h2 {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  flex: 1;
+}
+
+.nexa-studio-create {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.nexa-studio-create.class {
+  grid-template-columns: 88px 1fr auto;
+}
+
+.nexa-studio-create input,
+.nexa-studio-create select,
+.nexa-studio-core-link select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  font: inherit;
+  min-height: 40px;
+}
+
+.nexa-studio-primary,
+.nexa-studio-rail .ghost,
+.nexa-studio-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 40px;
+  padding: 0 12px;
+}
+
+.nexa-studio-primary {
+  background: var(--blue-deep);
+  border: 1px solid var(--blue-deep);
+  color: #fff;
+}
+
+.nexa-studio-rail .ghost,
+.nexa-studio-toolbar button {
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.nexa-studio-project-list,
+.nexa-studio-doc-list,
+.nexa-studio-class-list {
+  display: grid;
+  gap: 4px;
+}
+
+.nexa-studio-project-list button,
+.nexa-studio-doc-list button,
+.nexa-studio-class-pick {
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 10px;
+  padding: 9px 10px;
+  cursor: pointer;
+  color: inherit;
+  min-height: 44px;
+}
+
+.nexa-studio-project-list button strong,
+.nexa-studio-project-list button span,
+.nexa-studio-class-pick strong,
+.nexa-studio-class-pick small {
+  display: block;
+}
+
+.nexa-studio-project-list button span,
+.nexa-studio-class-pick small,
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.nexa-studio-project-list button.on,
+.nexa-studio-doc-list button.on,
+.nexa-studio-class-row.on {
+  border-color: rgba(25, 152, 207, 0.4);
+  background: #eef7fc;
+}
+
+.nexa-studio-class-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 36px;
+  align-items: stretch;
+  gap: 2px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+}
+
+.nexa-studio-class-colour {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.nexa-studio-class-colour span {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  border: 1px solid rgba(16, 48, 64, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+.nexa-studio-class-colour input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.nexa-studio-class-pick {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.nexa-studio-layer-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nexa-studio-layer-list button {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nexa-studio-layer-list button.on {
+  background: var(--blue-deep);
+  border-color: var(--blue-deep);
+  color: #fff;
+}
+
+.nexa-studio-layer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.nexa-studio-layer-actions .ghost,
+.nexa-studio-layer-actions .nexa-studio-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.nexa-studio-service-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: #f4f8fb;
+  border-bottom: 1px solid var(--line);
+}
+
+.nexa-studio-service-bar-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+.nexa-studio-service-bar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nexa-studio-service-bar button i {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+
+.nexa-studio-service-bar button.on {
+  border-color: var(--svc, var(--blue-deep));
+  box-shadow: inset 0 0 0 1px var(--svc, var(--blue-deep));
+  background: #fff;
+}
+
+.nexa-studio-service-active {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.nexa-studio-service-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px dashed var(--blue-deep) !important;
+  color: var(--blue-deep) !important;
+  background: #eef7fc !important;
+}
+
+.nexa-studio-size-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 8px;
+  background: #eef3f7;
+  border-bottom: 1px solid var(--line);
+}
+
+.nexa-studio-size-bar button {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nexa-studio-size-bar button.on {
+  background: var(--blue-deep);
+  border-color: var(--blue-deep);
+  color: #fff;
+}
+
+.nexa-studio-size-note {
+  width: 100%;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.nexa-studio-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 0 2px;
+}
+
+.nexa-studio-quick-actions button {
+  flex: 1 1 auto;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nexa-studio-quick-actions button.on {
+  border-color: var(--blue);
+  background: #e8f4fb;
+  color: var(--blue-deep);
+}
+
+.nexa-studio-quick-actions button.need {
+  border-color: #c45c26;
+  background: #fff4ec;
+  color: #9a3f12;
+}
+
+.nexa-studio-push-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.nexa-studio-boq-layers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.nexa-studio-boq-layers button {
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nexa-studio-boq-layers button.on {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: #fff;
+}
+
+.nexa-studio-boq-panel-actions {
+  margin-top: 12px;
+}
+
+.nexa-studio-boq-panel-actions .nexa-studio-primary {
+  width: 100%;
+}
+
+.nexa-studio-boq-sheet {
+  display: grid;
+  gap: 0;
+  margin: 0 0 8px;
+}
+
+.nexa-studio-boq-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f7fbfc 0%, #eef5f8 100%);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nexa-studio-boq-toggle span {
+  flex: 1;
+  font-size: 13px;
+}
+
+.nexa-studio-boq-toggle strong {
+  font-size: 12px;
+  color: var(--blue-deep);
+}
+
+.nexa-studio-boq-panel {
+  margin-top: -6px;
+  padding: 12px 12px 10px;
+  border: 1px solid var(--line);
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  background: #fff;
+}
+
+.nexa-studio-boq-panel > p {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.nexa-studio-boq-panel > p.empty {
+  margin: 0;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.nexa-studio-boq-list {
+  display: grid;
+  gap: 10px;
+}
+
+.nexa-studio-boq-section strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.nexa-studio-boq-section ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.nexa-studio-boq-section li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbfc;
+  font-size: 12px;
+}
+
+.nexa-studio-boq-section li span {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.nexa-studio-boq-section li em {
+  font-style: normal;
+  font-weight: 800;
+  color: var(--blue-deep);
+  white-space: nowrap;
+}
+
+.nexa-studio-boq-rail .nexa-studio-boq-list {
+  margin-top: 6px;
+}
+
+.nexa-studio-boq-scale-warn {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border: 1px solid #e0c48a;
+  border-radius: 8px;
+  background: #fff8e8;
+  color: #6a4b12;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.nexa-studio-propose-panel {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f7fbfc 0%, #eef5f8 100%);
+}
+
+.nexa-studio-propose-panel > header {
+  display: grid;
+  gap: 2px;
+}
+
+.nexa-studio-propose-panel > header strong {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.nexa-studio-propose-panel > header span,
+.nexa-studio-propose-panel > p.muted {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.nexa-studio-propose-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.nexa-studio-propose-row em {
+  flex: 0 0 auto;
+  min-width: 72px;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.nexa-studio-propose-row button,
+.nexa-studio-propose-actions button {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nexa-studio-propose-row button.on {
+  border-color: var(--blue);
+  background: #e8f4fb;
+  color: var(--blue-deep);
+}
+
+.nexa-studio-propose-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.nexa-studio-propose-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.nexa-studio-propose-actions .nexa-studio-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.nexa-studio-propose-questions {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+
+.nexa-studio-propose-questions strong {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.nexa-studio-propose-questions ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.nexa-studio-boq-panel .nexa-studio-boq-scale-warn {
+  margin: 0 0 8px;
+}
+
+.nexa-studio-audit-rail .nexa-studio-audit-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.nexa-studio-audit-rail .nexa-studio-audit-list li {
+  display: grid;
+  gap: 2px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.nexa-studio-audit-rail .nexa-studio-audit-list strong {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.3;
+}
+
+.nexa-studio-audit-rail .nexa-studio-audit-list span {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.nexa-studio-audit-strip {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #f8fafb 0%, #eef3f6 100%);
+  overflow-x: auto;
+}
+
+.nexa-studio-audit-strip-label {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.nexa-studio-audit-strip ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  min-width: 0;
+}
+
+.nexa-studio-audit-strip li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.nexa-studio-audit-strip strong {
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 42vw;
+}
+
+.nexa-studio-audit-strip em {
+  font-style: normal;
+  font-weight: 700;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.nexa-studio-rates-editor {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.nexa-studio-rates-heading {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.nexa-studio-rates-list,
+.nexa-studio-assembly-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.nexa-studio-rates-list li,
+.nexa-studio-assembly-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+}
+
+.nexa-studio-rates-list li span,
+.nexa-studio-assembly-list li span {
+  display: grid;
+  gap: 1px;
+  font-weight: 700;
+}
+
+.nexa-studio-rates-list small,
+.nexa-studio-assembly-list small {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.nexa-studio-rates-list label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  color: var(--blue-deep);
+}
+
+.nexa-studio-rates-list input {
+  width: 72px;
+  min-height: 30px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 700;
+}
+
+.nexa-studio-assembly-list label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  cursor: pointer;
+}
+
+.nexa-studio-rates-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.nexa-studio-fitting-tally {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.nexa-studio-fitting-tally-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  width: 100%;
+}
+
+.nexa-studio-fitting-tally span:not(.nexa-studio-fitting-tally-label) {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 3px 8px;
+}
+
+.nexa-studio-fitting-tally strong {
+  color: var(--blue-deep);
+}
+
+.nexa-studio-create.class input[type="color"] {
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.nexa-studio-class-pick em {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--blue-deep);
+  white-space: nowrap;
+}
+
+.nexa-studio-class-delete {
+  border: 0;
+  background: transparent;
+  color: #8a9aa5;
+  font-size: 20px;
+  line-height: 1;
+  border-radius: 8px;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.nexa-studio-class-delete:hover {
+  background: #f4f7f9;
+  color: #9b2c2c;
+}
+
+.nexa-studio-hint {
+  margin: 8px 0 0;
+  line-height: 1.35;
+}
+
+.nexa-studio-class-list i,
+.nexa-studio-qty i {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  flex: 0 0 auto;
+}
+
+.nexa-studio-qty {
+  display: grid;
+  gap: 6px;
+}
+
+.nexa-studio-qty div {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.nexa-studio-core-link {
+  display: grid;
+  gap: 8px;
+}
+
+.nexa-studio-core-link label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.nexa-studio-core-link a.link {
+  text-decoration: none;
+  color: var(--blue-deep);
+}
+
+.nexa-studio-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.nexa-studio-canvas-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.nexa-studio-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.94);
+  border-bottom: 1px solid var(--line);
+}
+
+.nexa-studio-tool-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f4f8fb;
+}
+
+.nexa-studio-tool-group-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 6px;
+}
+
+.nexa-studio-tool-banner {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #173344;
+  background: #eef7fc;
+  border-bottom: 1px solid #d5e2ea;
+}
+
+.nexa-studio-toolbar .on,
+.nexa-studio-toolbar .accent,
+.nexa-studio-scale-form .accent {
+  background: var(--blue-deep) !important;
+  border-color: var(--blue-deep) !important;
+  color: #fff !important;
+}
+
+.nexa-studio-toolbar-gap {
+  flex: 1;
+}
+
+.nexa-studio-stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgba(16, 48, 64, 0.04) 1px, transparent 1px),
+    linear-gradient(rgba(16, 48, 64, 0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-color: #cfd9e0;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.nexa-studio-page {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  box-shadow: 0 10px 40px rgba(16, 24, 40, 0.25);
+}
+
+.nexa-studio-pdf,
+.nexa-studio-overlay {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.nexa-studio-overlay {
+  pointer-events: none;
+}
+
+.nexa-studio-statusbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+  background: #fff;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.nexa-studio-statusbar strong {
+  color: var(--ink);
+}
+
+.nexa-studio-scale-form {
+  display: inline-flex;
+  gap: 8px;
+  align-items: end;
+  margin-left: auto;
+}
+
+.nexa-studio-scale-hints {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.nexa-studio-scale-hints .accent {
+  min-height: 34px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 0;
+  background: #103040 !important;
+  color: #fff !important;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nexa-studio-scale-form label {
+  display: grid;
+  gap: 2px;
+  font-weight: 700;
+}
+
+.nexa-studio-scale-form input {
+  width: 88px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  min-height: 36px;
+}
+
+.nexa-studio-empty,
+.nexa-studio-empty-main,
+.nexa-studio-gate {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 28px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.nexa-studio-empty.error {
+  color: #9b2c2c;
+}
+
+.nexa-studio-empty-main,
+.nexa-studio-gate {
+  min-height: 60vh;
+}
+
+.nexa-studio-gate h1,
+.nexa-studio-empty-main h1 {
+  margin: 0;
+  color: var(--ink);
+}
+
+.nexa-studio-top-actions .pill.save-saving {
+  border-color: rgba(255, 200, 80, 0.45);
+}
+
+.nexa-studio-top-actions .pill.save-error {
+  border-color: rgba(240, 120, 120, 0.55);
+  color: #ffd7d7;
+}
+
+.nexa-studio-page-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 2px 6px;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.nexa-studio-page-nav button {
+  min-height: 32px !important;
+  padding: 0 6px !important;
+  border: 0 !important;
+}
+
+.nexa-studio-stage.tool-pan,
+.nexa-studio-stage.space-pan {
+  cursor: grab;
+}
+
+.nexa-studio-stage.tool-count,
+.nexa-studio-stage.tool-area,
+.nexa-studio-stage.tool-rect,
+.nexa-studio-stage.tool-linear,
+.nexa-studio-stage.tool-scale {
+  cursor: crosshair;
+}
+
+.nexa-studio-stage.tool-select {
+  cursor: default;
+}
+
+.spin {
+  animation: nexa-spin 0.8s linear infinite;
+}
+
+@keyframes nexa-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 960px) {
+  /* Canvas-first on phones: page can scroll; drawing gets most of the viewport. */
+  .nexa-studio {
+    height: auto;
+    min-height: 100dvh;
+    overflow: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .nexa-studio-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(68dvh, 1fr) auto;
+    flex: 1 1 auto;
+    min-height: calc(100dvh - 56px);
+  }
+
+  .nexa-studio-main {
+    order: -1;
+    min-height: 68dvh;
+  }
+
+  .nexa-studio-canvas-wrap {
+    min-height: 68dvh;
+  }
+
+  .nexa-studio-stage {
+    min-height: 52dvh;
+  }
+
+  .nexa-studio-rail {
+    order: 1;
+    max-height: none;
+    border-right: 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 0;
+    padding: 8px 10px 16px;
+  }
+
+  .nexa-studio-rail-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #f4f8fb;
+    color: var(--ink);
+    font: inherit;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .nexa-studio-rail-toggle span {
+    flex: 1;
+    font-size: 13px;
+  }
+
+  .nexa-studio-rail-toggle strong {
+    font-size: 12px;
+    color: var(--blue-deep);
+  }
+
+  .nexa-studio-rail.is-collapsed .nexa-studio-rail-body {
+    display: none;
+  }
+
+  .nexa-studio-body.rail-collapsed {
+    grid-template-rows: minmax(78dvh, 1fr) auto;
+  }
+
+  .nexa-studio-body.rail-collapsed .nexa-studio-main,
+  .nexa-studio-body.rail-collapsed .nexa-studio-canvas-wrap {
+    min-height: 78dvh;
+  }
+
+  .nexa-studio-body.rail-collapsed .nexa-studio-stage {
+    min-height: 62dvh;
+  }
+
+  .nexa-studio-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+  }
+
+  .nexa-studio-quick-actions {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    margin: 0 0 6px;
+    padding: 6px 0 4px;
+    background: linear-gradient(180deg, #f4f8fb 70%, rgba(244, 248, 251, 0));
+  }
+
+  .nexa-studio-service-bar,
+  .nexa-studio-size-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 5px;
+    padding: 6px 8px;
+  }
+
+  .nexa-studio-service-bar button,
+  .nexa-studio-size-bar button {
+    flex: 0 0 auto;
+    padding: 5px 8px;
+    font-size: 11px;
+  }
+
+  .nexa-studio-service-active,
+  .nexa-studio-size-note,
+  .nexa-studio-fitting-tally {
+    display: none;
+  }
+
+  .nexa-studio-boq-sheet:not(:has(.nexa-studio-boq-panel)) {
+    margin-bottom: 4px;
+  }
+
+  .nexa-studio-body.rail-collapsed .nexa-studio-stage {
+    min-height: 66dvh;
+  }
+
+  .nexa-studio-top {
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 4;
+  }
+
+  .nexa-studio-brand span {
+    display: none;
+  }
+
+  .nexa-studio-flow {
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
+  }
+}

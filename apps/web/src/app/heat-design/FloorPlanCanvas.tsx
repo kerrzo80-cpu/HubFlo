@@ -72,6 +72,7 @@ type DragState =
   | { mode: "move"; roomId: string; origin: PlanPoint[]; grab: PlanPoint }
   | { mode: "vertex"; roomId: string; index: number; polygon: PlanPoint[] }
   | { mode: "resize-rect"; roomId: string; corner: number; origin: PlanPoint[] }
+  | { mode: "edge"; roomId: string; edgeIndex: number; origin: PlanPoint[] }
   | { mode: "draw-room"; roomType: string; start: PlanPoint; current: PlanPoint }
   | { mode: "opening"; roomId: string; openingId: string; wallIndex: number }
   | { mode: "plant"; plantId: string }
@@ -410,6 +411,45 @@ export function FloorPlanCanvas({
         ];
         setGuides({ x: [minX, maxX], y: [minY, maxY] });
         onPatchRoom(drag.roomId, syncRoomFromPolygon(room, next));
+      } else if (drag?.mode === "edge") {
+        const room = floorRooms.find((r) => r.id === drag.roomId);
+        if (!room) return;
+        const origin = drag.origin;
+        const i0 = drag.edgeIndex;
+        const i1 = (drag.edgeIndex + 1) % origin.length;
+        const a = origin[i0]!;
+        const b = origin[i1]!;
+        const next = origin.map((p) => ({ ...p }));
+        const horizontal = Math.abs(a.y - b.y) < 0.05;
+        const vertical = Math.abs(a.x - b.x) < 0.05;
+        if (horizontal) {
+          let y = Math.max(0.2, point.y);
+          const sy = snap(y, anchors.ys);
+          if (Math.abs(sy - y) < SNAP_M) y = sy;
+          next[i0] = { x: a.x, y };
+          next[i1] = { x: b.x, y };
+          setGuides({ x: [], y: [y] });
+        } else if (vertical) {
+          let x = Math.max(0.2, point.x);
+          const sx = snap(x, anchors.xs);
+          if (Math.abs(sx - x) < SNAP_M) x = sx;
+          next[i0] = { x, y: a.y };
+          next[i1] = { x, y: b.y };
+          setGuides({ x: [x], y: [] });
+        } else {
+          // Free edge: move both endpoints along the edge normal toward the pointer.
+          const len = dist(a, b) || 1;
+          const nx = -(b.y - a.y) / len;
+          const ny = (b.x - a.x) / len;
+          const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+          const push = (point.x - mid.x) * nx + (point.y - mid.y) * ny;
+          next[i0] = { x: a.x + nx * push, y: a.y + ny * push };
+          next[i1] = { x: b.x + nx * push, y: b.y + ny * push };
+          setGuides({ x: [], y: [] });
+        }
+        const bounds = polygonBounds(next);
+        if (bounds.width < 0.8 || bounds.height < 0.8) return;
+        onPatchRoom(drag.roomId, syncRoomFromPolygon(room, next));
       } else if (drag?.mode === "opening") {
         const room = floorRooms.find((r) => r.id === drag.roomId);
         if (!room) return;
@@ -442,6 +482,7 @@ export function FloorPlanCanvas({
         drag?.mode === "move" ||
         drag?.mode === "vertex" ||
         drag?.mode === "resize-rect" ||
+        drag?.mode === "edge" ||
         drag?.mode === "draw-room";
       setDrag(null);
       setGuides({ x: [], y: [] });
@@ -909,7 +950,12 @@ export function FloorPlanCanvas({
                   onPointerDown={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    if (placeRoomType) return;
+                    // Drawing a new room must work even when the drag starts over an existing room.
+                    if (placeRoomType && onPlaceRoom && !layoutMode) {
+                      const point = clientToMetres(event.clientX, event.clientY);
+                      setDrag({ mode: "draw-room", roomType: placeRoomType, start: point, current: point });
+                      return;
+                    }
                     onSelectRoom(room.id);
                     setSelectedEdge(null);
                     setSelectedPlantId(null);
@@ -933,10 +979,24 @@ export function FloorPlanCanvas({
                       }
                       strokeWidth={exterior[i] ? (isSelected ? 11 : 9) : isSelected && selectedEdge === i ? 5 : 3}
                       strokeLinecap="square"
-                      style={{ cursor: placeTool ? "crosshair" : "pointer" }}
+                      style={{
+                        cursor: placeRoomType
+                          ? "crosshair"
+                          : placeTool
+                            ? "crosshair"
+                            : layoutMode
+                              ? "pointer"
+                              : "ew-resize",
+                        pointerEvents: placeRoomType && !layoutMode ? "none" : "auto",
+                      }}
                       onPointerDown={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
+                        if (placeRoomType && onPlaceRoom && !layoutMode) {
+                          const point = clientToMetres(event.clientX, event.clientY);
+                          setDrag({ mode: "draw-room", roomType: placeRoomType, start: point, current: point });
+                          return;
+                        }
                         onSelectRoom(room.id);
                         setSelectedEdge(i);
                         setSelectedOpeningId(null);
@@ -944,7 +1004,13 @@ export function FloorPlanCanvas({
                           placeOpeningOnEdge(room, i, clientToMetres(event.clientX, event.clientY), placeTool);
                           return;
                         }
-                        if (event.detail >= 2) toggleEdgeExterior(room, i);
+                        if (event.detail >= 2) {
+                          toggleEdgeExterior(room, i);
+                          return;
+                        }
+                        if (!layoutMode) {
+                          setDrag({ mode: "edge", roomId: room.id, edgeIndex: i, origin: polygon });
+                        }
                       }}
                     />
                   );
@@ -1154,13 +1220,18 @@ export function FloorPlanCanvas({
 
           {showLayout
             ? floorPipes.map((pipe) => {
-                const style = pipeStroke(pipe.kind);
+                const style = pipeStroke(pipe.kind, pipe.diameterMm);
                 const active = pipe.id === selectedPipeId;
                 const pointsAttr = pipe.points
                   .map((p) => `${px(p.x)},${py(p.y)}`)
                   .join(" ");
+                const mid = pipe.points[Math.floor(pipe.points.length / 2)];
                 return (
-                  <g key={pipe.id} className="hp-pipe-layer">
+                  <g
+                    key={pipe.id}
+                    className="hp-pipe-layer"
+                    style={{ pointerEvents: layoutMode ? "auto" : "none" }}
+                  >
                     <polyline
                       points={pointsAttr}
                       fill="none"
@@ -1183,6 +1254,19 @@ export function FloorPlanCanvas({
                         setDrag({ mode: "pipe-move", pipeId: pipe.id, origin: pipe.points, grab });
                       }}
                     />
+                    {mid && pipe.diameterMm ? (
+                      <text
+                        x={px(mid.x)}
+                        y={py(mid.y) - 6}
+                        textAnchor="middle"
+                        fontSize={11}
+                        fontWeight={700}
+                        fill={style.stroke}
+                        style={{ pointerEvents: "none" }}
+                      >
+                        {pipe.diameterMm}
+                      </text>
+                    ) : null}
                     {layoutMode
                       ? pipe.points.map((p, index) => (
                           <circle
@@ -1222,7 +1306,10 @@ export function FloorPlanCanvas({
                   <g
                     key={plant.id}
                     className="hp-plant-layer"
-                    style={{ cursor: layoutMode ? "grab" : "default" }}
+                    style={{
+                      cursor: layoutMode ? "grab" : "default",
+                      pointerEvents: layoutMode ? "auto" : "none",
+                    }}
                     onPointerDown={(event) => {
                       if (!layoutMode || !heatingLayout) return;
                       event.preventDefault();
@@ -1273,7 +1360,11 @@ export function FloorPlanCanvas({
                     <g
                       key={emitter.id}
                       className="hp-emitter-layer"
-                      style={{ cursor: layoutMode ? "grab" : "default" }}
+                      style={{
+                        cursor: layoutMode ? "grab" : "default",
+                        // When not in heating-layout mode, let wall/room edits receive the taps.
+                        pointerEvents: layoutMode ? "auto" : "none",
+                      }}
                       onPointerDown={(event) => {
                         if (!layoutMode || !heatingLayout) return;
                         event.preventDefault();
@@ -1329,7 +1420,10 @@ export function FloorPlanCanvas({
                     key={emitter.id}
                     className="hp-emitter-layer"
                     transform={`rotate(${emitter.rotationDeg} ${cx} ${cy})`}
-                    style={{ cursor: layoutMode ? "grab" : "default" }}
+                    style={{
+                      cursor: layoutMode ? "grab" : "default",
+                      pointerEvents: layoutMode ? "auto" : "none",
+                    }}
                     onPointerDown={(event) => {
                       if (!layoutMode || !heatingLayout) return;
                       event.preventDefault();

@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 
 import { employeeHeaderName, getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
-import { getServerStoreDirectory } from "@/lib/server-store";
+import { readTakeoffDocumentBuffer } from "@/lib/takeoff-document-file";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
 import {
   getTakeoffProject,
@@ -76,13 +74,8 @@ function makeId(prefix: string) {
 }
 
 async function readDocumentBytes(document: TakeoffDocument): Promise<Buffer | null> {
-  if (!document.storageKey) return null;
-  try {
-    const full = path.join(getServerStoreDirectory(), document.storageKey);
-    return await readFile(full);
-  } catch {
-    return null;
-  }
+  const file = await readTakeoffDocumentBuffer(document);
+  return file.ok ? file.buffer : null;
 }
 
 async function pdfDrawingIndex(project: TakeoffProject): Promise<TakeoffSkillWorkflow["drawingIndex"]> {
@@ -418,7 +411,12 @@ async function textTagMeasure(
   const primaries = skill.assemblies.filter((item) => item.included && item.kind === "primary");
   if (!primaries.length) return [];
 
-  const docs = project.documents.filter((document) => document.kind === "Drawing" || document.kind === "Marked-up drawing");
+  const docs = project.documents.filter((document) =>
+    document.kind === "Drawing"
+    || document.kind === "Marked-up drawing"
+    || (document.mimeType || "").includes("pdf")
+    || document.fileName.toLowerCase().endsWith(".pdf"),
+  );
   const extractedByDoc = new Map<string, Awaited<ReturnType<typeof extractPdfDocument>>>();
   for (const document of docs) {
     const bytes = await readDocumentBytes(document);
@@ -736,19 +734,40 @@ export async function POST(
     if (!skill.planApproved) {
       return NextResponse.json({ error: "Approve the assembly plan before measuring" }, { status: 409 });
     }
-    // Drawing-first: text tags become suggested pins. Never invent fake heuristic quantities.
-    const primaryMeasured = await textTagMeasure(project, skill);
+    // Drawing-first: text tags become suggested pins. OpenAI may fill metre primaries when connected.
+    let primaryMeasured = await textTagMeasure(project, skill);
     const pinCount = primaryMeasured.reduce(
       (sum, row) => sum + (row.tagMatches || []).filter((match) => !match.excluded).length,
       0,
     );
+    const metrePrimariesEmpty = primaryMeasured.some(
+      (row) => row.unit === "m" && (!row.quantity || row.quantity <= 0),
+    );
+    if (metrePrimariesEmpty) {
+      const visionMeasured = await openAiMeasurePrimaries(project, skill);
+      if (visionMeasured?.length) {
+        primaryMeasured = primaryMeasured.map((row) => {
+          if (row.unit !== "m" || (row.quantity || 0) > 0) return row;
+          const hit = visionMeasured.find((item) => item.code === row.code);
+          if (!hit || !(hit.quantity > 0)) return row;
+          return {
+            ...row,
+            quantity: hit.quantity,
+            method: hit.method || "vector-length",
+            confidence: hit.confidence || "Low",
+            notes: hit.notes || "Blake AI estimate for pipe/area — verify on the drawing",
+          };
+        });
+      }
+    }
     const measured = appendSecondaries(skill, primaryMeasured);
+    const metreCount = primaryMeasured.filter((row) => row.unit === "m" && (row.quantity || 0) > 0).length;
     skill = {
       ...skill,
       measured,
-      measureSummary: pinCount
-        ? `Takeoff board ready — ${pinCount} suggested pin(s) from PDF text. Verify on the drawing, click to add missing items, then save.`
-        : "Takeoff board ready — no text tags found. Select each fixture type and click every instance on the drawing (PlanSwift-style).",
+      measureSummary: pinCount || metreCount
+        ? `Takeoff board ready — ${pinCount} fixture pin(s)${metreCount ? ` · ${metreCount} metre item(s)` : ""}. Verify on the drawing, then save.`
+        : "Takeoff board ready — no text tags found. Select each fixture type and click every instance on the drawing, or use Length for coloured pipe runs.",
       step: "review",
       updatedAt: stamp(),
     };

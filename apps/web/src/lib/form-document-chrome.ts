@@ -8,7 +8,22 @@ export type FormDocumentLayout =
   | "invoice"
   | "purchase-order"
   | "daywork-account"
-  | "gas-safe-lgsr";
+  | "gas-safe-lgsr"
+  | "gas-safe-warning-notice"
+  | "gas-safe-installation";
+
+/** How commercial lines are laid out on the PDF / email attachment. */
+export type FormDocumentPresentation = "description" | "itemised" | "cost-centres";
+
+export const FORM_PRESENTATION_OPTIONS: Array<{
+  key: FormDocumentPresentation;
+  label: string;
+  detail: string;
+}> = [
+  { key: "description", label: "Description", detail: "One summary description and total." },
+  { key: "cost-centres", label: "Cost centres", detail: "One row per cost centre with client wording." },
+  { key: "itemised", label: "Itemised", detail: "Line-by-line materials, labour or invoice lines." },
+];
 
 export type FormDocumentTemplate = {
   id: string;
@@ -19,10 +34,14 @@ export type FormDocumentTemplate = {
   footer: string;
   terms: string;
   defaultAudience: "Client" | "Engineer" | "Office" | "Supplier";
+  /** Preferred line layout for this form variant. */
+  presentation: FormDocumentPresentation;
   includeCostCentreBreakdown: boolean;
   includePnl: boolean;
   includeAcceptance: boolean;
   includeBankDetails: boolean;
+  /** Cost centre type names this Gas Safe / cert form applies to. */
+  linkedCostCentreTypes: string[];
   /** Small kicker / subtitle under the masthead title. */
   headerNote: string;
   showLogo: boolean;
@@ -66,10 +85,44 @@ const defaultChromeFields = {
   acceptanceLabel: "Online acceptance recorded",
 };
 
+export function isGasSafeFormLayout(layout: FormDocumentLayout | string): boolean {
+  return (
+    layout === "gas-safe-lgsr" ||
+    layout === "gas-safe-warning-notice" ||
+    layout === "gas-safe-installation"
+  );
+}
+
+export function defaultPresentationForLayout(
+  layout: FormDocumentLayout,
+  includeCostCentreBreakdown?: boolean,
+): FormDocumentPresentation {
+  if (isGasSafeFormLayout(layout) || layout === "daywork-account") return "description";
+  if (layout === "purchase-order") return "itemised";
+  if (layout === "invoice") return includeCostCentreBreakdown ? "cost-centres" : "itemised";
+  if (includeCostCentreBreakdown) return "cost-centres";
+  return "description";
+}
+
+export function resolveFormPresentation(
+  template: Pick<FormDocumentTemplate, "presentation" | "includeCostCentreBreakdown" | "layout">,
+): FormDocumentPresentation {
+  if (template.presentation === "description" || template.presentation === "itemised" || template.presentation === "cost-centres") {
+    return template.presentation;
+  }
+  return defaultPresentationForLayout(template.layout, template.includeCostCentreBreakdown);
+}
+
 export function normalizeFormDocumentTemplate(
   template: Partial<FormDocumentTemplate> & Pick<FormDocumentTemplate, "id" | "layout" | "name" | "title">,
   fallback?: FormDocumentTemplate,
 ): FormDocumentTemplate {
+  const inferredPresentation = defaultPresentationForLayout(
+    template.layout,
+    typeof template.includeCostCentreBreakdown === "boolean"
+      ? template.includeCostCentreBreakdown
+      : fallback?.includeCostCentreBreakdown,
+  );
   const base = fallback || {
     id: template.id,
     layout: template.layout,
@@ -79,15 +132,36 @@ export function normalizeFormDocumentTemplate(
     footer: "",
     terms: "",
     defaultAudience: "Client" as const,
-    includeCostCentreBreakdown: false,
+    presentation: inferredPresentation,
+    includeCostCentreBreakdown: inferredPresentation === "cost-centres",
     includePnl: false,
     includeAcceptance: false,
     includeBankDetails: false,
+    linkedCostCentreTypes: [] as string[],
     ...defaultChromeFields,
   };
+  const presentation = resolveFormPresentation({
+    layout: template.layout ?? base.layout,
+    includeCostCentreBreakdown:
+      typeof template.includeCostCentreBreakdown === "boolean"
+        ? template.includeCostCentreBreakdown
+        : base.includeCostCentreBreakdown,
+    presentation: (template.presentation as FormDocumentPresentation | undefined) ?? base.presentation,
+  });
+  const linkedCostCentreTypes = Array.isArray(template.linkedCostCentreTypes)
+    ? template.linkedCostCentreTypes.map((item) => String(item).trim()).filter(Boolean)
+    : Array.isArray(base.linkedCostCentreTypes)
+      ? base.linkedCostCentreTypes
+      : [];
   return {
     ...base,
     ...template,
+    presentation,
+    includeCostCentreBreakdown:
+      typeof template.includeCostCentreBreakdown === "boolean"
+        ? template.includeCostCentreBreakdown
+        : presentation === "cost-centres",
+    linkedCostCentreTypes,
     headerNote: String(template.headerNote ?? base.headerNote ?? ""),
     showLogo: typeof template.showLogo === "boolean" ? template.showLogo : base.showLogo,
     logoUrl: String(template.logoUrl ?? base.logoUrl ?? ""),

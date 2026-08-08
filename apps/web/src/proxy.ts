@@ -7,12 +7,20 @@ const pilotPin = process.env.NEXA_PILOT_PIN;
 const pilotUser = process.env.NEXA_PILOT_USER?.trim() || "nexa";
 const pilotSessionCookie = "nexa_pilot_session";
 const pilotSessionMaxAgeSeconds = 60 * 60 * 24 * 30;
-const publicPagePrefixes = ["/ai-first", "/heat-design"];
+const publicPagePrefixes = ["/ai-first", "/heat-design", "/client"];
 const publicAssetPrefixes = ["/app-icons/", "/brand/", "/api/manifest/"];
+const publicApiPrefixes = [
+  "/api/quote-portal",
+  "/api/variation-portal",
+  "/api/invoice-portal",
+  "/api/client-portal",
+  "/api/integrations/sumup/webhook",
+];
 const userAuthPublicPaths = new Set([
   "/api/auth/login",
   "/api/auth/me",
   "/api/health",
+  "/api/health/smoke",
   "/api/branding",
   "/api/postcode-lookup",
   "/ai-first",
@@ -21,25 +29,29 @@ const userAuthPublicPaths = new Set([
 ]);
 const publicAssetPaths = new Set([
   "/ewg-logo.png",
+  "/ewg-mark.png",
   "/apple-icon.png",
+  "/apple-icon",
   "/icon.png",
+  "/icon",
+  "/favicon.ico",
+  "/sw-field.js",
+  "/field/sw.js",
   "/nexa-ai-first.html",
   "/manifest-core.json",
   "/manifest-estimator.json",
   "/manifest-field.json",
   "/manifest-takeoffs.json",
-  "/estimator/apple-icon.png",
-  "/estimator/icon.png",
-  "/survey/apple-icon.png",
-  "/survey/icon.png",
-  "/takeoff/apple-icon.png",
-  "/takeoff/icon.png",
 ]);
 
 function isPublicBrandingGet(request: NextRequest) {
   if (request.method !== "GET" && request.method !== "HEAD") return false;
   const { pathname } = request.nextUrl;
-  return pathname === "/api/branding" || pathname.startsWith("/api/branding/assets/");
+  return (
+    pathname === "/api/branding" ||
+    pathname === "/api/branding/favicon" ||
+    pathname.startsWith("/api/branding/assets/")
+  );
 }
 
 function parseBasicAuth(value: string | null) {
@@ -71,11 +83,12 @@ function expectedPilotSessionValue() {
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (pathname === "/api/health") return NextResponse.next();
+  if (pathname === "/api/health" || pathname === "/api/health/smoke") return NextResponse.next();
   if (isPublicBrandingGet(request)) return NextResponse.next();
   if (
     publicAssetPaths.has(pathname) ||
     publicAssetPrefixes.some((prefix) => pathname.startsWith(prefix)) ||
+    publicApiPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)) ||
     publicPagePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
   ) {
     return NextResponse.next();
@@ -84,6 +97,7 @@ export function proxy(request: NextRequest) {
   if (isUserAuthenticationEnabled()) {
     if (
       userAuthPublicPaths.has(pathname) ||
+      publicApiPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)) ||
       publicPagePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
     ) {
       return NextResponse.next();

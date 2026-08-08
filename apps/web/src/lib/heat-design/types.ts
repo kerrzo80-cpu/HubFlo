@@ -127,12 +127,19 @@ export type HeatingEmitterItem = {
 
 export type HeatingPipeKind = "flow" | "return" | "primary" | "gas" | "oil" | "refrigerant" | "dhw";
 
+/** Copper size tier for Blake / takeoff (mm). */
+export type HeatingPipeDiameterMm = 15 | 22 | 28;
+
 export type HeatingPipeRun = {
   id: string;
   kind: HeatingPipeKind;
   label: string;
   points: PlanPoint[];
   floorLevel: FloorLevel;
+  /** Sized copper (or equivalent) for BOQ / fittings. */
+  diameterMm?: HeatingPipeDiameterMm;
+  pipeSpecId?: string;
+  material?: string;
 };
 
 export type HeatingEmitterMode = "radiators" | "ufh" | "mixed";
@@ -145,6 +152,14 @@ export type HeatingSystemLayout = {
   emitters: HeatingEmitterItem[];
   emitterMode: HeatingEmitterMode;
   updatedAt: string;
+};
+
+export type HeatDesignRevision = {
+  id: string;
+  at: string;
+  actor?: string;
+  summary: string;
+  snapshotHash?: string;
 };
 
 export type HeatDesignProject = {
@@ -182,11 +197,17 @@ export type HeatDesignProject = {
   /** Linked Core quote (materials pushed into Heating design cost centre) */
   linkedQuoteId?: string;
   linkedQuoteRef?: string;
+  /** Linked Takeoff studio project (routes + fittings BOQ) */
+  linkedTakeoffId?: string;
+  linkedTakeoffRef?: string;
   cylinderLitres: number;
   dailyHotWaterLitres: number;
   outdoorUnitDistanceM: number;
   nearestNeighbourDistanceM: number;
   kitExtras: string[];
+  /** Latest Ask Blake (live OpenAI or rule fallback) proposal for kit / guidance. */
+  blakeProposal?: HeatDesignBlakeProposal | null;
+  revisions?: HeatDesignRevision[];
   updatedAt: string;
 };
 
@@ -219,6 +240,15 @@ export type HeatPumpOption = {
   typicalInstalledFrom: number;
 };
 
+/** Where a kit unit cost came from — budget can be overwritten by supplier quote. */
+export type KitPricingSource =
+  | "blake-budget"
+  | "rate-library"
+  | "rule"
+  | "catalogue"
+  | "supplier"
+  | "manual";
+
 export type KitLine = {
   id: string;
   category: string;
@@ -227,6 +257,23 @@ export type KitLine = {
   unitCost: number;
   required: boolean;
   unit?: string;
+  /** blake-budget = live AI UK trade ballpark; replace when supplier quote lands. */
+  pricingSource?: KitPricingSource;
+  pricingNote?: string;
+};
+
+/** Last live / fallback Blake proposal stored on the Heat Design project. */
+export type HeatDesignBlakeProposal = {
+  at: string;
+  summary: string;
+  narrative: string;
+  kitLines: KitLine[];
+  clarifyingQuestions: Array<{ key: string; question: string; why: string }>;
+  routeNotes: string[];
+  aiUsed: boolean;
+  connected: boolean;
+  model?: string;
+  error?: string;
 };
 
 export type SystemDesignResult = {
