@@ -25,7 +25,7 @@ function ProductPreview() {
           <strong>6</strong>
         </div>
         <div className={styles.previewFlow}>
-          {["Lead", "Quote", "Job", "Invoice"].map((step) => (
+          {["Core", "Survey", "Takeoff", "Field"].map((step) => (
             <span key={step}>{step}</span>
           ))}
         </div>
