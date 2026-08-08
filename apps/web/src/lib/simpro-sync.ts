@@ -1288,9 +1288,10 @@ function dueLabelFromSimpro(record: UnknownRecord, keys: string[]) {
 
 function createdAtFromSimproRecord(record: UnknownRecord, keys: string[]) {
   const raw = firstString(record, keys);
-  if (!raw) return new Date().toISOString();
+  if (!raw) return undefined;
   const time = Date.parse(raw);
-  return Number.isFinite(time) ? new Date(time).toISOString() : new Date().toISOString();
+  // Never fall back to "now" — that stamps import order and sorts older business rows first.
+  return Number.isFinite(time) ? new Date(time).toISOString() : undefined;
 }
 
 export function buildQuoteInput(record: UnknownRecord, client?: ClientRecord, site?: ClientSite): Omit<Quote, "id" | "ref"> {

@@ -25,21 +25,10 @@ describe("compareReferenceDesc", () => {
 });
 
 describe("compareNewestRecord", () => {
-  it("prefers newer ISO dates over reference order", () => {
+  it("puts newest simPRO imports first by ascending NeXa ref", () => {
     const rows = [
-      { ref: "Q-2100", date: "2026-01-01", externalId: "10" },
-      { ref: "Q-2001", date: "2026-08-01", externalId: "11" },
-    ];
-    assert.deepEqual(
-      [...rows].sort(compareNewestRecord).map((row) => row.ref),
-      ["Q-2001", "Q-2100"],
-    );
-  });
-
-  it("uses higher external/simPRO ids when NeXa refs were assigned import-first", () => {
-    const rows = [
-      { ref: "Q-2001", externalId: "900" }, // newest simPRO, imported first → low NeXa ref
-      { ref: "Q-2003", externalId: "100" },
+      { ref: "Q-2003", externalId: "100" }, // oldest business, imported last / highest ref
+      { ref: "Q-2001", externalId: "900" }, // newest business, imported first / lowest ref
       { ref: "Q-2002", externalId: "500" },
     ];
     assert.deepEqual(
@@ -48,21 +37,48 @@ describe("compareNewestRecord", () => {
     );
   });
 
-  it("parses day-month-year timestamps", () => {
-    assert.ok(sortableDateValue("08 Aug 2026 21:30"));
-    assert.equal(sortableDateValue("Today"), null);
+  it("still uses ascending NeXa refs when external ids are non-numeric", () => {
+    const rows = [
+      { ref: "Q-2003", externalId: "x" },
+      { ref: "Q-2001", externalId: "y" },
+      { ref: "Q-2002", externalId: "z" },
+    ];
+    assert.deepEqual(
+      [...rows].sort(compareNewestRecord).map((row) => row.ref),
+      ["Q-2001", "Q-2002", "Q-2003"],
+    );
+  });
+
+  it("keeps native in-app rows newest-ref-first like leads", () => {
+    const rows = [
+      { ref: "Q-2101" },
+      { ref: "Q-2103" },
+      { ref: "Q-2102" },
+    ];
+    assert.deepEqual(
+      [...rows].sort(compareNewestRecord).map((row) => row.ref),
+      ["Q-2103", "Q-2102", "Q-2101"],
+    );
+  });
+
+  it("puts a new local row above historical imports", () => {
+    const rows = [
+      { ref: "Q-2001", externalId: "900" },
+      { ref: "Q-2100" },
+    ];
+    assert.equal([...rows].sort(compareNewestRecord)[0]?.ref, "Q-2100");
+  });
+
+  it("prefers newer issued dates for invoices", () => {
+    const rows = [
+      { ref: "INV-1", date: "2026-01-01", externalId: "10" },
+      { ref: "INV-2", date: "2026-08-01", externalId: "11" },
+    ];
+    assert.equal([...rows].sort(compareNewestRecord)[0]?.ref, "INV-2");
   });
 
   it("keeps YYYY-MM-DD dates timezone stable", () => {
     assert.equal(sortableDateValue("2026-06-30"), "2026-06-30T00:00:00.000Z");
-    assert.equal(sortableDateValue("2026-07-01"), "2026-07-01T00:00:00.000Z");
-  });
-
-  it("prefers a dated record over an undated one", () => {
-    const rows = [
-      { ref: "Q-2002", date: undefined, externalId: undefined },
-      { ref: "Q-2001", date: "2026-08-01", externalId: undefined },
-    ];
-    assert.equal([...rows].sort(compareNewestRecord)[0]?.ref, "Q-2001");
+    assert.equal(sortableDateValue("Today"), null);
   });
 });

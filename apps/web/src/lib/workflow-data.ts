@@ -447,8 +447,8 @@ export function getJobs(): Job[] {
   backfillCreatedAtFromSimproLinks();
   return clone(getStore().jobs).sort((left, right) =>
     compareNewestRecord(
-      { ref: left.ref, date: left.createdAt, externalId: left.simproJobId },
-      { ref: right.ref, date: right.createdAt, externalId: right.simproJobId },
+      { ref: left.ref, externalId: left.simproJobId },
+      { ref: right.ref, externalId: right.simproJobId },
     ),
   );
 }
@@ -583,12 +583,12 @@ export function getQuotes(): Quote[] {
     compareNewestRecord(
       {
         ref: left.ref,
-        date: left.createdAt || left.sentAt || left.respondedAt,
+        date: left.sentAt || left.respondedAt,
         externalId: left.simproQuoteId,
       },
       {
         ref: right.ref,
-        date: right.createdAt || right.sentAt || right.respondedAt,
+        date: right.sentAt || right.respondedAt,
         externalId: right.simproQuoteId,
       },
     ),

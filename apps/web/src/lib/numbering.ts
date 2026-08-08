@@ -74,6 +74,11 @@ export function compareReferenceDesc(left?: string | null, right?: string | null
   return String(right ?? "").localeCompare(String(left ?? ""), undefined, { numeric: true, sensitivity: "base" });
 }
 
+/** Oldest-first by sequential reference number (lower number first). */
+export function compareReferenceAsc(left?: string | null, right?: string | null) {
+  return -compareReferenceDesc(left, right);
+}
+
 /** Parse values that are safe to compare as timestamps (ISO or "08 Aug 2026 …"). */
 export function sortableDateValue(value?: string | null) {
   if (!value) return null;
@@ -92,10 +97,17 @@ export function sortableDateValue(value?: string | null) {
   return null;
 }
 
+function externalIdNumber(value?: string | null) {
+  const parsed = Number(String(value ?? "").replace(/[^0-9.-]+/g, ""));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
 /**
  * Newest-first for directory lists.
- * Prefer real dates, then external/simPRO ids (import order often assigns low NeXa refs to newest rows),
- * then sequential reference numbers.
+ *
+ * Important: simPRO imports historically processed newest rows first while NeXa
+ * assigned ascending refs, so for imported rows a *lower* NeXa ref is newer.
+ * Native in-app rows keep the lead-style rule (higher ref = newer).
  */
 export function compareNewestRecord(
   left: { ref?: string | null; date?: string | null; externalId?: string | null },
@@ -106,21 +118,25 @@ export function compareNewestRecord(
   if (leftDate && rightDate && leftDate !== rightDate) {
     return rightDate < leftDate ? -1 : 1;
   }
-  // If only one side has a usable date, prefer the dated record (usually the newer/imported one).
+
+  const leftImported = Boolean(String(left.externalId ?? "").trim());
+  const rightImported = Boolean(String(right.externalId ?? "").trim());
+
+  if (leftImported && rightImported) {
+    // Newest-first simPRO import assigned the lowest NeXa refs to the newest rows.
+    // Prefer that over external ids — ids are not always recency-ordered in practice.
+    const byRef = compareReferenceAsc(left.ref, right.ref);
+    if (byRef !== 0) return byRef;
+    return externalIdNumber(right.externalId) - externalIdNumber(left.externalId);
+  }
+
+  // Native rows (and POs without an external id): higher ref / newer date first.
   if (leftDate && !rightDate) return -1;
   if (!leftDate && rightDate) return 1;
 
-  const leftExternal = Number(String(left.externalId ?? "").replace(/[^0-9.-]+/g, ""));
-  const rightExternal = Number(String(right.externalId ?? "").replace(/[^0-9.-]+/g, ""));
-  if (
-    Number.isFinite(leftExternal) &&
-    leftExternal > 0 &&
-    Number.isFinite(rightExternal) &&
-    rightExternal > 0 &&
-    leftExternal !== rightExternal
-  ) {
-    return rightExternal - leftExternal;
-  }
+  // Brand-new local rows should sit above historical imports.
+  if (!leftImported && rightImported) return -1;
+  if (leftImported && !rightImported) return 1;
 
   return compareReferenceDesc(left.ref, right.ref);
 }

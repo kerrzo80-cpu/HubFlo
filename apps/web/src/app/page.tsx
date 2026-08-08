@@ -11588,12 +11588,13 @@ export default function Dashboard() {
         compareNewestRecord(
           {
             ref: left.ref,
-            date: left.createdAt || left.sentAt || left.respondedAt,
+            // Only customer-facing send dates — never import stamps / createdAt.
+            date: left.sentAt || left.respondedAt,
             externalId: left.simproQuoteId,
           },
           {
             ref: right.ref,
-            date: right.createdAt || right.sentAt || right.respondedAt,
+            date: right.sentAt || right.respondedAt,
             externalId: right.simproQuoteId,
           },
         ),
@@ -11616,12 +11617,10 @@ export default function Dashboard() {
         compareNewestRecord(
           {
             ref: left.ref,
-            date: left.createdAt,
             externalId: left.simproJobId,
           },
           {
             ref: right.ref,
-            date: right.createdAt,
             externalId: right.simproJobId,
           },
         ),
@@ -11652,12 +11651,12 @@ export default function Dashboard() {
         compareNewestRecord(
           {
             ref: left.ref,
-            date: left.issuedDate || left.sentAt || left.xeroExportedAt,
+            date: left.issuedDate,
             externalId: left.simproInvoiceId,
           },
           {
             ref: right.ref,
-            date: right.issuedDate || right.sentAt || right.xeroExportedAt,
+            date: right.issuedDate,
             externalId: right.simproInvoiceId,
           },
         ),
@@ -12228,12 +12227,12 @@ export default function Dashboard() {
           compareNewestRecord(
             {
               ref: left.quote.ref,
-              date: left.quote.createdAt || left.quote.sentAt || left.quote.respondedAt,
+              date: left.quote.sentAt || left.quote.respondedAt,
               externalId: left.quote.simproQuoteId,
             },
             {
               ref: right.quote.ref,
-              date: right.quote.createdAt || right.quote.sentAt || right.quote.respondedAt,
+              date: right.quote.sentAt || right.quote.respondedAt,
               externalId: right.quote.simproQuoteId,
             },
           ),
