@@ -66,8 +66,8 @@ export async function GET(request: Request) {
     {
       id: "xero",
       label: "Xero",
-      status: xero.connected ? ("ready" as const) : ("warning" as const),
-      detail: xero.connected ? "Connected" : "Not connected (optional for early access)",
+      status: xero.configured ? ("ready" as const) : ("warning" as const),
+      detail: xero.configured ? `Connected (${xero.mode})` : "Not connected (optional for early access)",
       required: false,
     },
     {
