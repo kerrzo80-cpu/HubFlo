@@ -17,6 +17,7 @@ import { parseJsonRequestBody } from "@/lib/http";
 import { appendAuditEvent } from "@/lib/people-data";
 import { surveyRequestContext } from "@/lib/survey-api";
 import { createTakeoffProject, getTakeoffProject, updateTakeoffProject } from "@/lib/takeoff-data";
+import { getTakeoffRateLibrary } from "@/lib/takeoff-rate-library";
 import { applyTakeoffRatesToMaterials } from "@/lib/takeoff-studio-rates";
 
 function blakeAllowancePrefix(takeoffId: string) {
