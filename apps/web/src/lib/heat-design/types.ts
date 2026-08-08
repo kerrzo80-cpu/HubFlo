@@ -162,20 +162,6 @@ export type HeatDesignRevision = {
   snapshotHash?: string;
 };
 
-/** Last live / fallback Blake proposal stored on the Heat Design project. */
-export type HeatDesignBlakeProposal = {
-  at: string;
-  summary: string;
-  narrative: string;
-  kitLines: KitLine[];
-  clarifyingQuestions: Array<{ key: string; question: string; why: string }>;
-  routeNotes: string[];
-  aiUsed: boolean;
-  connected: boolean;
-  model?: string;
-  error?: string;
-};
-
 export type HeatDesignProject = {
   id: string;
   name: string;
@@ -262,6 +248,20 @@ export type KitLine = {
   unitCost: number;
   required: boolean;
   unit?: string;
+};
+
+/** Last live / fallback Blake proposal stored on the Heat Design project. */
+export type HeatDesignBlakeProposal = {
+  at: string;
+  summary: string;
+  narrative: string;
+  kitLines: KitLine[];
+  clarifyingQuestions: Array<{ key: string; question: string; why: string }>;
+  routeNotes: string[];
+  aiUsed: boolean;
+  connected: boolean;
+  model?: string;
+  error?: string;
 };
 
 export type SystemDesignResult = {
