@@ -102,7 +102,7 @@ export default function TakeoffStudioPage() {
   const [blakeStep, setBlakeStep] = useState<string | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
-  const [boqOpen, setBoqOpen] = useState(false);
+  const [boqOpen, setBoqOpen] = useState(true);
   const saveTimer = useRef<number | null>(null);
   const historyRef = useRef<StudioState[]>([]);
   const futureRef = useRef<StudioState[]>([]);
