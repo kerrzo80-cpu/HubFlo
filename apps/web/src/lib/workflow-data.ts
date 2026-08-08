@@ -6,7 +6,7 @@ import {
 } from "@/lib/people-data";
 import { checkQuoteConversion } from "@hubflo/domain";
 import { getHubDetailState } from "@/lib/hub-detail-store";
-import { compareNewestRecord, numberedReference } from "@/lib/numbering";
+import { compareReferenceDesc, numberedReference } from "@/lib/numbering";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { useDemoSeedData } from "@/lib/workspace-mode";
 
@@ -445,12 +445,7 @@ export function getJobs(): Job[] {
     // Trial bootstrap is best-effort.
   }
   backfillCreatedAtFromSimproLinks();
-  return clone(getStore().jobs).sort((left, right) =>
-    compareNewestRecord(
-      { ref: left.ref, externalId: left.simproJobId },
-      { ref: right.ref, externalId: right.simproJobId },
-    ),
-  );
+  return clone(getStore().jobs).sort((left, right) => compareReferenceDesc(left.ref, right.ref));
 }
 
 export function resetWorkflowStore(): WorkflowStore {
@@ -579,20 +574,7 @@ function backfillCreatedAtFromSimproLinks() {
 
 export function getQuotes(): Quote[] {
   backfillCreatedAtFromSimproLinks();
-  return clone(getStore().quotes).sort((left, right) =>
-    compareNewestRecord(
-      {
-        ref: left.ref,
-        date: left.sentAt || left.respondedAt,
-        externalId: left.simproQuoteId,
-      },
-      {
-        ref: right.ref,
-        date: right.sentAt || right.respondedAt,
-        externalId: right.simproQuoteId,
-      },
-    ),
-  );
+  return clone(getStore().quotes).sort((left, right) => compareReferenceDesc(left.ref, right.ref));
 }
 
 export function createQuote(payload: Omit<Quote, "id" | "ref"> & { id?: string; ref?: string }): Quote {
@@ -793,16 +775,7 @@ export function convertQuoteToJob(
 
 export function getPurchaseRequests(): PurchaseRequest[] {
   return clone(getStore().purchaseRequests).sort((left, right) =>
-    compareNewestRecord(
-      {
-        ref: left.poNumber || left.id,
-        date: left.updatedAt || left.sentAt || left.createdAt,
-      },
-      {
-        ref: right.poNumber || right.id,
-        date: right.updatedAt || right.sentAt || right.createdAt,
-      },
-    ),
+    compareReferenceDesc(left.poNumber || left.id, right.poNumber || right.id),
   );
 }
 

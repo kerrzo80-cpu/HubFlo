@@ -113,7 +113,7 @@ import {
   type Weekday,
   weekDays,
 } from "@/lib/access";
-import { compareNewestRecord, compareReferenceDesc, numberedReference } from "@/lib/numbering";
+import { compareReferenceDesc, numberedReference } from "@/lib/numbering";
 import {
   DIRECTORY_ALPHABET_LETTERS,
   filterDirectoryList,
@@ -11584,21 +11584,7 @@ export default function Dashboard() {
         const matchesStatus = quoteStatusFilter === "All quotes" || quote.status === quoteStatusFilter;
         return matchesSearch && matchesStatus;
       })
-      .sort((left, right) =>
-        compareNewestRecord(
-          {
-            ref: left.ref,
-            // Only customer-facing send dates — never import stamps / createdAt.
-            date: left.sentAt || left.respondedAt,
-            externalId: left.simproQuoteId,
-          },
-          {
-            ref: right.ref,
-            date: right.sentAt || right.respondedAt,
-            externalId: right.simproQuoteId,
-          },
-        ),
-      );
+      .sort((left, right) => compareReferenceDesc(left.ref, right.ref));
   }, [quotes, quoteStatusFilter, search]);
 
   const filteredJobs = useMemo(() => {
@@ -11613,18 +11599,7 @@ export default function Dashboard() {
         const matchesStatus = statusFilter === "All statuses" || job.status === statusFilter;
         return matchesSearch && matchesStatus;
       })
-      .sort((left, right) =>
-        compareNewestRecord(
-          {
-            ref: left.ref,
-            externalId: left.simproJobId,
-          },
-          {
-            ref: right.ref,
-            externalId: right.simproJobId,
-          },
-        ),
-      );
+      .sort((left, right) => compareReferenceDesc(left.ref, right.ref));
   }, [jobs, search, statusFilter]);
 
   const searchFilteredInvoices = useMemo(() => {
@@ -11647,20 +11622,7 @@ export default function Dashboard() {
           );
         return matchesSearch;
       })
-      .sort((left, right) =>
-        compareNewestRecord(
-          {
-            ref: left.ref,
-            date: left.issuedDate,
-            externalId: left.simproInvoiceId,
-          },
-          {
-            ref: right.ref,
-            date: right.issuedDate,
-            externalId: right.simproInvoiceId,
-          },
-        ),
-      );
+      .sort((left, right) => compareReferenceDesc(left.ref, right.ref));
   }, [invoices, search]);
 
   const filteredInvoices = useMemo(() => {
@@ -11673,7 +11635,6 @@ export default function Dashboard() {
 
   const purchaseOrderRows = useMemo(() => {
     const query = search.trim().toLowerCase();
-    const requestOrder = new Map(purchaseRequests.map((request, index) => [request.id, index]));
     return purchaseRequests
       .map((request) => {
         const job = jobs.find((item) => item.id === request.jobId) ?? null;
@@ -11710,21 +11671,7 @@ export default function Dashboard() {
           purchaseOrderStatusFilter === "All POs" || row.request.status === purchaseOrderStatusFilter;
         return matchesSearch && matchesStatus;
       })
-      .sort((left, right) => {
-        const byRecency = compareNewestRecord(
-          {
-            ref: left.request.poNumber || left.request.id,
-            date: left.request.updatedAt || left.request.sentAt || left.request.createdAt,
-          },
-          {
-            ref: right.request.poNumber || right.request.id,
-            date: right.request.updatedAt || right.request.sentAt || right.request.createdAt,
-          },
-        );
-        if (byRecency !== 0) return byRecency;
-        // Newer creates are prepended, so lower store index is newer.
-        return (requestOrder.get(left.request.id) ?? 0) - (requestOrder.get(right.request.id) ?? 0);
-      });
+      .sort((left, right) => compareReferenceDesc(left.request.poNumber || left.orderNo, right.request.poNumber || right.orderNo));
   }, [jobs, purchaseOrderStatusFilter, purchaseRequests, search]);
 
   const purchaseOrderFolders = useMemo(
@@ -12223,20 +12170,7 @@ export default function Dashboard() {
       quotes
         .map((quote) => ({ quote, followUp: getQuoteResponseFollowUp(quote) }))
         .filter((item): item is { quote: Quote; followUp: NonNullable<ReturnType<typeof getQuoteResponseFollowUp>> } => Boolean(item.followUp))
-        .sort((left, right) =>
-          compareNewestRecord(
-            {
-              ref: left.quote.ref,
-              date: left.quote.sentAt || left.quote.respondedAt,
-              externalId: left.quote.simproQuoteId,
-            },
-            {
-              ref: right.quote.ref,
-              date: right.quote.sentAt || right.quote.respondedAt,
-              externalId: right.quote.simproQuoteId,
-            },
-          ),
-        ),
+        .sort((left, right) => compareReferenceDesc(left.quote.ref, right.quote.ref)),
     [getQuoteResponseFollowUp, quotes],
   );
 

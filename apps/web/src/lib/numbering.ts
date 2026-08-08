@@ -67,24 +67,25 @@ export function referenceNumber(value: string | undefined | null) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-/** Newest-first by sequential reference number (higher number first). */
+/** Highest reference number first (newest issued number at the top). */
 export function compareReferenceDesc(left?: string | null, right?: string | null) {
   const byNumber = referenceNumber(right) - referenceNumber(left);
   if (byNumber !== 0) return byNumber;
   return String(right ?? "").localeCompare(String(left ?? ""), undefined, { numeric: true, sensitivity: "base" });
 }
 
-/** Oldest-first by sequential reference number (lower number first). */
-export function compareReferenceAsc(left?: string | null, right?: string | null) {
-  return -compareReferenceDesc(left, right);
+/** @deprecated Use compareReferenceDesc — kept as an alias for directory newest-first. */
+export function compareNewestRecord(
+  left: { ref?: string | null; date?: string | null; externalId?: string | null },
+  right: { ref?: string | null; date?: string | null; externalId?: string | null },
+) {
+  return compareReferenceDesc(left.ref, right.ref);
 }
 
-/** Parse values that are safe to compare as timestamps (ISO or "08 Aug 2026 …"). */
 export function sortableDateValue(value?: string | null) {
   if (!value) return null;
   const text = String(value).trim();
   if (!text) return null;
-  // Keep calendar dates timezone-stable so issuedDate order does not flip near midnight.
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return `${text}T00:00:00.000Z`;
   if (/^\d{4}-\d{2}-\d{2}[T\s]/.test(text)) {
     const time = Date.parse(text);
@@ -95,50 +96,6 @@ export function sortableDateValue(value?: string | null) {
     return Number.isFinite(time) ? new Date(time).toISOString() : null;
   }
   return null;
-}
-
-function externalIdNumber(value?: string | null) {
-  const parsed = Number(String(value ?? "").replace(/[^0-9.-]+/g, ""));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-}
-
-/**
- * Newest-first for directory lists.
- *
- * Important: simPRO imports historically processed newest rows first while NeXa
- * assigned ascending refs, so for imported rows a *lower* NeXa ref is newer.
- * Native in-app rows keep the lead-style rule (higher ref = newer).
- */
-export function compareNewestRecord(
-  left: { ref?: string | null; date?: string | null; externalId?: string | null },
-  right: { ref?: string | null; date?: string | null; externalId?: string | null },
-) {
-  const leftDate = sortableDateValue(left.date);
-  const rightDate = sortableDateValue(right.date);
-  if (leftDate && rightDate && leftDate !== rightDate) {
-    return rightDate < leftDate ? -1 : 1;
-  }
-
-  const leftImported = Boolean(String(left.externalId ?? "").trim());
-  const rightImported = Boolean(String(right.externalId ?? "").trim());
-
-  if (leftImported && rightImported) {
-    // Newest-first simPRO import assigned the lowest NeXa refs to the newest rows.
-    // Prefer that over external ids — ids are not always recency-ordered in practice.
-    const byRef = compareReferenceAsc(left.ref, right.ref);
-    if (byRef !== 0) return byRef;
-    return externalIdNumber(right.externalId) - externalIdNumber(left.externalId);
-  }
-
-  // Native rows (and POs without an external id): higher ref / newer date first.
-  if (leftDate && !rightDate) return -1;
-  if (!leftDate && rightDate) return 1;
-
-  // Brand-new local rows should sit above historical imports.
-  if (!leftImported && rightImported) return -1;
-  if (leftImported && !rightImported) return 1;
-
-  return compareReferenceDesc(left.ref, right.ref);
 }
 
 export function nextReferenceNumber(
