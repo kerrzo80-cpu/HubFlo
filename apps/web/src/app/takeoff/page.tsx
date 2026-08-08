@@ -49,6 +49,11 @@ import {
   extractTakeoffPdfInBrowser,
   extractTakeoffPdfStrokesInBrowser,
 } from "@/lib/takeoff-pdf-browser";
+import {
+  DEFAULT_STUDIO_PIPE_SPEC_ID,
+  STUDIO_PIPE_SPECS,
+  summariseStudioPipeBoq,
+} from "@/lib/takeoff-studio-pipe";
 
 import TakeoffOverlayReview from "./TakeoffOverlayReview";
 import StudioCanvas from "./studio/StudioCanvas";
@@ -818,7 +823,18 @@ export default function TakeoffStudioPage() {
     }
     setBusy("push");
     try {
-      const materials = studioQuantitiesToMaterialAllowances(studio, selected.id);
+      const baseMaterials = studioQuantitiesToMaterialAllowances(studio, selected.id);
+      const pipeMaterials = summariseStudioPipeBoq(studio).map((row) => ({
+        id: `studio-mat-${selected.id}-${row.id}`,
+        section: row.section,
+        description: `Takeoff · ${row.description}`,
+        quantity: row.quantity,
+        unit: row.unit,
+        unitCost: 0,
+        markupPercent: 0,
+        supplierRequired: false,
+      }));
+      const materials = [...pipeMaterials, ...baseMaterials];
       const patch = await apiFetch(`/api/takeoff-projects/${selected.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -1324,6 +1340,26 @@ export default function TakeoffStudioPage() {
                     Drawing: {activeClass.name}
                   </strong>
                 ) : null}
+              </div>
+              <div className="nexa-studio-size-bar" aria-label="Pipe size">
+                <span className="nexa-studio-service-bar-label">Size</span>
+                {STUDIO_PIPE_SPECS.map((spec) => {
+                  const active = (studio.activePipeSpecId || DEFAULT_STUDIO_PIPE_SPEC_ID) === spec.id;
+                  return (
+                    <button
+                      key={spec.id}
+                      type="button"
+                      className={active ? "on" : undefined}
+                      onClick={() => void persistStudio({ ...studio, activePipeSpecId: spec.id, tool: "linear" })}
+                      title={`${spec.diameter} ${spec.material}${spec.autoCouplings ? ` · couplings every ${spec.stockLengthM}m` : ""}${spec.autoElbows ? " · auto elbows" : ""}`}
+                    >
+                      {spec.label}
+                    </button>
+                  );
+                })}
+                <span className="nexa-studio-size-note">
+                  Copper/Hep: elbows at bends · couplings every 3 m (needs scale)
+                </span>
               </div>
               <StudioCanvas
                 projectId={selected.id}

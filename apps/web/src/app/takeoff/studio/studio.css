@@ -561,6 +561,40 @@
   background: #eef7fc !important;
 }
 
+.nexa-studio-size-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 8px;
+  background: #eef3f7;
+  border-bottom: 1px solid var(--line);
+}
+
+.nexa-studio-size-bar button {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nexa-studio-size-bar button.on {
+  background: var(--blue-deep);
+  border-color: var(--blue-deep);
+  color: #fff;
+}
+
+.nexa-studio-size-note {
+  width: 100%;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
 .nexa-studio-create.class input[type="color"] {
   width: 40px;
   min-width: 40px;
