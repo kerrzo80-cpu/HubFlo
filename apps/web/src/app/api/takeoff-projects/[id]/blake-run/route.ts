@@ -47,6 +47,7 @@ import {
   pipeSpecById,
 } from "@/lib/takeoff-studio-pipe";
 import { measureTakeoffPagesWithVision, type BlakeTextHint } from "@/lib/takeoff-blake-vision";
+import { appendAuditEvent } from "@/lib/people-data";
 import { POST as skillPost } from "../skill/route";
 
 export const runtime = "nodejs";
@@ -608,8 +609,18 @@ export async function POST(
       pipeExtract = await serverExtractPipeRuns(getTakeoffProject(id) || project);
     }
 
-    // Scanned / image sheets: look at page screenshots when text+vector found nothing.
-    if (pinCount === 0 && !pipeExtract.runs.length && pageImages.length) {
+    // Scanned / image sheets: vision fixtures + coloured pipe polylines when vectors are empty.
+    let visionPipeRuns: Array<{
+      documentId: string;
+      pageNumber: number;
+      points: Array<{ x: number; y: number }>;
+      role: "hot" | "cold" | "waste";
+      pageWidth: number;
+      pageHeight: number;
+      colourHex: string;
+      lengthPdfUnits: number;
+    }> = [];
+    if (!pipeExtract.runs.length && pageImages.length) {
       try {
         const textHints: BlakeTextHint[] = clientExtracts.flatMap((extract) =>
           extract.pages.flatMap((page) =>
@@ -629,12 +640,23 @@ export async function POST(
         );
         const vision = await measureTakeoffPagesWithVision(pageImages, { textHints });
         if (vision.used) {
-          measured = vision.measured.map((row) => ({
-            ...row,
-            tagMatches: row.tagMatches || [],
-          }));
-          pinCount = pinCountOf(measured);
-          usedFallback = true;
+          if (pinCount === 0 && vision.measured.length) {
+            measured = vision.measured.map((row) => ({
+              ...row,
+              tagMatches: row.tagMatches || [],
+            }));
+            pinCount = pinCountOf(measured);
+            usedFallback = true;
+          }
+          visionPipeRuns = vision.pipeRuns || [];
+          if (visionPipeRuns.length) {
+            pipeExtract = {
+              runs: visionPipeRuns,
+              colouredStrokeCount: visionPipeRuns.length,
+              docsTried: pageImages.length,
+              summary: summariseStrokeRunsByRole(visionPipeRuns),
+            };
+          }
           visionUsed = true;
           visionSummary = vision.summary;
           diagnostics = {
@@ -734,7 +756,8 @@ export async function POST(
         {
           replaceExistingAiPipes: true,
           aiReviewStatus: "pending",
-          renderScale: 1.35,
+          // Vision screenshot coords are already page-pixel space; vector strokes stay at 1.35.
+          renderScale: visionPipeRuns.length ? 1 : 1.35,
           pipeSpec: preferredPipeSpec,
           wastePipeSpec,
         },
@@ -788,8 +811,9 @@ export async function POST(
                 : ""
             }`
           : null,
+        visionUsed && visionPipeRuns.length ? "vision pipe traces" : null,
         visionUsed && !pinCount && !pipeRunCount ? "vision estimate from the open sheet" : null,
-        visionUsed && (pinCount > 0 || pipeRunCount > 0) ? "incl. vision assist" : null,
+        visionUsed && (pinCount > 0 || pipeRunCount > 0) && !visionPipeRuns.length ? "incl. vision assist" : null,
         scaled.appliedLabel ? `scale ${scaled.appliedLabel}` : null,
         !scaled.appliedLabel && pipeRunCount > 0 ? "set scale to lock metres" : null,
         learning.eventCount >= 2 ? "using your takeoff habits" : null,
@@ -802,6 +826,22 @@ export async function POST(
       }
     } else if (pageImages.length && !visionUsed) {
       message = `${message} Vision had a look at the open page but couldn’t lock quantities — Set scale → Draw as → Length still builds the BOQ.`;
+    }
+
+    try {
+      appendAuditEvent({
+        actor,
+        action: "blake_run",
+        recordType: "takeoff_project",
+        recordId: id,
+        summary: useful
+          ? `Ask Blake · ${pinCount} pin(s) · ${pipeRunCount} pipe run(s)${visionUsed ? " · vision" : ""}`
+          : `Ask Blake · no auto quantities${visionUsed ? " · vision tried" : ""}`,
+        source: "takeoff add-on",
+        importance: useful ? "high" : "normal",
+      });
+    } catch {
+      // Audit must never block Blake.
     }
 
     return NextResponse.json({
@@ -825,6 +865,7 @@ export async function POST(
         summary: learning.summary,
       },
       visionUsed,
+      visionPipeRuns: visionPipeRuns.length,
       usedFallback,
       diagnostics,
       focus: firstAi

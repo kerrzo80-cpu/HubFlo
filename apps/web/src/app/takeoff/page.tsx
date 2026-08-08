@@ -13,7 +13,7 @@ import {
 
 import { useBrand } from "@/components/BrandProvider";
 import { resolveBrandLogoUrl } from "@/lib/branding";
-import { roleHeaderName } from "@/lib/access";
+import { employeeHeaderName, roleHeaderName } from "@/lib/access";
 import type { TakeoffDocument, TakeoffProject } from "@/lib/takeoff-data";
 import {
   classificationLayer,
@@ -72,15 +72,12 @@ import "./studio/studio.css";
 type QuoteOption = { id: string; ref: string; customer: string; site: string };
 type AuthState = "checking" | "signed-in" | "signed-out" | "pilot";
 
-const requestHeaders: HeadersInit = {
-  [roleHeaderName]: "Office",
-};
+let sessionActor = "Office";
 
 async function apiFetch(input: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers || {});
-  for (const [key, value] of Object.entries(requestHeaders)) {
-    if (!headers.has(key) && typeof value === "string") headers.set(key, value);
-  }
+  if (!headers.has(roleHeaderName)) headers.set(roleHeaderName, "Office");
+  if (!headers.has(employeeHeaderName)) headers.set(employeeHeaderName, sessionActor);
   const response = await fetch(input, { ...init, credentials: "include", headers });
   if (response.status === 401 && typeof window !== "undefined") {
     const next = `${window.location.pathname}${window.location.search}`;
@@ -254,6 +251,10 @@ export default function TakeoffStudioPage() {
   useEffect(() => {
     if (hasPendingAiReview) setReviewOpen(true);
   }, [hasPendingAiReview, selectedId]);
+
+  useEffect(() => {
+    sessionActor = authName?.trim() || "Office";
+  }, [authName]);
 
   useEffect(() => {
     let active = true;
@@ -664,6 +665,9 @@ export default function TakeoffStudioPage() {
         measured?: StudioAiReviewMeasuredQuantity[];
         pinCount?: number;
         pipeRunCount?: number;
+        visionUsed?: boolean;
+        visionPipeRuns?: number;
+        actor?: string;
         project?: TakeoffProject;
         focus?: { documentId: string; page: number; classificationId: string } | null;
       };
@@ -682,11 +686,14 @@ export default function TakeoffStudioPage() {
         studio: nextStudio,
       });
       setSaveState("saved");
-      const message = payload.message || "Blake finished.";
+      const actorLabel = payload.actor && payload.actor !== "Blake" ? ` · ${payload.actor}` : "";
+      const message = `${payload.message || "Blake finished."}${actorLabel}`;
       const found = (payload.pinCount || 0) + (payload.pipeRunCount || 0);
       setBlakeStep(
         found
-          ? `Done — ${payload.pinCount || 0} pin(s) · ${payload.pipeRunCount || 0} pipe run(s).`
+          ? `Done — ${payload.pinCount || 0} pin(s) · ${payload.pipeRunCount || 0} pipe run(s)${
+              payload.visionUsed ? " · vision" : ""
+            }.`
           : "Done — nothing Blake could auto-measure yet.",
       );
       await new Promise((resolve) => window.setTimeout(resolve, 700));
@@ -736,13 +743,14 @@ export default function TakeoffStudioPage() {
         codes: reviewed.map((row) => row.code).filter(Boolean),
         pipeSpecId: studio.activePipeSpecId,
         trade: "plumbing",
+        actor: authName || "Office",
       });
       setReviewOpen(false);
       const activePins = reviewed.reduce(
         (sum, row) => sum + (row.tagMatches || []).filter((match) => !match.excluded).length,
         0,
       );
-      show(`AI counts confirmed — ${activePins} pin(s) ready for Core. Blake noted what you kept.`);
+      show(`AI counts confirmed — ${activePins} pin(s) ready for Core · ${authName || "Office"}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not confirm AI counts.");
     } finally {
@@ -782,9 +790,10 @@ export default function TakeoffStudioPage() {
         projectId: selected.id,
         codes: aiReviewRows.map((row) => row.code).filter(Boolean),
         trade: "plumbing",
+        actor: authName || "Office",
       });
       setReviewOpen(false);
-      show("AI counts rejected — Blake will avoid those codes next time.");
+      show(`AI counts rejected — Blake will avoid those codes · ${authName || "Office"}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not reject AI counts.");
     } finally {
