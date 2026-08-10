@@ -292,7 +292,7 @@ async function serverDiscoverPins(project: TakeoffProject) {
   let docsExtractFailed = 0;
   const extracts: Array<{ documentId: string; fileName: string; pages: ExtractedPdfPage[] }> = [];
 
-  for (const document of drawings) {
+  for (const document of drawings.slice(0, 2)) {
     const file = await readTakeoffDocumentBuffer(document);
     if (!file.ok) {
       docsMissing += 1;
@@ -370,12 +370,12 @@ async function serverExtractPipeRuns(project: TakeoffProject) {
   let colouredStrokeCount = 0;
   let docsTried = 0;
 
-  for (const document of drawings.slice(0, 4)) {
+  for (const document of drawings.slice(0, 2)) {
     const file = await readTakeoffDocumentBuffer(document);
     if (!file.ok) continue;
     docsTried += 1;
     try {
-      const extracted = await extractPdfStrokeRuns(file.buffer, document.fileName, { maxPages: 4 });
+      const extracted = await extractPdfStrokeRuns(file.buffer, document.fileName, { maxPages: 3 });
       colouredStrokeCount += extracted.colouredStrokeCount;
       for (const run of extracted.runs) {
         runs.push({ ...run, documentId: document.id });
@@ -492,6 +492,18 @@ export async function POST(
   const project = getTakeoffProject(id);
   if (!project) {
     return NextResponse.json({ error: "Takeoff project not found" }, { status: 404 });
+  }
+
+  const memory = process.memoryUsage();
+  // Refuse Blake work when the process is already close to the Render Standard heap ceiling.
+  if (memory.heapUsed > 1100 * 1024 * 1024 || memory.rss > 1700 * 1024 * 1024) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Blake is paused briefly while the server recovers memory. Wait ~20 seconds and Ask Blake again on one drawing.",
+      },
+      { status: 503 },
+    );
   }
 
   const drawings = project.documents.filter((doc) =>
@@ -904,16 +916,12 @@ export async function POST(
       drawingCount: drawings.length,
       scannedCount: scannedDrawings.length || Math.min(drawings.length, diagnostics.docsRead || 0),
       scannedNames: scannedDrawings.map((doc) => doc.fileName),
-      capped: drawings.length > 4,
+      capped: drawings.length > 2,
       activeOnlyVision: Boolean(pageImages.length && visionUsed),
       note:
         drawings.length <= 1
           ? "Blake ran on this drawing file."
-          : scannedDrawings.length >= drawings.length
-            ? `Blake scanned all ${drawings.length} drawing files. BOQ totals are for the whole project.`
-            : `Blake scanned ${scannedDrawings.length || Math.min(drawings.length, 4)} of ${drawings.length} drawing files${
-                drawings.length > 4 ? " (cap 4 PDFs per Ask)" : ""
-              }. Switch sheet and Ask Blake again for the rest. BOQ totals combine every sheet already measured.`,
+          : `Blake scanned ${Math.min(scannedDrawings.length || diagnostics.docsRead || 1, 2)} of ${drawings.length} drawing file(s) this pass (max 2 to keep live stable). BOQ totals still combine every sheet already measured — switch sheet and Ask Blake again for the rest.`,
     };
     if (coverage.note && !message.includes("Blake scanned") && !message.includes("Blake ran on this")) {
       message = `${message} ${coverage.note}`;

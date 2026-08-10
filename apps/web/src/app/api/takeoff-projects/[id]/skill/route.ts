@@ -172,7 +172,7 @@ async function openAiDrawingIndex(project: TakeoffProject): Promise<TakeoffSkill
 
   const drawingDocs = project.documents.filter((document) =>
     ["Drawing", "Marked-up drawing", "Specification"].includes(document.kind),
-  ).slice(0, 6);
+  ).slice(0, 2);
   if (!drawingDocs.length) return heuristicDrawingIndex(project);
 
   const content: Array<Record<string, unknown>> = [
@@ -191,7 +191,7 @@ Prefer vector/text reliability. Flag raster/image-only sheets as Low.`,
 
   for (const document of drawingDocs) {
     const bytes = await readDocumentBytes(document);
-    if (!bytes || bytes.length > 18 * 1024 * 1024) {
+    if (!bytes || bytes.length > 8 * 1024 * 1024) {
       content.push({ type: "input_text", text: `Document (metadata only): ${document.fileName} (${document.kind})` });
       continue;
     }
@@ -305,9 +305,9 @@ Drawing index: ${JSON.stringify(skill.drawingIndex.sheets.map((sheet) => ({
     },
   ];
 
-  for (const document of project.documents.filter((row) => row.kind === "Drawing").slice(0, 5)) {
+  for (const document of project.documents.filter((row) => row.kind === "Drawing").slice(0, 2)) {
     const bytes = await readDocumentBytes(document);
-    if (!bytes || bytes.length > 18 * 1024 * 1024) continue;
+    if (!bytes || bytes.length > 8 * 1024 * 1024) continue;
     const mime = document.mimeType || "application/pdf";
     content.push({
       type: "input_file",
@@ -416,11 +416,12 @@ async function textTagMeasure(
     || document.kind === "Marked-up drawing"
     || (document.mimeType || "").includes("pdf")
     || document.fileName.toLowerCase().endsWith(".pdf"),
-  );
+  ).slice(0, 2);
   const extractedByDoc = new Map<string, Awaited<ReturnType<typeof extractPdfDocument>>>();
   for (const document of docs) {
     const bytes = await readDocumentBytes(document);
     if (!bytes) continue;
+    if (bytes.length > 12 * 1024 * 1024) continue;
     if (!(document.mimeType || "").includes("pdf") && !document.fileName.toLowerCase().endsWith(".pdf")) continue;
     try {
       extractedByDoc.set(document.id, await extractPdfDocument(bytes, document.fileName));

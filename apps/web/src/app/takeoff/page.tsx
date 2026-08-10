@@ -685,7 +685,12 @@ export default function TakeoffStudioPage() {
 
       setBlakeStep("Reading text from the open PDF…");
       const clientExtracts = [];
-      for (const drawing of drawingDocs.slice(0, 4)) {
+      // Keep memory light on live: active drawing first, then at most one sibling.
+      const drawingsForBlake = [
+        doc,
+        ...drawingDocs.filter((drawing) => drawing.id !== doc.id),
+      ].slice(0, 2);
+      for (const drawing of drawingsForBlake) {
         try {
           const extracted = await extractTakeoffPdfInBrowser(selected.id, drawing.id, drawing.fileName);
           clientExtracts.push({
@@ -707,13 +712,13 @@ export default function TakeoffStudioPage() {
 
       setBlakeStep("Looking for coloured CAD pipe lines in the PDF (not your Length marks)…");
       const clientStrokeRuns = [];
-      for (const drawing of drawingDocs.slice(0, 2)) {
+      for (const drawing of drawingsForBlake.slice(0, 1)) {
         try {
           const strokes = await extractTakeoffPdfStrokesInBrowser(
             selected.id,
             drawing.id,
             drawing.fileName,
-            { maxPages: 4 },
+            { maxPages: 3 },
           );
           clientStrokeRuns.push({
             documentId: strokes.documentId,

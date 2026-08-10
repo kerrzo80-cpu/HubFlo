@@ -663,16 +663,24 @@ function safeTakeoffFileName(fileName: string) {
 /** Copy tender drawing files into a takeoff project (skip ones already transferred). */
 export function copyTenderDrawingsToTakeoff(tender: Tender, takeoffId: string) {
   const project = getTakeoffProject(takeoffId);
-  if (!project) return { copied: 0, takeoff: null as ReturnType<typeof getTakeoffProject> };
+  if (!project) return { copied: 0, skipped: 0, takeoff: null as ReturnType<typeof getTakeoffProject> };
 
   const drawings = tender.documents.filter((doc) => doc.kind === "drawing");
-  if (!drawings.length) return { copied: 0, takeoff: project };
+  if (!drawings.length) return { copied: 0, skipped: 0, takeoff: project };
+
+  const MAX_COPY_COUNT = 4;
+  const MAX_COPY_BYTES = 25 * 1024 * 1024;
 
   const storageRoot = path.join(getServerStoreDirectory(), "takeoff-files", takeoffId);
   mkdirSync(storageRoot, { recursive: true });
 
   const added = [];
+  let skipped = 0;
   for (const doc of drawings) {
+    if (added.length >= MAX_COPY_COUNT) {
+      skipped += 1;
+      continue;
+    }
     const sourceTag = `sourceTenderDoc:${doc.id}`;
     const alreadyThere = project.documents.some(
       (row) =>
@@ -683,7 +691,14 @@ export function copyTenderDrawingsToTakeoff(tender: Tender, takeoffId: string) {
 
     const recordId = recordDocumentIdFromUrl(doc.url);
     const file = recordId ? readRecordDocumentFile(recordId) : null;
-    if (!file?.bytes?.length) continue;
+    if (!file?.bytes?.length) {
+      skipped += 1;
+      continue;
+    }
+    if (file.bytes.length > MAX_COPY_BYTES) {
+      skipped += 1;
+      continue;
+    }
 
     const documentId = `takeoff-doc-${randomUUID()}`;
     const storedFileName = `${documentId}-${safeTakeoffFileName(doc.name)}`;
@@ -703,7 +718,7 @@ export function copyTenderDrawingsToTakeoff(tender: Tender, takeoffId: string) {
     });
   }
 
-  if (!added.length) return { copied: 0, takeoff: project };
+  if (!added.length) return { copied: 0, skipped, takeoff: project };
 
   const documents = [...added, ...project.documents];
   const studio = project.studio
@@ -720,7 +735,7 @@ export function copyTenderDrawingsToTakeoff(tender: Tender, takeoffId: string) {
     status: project.status === "Draft" ? "In review" : project.status,
   });
 
-  return { copied: added.length, takeoff: takeoff ?? project };
+  return { copied: added.length, skipped, takeoff: takeoff ?? project };
 }
 
 export function sendTenderToTakeoff(tenderId: string, options?: { createNew?: boolean }) {
