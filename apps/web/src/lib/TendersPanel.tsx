@@ -67,12 +67,20 @@ export function TendersPanel({
   onNotice,
   businessName = "Errol Watson Group Ltd",
   actorName = "NeXa user",
+  clients = [],
   onOpenPendingJob,
 }: {
   requestHeaders: RequestHeaders;
   onNotice: (message: string) => void;
   businessName?: string;
   actorName?: string;
+  clients?: Array<{
+    id: string;
+    name: string;
+    accountReference?: string;
+    primaryContact?: string;
+    billingAddress?: string;
+  }>;
   onOpenPendingJob?: (jobId: string) => void;
 }) {
   const [tenders, setTenders] = useState<Tender[]>([]);
@@ -85,11 +93,30 @@ export function TendersPanel({
   const [tab, setTab] = useState<TabKey>("overview");
   const [boqImportText, setBoqImportText] = useState("");
   const [qualificationDraft, setQualificationDraft] = useState("");
+  const [clientSuggestionsOpen, setClientSuggestionsOpen] = useState(false);
 
   const selected = useMemo(
     () => tenders.find((tender) => tender.id === selectedId) ?? null,
     [selectedId, tenders],
   );
+
+  const clientSuggestions = useMemo(() => {
+    const query = (selected?.client || "").trim().toLowerCase();
+    if (!query || query.length < 1 || query === "client tbc") return [];
+    return clients
+      .filter((client) => {
+        const haystack = [
+          client.name,
+          client.accountReference ?? "",
+          client.primaryContact ?? "",
+          client.billingAddress ?? "",
+        ]
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(query);
+      })
+      .slice(0, 8);
+  }, [clients, selected?.client]);
 
   async function loadTenders() {
     setLoading(true);
@@ -109,6 +136,10 @@ export function TendersPanel({
     void loadTenders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    setClientSuggestionsOpen(false);
+  }, [selectedId]);
 
   async function postAction(body: Record<string, unknown>) {
     setSaving(true);
@@ -488,17 +519,83 @@ export function TendersPanel({
                 onBlur={(event) => void saveSelected({ name: event.target.value })}
               />
             </label>
-            <label>
+            <label className="tenders-client-field">
               Client
-              <input
-                value={selected.client}
-                onChange={(event) =>
-                  setTenders((current) =>
-                    current.map((row) => (row.id === selected.id ? { ...row, client: event.target.value } : row)),
-                  )
-                }
-                onBlur={(event) => void saveSelected({ client: event.target.value })}
-              />
+              <div className="tenders-client-combobox">
+                <input
+                  value={selected.client}
+                  autoComplete="off"
+                  aria-autocomplete="list"
+                  aria-expanded={clientSuggestionsOpen && clientSuggestions.length > 0}
+                  aria-controls="tender-client-suggestions"
+                  placeholder="Start typing an existing client…"
+                  onFocus={() => setClientSuggestionsOpen(true)}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setClientSuggestionsOpen(true);
+                    setTenders((current) =>
+                      current.map((row) =>
+                        row.id === selected.id
+                          ? {
+                              ...row,
+                              client: value,
+                              clientId:
+                                row.clientId &&
+                                clients.some((client) => client.id === row.clientId && client.name === value)
+                                  ? row.clientId
+                                  : undefined,
+                            }
+                          : row,
+                      ),
+                    );
+                  }}
+                  onBlur={() => {
+                    window.setTimeout(() => setClientSuggestionsOpen(false), 120);
+                    const matched = clients.find(
+                      (client) => client.name.toLowerCase() === selected.client.trim().toLowerCase(),
+                    );
+                    void saveSelected({
+                      client: selected.client,
+                      clientId: matched?.id || selected.clientId,
+                    });
+                  }}
+                />
+                {clientSuggestionsOpen && clientSuggestions.length > 0 ? (
+                  <ul id="tender-client-suggestions" className="tenders-client-suggestions" role="listbox">
+                    {clientSuggestions.map((client) => (
+                      <li key={client.id} role="option">
+                        <button
+                          type="button"
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            setTenders((current) =>
+                              current.map((row) =>
+                                row.id === selected.id
+                                  ? { ...row, client: client.name, clientId: client.id }
+                                  : row,
+                              ),
+                            );
+                            setClientSuggestionsOpen(false);
+                            void saveSelected({ client: client.name, clientId: client.id });
+                          }}
+                        >
+                          <strong>{client.name}</strong>
+                          <small>
+                            {[client.accountReference, client.primaryContact, client.billingAddress]
+                              .filter(Boolean)
+                              .join(" · ") || "Existing client"}
+                          </small>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+              {selected.clientId ? (
+                <span className="tenders-client-linked">Linked to existing client record</span>
+              ) : selected.client.trim() && selected.client.trim().toLowerCase() !== "client tbc" ? (
+                <span className="tenders-client-hint">No client selected — keep typing or pick from the list</span>
+              ) : null}
             </label>
             <label>
               Category

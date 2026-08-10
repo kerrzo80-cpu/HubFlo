@@ -39557,6 +39557,74 @@ button.nexa-kpi-card,
   color: var(--subtle);
 }
 
+.tenders-client-field {
+  position: relative;
+}
+
+.tenders-client-combobox {
+  position: relative;
+}
+
+.tenders-client-suggestions {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  left: 0;
+  list-style: none;
+  margin: 4px 0 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: 6px;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 40;
+}
+
+.tenders-client-suggestions button {
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.tenders-client-suggestions button:hover,
+.tenders-client-suggestions button:focus-visible {
+  background: var(--blue-soft);
+}
+
+.tenders-client-suggestions strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.tenders-client-suggestions small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.tenders-client-linked,
+.tenders-client-hint {
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.tenders-client-linked {
+  color: var(--green);
+}
+
+.tenders-client-hint {
+  color: var(--muted);
+}
+
 .tenders-table-wrap,
 .tenders-boq-table-wrap {
   overflow: auto;

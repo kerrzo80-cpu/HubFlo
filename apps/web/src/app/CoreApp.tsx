@@ -35739,6 +35739,13 @@ export default function CoreApp() {
               onNotice={showNotice}
               businessName={businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group Ltd"}
               actorName={activeEmployee?.name ?? "NeXa user"}
+              clients={clients.map((client) => ({
+                id: client.id,
+                name: client.name,
+                accountReference: client.accountReference,
+                primaryContact: client.primaryContact,
+                billingAddress: client.billingAddress,
+              }))}
               onOpenPendingJob={(jobId) => {
                 setSelectedJobId(jobId);
                 setActiveJobFolderKey("pending");

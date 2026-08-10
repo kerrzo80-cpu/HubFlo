@@ -78,6 +78,7 @@ export type Tender = {
   externalId?: string;
   name: string;
   client: string;
+  clientId?: string;
   category: string;
   area: string;
   submissionDeadline?: string;

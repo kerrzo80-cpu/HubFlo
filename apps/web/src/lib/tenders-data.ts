@@ -228,6 +228,7 @@ function normalizeTender(input: Partial<Tender> & { name: string; client: string
     externalId: input.externalId?.trim() || undefined,
     name: input.name.trim(),
     client: input.client.trim(),
+    clientId: input.clientId?.trim() || undefined,
     category: input.category?.trim() || "Plumbing",
     area: input.area?.trim() || "Aberdeen",
     submissionDeadline: input.submissionDeadline || undefined,
@@ -607,6 +608,7 @@ export function convertTenderToPendingJob(tenderId: string) {
   }
   const value = Number.isFinite(tender.tenderSum) ? Number(tender.tenderSum) : computeBoqTotal(tender.boqLines) || tender.bidValue || 0;
   const job = createJob({
+    clientId: tender.clientId,
     customer: tender.client,
     site: tender.area || "Site to be confirmed",
     description: `${tender.name}${tender.boqTitle ? ` — ${tender.boqTitle}` : ""}`.trim(),
