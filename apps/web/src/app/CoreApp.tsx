@@ -5389,6 +5389,7 @@ const blankEmailIntegrationDraft: EmailIntegrationDraft = {
 const purchaseOrderStatusFilters = [
   "All POs",
   "Requested",
+  "Approved",
   "Draft",
   "Pending cost",
   "Part received",
@@ -12150,13 +12151,60 @@ export default function CoreApp() {
     return sourceLead?.address || "Address to confirm";
   }
 
+  function isPlaceholderAddress(value?: string | null) {
+    const raw = String(value || "").trim();
+    if (!raw) return true;
+    const normalized = raw.toLowerCase();
+    return (
+      normalized === "address to confirm" ||
+      normalized === "site to confirm" ||
+      normalized === "address tbc" ||
+      normalized === "delivery address to be confirmed"
+    );
+  }
+
+  function getJobAddress(job: Job | null | undefined) {
+    if (!job) return "Address to confirm";
+    const linkedSite = job.siteId ? clientSites.find((site) => site.id === job.siteId) : undefined;
+    if (linkedSite?.address && !isPlaceholderAddress(linkedSite.address)) return linkedSite.address.trim();
+    if (
+      linkedSite?.name &&
+      !isPlaceholderAddress(linkedSite.name) &&
+      linkedSite.name.trim().toLowerCase() !== "simpro site"
+    ) {
+      return linkedSite.name.trim();
+    }
+    if (job.site && !isPlaceholderAddress(job.site)) return job.site.trim();
+
+    const linkedClient =
+      (job.clientId ? clients.find((client) => client.id === job.clientId) : undefined) ||
+      clients.find((client) => client.name === job.customer);
+    if (linkedClient?.billingAddress && !isPlaceholderAddress(linkedClient.billingAddress)) {
+      return linkedClient.billingAddress.trim();
+    }
+
+    const clientSiteForCustomer = linkedClient
+      ? clientSites.find((site) => site.clientId === linkedClient.id && !isPlaceholderAddress(site.address))
+      : undefined;
+    if (clientSiteForCustomer?.address) return clientSiteForCustomer.address.trim();
+
+    return "Address to confirm";
+  }
+
   function getInvoiceAddress(invoice: Invoice) {
     const invoiceSite = invoice.siteId ? clientSites.find((site) => site.id === invoice.siteId) : undefined;
-    if (invoiceSite?.address) return invoiceSite.address;
+    if (invoiceSite?.address && !isPlaceholderAddress(invoiceSite.address)) return invoiceSite.address.trim();
+    if (
+      invoiceSite?.name &&
+      !isPlaceholderAddress(invoiceSite.name) &&
+      invoiceSite.name.trim().toLowerCase() !== "simpro site"
+    ) {
+      return invoiceSite.name.trim();
+    }
 
     if (invoice.sourceType === "job") {
       const sourceJob = jobs.find((job) => job.id === invoice.sourceId || job.ref === invoice.sourceRef);
-      return sourceJob?.site || "Address to confirm";
+      return getJobAddress(sourceJob);
     }
 
     const sourceQuote = quotes.find((quote) => quote.id === invoice.sourceId || quote.ref === invoice.sourceRef);
@@ -12321,7 +12369,7 @@ export default function CoreApp() {
           createdBy: request.requestedBy,
           reference: `${request.jobRef}${request.costCentreName ? ` - ${request.costCentreName}` : ""}`,
           customer: job?.customer ?? request.jobRef,
-          address: job?.site ?? "Address TBC",
+          address: getJobAddress(job),
           orderAmount: request.estimatedCost,
           actualCost: purchaseRequestActualCost(request),
           balancePending: purchaseRequestPendingCost(request),
@@ -12349,7 +12397,7 @@ export default function CoreApp() {
       .sort((left, right) =>
         compareReferenceDesc(left.request.poNumber || left.orderNo, right.request.poNumber || right.orderNo),
       );
-  }, [jobs, purchaseOrderStatusFilter, purchaseRequests, search]);
+  }, [clientSites, clients, jobs, purchaseOrderStatusFilter, purchaseRequests, search]);
 
   const purchaseOrderFolders = useMemo(
     () => [
@@ -12357,7 +12405,9 @@ export default function CoreApp() {
         key: "pending",
         label: "Pending orders",
         tone: "amber",
-        items: purchaseOrderRows.filter((row) => ["Requested", "Draft", "Pending cost", "Part received"].includes(row.request.status)),
+        items: purchaseOrderRows.filter((row) =>
+          ["Requested", "Approved", "Draft", "Pending cost", "Part received"].includes(row.request.status),
+        ),
       },
       {
         key: "invoice-match",
@@ -34257,7 +34307,7 @@ export default function CoreApp() {
                             </div>
                             <span className="record-address-cell">
                               <strong>{job.customer}</strong>
-                              <small>{job.site}</small>
+                              <small>{getJobAddress(job)}</small>
                             </span>
                             <span className={`status-pill ${job.health}`}>{job.status}</span>
                             <strong className="value">{currency(job.value)}</strong>
@@ -35609,7 +35659,7 @@ export default function CoreApp() {
                       business={businessSettings}
                       reference={selectedPurchaseOrder.poNumber || "Open PO"}
                       recipient={selectedPurchaseOrder.supplier}
-                      recipientAddress={selectedPurchaseOrderJob?.site || "Delivery address to be confirmed"}
+                      recipientAddress={getJobAddress(selectedPurchaseOrderJob) || "Delivery address to be confirmed"}
                       issueLine={`Created by ${selectedPurchaseOrder.requestedBy} · ${selectedPurchaseOrder.status}`}
                       subject={selectedPurchaseOrder.item || `Materials for ${selectedPurchaseOrder.jobRef}`}
                       rows={poPreviewRows}
@@ -35776,7 +35826,7 @@ export default function CoreApp() {
                         </div>
                         <span className="record-address-cell">
                           <strong>{job.customer}</strong>
-                          <small>{job.site}</small>
+                          <small>{getJobAddress(job)}</small>
                         </span>
                         <span className={`status-pill ${job.health}`}>{job.status}</span>
                         <span className="next-action">
