@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Search,
   Sparkles,
+  Trash2,
   Wrench,
 } from "lucide-react";
 
@@ -577,9 +578,28 @@ export function FaultsPanel({
                 </small>
                 <h3>{selected.title}</h3>
               </div>
-              <button type="button" className="ghost-button" onClick={() => setSelectedId(null)}>
-                Close
-              </button>
+              <div className="faults-header-actions">
+                {canTriage ? (
+                  <button
+                    type="button"
+                    className="ghost-button danger"
+                    disabled={saving}
+                    onClick={() => {
+                      if (!window.confirm(`Delete ${selected.reference}? This can’t be undone.`)) return;
+                      void postAction({ action: "delete", id: selected.id }).then((data) => {
+                        if (!data) return;
+                        setSelectedId(null);
+                        onNotice(`${selected.reference} deleted`);
+                      });
+                    }}
+                  >
+                    <Trash2 size={15} /> Delete
+                  </button>
+                ) : null}
+                <button type="button" className="ghost-button" onClick={() => setSelectedId(null)}>
+                  Close
+                </button>
+              </div>
             </header>
 
             <div className="faults-detail-tabs" role="tablist">

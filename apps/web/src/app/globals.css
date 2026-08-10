@@ -5073,6 +5073,7 @@ button.module-link {
   align-items: center;
   color: var(--subtle);
   display: flex;
+  flex-wrap: wrap;
   font-size: 10px;
   gap: 5px;
   margin-bottom: 7px;
@@ -5080,6 +5081,31 @@ button.module-link {
 
 .breadcrumb strong {
   color: #536068;
+}
+
+.breadcrumb-part {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+}
+
+.breadcrumb button:hover,
+.breadcrumb button:focus-visible {
+  color: #1d5f85;
+  text-decoration: underline;
+}
+
+.breadcrumb .crumb-current {
+  color: #536068;
+  font-weight: 750;
+}
+
+.faults-header-actions .ghost-button.danger {
+  color: #b42318;
+}
+
+.faults-header-actions .ghost-button.danger:hover {
+  background: #fef3f2;
 }
 
 h1,
@@ -15778,15 +15804,68 @@ h1 {
 .scheduler-shell {
   background: #fff;
   border: 1px solid var(--line);
+  border-radius: 16px;
   box-shadow: var(--shadow);
   margin: 0 auto 18px;
   max-width: 1540px;
+  overflow: hidden;
 }
 
 .timesheet-review-workspace {
   padding: 16px 18px 22px;
   display: grid;
   gap: 18px;
+}
+
+.timesheet-review-workspace .tenders-table-wrap {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.timesheet-review-workspace .tenders-metric-row article {
+  border-radius: 12px;
+}
+
+.timesheet-row-clickable {
+  cursor: pointer;
+}
+
+.timesheet-row-clickable:hover {
+  background: #f3f8fb;
+}
+
+.timesheet-week-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+}
+
+.timesheet-week-picker label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.timesheet-week-picker input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+}
+
+.payroll-stub-note {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f4f8fa;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .timesheet-review-section-head {

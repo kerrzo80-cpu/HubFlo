@@ -371,8 +371,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ issue, issues: listFaultIssues(), stats: faultDashboardStats() });
     }
 
-    if (action === "delete") {
-      if (!canTriage(access, role) || role !== "Owner/Admin") {
+      if (action === "delete") {
+      if (!canTriage(access, role)) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       if (!body?.id) return NextResponse.json({ error: "id required" }, { status: 400 });

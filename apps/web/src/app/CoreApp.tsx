@@ -2539,7 +2539,7 @@ const modules: ModuleItem[] = [
   { label: "Tenders", icon: ClipboardList },
   { label: "Jobs", icon: Wrench },
   { label: "Dayworks", icon: ClipboardCheck },
-  { label: "Schedules", icon: CalendarDays, subItems: ["Schedule work", "Timesheets"] },
+  { label: "Schedules", icon: CalendarDays, subItems: ["Schedule work", "Timesheets", "Payroll"] },
   { label: "Invoices", icon: PoundSterling },
   { label: "POs", icon: Package },
   { label: "People", icon: Users, subItems: ["Employees", "Clients", "Sites", "Suppliers", "Contacts", "Contractors"] },
@@ -8229,7 +8229,15 @@ export default function CoreApp() {
   const [activeReportTab, setActiveReportTab] = useState<ReportTab>("executive");
   const [scheduleDate, setScheduleDate] = useState(scheduleToday);
   const [scheduleView, setScheduleView] = useState<ScheduleView>("week");
-  const [schedulePane, setSchedulePane] = useState<"diary" | "timesheets">("diary");
+  const [schedulePane, setSchedulePane] = useState<"diary" | "timesheets" | "payroll">("diary");
+  const [timesheetWeekStart, setTimesheetWeekStart] = useState(() => {
+    const today = new Date();
+    const day = today.getDay();
+    const mondayOffset = day === 0 ? -6 : 1 - day;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + mondayOffset);
+    return monday.toISOString().slice(0, 10);
+  });
   const [timesheetAdjustHours, setTimesheetAdjustHours] = useState<Record<string, string>>({});
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>(defaultBusinessSettings);
   const [formTemplates, setFormTemplates] = useState<FormTemplate[]>(defaultFormTemplates);
@@ -13217,6 +13225,152 @@ export default function CoreApp() {
     }
     return Array.from(byId.values()).sort((left, right) => left.ref.localeCompare(right.ref));
   }, [jobs, overdueTimesheetJobs, pendingTimesheetApprovals]);
+
+  const timesheetWeekEnd = useMemo(() => {
+    const start = new Date(`${timesheetWeekStart}T12:00:00`);
+    start.setDate(start.getDate() + 6);
+    return start.toISOString().slice(0, 10);
+  }, [timesheetWeekStart]);
+
+  const timesheetWeekLabel = useMemo(() => {
+    const start = new Date(`${timesheetWeekStart}T12:00:00`);
+    const end = new Date(`${timesheetWeekEnd}T12:00:00`);
+    const fmt = (value: Date) =>
+      value.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    return `${fmt(start)} – ${fmt(end)}`;
+  }, [timesheetWeekEnd, timesheetWeekStart]);
+
+  const payrollApprovedHours = useMemo(() => {
+    const startMs = new Date(`${timesheetWeekStart}T00:00:00`).getTime();
+    const endMs = new Date(`${timesheetWeekEnd}T23:59:59`).getTime();
+    return jobDeliveryEvents.filter((event) => {
+      if (event.kind !== "timesheet" || event.status !== "Approved") return false;
+      const at = new Date(event.createdAt).getTime();
+      return Number.isFinite(at) && at >= startMs && at <= endMs;
+    });
+  }, [jobDeliveryEvents, timesheetWeekEnd, timesheetWeekStart]);
+
+  const workspaceBreadcrumbs = useMemo(() => {
+    type Crumb = { label: string; onClick?: () => void };
+    const crumbs: Crumb[] = [
+      {
+        label: operationsLabel(businessSettings),
+        onClick: () => returnToDashboard(),
+      },
+    ];
+    const push = (label: string, onClick?: () => void) => crumbs.push({ label, onClick });
+
+    if (homeView === "dashboard") {
+      push("Dashboard");
+    } else if (homeView === "leads" || homeView === "lead-create" || homeView === "lead-record") {
+      push("Leads", () => returnToLeadsDirectory());
+      if (homeView === "lead-create") push("New lead");
+      if (homeView === "lead-record") push(selectedLead?.ref || selectedLead?.customerName || "Lead");
+    } else if (
+      homeView === "quotes"
+      || homeView === "quote-create"
+      || homeView === "quote-record"
+      || homeView === "quote-cost-centre-record"
+    ) {
+      push("Quotes", () => returnToQuotesDirectory());
+      if (homeView === "quote-create") push("New quote");
+      if (homeView === "quote-record" || homeView === "quote-cost-centre-record") {
+        push(selectedQuote?.ref || "Quote", () => {
+          if (selectedQuoteId) {
+            setHomeView("quote-record");
+            scrollWorkspaceToTop();
+          } else returnToQuotesDirectory();
+        });
+      }
+      if (homeView === "quote-cost-centre-record") push(selectedQuoteCostCentre?.name || "Cost centre");
+    } else if (
+      homeView === "jobs"
+      || homeView === "job-create"
+      || homeView === "job-record"
+      || homeView === "cost-centre-record"
+    ) {
+      push("Jobs", () => returnToJobsDirectory());
+      if (homeView === "job-create") push("New job");
+      if (homeView === "job-record" || homeView === "cost-centre-record") {
+        push(selectedJob?.ref || "Job", () => {
+          if (selectedJobId) {
+            setHomeView("job-record");
+            scrollWorkspaceToTop();
+          } else returnToJobsDirectory();
+        });
+      }
+      if (homeView === "cost-centre-record") push(selectedCostCentre?.name || "Cost centre");
+    } else if (homeView === "dayworks") {
+      push("Dayworks");
+    } else if (homeView === "faults") {
+      push("Faults");
+    } else if (homeView === "schedule") {
+      push("Schedules", () => {
+        setSchedulePane("diary");
+        setHomeView("schedule");
+      });
+      if (schedulePane === "timesheets") push("Timesheets");
+      if (schedulePane === "payroll") push("Payroll");
+    } else if (homeView === "invoices" || homeView === "invoice-create" || homeView === "invoice-record") {
+      push("Invoices", () => returnToInvoiceDirectory());
+      if (homeView === "invoice-create") push("New invoice");
+      if (homeView === "invoice-record") push(selectedInvoice?.ref || "Invoice");
+    } else if (homeView === "purchase-orders" || homeView === "purchase-order-record") {
+      push("Purchase orders", () => setHomeView("purchase-orders"));
+      if (homeView === "purchase-order-record") push(selectedPurchaseOrder?.poNumber || "PO");
+    } else if (homeView === "employees" || homeView === "employee-card") {
+      push("People", () => goToPeopleSection("Employees"));
+      push("Employees", () => {
+        clearEmployeeEditingState();
+        setHomeView("employees");
+      });
+      if (homeView === "employee-card") push(employeeProfileDraft.name || activeEditingEmployee?.name || "Employee");
+    } else if (homeView === "clients" || homeView === "client-record") {
+      push("People", () => goToPeopleSection("Employees"));
+      push("Clients", () => returnToClientsDirectory());
+      if (homeView === "client-record") push(activeClient?.name || "Client");
+    } else if (homeView === "directory-manager") {
+      push("People", () => goToPeopleSection("Employees"));
+      push(
+        activeDirectoryManager === "sites"
+          ? "Sites"
+          : activeDirectoryManager === "suppliers"
+            ? "Suppliers"
+            : activeDirectoryManager === "contacts"
+              ? "Contacts"
+              : "Contractors",
+      );
+    } else if (homeView === "stock") push("Stock");
+    else if (homeView === "recurring") push("Recurring");
+    else if (homeView === "tenders") push("Tenders");
+    else if (homeView === "reports") push("Reports");
+    else if (homeView === "xero") push("Xero");
+    else if (homeView === "settings" || homeView === "addons") {
+      push("Setup", () => setHomeView("settings"));
+      if (homeView === "addons") push("Add-ons");
+    } else if (homeView === "profile") push("My profile");
+    else push("Dashboard");
+
+    return crumbs;
+  }, [
+    activeClient?.name,
+    activeDirectoryManager,
+    activeEditingEmployee?.name,
+    businessSettings,
+    employeeProfileDraft.name,
+    homeView,
+    schedulePane,
+    selectedCostCentre?.name,
+    selectedInvoice?.ref,
+    selectedJob?.ref,
+    selectedJobId,
+    selectedLead?.customerName,
+    selectedLead?.ref,
+    selectedPurchaseOrder?.poNumber,
+    selectedQuote?.ref,
+    selectedQuoteCostCentre?.name,
+    selectedQuoteId,
+  ]);
 
   const actionJobDirectoryGroups = useMemo(
     () => [
@@ -20201,6 +20355,9 @@ export default function CoreApp() {
       setHomeView("schedule");
     } else if (label === "Timesheets") {
       setSchedulePane("timesheets");
+      setHomeView("schedule");
+    } else if (label === "Payroll") {
+      setSchedulePane("payroll");
       setHomeView("schedule");
     } else if (label === "Setup") {
       setHomeView("settings");
@@ -33079,6 +33236,8 @@ export default function CoreApp() {
                             } else if (module.label === "Schedules") {
                               if (item === "Timesheets") {
                                 setSchedulePane("timesheets");
+                              } else if (item === "Payroll") {
+                                setSchedulePane("payroll");
                               } else {
                                 setSchedulePane("diary");
                               }
@@ -33210,7 +33369,11 @@ export default function CoreApp() {
                 : homeView === "lead-record"
                   ? "Lead record"
                 : homeView === "schedule"
-                  ? schedulePane === "timesheets" ? "Timesheets" : "Schedules"
+                  ? schedulePane === "timesheets"
+                    ? "Timesheets"
+                    : schedulePane === "payroll"
+                      ? "Payroll"
+                      : "Schedules"
                 : homeView === "settings"
                   ? "Setup"
                 : homeView === "addons"
@@ -33304,76 +33467,22 @@ export default function CoreApp() {
         <main className={homeView === "settings" ? "workspace setup-workspace-host" : "workspace"}>
           <div className="workspace-header">
             <div>
-              <div className="breadcrumb">
-                <span>{operationsLabel(businessSettings)}</span>
-                <ChevronRight size={13} />
-                <strong>
-                  {homeView === "employee-card"
-                    ? "Employee card"
-                    : homeView === "quotes"
-                      ? "Quotes"
-                    : homeView === "quote-create"
-                      ? "New quote"
-                    : homeView === "quote-record"
-                      ? "Quote"
-                    : homeView === "quote-cost-centre-record"
-                      ? "Quote cost centre"
-                    : homeView === "jobs"
-                      ? "Jobs"
-                    : homeView === "job-create"
-                      ? "New job"
-                    : homeView === "job-record"
-                      ? "Job"
-                    : homeView === "cost-centre-record"
-                      ? "Cost centre"
-                    : homeView === "purchase-orders"
-                      ? "Purchase orders"
-                    : homeView === "purchase-order-record"
-                      ? selectedPurchaseOrder?.poNumber || "Purchase order"
-                    : homeView === "stock"
-                      ? "Stock"
-                    : homeView === "recurring"
-                      ? "Recurring"
-                    : homeView === "tenders"
-                      ? "Tenders"
-                    : homeView === "dayworks"
-                      ? "Dayworks"
-                    : homeView === "faults"
-                      ? "Faults"
-                    : homeView === "invoices"
-                      ? "Invoices"
-                    : homeView === "xero"
-                      ? "Xero"
-                    : homeView === "reports"
-                      ? "Reports"
-                    : homeView === "invoice-create"
-                      ? "Job billing"
-                    : homeView === "invoice-record"
-                      ? selectedInvoice?.ref
-                        ? `Invoice ${selectedInvoice.ref}`
-                        : "Invoice"
-                    : homeView === "leads"
-                      ? "Leads"
-                    : homeView === "lead-create"
-                      ? "New lead"
-                    : homeView === "lead-record"
-                      ? "Lead record"
-                    : homeView === "schedule"
-                      ? schedulePane === "timesheets" ? "Timesheets" : "Schedules"
-                    : homeView === "settings"
-                      ? "Setup"
-                    : homeView === "profile"
-                      ? "My profile"
-                    : homeView === "addons"
-                      ? "Add-ons"
-                    : homeView === "client-record"
-                      ? "Client record"
-                      : homeView === "clients" || homeView === "directory-manager"
-                        ? "Clients"
-                    : homeView === "employees"
-                      ? "Employees"
-                      : "Dashboard"}
-                </strong>
+              <div className="breadcrumb" aria-label="Workspace path">
+                {workspaceBreadcrumbs.map((crumb, index) => {
+                  const last = index === workspaceBreadcrumbs.length - 1;
+                  return (
+                    <span key={`${crumb.label}-${index}`} className="breadcrumb-part">
+                      {index > 0 ? <ChevronRight size={13} /> : null}
+                      {last || !crumb.onClick ? (
+                        <span className="crumb-current">{crumb.label}</span>
+                      ) : (
+                        <button type="button" onClick={crumb.onClick}>
+                          {crumb.label}
+                        </button>
+                      )}
+                    </span>
+                  );
+                })}
               </div>
               <h1>
                 {homeView === "employee-card"
@@ -33427,7 +33536,11 @@ export default function CoreApp() {
                   : homeView === "lead-record"
                     ? selectedLead?.ref ?? "Lead record"
                   : homeView === "schedule"
-                    ? schedulePane === "timesheets" ? "Timesheets" : "Scheduler"
+                    ? schedulePane === "timesheets"
+                      ? "Timesheets"
+                      : schedulePane === "payroll"
+                        ? "Payroll"
+                        : "Scheduler"
                     : homeView === "settings"
                       ? "Setup"
                     : homeView === "profile"
@@ -44390,8 +44503,20 @@ export default function CoreApp() {
               <div className="scheduler-toolbar">
                 <div>
                   <span className="permission-heading">Team diary</span>
-                  <h2>{schedulePane === "timesheets" ? "Timesheets" : "Schedules"}</h2>
-                  <p>{schedulePane === "timesheets" ? "Approve, query or adjust engineer hours" : schedulePeriodLabel}</p>
+                  <h2>
+                    {schedulePane === "timesheets"
+                      ? "Timesheets"
+                      : schedulePane === "payroll"
+                        ? "Payroll"
+                        : "Schedules"}
+                  </h2>
+                  <p>
+                    {schedulePane === "timesheets"
+                      ? "Approve, query or adjust engineer hours"
+                      : schedulePane === "payroll"
+                        ? "Approved hours ready for payroll export"
+                        : schedulePeriodLabel}
+                  </p>
                 </div>
                 <div className="scheduler-toolbar-actions">
                   <div className="scheduler-view-switch" role="tablist" aria-label="Schedule area">
@@ -44408,6 +44533,13 @@ export default function CoreApp() {
                       onClick={() => setSchedulePane("timesheets")}
                     >
                       Timesheets{timesheetReviewJobs.length ? ` (${timesheetReviewJobs.length})` : ""}
+                    </button>
+                    <button
+                      className={schedulePane === "payroll" ? "active" : ""}
+                      type="button"
+                      onClick={() => setSchedulePane("payroll")}
+                    >
+                      Payroll{payrollApprovedHours.length ? ` (${payrollApprovedHours.length})` : ""}
                     </button>
                   </div>
                   {schedulePane === "diary" ? (
@@ -44440,6 +44572,26 @@ export default function CoreApp() {
 
               {schedulePane === "timesheets" ? (
                 <section className="tenders-workspace timesheet-review-workspace" aria-label="Timesheets to review">
+                  <div className="timesheet-week-picker">
+                    <label>
+                      Week commencing
+                      <input
+                        type="date"
+                        value={timesheetWeekStart}
+                        onChange={(event) => {
+                          const raw = event.target.value;
+                          if (!raw) return;
+                          const date = new Date(`${raw}T12:00:00`);
+                          const day = date.getDay();
+                          const mondayOffset = day === 0 ? -6 : 1 - day;
+                          date.setDate(date.getDate() + mondayOffset);
+                          setTimesheetWeekStart(date.toISOString().slice(0, 10));
+                        }}
+                      />
+                    </label>
+                    <span>{timesheetWeekLabel}</span>
+                  </div>
+
                   <div className="tenders-metric-row">
                     <article>
                       <span>Awaiting decision</span>
@@ -44450,15 +44602,15 @@ export default function CoreApp() {
                       <strong>{overdueTimesheetJobs.length}</strong>
                     </article>
                     <article>
-                      <span>Jobs in queue</span>
-                      <strong>{timesheetReviewJobs.length}</strong>
+                      <span>Approved this week</span>
+                      <strong>{payrollApprovedHours.length}</strong>
                     </article>
                   </div>
 
                   <div className="tenders-table-wrap">
                     <header className="timesheet-review-section-head">
                       <strong>Submitted for approval</strong>
-                      <span>Adjust hours if needed, then approve, query, or reject</span>
+                      <span>Click a row to open the job · Approve charges labour to the job and queues hours for Payroll</span>
                     </header>
                     {pendingTimesheetApprovals.length === 0 ? (
                       <p className="tenders-hint">No timesheets waiting for office approval.</p>
@@ -44480,14 +44632,21 @@ export default function CoreApp() {
                               timesheetAdjustHours[event.id] ??
                               (event.hours != null ? String(event.hours) : "");
                             return (
-                              <tr key={event.id}>
+                              <tr
+                                key={event.id}
+                                className="timesheet-row-clickable"
+                                onClick={() => {
+                                  setSelectedJobId(event.jobId);
+                                  setHomeView("job-record");
+                                }}
+                              >
                                 <td>
                                   <strong>{event.jobRef}</strong>
                                   <small className="timesheet-review-summary">{event.summary}</small>
                                 </td>
                                 <td>{event.actor || "—"}</td>
                                 <td>{event.createdAt || "—"}</td>
-                                <td>
+                                <td onClick={(clickEvent) => clickEvent.stopPropagation()}>
                                   <label className="timesheet-hours-adjust">
                                     <span className="sr-only">Adjust hours</span>
                                     <input
@@ -44513,7 +44672,7 @@ export default function CoreApp() {
                                     {event.status || "Submitted"}
                                   </span>
                                 </td>
-                                <td>
+                                <td onClick={(clickEvent) => clickEvent.stopPropagation()}>
                                   <span className="directory-inline-actions timesheet-review-actions">
                                     <button
                                       className="primary-button"
@@ -44536,16 +44695,6 @@ export default function CoreApp() {
                                     >
                                       Reject
                                     </button>
-                                    <button
-                                      className="secondary-button"
-                                      type="button"
-                                      onClick={() => {
-                                        setSelectedJobId(event.jobId);
-                                        setHomeView("job-record");
-                                      }}
-                                    >
-                                      Open job
-                                    </button>
                                   </span>
                                 </td>
                               </tr>
@@ -44559,7 +44708,7 @@ export default function CoreApp() {
                   <div className="tenders-table-wrap">
                     <header className="timesheet-review-section-head">
                       <strong>Overdue — no timesheet yet</strong>
-                      <span>Chase engineers who finished visits without submitting hours</span>
+                      <span>Click a row to open the job and chase hours</span>
                     </header>
                     {overdueTimesheetJobs.length === 0 ? (
                       <p className="tenders-hint">Nothing overdue right now.</p>
@@ -44571,30 +44720,111 @@ export default function CoreApp() {
                             <th>Customer</th>
                             <th>Engineer</th>
                             <th>Status</th>
-                            <th />
                           </tr>
                         </thead>
                         <tbody>
                           {overdueTimesheetJobs.map((job) => (
-                            <tr key={job.id}>
+                            <tr
+                              key={job.id}
+                              className="timesheet-row-clickable"
+                              onClick={() => {
+                                setSelectedJobId(job.id);
+                                setHomeView("job-record");
+                              }}
+                            >
                               <td>
                                 <strong>{job.ref}</strong>
                               </td>
                               <td>{job.customer}</td>
                               <td>{job.manager || "—"}</td>
                               <td>{job.status}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </section>
+              ) : schedulePane === "payroll" ? (
+                <section className="tenders-workspace timesheet-review-workspace" aria-label="Payroll hours">
+                  <div className="timesheet-week-picker">
+                    <label>
+                      Week commencing
+                      <input
+                        type="date"
+                        value={timesheetWeekStart}
+                        onChange={(event) => {
+                          const raw = event.target.value;
+                          if (!raw) return;
+                          const date = new Date(`${raw}T12:00:00`);
+                          const day = date.getDay();
+                          const mondayOffset = day === 0 ? -6 : 1 - day;
+                          date.setDate(date.getDate() + mondayOffset);
+                          setTimesheetWeekStart(date.toISOString().slice(0, 10));
+                        }}
+                      />
+                    </label>
+                    <span>{timesheetWeekLabel}</span>
+                  </div>
+                  <p className="payroll-stub-note">
+                    Payroll stub: approved timesheet hours for the selected week land here after office approval.
+                    Full export / payroll provider sync comes next — for now review totals and open the job if needed.
+                  </p>
+                  <div className="tenders-metric-row">
+                    <article>
+                      <span>Approved lines</span>
+                      <strong>{payrollApprovedHours.length}</strong>
+                    </article>
+                    <article>
+                      <span>Total hours</span>
+                      <strong>
+                        {payrollApprovedHours.reduce((sum, event) => sum + (event.hours ?? 0), 0).toFixed(1)}
+                      </strong>
+                    </article>
+                    <article>
+                      <span>Labour cost</span>
+                      <strong>
+                        {currency(
+                          payrollApprovedHours.reduce((sum, event) => sum + (event.costValue ?? 0), 0),
+                        )}
+                      </strong>
+                    </article>
+                  </div>
+                  <div className="tenders-table-wrap">
+                    <header className="timesheet-review-section-head">
+                      <strong>Approved for payroll · {timesheetWeekLabel}</strong>
+                      <span>Click a row to open the job</span>
+                    </header>
+                    {payrollApprovedHours.length === 0 ? (
+                      <p className="tenders-hint">No approved hours in this week yet.</p>
+                    ) : (
+                      <table className="tenders-table">
+                        <thead>
+                          <tr>
+                            <th>Job</th>
+                            <th>Engineer</th>
+                            <th>Hours</th>
+                            <th>Cost</th>
+                            <th>Approved</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {payrollApprovedHours.map((event) => (
+                            <tr
+                              key={event.id}
+                              className="timesheet-row-clickable"
+                              onClick={() => {
+                                setSelectedJobId(event.jobId);
+                                setHomeView("job-record");
+                              }}
+                            >
                               <td>
-                                <button
-                                  type="button"
-                                  className="secondary-button"
-                                  onClick={() => {
-                                    setSelectedJobId(job.id);
-                                    setHomeView("job-record");
-                                  }}
-                                >
-                                  Open job
-                                </button>
+                                <strong>{event.jobRef}</strong>
                               </td>
+                              <td>{event.actor || "—"}</td>
+                              <td>{(event.hours ?? 0).toFixed(2)}</td>
+                              <td>{currency(event.costValue ?? 0)}</td>
+                              <td>{event.createdAt || "—"}</td>
                             </tr>
                           ))}
                         </tbody>
