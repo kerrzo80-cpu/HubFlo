@@ -135,9 +135,9 @@ Priorities: `urgent` | `high` | `medium` | `low`
 - Backup allow-list
 
 ### Phase 2 — quick reporting
-- Global **Report** FAB in Core buddy dock
-- `ReportFaultModal`: description, voice (Web Speech), module/type/priority, file uploads
-- Auto-captures `sourceRoute` / `sourcePage`
+- Reporting lives in **Blake** (dock chips + chat: “report a problem” / “suggest an improvement”) with confirm → NX item
+- Floating Report FAB removed so it does not cover page actions
+- Optional `ReportFaultModal` retained for future attach flows; Faults tab keeps New item for triage
 
 ### Phase 3 — Blake + AI
 - Blake intents `report_fault` / `suggest_improvement` with confirm card

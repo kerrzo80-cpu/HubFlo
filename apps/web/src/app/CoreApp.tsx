@@ -211,10 +211,6 @@ const FaultsPanel = dynamic(
   () => import("@/lib/FaultsPanel").then((mod) => mod.FaultsPanel),
   { ssr: false, loading: () => panelSkeleton("Loading faults…") },
 );
-const ReportFaultModal = dynamic(
-  () => import("@/components/ReportFaultModal").then((mod) => mod.ReportFaultModal),
-  { ssr: false },
-);
 const SetupConfigPanel = dynamic(
   () => import("@/lib/SetupExtraPanels").then((mod) => mod.SetupConfigPanel),
   { ssr: false, loading: () => panelSkeleton("Loading setup…") },
@@ -8304,7 +8300,6 @@ export default function CoreApp() {
   const [sectionError, setSectionError] = useState<string | null>(null);
   const [sectionNotice, setSectionNotice] = useState<string | null>(null);
   const [nexaAssistantOpen, setNexaAssistantOpen] = useState(false);
-  const [reportFaultOpen, setReportFaultOpen] = useState(false);
   const [nexaAssistantDraft, setNexaAssistantDraft] = useState("");
   const [nexaAssistantBusy, setNexaAssistantBusy] = useState(false);
   const [buddyMemory, setBuddyMemory] = useState<BuddyMemory>(() => defaultBuddyMemory());
@@ -8313,7 +8308,7 @@ export default function CoreApp() {
     {
       id: "buddy-welcome",
       role: "assistant",
-      text: "Hi — I'm Blake. I hold the quote checks and walkthroughs so the page stays clear. Ask me what’s missing, how to finish a quote, or to send anyway.",
+      text: "Hi — I'm Blake. Ask me what’s missing on a quote, how to finish work, or say “report a problem” / “suggest an improvement” and I’ll log it in Faults.",
     },
   ]);
   const nexaAssistantMessagesRef = useRef<HTMLDivElement | null>(null);
@@ -32666,16 +32661,6 @@ export default function CoreApp() {
         </div>
       </header>
 
-      <ReportFaultModal
-        open={reportFaultOpen}
-        onClose={() => setReportFaultOpen(false)}
-        requestHeaders={requestHeaders}
-        actorName={activeEmployee?.name ?? "NeXa user"}
-        sourceRoute={typeof window !== "undefined" ? window.location.pathname : `/${homeView}`}
-        sourcePage={homeView}
-        onCreated={(reference) => showNotice(`Added as ${reference}`)}
-      />
-
       <div className="buddy-dock" aria-live="polite">
         {nexaAssistantOpen ? (
           <aside className="buddy-panel" aria-label="Blake assistant">
@@ -32808,6 +32793,45 @@ export default function CoreApp() {
               ))}
               {nexaAssistantBusy ? <p className="buddy-thinking">Blake is checking the live workspace...</p> : null}
             </div>
+            <div className="buddy-report-chips" aria-label="Quick actions">
+              <button
+                type="button"
+                className="buddy-report-chip"
+                disabled={nexaAssistantBusy}
+                onClick={() => {
+                  setNexaAssistantDraft("Report a problem: ");
+                  setNexaAssistantMessages((current) => [
+                    ...current,
+                    {
+                      id: `buddy-guide-${crypto.randomUUID()}`,
+                      role: "assistant",
+                      text: "Tell me what’s wrong (and where you are if it helps). I’ll draft a Faults entry for you to confirm.",
+                    },
+                  ]);
+                }}
+              >
+                <Bug size={14} />
+                Report a problem
+              </button>
+              <button
+                type="button"
+                className="buddy-report-chip"
+                disabled={nexaAssistantBusy}
+                onClick={() => {
+                  setNexaAssistantDraft("Suggest an improvement: ");
+                  setNexaAssistantMessages((current) => [
+                    ...current,
+                    {
+                      id: `buddy-guide-${crypto.randomUUID()}`,
+                      role: "assistant",
+                      text: "What should NeXa do better? I’ll log it as an improvement for you to confirm.",
+                    },
+                  ]);
+                }}
+              >
+                Suggest an improvement
+              </button>
+            </div>
             <form
               className="buddy-composer"
               onSubmit={(event) => {
@@ -32817,7 +32841,7 @@ export default function CoreApp() {
             >
               <textarea
                 aria-label="Chat with Blake"
-                placeholder="Ask Blake how to do a quote, what’s missing, or to send anyway..."
+                placeholder="Ask Blake… or report a problem / suggest an improvement"
                 value={nexaAssistantDraft}
                 onChange={(event) => setNexaAssistantDraft(event.target.value)}
                 onKeyDown={(event) => {
@@ -32844,19 +32868,9 @@ export default function CoreApp() {
           </aside>
         ) : null}
         <button
-          className="report-fault-launcher"
-          type="button"
-          aria-label="Report a problem or suggest an improvement"
-          title="Report problem / suggest improvement"
-          onClick={() => setReportFaultOpen(true)}
-        >
-          <Bug size={18} />
-          <span>Report</span>
-        </button>
-        <button
           className={nexaAssistantOpen ? `buddy-launcher active mood-${buddyMood}` : `buddy-launcher mood-${buddyMood}`}
           aria-label={nexaAssistantOpen ? "Close Blake" : "Open Blake"}
-          title="Chat with Blake"
+          title="Chat with Blake — report problems here too"
           onClick={() => setNexaAssistantOpen((current) => !current)}
         >
           {nexaAssistantOpen ? (

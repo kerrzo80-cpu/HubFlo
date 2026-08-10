@@ -40489,28 +40489,40 @@ button.nexa-kpi-card,
   }
 }
 
-/* Report Problem launcher + modal */
-.report-fault-launcher {
+.buddy-report-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+
+.buddy-report-chip {
   align-items: center;
-  background: #252623;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #f4f7fa;
+  border: 1px solid var(--line);
   border-radius: 999px;
-  box-shadow: 0 10px 28px rgba(16, 24, 40, 0.22);
-  color: #fff;
+  color: var(--ink);
   cursor: pointer;
   display: inline-flex;
-  gap: 8px;
   font: inherit;
   font-size: 12px;
-  font-weight: 800;
-  min-height: 44px;
-  padding: 0 14px;
+  font-weight: 700;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
 }
 
-.report-fault-launcher:hover {
-  background: #38a1ce;
+.buddy-report-chip:hover:not(:disabled) {
+  background: rgba(0, 110, 184, 0.08);
+  border-color: #9ec5e0;
 }
 
+.buddy-report-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Report Problem modal kept available if reopened from Faults later */
 .report-fault-overlay {
   align-items: end;
   background: rgba(16, 24, 40, 0.45);
