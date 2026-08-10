@@ -148,6 +148,12 @@ export default function TakeoffStudioPage() {
   const [newClassColour, setNewClassColour] = useState("#2878c8");
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
   const [blakeStep, setBlakeStep] = useState<string | null>(null);
+  const [blakeAskOpen, setBlakeAskOpen] = useState(false);
+  const [blakeAskScope, setBlakeAskScope] = useState<"current" | "project">("current");
+  const [blakeAskHotCold, setBlakeAskHotCold] = useState(true);
+  const [blakeAskWaste, setBlakeAskWaste] = useState(false);
+  const [blakeAskHeating, setBlakeAskHeating] = useState(false);
+  const [blakeAskFixtures, setBlakeAskFixtures] = useState(true);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [boqOpen, setBoqOpen] = useState(false);
@@ -655,7 +661,45 @@ export default function TakeoffStudioPage() {
     });
   }
 
-  async function runAiAssist() {
+  function blakeAskTargets(): Array<"hot-cold" | "waste" | "heating" | "fixtures"> {
+    const targets: Array<"hot-cold" | "waste" | "heating" | "fixtures"> = [];
+    if (blakeAskHotCold) targets.push("hot-cold");
+    if (blakeAskWaste) targets.push("waste");
+    if (blakeAskHeating) targets.push("heating");
+    if (blakeAskFixtures) targets.push("fixtures");
+    return targets;
+  }
+
+  function openBlakeAsk() {
+    if (!selected) {
+      setError("Create or select a project first.");
+      return;
+    }
+    if (!activeDoc && !drawingDocs[0]) {
+      setError("Upload a PDF drawing first, then tap Ask Blake.");
+      return;
+    }
+    setError(null);
+    setBlakeAskOpen(true);
+  }
+
+  function confirmBlakeAsk() {
+    const targets = blakeAskTargets();
+    if (!targets.length) {
+      setError("Pick at least one thing for Blake to look for.");
+      return;
+    }
+    setBlakeAskOpen(false);
+    void runAiAssist({
+      drawingScope: blakeAskScope,
+      targets,
+    });
+  }
+
+  async function runAiAssist(intent?: {
+    drawingScope: "current" | "project";
+    targets: Array<"hot-cold" | "waste" | "heating" | "fixtures">;
+  }) {
     const doc = activeDoc || drawingDocs[0] || null;
     if (!selected) {
       setError("Create or select a project first.");
@@ -665,14 +709,36 @@ export default function TakeoffStudioPage() {
       setError("Upload a PDF drawing first, then tap Ask Blake.");
       return;
     }
+    const brief = intent || {
+      drawingScope: "current" as const,
+      targets: ["hot-cold", "fixtures"] as Array<"hot-cold" | "waste" | "heating" | "fixtures">,
+    };
+    const wantHotCold = brief.targets.includes("hot-cold");
+    const wantWaste = brief.targets.includes("waste");
+    const wantHeating = brief.targets.includes("heating");
+    const wantFixtures = brief.targets.includes("fixtures");
+    const allowedRoles = new Set<"hot" | "cold" | "waste">([
+      ...(wantHotCold || wantHeating ? (["hot", "cold"] as const) : []),
+      ...(wantWaste ? (["waste"] as const) : []),
+    ]);
+    const lookingFor = [
+      brief.drawingScope === "current" ? "this drawing only" : "up to 2 drawings this pass",
+      wantHotCold ? "hot & cold" : null,
+      wantWaste ? "waste / soil" : null,
+      wantHeating ? "heating colours + plant focus" : null,
+      wantFixtures ? "fixture tags" : null,
+    ].filter(Boolean).join(" · ");
+
     setBusy("ai");
     setError(null);
     setNotice(null);
     const steps = [
-      "Blake is analysing your drawings…",
-      "Building a measurement plan…",
-      "Reading PDF text tags and coloured CAD pipe lines…",
-      "Placing fixture pins from tags on the sheet…",
+      `Blake brief: ${lookingFor}`,
+      "Reading the open PDF…",
+      wantHotCold || wantWaste || wantHeating
+        ? "Tracing coloured CAD pipe lines you asked for…"
+        : "Skipping pipe colours for this brief…",
+      wantFixtures ? "Placing fixture pins from tags…" : "Skipping fixture pins for this brief…",
     ];
     let stepIndex = 0;
     setBlakeStep(steps[0] || "Blake is working…");
@@ -684,13 +750,19 @@ export default function TakeoffStudioPage() {
       // Flush scale / mark-up before Blake — otherwise the server may miss Set scale and wipe it on return.
       await persistStudio(studio, {}, { immediate: true, skipHistory: true });
 
-      setBlakeStep("Reading text from the open PDF…");
+      setBlakeStep(
+        brief.drawingScope === "current"
+          ? `Reading text from this drawing (${doc.fileName})…`
+          : "Reading text from open drawing(s)…",
+      );
       const clientExtracts = [];
-      // Keep memory light on live: active drawing first, then at most one sibling.
-      const drawingsForBlake = [
-        doc,
-        ...drawingDocs.filter((drawing) => drawing.id !== doc.id),
-      ].slice(0, 2);
+      // Keep memory light on live: current only, or active + at most one sibling.
+      const drawingsForBlake = brief.drawingScope === "current"
+        ? [doc]
+        : [
+            doc,
+            ...drawingDocs.filter((drawing) => drawing.id !== doc.id),
+          ].slice(0, 2);
       for (const drawing of drawingsForBlake) {
         try {
           const extracted = await extractTakeoffPdfInBrowser(selected.id, drawing.id, drawing.fileName);
@@ -711,25 +783,38 @@ export default function TakeoffStudioPage() {
         }
       }
 
-      setBlakeStep("Looking for coloured CAD pipe lines in the PDF (not your Length marks)…");
       const clientStrokeRuns = [];
-      for (const drawing of drawingsForBlake.slice(0, 1)) {
-        try {
-          const strokes = await extractTakeoffPdfStrokesInBrowser(
-            selected.id,
-            drawing.id,
-            drawing.fileName,
-            { maxPages: 3 },
-          );
-          clientStrokeRuns.push({
-            documentId: strokes.documentId,
-            fileName: strokes.fileName,
-            runs: strokes.runs,
-            colouredStrokeCount: strokes.colouredStrokeCount,
-          });
-        } catch {
-          // Server may still extract strokes if client path fails.
+      if (allowedRoles.size > 0) {
+        setBlakeStep(
+          `Looking for ${[
+            wantHotCold || wantHeating ? "hot/cold (or heating) colours" : null,
+            wantWaste ? "waste colours" : null,
+          ].filter(Boolean).join(" + ")} in CAD lines…`,
+        );
+        for (const drawing of drawingsForBlake.slice(0, brief.drawingScope === "current" ? 1 : 1)) {
+          try {
+            const strokes = await extractTakeoffPdfStrokesInBrowser(
+              selected.id,
+              drawing.id,
+              drawing.fileName,
+              { maxPages: 3 },
+            );
+            clientStrokeRuns.push({
+              documentId: strokes.documentId,
+              fileName: strokes.fileName,
+              runs: (strokes.runs || []).filter((run) =>
+                run?.role === "hot" || run?.role === "cold" || run?.role === "waste"
+                  ? allowedRoles.has(run.role)
+                  : false,
+              ),
+              colouredStrokeCount: strokes.colouredStrokeCount,
+            });
+          } catch {
+            // Server may still extract strokes if client path fails.
+          }
         }
+      } else {
+        setBlakeStep("No pipe colours in this brief — skipping CAD line scan…");
       }
 
       // Scanned sheets: send page screenshot(s) so Blake can use vision when text/vectors are empty.
@@ -746,7 +831,7 @@ export default function TakeoffStudioPage() {
         0,
       );
       const strokeRuns = clientStrokeRuns.reduce((sum, row) => sum + (row.runs?.length || 0), 0);
-      if (textItems < 8 && strokeRuns === 0) {
+      if (textItems < 8 && strokeRuns === 0 && (wantFixtures || allowedRoles.size > 0)) {
         setBlakeStep("Sheet looks scanned — Blake is looking at the open page…");
         const pagesToSnap = [studio.activePage || 1];
         if ((studio.activePage || 1) === 1) pagesToSnap.push(2);
@@ -768,7 +853,7 @@ export default function TakeoffStudioPage() {
         }
       }
 
-      setBlakeStep("Blake is analysing your drawings…");
+      setBlakeStep(`Blake is scanning for: ${lookingFor}…`);
       const response = await apiFetch(`/api/takeoff-projects/${selected.id}/blake-run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -777,6 +862,11 @@ export default function TakeoffStudioPage() {
           clientStrokeRuns,
           pageImages,
           clientScales: studio.scales,
+          intent: {
+            drawingScope: brief.drawingScope,
+            focusDocumentId: doc.id,
+            targets: brief.targets,
+          },
         }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
@@ -1366,7 +1456,7 @@ export default function TakeoffStudioPage() {
     }
     if (step === "blake") {
       setBoqOpen(false);
-      void runAiAssist();
+      openBlakeAsk();
       return;
     }
     if (step === "review") {
@@ -1457,13 +1547,114 @@ export default function TakeoffStudioPage() {
             {saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Saved"}
           </span>
           {authName ? <span className="pill muted-pill">{authName}</span> : null}
-          <button type="button" className="nexa-studio-ai" disabled={busy === "ai" || !selected} onClick={() => void runAiAssist()}>
+          <button type="button" className="nexa-studio-ai" disabled={busy === "ai" || !selected} onClick={() => openBlakeAsk()}>
             {busy === "ai" ? <Loader2 className="spin" size={16} /> : <BuddyCharacter mood="idle" size="sm" interactive={false} />}
             Ask Blake
           </button>
           <input ref={fileRef} type="file" accept="application/pdf,.pdf" multiple hidden onChange={(e) => void uploadDrawings(e)} />
         </div>
       </header>
+
+      {blakeAskOpen ? (
+        <div className="nexa-studio-blake-overlay" role="dialog" aria-modal="true" aria-labelledby="blake-ask-title">
+          <div className="nexa-studio-blake-card nexa-studio-blake-ask">
+            <BuddyCharacter mood="guide" size="md" interactive={false} />
+            <strong id="blake-ask-title">What should Blake look for?</strong>
+            <p>
+              Tell him the drawing and the services — he’ll only scan what you tick, then report what he found.
+            </p>
+
+            <fieldset className="nexa-studio-blake-ask-group">
+              <legend>Drawing</legend>
+              <label className={blakeAskScope === "current" ? "on" : undefined}>
+                <input
+                  type="radio"
+                  name="blake-scope"
+                  checked={blakeAskScope === "current"}
+                  onChange={() => setBlakeAskScope("current")}
+                />
+                <span>
+                  <strong>This drawing only</strong>
+                  <em>{activeDoc?.fileName || "Open sheet"}</em>
+                </span>
+              </label>
+              <label className={blakeAskScope === "project" ? "on" : undefined}>
+                <input
+                  type="radio"
+                  name="blake-scope"
+                  checked={blakeAskScope === "project"}
+                  onChange={() => setBlakeAskScope("project")}
+                />
+                <span>
+                  <strong>This sheet + one more</strong>
+                  <em>Max 2 PDFs this pass (keeps live stable)</em>
+                </span>
+              </label>
+            </fieldset>
+
+            <fieldset className="nexa-studio-blake-ask-group">
+              <legend>Find</legend>
+              <label className={blakeAskHotCold ? "on" : undefined}>
+                <input
+                  type="checkbox"
+                  checked={blakeAskHotCold}
+                  onChange={(e) => setBlakeAskHotCold(e.target.checked)}
+                />
+                <span>
+                  <strong>Hot &amp; cold runs</strong>
+                  <em>Coloured CAD hot/cold pipe strokes</em>
+                </span>
+              </label>
+              <label className={blakeAskWaste ? "on" : undefined}>
+                <input
+                  type="checkbox"
+                  checked={blakeAskWaste}
+                  onChange={(e) => setBlakeAskWaste(e.target.checked)}
+                />
+                <span>
+                  <strong>Waste / soil runs</strong>
+                  <em>Coloured waste / drainage strokes</em>
+                </span>
+              </label>
+              <label className={blakeAskHeating ? "on" : undefined}>
+                <input
+                  type="checkbox"
+                  checked={blakeAskHeating}
+                  onChange={(e) => setBlakeAskHeating(e.target.checked)}
+                />
+                <span>
+                  <strong>Heating flow &amp; return</strong>
+                  <em>Heating-coloured lines + plant-oriented plan</em>
+                </span>
+              </label>
+              <label className={blakeAskFixtures ? "on" : undefined}>
+                <input
+                  type="checkbox"
+                  checked={blakeAskFixtures}
+                  onChange={(e) => setBlakeAskFixtures(e.target.checked)}
+                />
+                <span>
+                  <strong>Fixtures / tags</strong>
+                  <em>Text tags &amp; symbols → count pins to confirm</em>
+                </span>
+              </label>
+            </fieldset>
+
+            <p className="nexa-studio-blake-ask-note">
+              Blake reads coloured CAD strokes and text on the PDF — not your hand Length marks. Use Edit to trim before Push.
+            </p>
+
+            <div className="nexa-studio-blake-ask-actions">
+              <button type="button" className="ghost" onClick={() => setBlakeAskOpen(false)}>
+                Cancel
+              </button>
+              <button type="button" className="go" onClick={() => confirmBlakeAsk()}>
+                Go Blake
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {blakeStep ? (
         <div className="nexa-studio-blake-overlay" role="status" aria-live="polite">
@@ -2117,7 +2308,7 @@ export default function TakeoffStudioPage() {
                   <button type="button" onClick={() => runFlowAction("boq")}>
                     BOQ · {boqForPanel.length || 0}
                   </button>
-                  <button type="button" disabled={busy === "ai"} onClick={() => void runAiAssist()}>
+                  <button type="button" disabled={busy === "ai"} onClick={() => openBlakeAsk()}>
                     {busy === "ai" ? (
                       <>
                         <Loader2 className="spin" size={14} /> Blake…

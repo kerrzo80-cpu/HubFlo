@@ -115,6 +115,12 @@ type BlakeRunBody = {
   pageImages?: BlakePageImage[];
   /** Client page scales (Set scale) so Blake does not drop a just-saved calibration. */
   clientScales?: StudioPageScale[];
+  /** User-chosen brief: which drawing(s) and what to look for. */
+  intent?: {
+    drawingScope?: "current" | "project";
+    focusDocumentId?: string;
+    targets?: Array<"hot-cold" | "waste" | "heating" | "fixtures">;
+  };
 };
 
 function normalizeClientScales(raw: StudioPageScale[] | undefined): StudioPageScale[] {
@@ -518,14 +524,36 @@ export async function POST(
 
   const actor = request.headers.get(employeeHeaderName) || "Blake";
   const body = await parseJsonRequestBody<BlakeRunBody>(request);
-  const clientExtracts = normalizeClientExtracts(body?.clientExtracts);
+  const intentTargets = new Set(
+    (Array.isArray(body?.intent?.targets) ? body!.intent!.targets : ["hot-cold", "waste", "fixtures"])
+      .map((item) => String(item)),
+  );
+  const wantHotCold = intentTargets.has("hot-cold");
+  const wantWaste = intentTargets.has("waste");
+  const wantHeating = intentTargets.has("heating");
+  const wantFixtures = intentTargets.has("fixtures");
+  const allowedRoles = new Set<"hot" | "cold" | "waste">(
+    [
+      ...(wantHotCold || wantHeating ? (["hot", "cold"] as const) : []),
+      ...(wantWaste ? (["waste"] as const) : []),
+    ],
+  );
+  let clientExtracts = normalizeClientExtracts(body?.clientExtracts);
   const clientScales = normalizeClientScales(body?.clientScales);
-  const clientPipeRuns = (Array.isArray(body?.clientStrokeRuns) ? body!.clientStrokeRuns : [])
+  const focusDocumentId = String(body?.intent?.focusDocumentId || "").trim();
+  if (body?.intent?.drawingScope === "current" && focusDocumentId) {
+    clientExtracts = clientExtracts.filter((row) => row.documentId === focusDocumentId);
+  }
+  let clientPipeRuns = (Array.isArray(body?.clientStrokeRuns) ? body!.clientStrokeRuns : [])
     .flatMap((doc) => {
       const documentId = String(doc?.documentId || "");
       if (!documentId) return [];
+      if (body?.intent?.drawingScope === "current" && focusDocumentId && documentId !== focusDocumentId) {
+        return [];
+      }
       return (Array.isArray(doc.runs) ? doc.runs : [])
         .filter((run) => run && (run.role === "hot" || run.role === "cold" || run.role === "waste"))
+        .filter((run) => allowedRoles.size === 0 || allowedRoles.has(run.role as "hot" | "cold" | "waste"))
         .map((run) => ({
           documentId,
           pageNumber: Number(run.pageNumber) || 1,
@@ -540,13 +568,19 @@ export async function POST(
         }))
         .filter((run) => run.points.length >= 2);
     });
+  if (!allowedRoles.size) clientPipeRuns = [];
   const clientColouredStrokeCount = (Array.isArray(body?.clientStrokeRuns) ? body!.clientStrokeRuns : [])
     .reduce((sum, doc) => sum + (Number(doc?.colouredStrokeCount) || 0), 0);
-  const pageImages = normalizePageImages(body?.pageImages);
+  let pageImages = normalizePageImages(body?.pageImages);
+  if (body?.intent?.drawingScope === "current" && focusDocumentId) {
+    pageImages = pageImages.filter((row) => row.documentId === focusDocumentId);
+  }
 
   try {
     const learning = takeoffLearningPreferences();
-    let trade: TakeoffTradeId = learning.defaultTrade || "plumbing";
+    let trade: TakeoffTradeId = wantHeating && !wantHotCold && !wantWaste
+      ? "heating"
+      : (learning.defaultTrade || "plumbing");
     let measured: MeasuredRow[] = [];
     let pinCount = 0;
     let usedFallback = false;
@@ -563,7 +597,7 @@ export async function POST(
     };
 
     // Prefer client extracts first on phones — server PDF parse often fails while Studio shows the sheet.
-    if (clientExtracts.length) {
+    if (wantFixtures && clientExtracts.length) {
       const fromClient = measuredFromExtracts(clientExtracts);
       diagnostics = fromClient.diagnostics;
       measured = fromClient.measured;
@@ -574,29 +608,43 @@ export async function POST(
     try {
       const analysed = await skillJson(request, id, { action: "analyse", actor });
       const sheetTrade = tradeFromSheets(analysed.skill?.drawingIndex?.sheets);
-      trade = sheetTrade.voteCount > 0
-        ? sheetTrade.trade
-        : (learning.defaultTrade || sheetTrade.trade);
+      if (!(wantHeating && !wantHotCold && !wantWaste)) {
+        trade = sheetTrade.voteCount > 0
+          ? sheetTrade.trade
+          : (learning.defaultTrade || sheetTrade.trade);
+      }
+      const focusLabels = wantHeating && !wantHotCold && !wantWaste
+        ? focusOptionsForTrade("heating")
+        : focusOptionsForTrade(trade).filter((label) => {
+          const lower = label.toLowerCase();
+          if (wantHotCold && /(hot|cold|water|sanitar|tap|basin|sink)/i.test(lower)) return true;
+          if (wantWaste && /(waste|soil|drain|stack)/i.test(lower)) return true;
+          if (wantHeating && /(heat|radiator|boiler|ufh|flow|return)/i.test(lower)) return true;
+          if (wantFixtures && /(fixture|sanitar|count|radiator|wc|basin)/i.test(lower)) return true;
+          return wantFixtures;
+        });
       await skillJson(request, id, {
         action: "set-scope",
         actor,
         trade,
-        focusLabels: focusOptionsForTrade(trade),
+        focusLabels: focusLabels.length ? focusLabels : focusOptionsForTrade(trade),
       });
       const plan = await skillJson(request, id, { action: "build-plan", actor, trade });
       const assemblies = plan.skill?.assemblies || buildAssembliesForScope({
         trade,
-        focusLabels: focusOptionsForTrade(trade),
+        focusLabels: focusLabels.length ? focusLabels : focusOptionsForTrade(trade),
         outputFormats: ["excel-boq", "marked-pdf", "quote-push"],
         notes: "",
       });
       await skillJson(request, id, { action: "approve-plan", actor, assemblies });
-      const measuredRes = await skillJson(request, id, { action: "measure", actor });
-      const skillMeasured = measuredRes.skill?.measured || [];
-      if (pinCountOf(skillMeasured) > pinCount) {
-        measured = skillMeasured;
-        pinCount = pinCountOf(measured);
-        usedFallback = false;
+      if (wantFixtures) {
+        const measuredRes = await skillJson(request, id, { action: "measure", actor });
+        const skillMeasured = measuredRes.skill?.measured || [];
+        if (pinCountOf(skillMeasured) > pinCount) {
+          measured = skillMeasured;
+          pinCount = pinCountOf(measured);
+          usedFallback = false;
+        }
       }
       diagnostics = {
         ...diagnostics,
@@ -605,13 +653,13 @@ export async function POST(
       };
     } catch {
       // Client-only path still useful when skill/server PDF parse fails.
-      trade = learning.defaultTrade || "plumbing";
+      trade = wantHeating && !wantHotCold && !wantWaste ? "heating" : (learning.defaultTrade || "plumbing");
     }
 
-    measured = applyLearningToMeasuredRows(measured, learning);
+    measured = wantFixtures ? applyLearningToMeasuredRows(measured, learning) : [];
     pinCount = pinCountOf(measured);
 
-    if (pinCount === 0) {
+    if (wantFixtures && pinCount === 0) {
       const fallback = await serverDiscoverPins(getTakeoffProject(id) || project);
       if (pinCountOf(fallback.measured) > 0) {
         measured = fallback.measured;
@@ -621,6 +669,9 @@ export async function POST(
       } else if (!clientExtracts.length && diagnostics.docsRead === 0) {
         diagnostics = fallback.diagnostics;
       }
+    } else if (!wantFixtures) {
+      measured = [];
+      pinCount = 0;
     }
 
     let pipeExtract = {
@@ -639,8 +690,14 @@ export async function POST(
       };
     }
 
-    if (!pipeExtract.runs.length) {
+    if (allowedRoles.size && !pipeExtract.runs.length) {
       pipeExtract = await serverExtractPipeRuns(getTakeoffProject(id) || project);
+      pipeExtract = {
+        ...pipeExtract,
+        runs: pipeExtract.runs.filter((run) => allowedRoles.has(run.role)),
+      };
+    } else if (!allowedRoles.size) {
+      pipeExtract = { runs: [], colouredStrokeCount: 0, docsTried: 0, summary: summariseStrokeRunsByRole([]) };
     }
 
     // Scanned / image sheets: vision fixtures + coloured pipe polylines when vectors are empty.
@@ -654,7 +711,7 @@ export async function POST(
       colourHex: string;
       lengthPdfUnits: number;
     }> = [];
-    if (!pipeExtract.runs.length && pageImages.length) {
+    if ((wantFixtures || allowedRoles.size > 0) && !pipeExtract.runs.length && pageImages.length) {
       try {
         const textHints: BlakeTextHint[] = clientExtracts.flatMap((extract) =>
           extract.pages.flatMap((page) =>
@@ -674,7 +731,7 @@ export async function POST(
         );
         const vision = await measureTakeoffPagesWithVision(pageImages, { textHints });
         if (vision.used) {
-          if (pinCount === 0 && vision.measured.length) {
+          if (wantFixtures && pinCount === 0 && vision.measured.length) {
             measured = vision.measured.map((row) => ({
               ...row,
               tagMatches: row.tagMatches || [],
@@ -682,7 +739,9 @@ export async function POST(
             pinCount = pinCountOf(measured);
             usedFallback = true;
           }
-          visionPipeRuns = vision.pipeRuns || [];
+          visionPipeRuns = (vision.pipeRuns || []).filter((run) =>
+            allowedRoles.size === 0 ? false : allowedRoles.has(run.role),
+          );
           if (visionPipeRuns.length) {
             pipeExtract = {
               runs: visionPipeRuns,
@@ -841,6 +900,21 @@ export async function POST(
     const cold = pipeMetresFromStudio(nextStudio, "cold");
     const waste = pipeMetresFromStudio(nextStudio, "waste");
 
+    const intentBriefBits = [
+      body?.intent?.drawingScope === "current" || focusDocumentId
+        ? "this drawing only"
+        : drawings.length > 1
+          ? "up to 2 drawings this pass"
+          : "this drawing",
+      wantHotCold ? "hot & cold runs" : null,
+      wantWaste ? "waste / soil runs" : null,
+      wantHeating ? "heating flow & return colours + plant focus" : null,
+      wantFixtures ? "fixture / tag pins" : null,
+    ].filter(Boolean);
+    const intentBrief = intentBriefBits.length
+      ? `Looking for: ${intentBriefBits.join(" · ")}.`
+      : "";
+
     let message = emptyMessage(diagnostics, {
       colouredStrokeCount: pipeExtract.colouredStrokeCount,
       runCount: pipeRunCount,
@@ -855,6 +929,9 @@ export async function POST(
                 : ""
             }`
           : null,
+        hot.metres > 0 ? `hot ~${hot.metres.toFixed(1)} m` : null,
+        cold.metres > 0 ? `cold ~${cold.metres.toFixed(1)} m` : null,
+        waste.metres > 0 ? `waste ~${waste.metres.toFixed(1)} m` : null,
         visionUsed && visionPipeRuns.length ? "vision pipe traces" : null,
         visionUsed && !pinCount && !pipeRunCount ? "vision estimate from the open sheet" : null,
         visionUsed && (pinCount > 0 || pipeRunCount > 0) && !visionPipeRuns.length ? "incl. vision assist" : null,
@@ -887,6 +964,9 @@ export async function POST(
     } else if (pageImages.length && !visionUsed) {
       message = `${message} Vision had a look at the open page but couldn’t lock quantities — Set scale → Draw as → Length still builds the BOQ.`;
     }
+    if (intentBrief) {
+      message = `${intentBrief} ${message}`;
+    }
 
     try {
       appendAuditEvent({
@@ -916,12 +996,21 @@ export async function POST(
       drawingCount: drawings.length,
       scannedCount: scannedDrawings.length || Math.min(drawings.length, diagnostics.docsRead || 0),
       scannedNames: scannedDrawings.map((doc) => doc.fileName),
-      capped: drawings.length > 2,
+      capped: drawings.length > 2 && body?.intent?.drawingScope !== "current",
       activeOnlyVision: Boolean(pageImages.length && visionUsed),
+      intent: {
+        drawingScope: body?.intent?.drawingScope || "project",
+        focusDocumentId: focusDocumentId || null,
+        targets: [...intentTargets],
+      },
       note:
-        drawings.length <= 1
-          ? "Blake ran on this drawing file."
-          : `Blake scanned ${Math.min(scannedDrawings.length || diagnostics.docsRead || 1, 2)} of ${drawings.length} drawing file(s) this pass (max 2 to keep live stable). BOQ totals still combine every sheet already measured — switch sheet and Ask Blake again for the rest.`,
+        body?.intent?.drawingScope === "current" || (focusDocumentId && scannedDrawings.length <= 1)
+          ? `Blake ran on this drawing only${
+              scannedDrawings[0]?.fileName ? ` (${scannedDrawings[0].fileName})` : ""
+            }.`
+          : drawings.length <= 1
+            ? "Blake ran on this drawing file."
+            : `Blake scanned ${Math.min(scannedDrawings.length || diagnostics.docsRead || 1, 2)} of ${drawings.length} drawing file(s) this pass (max 2 to keep live stable). BOQ totals still combine every sheet already measured — switch sheet and Ask Blake again for the rest.`,
     };
     if (coverage.note && !message.includes("Blake scanned") && !message.includes("Blake ran on this")) {
       message = `${message} ${coverage.note}`;

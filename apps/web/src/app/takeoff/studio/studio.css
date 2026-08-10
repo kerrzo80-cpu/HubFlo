@@ -225,6 +225,119 @@
   font-size: 14px;
 }
 
+.nexa-studio-blake-ask {
+  width: min(420px, 100%);
+  justify-items: stretch;
+  text-align: left;
+  gap: 14px;
+}
+
+.nexa-studio-blake-ask > .blake-character {
+  justify-self: center;
+}
+
+.nexa-studio-blake-ask > strong {
+  text-align: center;
+}
+
+.nexa-studio-blake-ask > p {
+  text-align: center;
+}
+
+.nexa-studio-blake-ask-group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.nexa-studio-blake-ask-group legend {
+  padding: 0;
+  margin: 0 0 2px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.nexa-studio-blake-ask-group label {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fafbfc;
+  cursor: pointer;
+}
+
+.nexa-studio-blake-ask-group label.on {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.nexa-studio-blake-ask-group label input {
+  margin-top: 3px;
+}
+
+.nexa-studio-blake-ask-group label span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nexa-studio-blake-ask-group label strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.nexa-studio-blake-ask-group label em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nexa-studio-blake-ask-note {
+  font-size: 12px !important;
+  line-height: 1.45;
+}
+
+.nexa-studio-blake-ask-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.nexa-studio-blake-ask-actions button {
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 14px;
+  min-height: 42px;
+  padding: 0 16px;
+  cursor: pointer;
+}
+
+.nexa-studio-blake-ask-actions .ghost {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+}
+
+.nexa-studio-blake-ask-actions .go {
+  border: 0;
+  background: #16a34a;
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(22, 163, 74, 0.28);
+}
+
 .nexa-studio-ai {
   display: inline-flex;
   align-items: center;
