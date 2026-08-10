@@ -8,12 +8,15 @@ import {
   type BlakeHistoryMessage,
 } from "@/lib/nexa-assistant";
 import { parseJsonRequestBody } from "@/lib/http";
+import { loadServerStore } from "@/lib/server-store";
 
 type AssistantRequest = {
   message?: string;
   history?: BlakeHistoryMessage[];
   buddyContext?: BuddyClientContext;
   confirmActionId?: string;
+  sourceRoute?: string;
+  sourcePage?: string;
 };
 
 export async function POST(request: Request) {
@@ -33,7 +36,12 @@ export async function POST(request: Request) {
   };
 
   if (payload.confirmActionId) {
-    if (!access.canEditJobs) {
+    const pending = loadServerStore<{ actions: Array<{ id: string; kind?: string }> }>("nexa-assistant-actions", {
+      actions: [],
+    });
+    const pendingAction = pending.actions.find((item) => item.id === payload.confirmActionId);
+    const isFaultConfirm = pendingAction?.kind === "fault_report";
+    if (!isFaultConfirm && !access.canEditJobs) {
       return NextResponse.json({ error: "Your role can chat with Blake but cannot create bookings." }, { status: 403 });
     }
     const result = await confirmNexaAssistantAction(payload.confirmActionId, actor);
@@ -50,5 +58,12 @@ export async function POST(request: Request) {
     : [];
   const buddyContext =
     payload.buddyContext && typeof payload.buddyContext === "object" ? payload.buddyContext : undefined;
-  return NextResponse.json(await handleNexaAssistantMessage(message, actor, { history, buddyContext }));
+  return NextResponse.json(
+    await handleNexaAssistantMessage(message, actor, {
+      history,
+      buddyContext,
+      sourceRoute: payload.sourceRoute,
+      sourcePage: payload.sourcePage,
+    }),
+  );
 }

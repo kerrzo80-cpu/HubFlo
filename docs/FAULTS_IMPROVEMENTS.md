@@ -34,15 +34,15 @@ Do **not** put this in Field Ask Blake (equipment diagnosis) or Office Alerts (e
 
 ## 3. Database changes required
 
-**No Postgres migration for Phase 1.** Follow the live pattern:
+**No Postgres migration.** Follow the live pattern:
 
-- Store name: `nexa-faults-v1`
+- Store name: `nexa-faults-v1` (store `version: 2` after Phase 5 customer requests)
 - Permanent refs: `NX-001`, `NX-002`, … via a dedicated counter in the store (never reuse)
 - Entities in one JSON blob:
   - `issues[]`
   - `modules[]` (configurable area list)
   - `nextNumber`
-  - optional later: `customerRequests[]`, links
+  - `customerRequests[]` (Phase 5)
 
 Add `nexa-faults-v1` to `PILOT_BACKUP_STORE_NAMES`.
 
@@ -54,111 +54,106 @@ Postgres / Drizzle multi-tenant tables remain a later track if SaaS tenancy ship
 
 **Today:** single-company production (EWG). Core stores have no tenant column.
 
-**Phase 1:** store issues as **NeXa product development** items for this company workspace. Include optional fields ready for Phase 5:
-
-- `sourceCompanyId` / `sourceCompanyName` (nullable)
-- `visibility`: `internal` | `customer_feedback`
-- `promotedFromRequestIds[]` (empty until Phase 5)
-
-**Phase 5:** customer feedback stays company-scoped; promote creates/links to internal NX items. Do not expose internal backlog to ordinary customer users (when multi-tenant exists).
+- Store issues as **NeXa product development** items for this company workspace.
+- Optional fields: `sourceCompanyId` / `sourceCompanyName`, `visibility`, `promotedFromRequestIds[]`, `linkedRequestIds[]`
+- Customer feedback stays company-scoped; promote creates/links to internal NX items. Do not expose internal backlog to ordinary customer users (when multi-tenant exists).
 
 ## 5. Blake connection
 
 | Surface | Use |
 |---------|-----|
-| Core Blake (`nexa-assistant.ts`) | Phase 3: intent `report_fault` / `suggest_improvement` with confirm → `POST /api/faults` |
+| Core Blake (`nexa-assistant.ts`) | Intent `report_fault` / `suggest_improvement` with confirm → create fault issue |
 | Field Ask Blake | Optional later “Log to Faults” — keep type distinct from equipment fault |
-| Trainer knowledge | Teach module after Phase 1 exists |
+| Trainer knowledge | Teach module after backlog exists |
 
-Phase 1 does **not** require Blake. Keep `originalDescription` always; AI rewrite goes in `aiDescription` / structured fields later.
+Always keep `originalDescription`; AI rewrite goes in `aiDescription` / development brief.
 
 ## 6. Attachments
 
 Reuse Core record documents:
 
-1. Add scope `"fault"`
+1. Scope `"fault"`
 2. `recordRef` = `NX-###`
-3. Upload via existing `/api/record-documents` multipart
-4. UI: `FileDropZone` on issue detail Attachments tab
-
-Files stay on disk under the store directory (not DB blobs).
+3. Upload via `/api/record-documents` multipart
+4. UI: `FileDropZone` on issue detail Attachments tab + Report Problem modal
 
 ## 7. Permission changes
 
-Phase 1 without a new `AccessProfile` flag if possible:
-
 | Action | Who |
 |--------|-----|
-| View backlog | Authenticated; Office+ with `canCustomize` or Owner/Admin/Manager see full queue. Engineers may create + see own. |
-| Create / attach / comment on own | Any authenticated non–Read-only role |
-| Edit status/priority/assign/spec | `canCustomize` (Owner/Admin, Manager, Office, Finance defaults) or Owner/Admin/Manager only for triage |
+| View backlog | Authenticated; triage roles see full queue. Engineers may create + see own. |
+| Create / attach / comment | Any authenticated non–Read-only role |
+| Triage / test / promote / send-to-dev / GitHub | `canCustomize` or Owner/Admin / Manager |
+| Delete | Owner/Admin only |
 
-Phase 1 recommendation:
+Blake fault confirms do **not** require `canEditJobs` (booking-only gate).
 
-- **Create + view own:** all roles except Read-only
-- **View all + triage:** `canCustomize` or role in `Owner/Admin` | `Manager`
-
-Add `showFaults` / `canTriageFaults` to `AccessProfile` only if Setup needs per-user overrides soon; otherwise gate in API first.
-
-## 8. Recommended routes / APIs
+## 8. APIs
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/api/faults` | List (+ query filters) |
-| POST | `/api/faults` | Actions: `create`, `update`, `set-status`, `comment`, `delete` (admin) |
-| GET | `/api/faults/[id]` | Detail (optional; list may include full records) |
+| GET | `/api/faults` | List (+ customer requests for triage) |
+| POST | `/api/faults` | `create`, `update`, `set-status`, `comment`, `delete`, `classify`, `generate-brief`, `test-result`, `customer-feedback`, `promote-feedback`, `send-to-development`, `sync-github` |
 | Existing | `/api/record-documents` | Attachments with `scope=fault` |
 
-Public/customer portals: none in Phase 1.
-
-## 9. Recommended frontend
+## 9. Frontend
 
 | Piece | Notes |
 |-------|-------|
-| `FaultsPanel.tsx` | Folder/status tabs, search, filters, KPI strip, detail drawer/tabs |
-| Detail tabs | Overview · Notes · Attachments · Activity |
-| Module bar entry | “Faults” |
-| CSS | Prefer existing Core / Tenders classes; brand accents `#38A1CE` / `#252623` where new |
-
-Phase 2 adds global “Report problem” FAB/icon.
+| `FaultsPanel.tsx` | Folders, filters, KPI strip, detail tabs including **Workflow** |
+| `ReportFaultModal.tsx` | Global Report FAB — description, voice, module/type/priority, files, auto source route |
+| Module bar | “Faults” |
+| Health | `faultsImprovements: phases-2-6-v1` |
 
 ## 10. Architecture conflicts
 
 | Conflict | Resolution |
 |----------|------------|
 | Field “fault” language | Product issues = Faults & Improvements; Field Ask Blake stays equipment diagnosis |
-| No multi-tenant SaaS yet | Ship internal backlog; schema-ready for promote/link later |
+| No multi-tenant SaaS yet | Internal backlog + customer feedback promote/link |
 | Postgres unused | Do not block on Drizzle |
-| CoreApp size | Extract panel like Tenders; minimal wiring in CoreApp |
-| `NX-` unused | Own counter in faults store (do not overload finance numbering settings) |
+| GitHub | Optional mirror via `GITHUB_TOKEN` + `GITHUB_FAULTS_REPO`; NeXa is source of truth |
 
-## 11. Phase 1 implementation plan
-
-1. Types + store + `NX-` reference generator + activity helpers + unit tests  
-2. API `/api/faults` with create/update/list/status/comment + permission gates  
-3. Extend `record-documents` scope `"fault"`  
-4. `FaultsPanel` backlog + detail  
-5. Wire `core-routes`, thin page, CoreApp module  
-6. Company backup allow-list + health flag  
-7. Smoke-friendly: `/faults` redirects to login when logged out (like other Core modules)
-
-**Out of Phase 1:** global report button, voice, Blake, testing PASS/FAIL UI, customer feedback promote, GitHub sync.
-
-## Status workflow (Phase 1 data model)
+## Status workflow
 
 `inbox` → `approved` → `ready_for_development` → `in_progress` → `ready_to_test` → `complete`  
 Also: `idea`, `rejected`
 
+Testing: **PASS** → `complete`; **FAIL** → `in_progress` (fail note required).
+
 Types: `fault` | `improvement` | `new_feature` | `ui_ux`  
 Priorities: `urgent` | `high` | `medium` | `low`
 
-## Phase 1 shipped
+## Phase status
 
+### Phase 1 — shipped
 - Store `nexa-faults-v1` + permanent `NX-###` refs
 - API `GET/POST /api/faults`
 - Core module `/faults` + `FaultsPanel`
 - Attachments via `record-documents` scope `fault`
 - Activity history, filters, KPI dashboard strip
-- Backup allow-list + health `faultsImprovements: phase1-core-backlog-v1`
+- Backup allow-list
 
-Next: Phase 2 global Report Problem button.
+### Phase 2 — quick reporting
+- Global **Report** FAB in Core buddy dock
+- `ReportFaultModal`: description, voice (Web Speech), module/type/priority, file uploads
+- Auto-captures `sourceRoute` / `sourcePage`
+
+### Phase 3 — Blake + AI
+- Blake intents `report_fault` / `suggest_improvement` with confirm card
+- `faults-ai.ts`: classify + development brief (OpenAI structured JSON + heuristic fallback)
+- Create supports `classifyWithAi: true`
+
+### Phase 4 — development / testing workflow
+- Workflow tab: generate brief, send to development, PASS/FAIL, test history
+- `recordFaultTestResult` enforces fail notes
+
+### Phase 5 — customer feedback
+- `customerRequests[]` in store v2
+- Create + promote/link to NX issues (Customer feedback folder)
+
+### Phase 6 — Send to Development / GitHub
+- `buildDevelopmentTaskMarkdown` development package
+- Optional `sync-github` when env configured
+
+Health flag: `faultsImprovements: phases-2-6-v1`

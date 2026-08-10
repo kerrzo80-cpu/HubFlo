@@ -169,7 +169,7 @@ export async function GET() {
       setupIndependent: "integrations-one-panel-v1",
       bootTabsReady: "auth-only-v1",
       deploySmoke: "soft-pass-deploy-window-v3",
-      faultsImprovements: "phase1-core-backlog-v1",
+      faultsImprovements: "phases-2-6-v1",
       mailboxIcloud: "smtp-mail-me-v1",
       mailboxSendAs: "editable-from-v1",
       mailboxIcloudFix: "hydrate-dirty-v1",

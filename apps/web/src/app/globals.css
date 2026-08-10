@@ -40461,3 +40461,117 @@ button.nexa-kpi-card,
     grid-template-columns: 1fr;
   }
 }
+
+/* Report Problem launcher + modal */
+.report-fault-launcher {
+  align-items: center;
+  background: #252623;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  box-shadow: 0 10px 28px rgba(16, 24, 40, 0.22);
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  min-height: 44px;
+  padding: 0 14px;
+}
+
+.report-fault-launcher:hover {
+  background: #38a1ce;
+}
+
+.report-fault-overlay {
+  align-items: end;
+  background: rgba(16, 24, 40, 0.45);
+  display: grid;
+  inset: 0;
+  justify-items: end;
+  padding: 18px;
+  position: fixed;
+  z-index: 80;
+}
+
+.report-fault-modal {
+  background: #fff;
+  border-radius: 16px;
+  display: grid;
+  gap: 12px;
+  max-height: min(88vh, 760px);
+  overflow: auto;
+  padding: 16px;
+  width: min(480px, 100%);
+}
+
+.report-fault-modal header {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.report-fault-modal header small,
+.report-fault-files,
+.report-fault-error {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+}
+
+.report-fault-error {
+  color: #b42318;
+}
+
+.report-fault-modal label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.report-fault-modal textarea,
+.report-fault-modal select,
+.report-fault-modal input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+.report-fault-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.report-fault-actions-row,
+.report-fault-modal footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.report-fault-modal footer {
+  justify-content: flex-end;
+}
+
+@media (max-width: 720px) {
+  .report-fault-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .report-fault-launcher span {
+    display: none;
+  }
+
+  .report-fault-launcher {
+    border-radius: 50%;
+    justify-content: center;
+    min-width: 44px;
+    padding: 0;
+  }
+}

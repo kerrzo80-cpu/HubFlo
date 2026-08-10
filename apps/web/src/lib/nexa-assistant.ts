@@ -1,5 +1,8 @@
 import { appendAuditEvent, getClients } from "@/lib/people-data";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
+import { classifyFaultReport } from "@/lib/faults-ai";
+import { createFaultIssue } from "@/lib/faults-data";
+import { guessModuleFromRoute, type FaultPriority, type FaultType } from "@/lib/faults-types";
 import { getLeads } from "@/lib/lead-store";
 import { resolveOpenAiApiKey } from "@/lib/openai-env";
 import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
@@ -23,7 +26,7 @@ type ScheduleAssignment = {
 };
 
 type AssistantIntent = {
-  action: "availability" | "book" | "help" | "chat";
+  action: "availability" | "book" | "help" | "chat" | "report_fault" | "suggest_improvement";
   employeeName?: string;
   dateText?: string;
   dateIso?: string;
@@ -32,9 +35,15 @@ type AssistantIntent = {
   costCentreName?: string;
   startTime?: string;
   durationHours?: number;
+  faultTitle?: string;
+  faultDescription?: string;
+  faultModule?: string;
+  faultType?: FaultType;
+  faultPriority?: FaultPriority;
 };
 
 type PendingBooking = {
+  kind?: "booking";
   id: string;
   createdAt: string;
   expiresAt: string;
@@ -52,7 +61,24 @@ type PendingBooking = {
   durationHours: number;
 };
 
-type PendingStore = { actions: PendingBooking[] };
+type PendingFaultReport = {
+  kind: "fault_report";
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  actorId: string;
+  actorName: string;
+  title: string;
+  description: string;
+  originalDescription: string;
+  module: string;
+  type: FaultType;
+  priority: FaultPriority;
+  sourceRoute?: string;
+  sourcePage?: string;
+};
+
+type PendingStore = { actions: Array<PendingBooking | PendingFaultReport> };
 
 export type BlakeHistoryMessage = {
   role: "assistant" | "user";
@@ -83,7 +109,7 @@ export type NexaAssistantResponse = {
   intent: AssistantIntent;
   action?: {
     id: string;
-    kind: "confirm_booking";
+    kind: "confirm_booking" | "confirm_fault_report";
     title: string;
     detail: string;
     confirmLabel: string;
@@ -94,6 +120,7 @@ export type NexaAssistantResponse = {
     weekday?: string;
     workingHours?: string;
     bookings?: Array<{ startTime: string; endTime: string; label: string }>;
+    faultReference?: string;
   };
   aiUsed: boolean;
 };
@@ -239,9 +266,25 @@ function looksLikeScheduling(message: string) {
     || Boolean(parseDuration(message));
 }
 
+function looksLikeFaultReport(message: string) {
+  return /\b(report (a )?(fault|bug|problem|issue)|add a fault|log a fault|suggest( an)? improvement|raise a (fault|bug|ticket)|faults? & improvements?)\b/i.test(
+    message,
+  ) || /\b(on takeoff|in takeoff|on field|in core|when i|doesn't work|does not work|broken|bug|fault)\b/i.test(message)
+    && /\b(add|report|log|raise|create|file)\b/i.test(message);
+}
+
 function deterministicIntent(message: string, employees: Employee[], now = new Date()): AssistantIntent {
   const date = parseDate(message, now);
   const lower = message.toLowerCase();
+  if (looksLikeFaultReport(message) && !looksLikeScheduling(message)) {
+    const improvement = /\b(improvement|enhance|feature|suggest)\b/i.test(message);
+    return {
+      action: improvement ? "suggest_improvement" : "report_fault",
+      faultDescription: message,
+      faultModule: guessModuleFromRoute(undefined, message),
+      faultType: improvement ? "improvement" : "fault",
+    };
+  }
   const scheduling = looksLikeScheduling(message);
   return {
     action: !scheduling
@@ -279,7 +322,7 @@ async function aiIntent(message: string, employees: Employee[], now: Date): Prom
             role: "system",
             content: [{
               type: "input_text",
-              text: `Extract a Blake scheduling intent when the user is asking about diaries or bookings. Otherwise use action "chat". Today is ${now.toISOString().slice(0, 10)}. UK date order is day/month/year. Employees: ${employees.map((employee) => employee.name).join(", ")}. Never silently repair a weekday/date mismatch.`,
+              text: `Extract a Blake intent. Use report_fault or suggest_improvement when the user wants to log a NeXa product fault/improvement. Use scheduling actions only for diaries/bookings. Otherwise use action "chat". Today is ${now.toISOString().slice(0, 10)}. UK date order is day/month/year. Employees: ${employees.map((employee) => employee.name).join(", ")}. Never silently repair a weekday/date mismatch.`,
             }],
           },
           { role: "user", content: [{ type: "input_text", text: message }] },
@@ -293,7 +336,10 @@ async function aiIntent(message: string, employees: Employee[], now: Date): Prom
               type: "object",
               additionalProperties: false,
               properties: {
-                action: { type: "string", enum: ["availability", "book", "help", "chat"] },
+                action: {
+                  type: "string",
+                  enum: ["availability", "book", "help", "chat", "report_fault", "suggest_improvement"],
+                },
                 employeeName: { type: ["string", "null"] },
                 dateText: { type: ["string", "null"] },
                 dateIso: { type: ["string", "null"] },
@@ -302,8 +348,20 @@ async function aiIntent(message: string, employees: Employee[], now: Date): Prom
                 costCentreName: { type: ["string", "null"] },
                 startTime: { type: ["string", "null"] },
                 durationHours: { type: ["number", "null"] },
+                faultDescription: { type: ["string", "null"] },
               },
-              required: ["action", "employeeName", "dateText", "dateIso", "weekday", "jobRef", "costCentreName", "startTime", "durationHours"],
+              required: [
+                "action",
+                "employeeName",
+                "dateText",
+                "dateIso",
+                "weekday",
+                "jobRef",
+                "costCentreName",
+                "startTime",
+                "durationHours",
+                "faultDescription",
+              ],
             },
           },
         },
@@ -326,6 +384,7 @@ async function aiIntent(message: string, employees: Employee[], now: Date): Prom
       costCentreName: typeof parsed.costCentreName === "string" ? parsed.costCentreName : undefined,
       startTime: typeof parsed.startTime === "string" ? parsed.startTime : undefined,
       durationHours: typeof parsed.durationHours === "number" ? parsed.durationHours : undefined,
+      faultDescription: typeof parsed.faultDescription === "string" ? parsed.faultDescription : undefined,
     };
   } catch {
     return null;
@@ -728,6 +787,63 @@ async function handleSchedulingMessage(
   };
 }
 
+async function handleFaultReportMessage(
+  message: string,
+  actor: { id: string; name: string },
+  options: { sourceRoute?: string; sourcePage?: string } = {},
+): Promise<NexaAssistantResponse> {
+  const classified = await classifyFaultReport({
+    description: message,
+    sourceRoute: options.sourceRoute,
+    sourcePage: options.sourcePage,
+  });
+  refreshPendingStore();
+  const pending: PendingFaultReport = {
+    kind: "fault_report",
+    id: `fault-pending-${crypto.randomUUID()}`,
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+    actorId: actor.id,
+    actorName: actor.name,
+    title: classified.title,
+    description: classified.aiDescription || message,
+    originalDescription: message,
+    module: classified.module,
+    type: classified.type,
+    priority: classified.priority,
+    sourceRoute: options.sourceRoute,
+    sourcePage: options.sourcePage,
+  };
+  pendingStore.actions = [pending, ...pendingStore.actions];
+  persistPendingStore();
+  return {
+    reply: [
+      "I can add this to Faults & Improvements.",
+      "",
+      `${classified.title}`,
+      `${classified.module} · ${classified.type.replace("_", " ")} · ${classified.priority} priority`,
+      "",
+      "Original wording is kept. Confirm to create the NX reference.",
+    ].join("\n"),
+    intent: {
+      action: classified.type === "improvement" || classified.type === "new_feature" ? "suggest_improvement" : "report_fault",
+      faultTitle: classified.title,
+      faultDescription: message,
+      faultModule: classified.module,
+      faultType: classified.type,
+      faultPriority: classified.priority,
+    },
+    action: {
+      id: pending.id,
+      kind: "confirm_fault_report",
+      title: classified.title,
+      detail: `${classified.module} · ${classified.type} · ${classified.priority}`,
+      confirmLabel: "Add to Faults",
+    },
+    aiUsed: classified.aiUsed,
+  };
+}
+
 export async function handleNexaAssistantMessage(
   message: string,
   actor: { id: string; name: string },
@@ -735,6 +851,8 @@ export async function handleNexaAssistantMessage(
     history?: BlakeHistoryMessage[];
     buddyContext?: BuddyClientContext;
     now?: Date;
+    sourceRoute?: string;
+    sourcePage?: string;
   } = {},
 ): Promise<NexaAssistantResponse> {
   const now = options.now ?? new Date();
@@ -742,6 +860,15 @@ export async function handleNexaAssistantMessage(
   const hubState = getHubDetailState();
   const employees = (hubState.employees ?? []) as Employee[];
   const deterministic = deterministicIntent(message, employees, now);
+  const ai = await aiIntent(message, employees, now);
+  const intent = ai?.action === "report_fault" || ai?.action === "suggest_improvement" ? ai : deterministic;
+
+  if (intent.action === "report_fault" || intent.action === "suggest_improvement" || looksLikeFaultReport(message)) {
+    return handleFaultReportMessage(message, actor, {
+      sourceRoute: options.sourceRoute,
+      sourcePage: options.sourcePage,
+    });
+  }
 
   if (deterministic.action === "chat" || (!deterministic.employeeName && deterministic.action !== "book")) {
     if (deterministic.action === "chat" || !looksLikeScheduling(message)) {
@@ -761,15 +888,47 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
   refreshPendingStore();
   const action = pendingStore.actions.find((item) => item.id === actionId);
   if (!action || action.actorId !== actor.id) {
-    return { ok: false as const, status: 404, reply: "That booking request has expired. Ask Blake to check the slot again." };
+    return { ok: false as const, status: 404, reply: "That request has expired. Ask Blake again." };
   }
-  const employee = ((getHubDetailState().employees ?? []) as Employee[]).find((item) => item.id === action.employeeId);
-  const job = getJobs().find((item) => item.id === action.jobId);
+
+  if (action.kind === "fault_report") {
+    const issue = createFaultIssue({
+      title: action.title,
+      description: action.originalDescription,
+      aiDescription: action.description,
+      module: action.module,
+      type: action.type,
+      priority: action.priority,
+      reporterId: actor.id,
+      reporterName: actor.name,
+      sourceRoute: action.sourceRoute,
+      sourcePage: action.sourcePage,
+      status: "inbox",
+    });
+    pendingStore.actions = pendingStore.actions.filter((item) => item.id !== action.id);
+    persistPendingStore();
+    return {
+      ok: true as const,
+      status: 200,
+      reply: [
+        `Added as ${issue.reference}`,
+        issue.module,
+        issue.type === "fault" ? "Fault" : issue.type.replace("_", " "),
+        `${issue.priority} priority`,
+      ].join("\n"),
+      faultReference: issue.reference,
+      issueId: issue.id,
+    };
+  }
+
+  const booking = action as PendingBooking;
+  const employee = ((getHubDetailState().employees ?? []) as Employee[]).find((item) => item.id === booking.employeeId);
+  const job = getJobs().find((item) => item.id === booking.jobId);
   if (!employee || !job) {
     return { ok: false as const, status: 409, reply: "The employee or job has changed. No booking was created." };
   }
-  const currentBookings = scheduleForEmployee(employee, action.date);
-  const clash = currentBookings.find((booking) => overlap(action.startTime, action.endTime, booking.startTime, booking.endTime));
+  const currentBookings = scheduleForEmployee(employee, booking.date);
+  const clash = currentBookings.find((item) => overlap(booking.startTime, booking.endTime, item.startTime, item.endTime));
   if (clash) {
     return { ok: false as const, status: 409, reply: `The slot is no longer free; it now clashes with ${clash.label}.` };
   }
@@ -779,15 +938,15 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
   const assignment: ScheduleAssignment = {
     id: `${job.id}-assistant-${crypto.randomUUID()}`,
     jobId: job.id,
-    costCentreId: action.costCentreId,
-    costCentreName: action.costCentreName,
+    costCentreId: booking.costCentreId,
+    costCentreName: booking.costCentreName,
     employeeId: employee.id,
     employeeName: employee.name,
-    startDate: action.date,
-    startTime: action.startTime,
-    endDate: action.date,
-    endTime: action.endTime,
-    plannedHours: action.durationHours,
+    startDate: booking.date,
+    startTime: booking.startTime,
+    endDate: booking.date,
+    endTime: booking.endTime,
+    plannedHours: booking.durationHours,
     notes: `Scheduled by Blake for ${actor.name}.`,
   };
   const nextPlans = {
@@ -799,22 +958,22 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
   saveHubDetailState({ ...hubState, jobSchedulePlans: nextPlans });
   updateJob(job.id, {
     manager: employee.name,
-    scheduledDate: action.date,
-    scheduledTime: action.startTime,
-    scheduledDurationHours: action.durationHours,
+    scheduledDate: booking.date,
+    scheduledTime: booking.startTime,
+    scheduledDurationHours: booking.durationHours,
     status: ["Pending", "Scheduled"].includes(job.status) ? "In progress" : job.status,
-    next: `${employee.name} booked to ${action.costCentreName} on ${formatUkDate(action.date)}.`,
+    next: `${employee.name} booked to ${booking.costCentreName} on ${formatUkDate(booking.date)}.`,
   });
   appendAuditEvent({
     actor: actor.name,
     action: "scheduled by Blake",
     recordType: "job",
     recordId: job.id,
-    summary: `${employee.name} assigned to ${action.costCentreName} on ${formatUkDate(action.date)} from ${action.startTime} to ${action.endTime}.`,
+    summary: `${employee.name} assigned to ${booking.costCentreName} on ${formatUkDate(booking.date)} from ${booking.startTime} to ${booking.endTime}.`,
     source: "Blake",
     importance: "high",
   });
-  pendingStore.actions = pendingStore.actions.filter((item) => item.id !== action.id);
+  pendingStore.actions = pendingStore.actions.filter((item) => item.id !== booking.id);
   persistPendingStore();
 
   const simpro = await pushJobToSimpro(job.id, {
@@ -830,7 +989,7 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
   return {
     ok: true as const,
     status: 200,
-    reply: `${employee.name} is booked to ${job.ref}, ${action.costCentreName}, on ${formatUkDate(action.date)} from ${action.startTime} to ${action.endTime}.${simproNote}`,
+    reply: `${employee.name} is booked to ${job.ref}, ${booking.costCentreName}, on ${formatUkDate(booking.date)} from ${booking.startTime} to ${booking.endTime}.${simproNote}`,
     assignment,
     jobId: job.id,
   };
