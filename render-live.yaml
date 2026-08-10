@@ -9,8 +9,10 @@ services:
     healthCheckPath: /api/health
     # Build heap is set only here (not as a runtime env var).
     buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile --filter @hubflo/web... && NODE_OPTIONS=--max-old-space-size=3072 pnpm --filter @hubflo/web build && echo "nexa-runtime-mem=standard-1536-v1"
-    # Bind $PORT explicitly; keep runtime heap under instance RAM (Standard = 2GB).
-    startCommand: corepack enable && NODE_OPTIONS=--max-old-space-size=1536 pnpm --filter @hubflo/web exec next start --hostname 0.0.0.0 --port $PORT
+    # Start Next directly — never run Corepack/pnpm here. Every `corepack enable` was
+    # re-downloading pnpm from npm (Cloudflare) and unhandled UND_ERR_SOCKET killed the
+    # instance on restart → random 502s.
+    startCommand: NODE_OPTIONS=--max-old-space-size=1536 node apps/web/node_modules/next/dist/bin/next start apps/web --hostname 0.0.0.0 --port $PORT
     disk:
       name: nexa-live-data
       mountPath: /var/data
