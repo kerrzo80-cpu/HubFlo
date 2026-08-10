@@ -258,6 +258,17 @@ export function TendersPanel({
     }
   }
 
+  async function deleteDocument(documentId: string, documentName: string) {
+    if (!selected) return;
+    if (!window.confirm(`Remove “${documentName}” from this tender?`)) return;
+    try {
+      await postAction({ action: "delete-document", id: selected.id, documentId });
+      onNotice(`Removed ${documentName}.`);
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to remove document");
+    }
+  }
+
   async function openOrCreateTakeoff(createNew = false) {
     if (!selected) return;
     setSaving(true);
@@ -996,20 +1007,30 @@ export function TendersPanel({
                   <li key={kind}>
                     <strong>{label}</strong>
                     {matched.length ? (
-                      <span>
-                        {matched.map((doc, index) => (
-                          <span key={doc.id}>
-                            {index > 0 ? ", " : ""}
+                      <ul className="tenders-doc-file-list">
+                        {matched.map((doc) => (
+                          <li key={doc.id} className="tenders-doc-file-row">
                             {doc.url ? (
                               <a href={doc.url} target="_blank" rel="noreferrer">
                                 {doc.name}
                               </a>
                             ) : (
-                              doc.name
+                              <span>{doc.name}</span>
                             )}
-                          </span>
+                            <button
+                              type="button"
+                              className="secondary-button tenders-doc-delete"
+                              disabled={saving}
+                              aria-label={`Remove ${doc.name}`}
+                              title="Remove document"
+                              onClick={() => void deleteDocument(doc.id, doc.name)}
+                            >
+                              <Trash2 size={14} />
+                              Remove
+                            </button>
+                          </li>
                         ))}
-                      </span>
+                      </ul>
                     ) : (
                       <span>Not attached yet</span>
                     )}

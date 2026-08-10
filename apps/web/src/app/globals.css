@@ -40003,6 +40003,40 @@ button.nexa-kpi-card,
   border: 1px solid #eef2f6;
 }
 
+.tenders-doc-file-list {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.tenders-doc-file-row {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #e8eef3;
+  border-radius: 8px;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 8px 10px;
+}
+
+.tenders-doc-file-row a,
+.tenders-doc-file-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tenders-doc-delete {
+  flex: 0 0 auto;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 10px;
+}
+
 .tenders-hint {
   color: var(--subtle);
   font-size: 13px;

@@ -10,6 +10,7 @@ import {
   importBoqIntoTender,
   listTenders,
   markTenderSubmitted,
+  removeTenderDocument,
   updateBoqLine,
   updateTender,
   upsertTender,
@@ -51,10 +52,12 @@ export async function POST(request: NextRequest) {
       | "archive-bulk"
       | "import-boq"
       | "update-boq-line"
+      | "delete-document"
       | "submit"
       | "convert-won";
     id?: string;
     ids?: string[];
+    documentId?: string;
     tender?: Partial<Tender> & { name?: string; client?: string };
     patch?: Partial<Tender>;
     lineId?: string;
@@ -115,6 +118,14 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "id and lineId required" }, { status: 400 });
       }
       const tender = updateBoqLine(body.id, body.lineId, body.linePatch || {});
+      return NextResponse.json({ tender, tenders: listTenders() });
+    }
+
+    if (body?.action === "delete-document") {
+      if (!body.id || !body.documentId) {
+        return NextResponse.json({ error: "id and documentId required" }, { status: 400 });
+      }
+      const tender = removeTenderDocument(body.id, body.documentId);
       return NextResponse.json({ tender, tenders: listTenders() });
     }
 

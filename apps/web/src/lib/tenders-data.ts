@@ -608,6 +608,17 @@ export function addTenderDocument(
   });
 }
 
+export function removeTenderDocument(tenderId: string, documentId: string) {
+  const existing = getTender(tenderId);
+  if (!existing) throw new Error("Tender not found.");
+  if (!existing.documents.some((doc) => doc.id === documentId)) {
+    throw new Error("Document not found on this tender.");
+  }
+  return updateTender(tenderId, {
+    documents: existing.documents.filter((doc) => doc.id !== documentId),
+  });
+}
+
 export function convertTenderToPendingJob(tenderId: string) {
   const tender = getTender(tenderId);
   if (!tender) throw new Error("Tender not found.");
