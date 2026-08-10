@@ -2498,6 +2498,8 @@ type NexaAssistantMessage = {
   text: string;
   action?: NexaAssistantAction;
   aiUsed?: boolean;
+  /** Offer a one-tap jump into the Faults inbox. */
+  openFaultsInbox?: boolean;
 };
 
 type NexaAssistantApiResponse = {
@@ -15208,6 +15210,13 @@ export default function CoreApp() {
     }
   }
 
+  function openFaultsInbox() {
+    setHomeView("faults");
+    setNexaAssistantOpen(true);
+    scrollWorkspaceToTop();
+    showNotice("Faults & Improvements — review logged reports here.");
+  }
+
   async function confirmNexaAssistantBooking(action: NexaAssistantAction) {
     if (nexaAssistantBusy) return;
     setNexaAssistantBusy(true);
@@ -15233,7 +15242,11 @@ export default function CoreApp() {
         {
           id: `buddy-${crypto.randomUUID()}`,
           role: "assistant",
-          text: result.reply || result.error || "The booking was not created.",
+          text:
+            action.kind === "confirm_fault_report" && response.ok
+              ? `${result.reply || "Fault logged."}\n\nOpen the Faults inbox any time from Ask Blake → Faults inbox.`
+              : result.reply || result.error || "The booking was not created.",
+          openFaultsInbox: action.kind === "confirm_fault_report" && response.ok,
         },
       ]);
       if (response.ok) {
@@ -32856,6 +32869,18 @@ export default function CoreApp() {
                       </button>
                     </div>
                   ) : null}
+                  {message.openFaultsInbox ? (
+                    <div className="buddy-action">
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => openFaultsInbox()}
+                      >
+                        <Bug size={15} />
+                        Open Faults inbox
+                      </button>
+                    </div>
+                  ) : null}
                   {message.role === "assistant" && message.aiUsed ? <small>Interpreted with Blake AI · checked against live NeXa data</small> : null}
                 </article>
               ))}
@@ -32898,6 +32923,13 @@ export default function CoreApp() {
                 }}
               >
                 Suggest an improvement
+              </button>
+              <button
+                type="button"
+                className="buddy-report-chip"
+                onClick={() => openFaultsInbox()}
+              >
+                Faults inbox
               </button>
             </div>
             <form
