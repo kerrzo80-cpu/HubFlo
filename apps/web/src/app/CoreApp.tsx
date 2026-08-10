@@ -8206,8 +8206,9 @@ export default function CoreApp() {
   });
   const [activeQuoteFolderKey, setActiveQuoteFolderKey] = useState("all");
   const [activeJobFolderKey, setActiveJobFolderKey] = useState("all");
-  const [activeLeadFolderKey, setActiveLeadFolderKey] = useState<"all" | "followup">("all");
+  const [activeLeadFolderKey, setActiveLeadFolderKey] = useState("all");
   const [activeInvoiceFolderKey, setActiveInvoiceFolderKey] = useState("all");
+  const [activeDayworkFolderKey, setActiveDayworkFolderKey] = useState<"review" | "completed" | "all">("review");
   const [markingDayworkDealtWith, setMarkingDayworkDealtWith] = useState(false);
   const [reportDateRange, setReportDateRange] = useState<ReportDateRange>("All time");
   const [reportCustomStartDate, setReportCustomStartDate] = useState(startOfScheduleWeek(currentOperatingDate));
@@ -12951,6 +12952,43 @@ export default function CoreApp() {
     return Array.from(byId.values()).sort((left, right) => left.ref.localeCompare(right.ref));
   }, [dashboardDayworkReviews, jobs]);
 
+  const dayworkCompletedJobs = useMemo(() => {
+    const reviewIds = new Set(dayworkReviewJobs.map((job) => job.id));
+    const byId = new Map<string, Job>();
+    for (const event of jobDeliveryEvents) {
+      if (event.formType !== "daywork") continue;
+      if (!dayworkTerminalStatuses.has(event.status || "")) continue;
+      if (reviewIds.has(event.jobId)) continue;
+      const job = jobs.find((item) => item.id === event.jobId);
+      if (job) byId.set(job.id, job);
+    }
+    return Array.from(byId.values()).sort((left, right) => left.ref.localeCompare(right.ref));
+  }, [dayworkReviewJobs, dayworkTerminalStatuses, jobDeliveryEvents, jobs]);
+
+  const dayworkAllJobs = useMemo(() => {
+    const byId = new Map<string, Job>();
+    for (const job of [...dayworkReviewJobs, ...dayworkCompletedJobs]) byId.set(job.id, job);
+    return Array.from(byId.values()).sort((left, right) => left.ref.localeCompare(right.ref));
+  }, [dayworkCompletedJobs, dayworkReviewJobs]);
+
+  const visibleDayworkJobs = useMemo(() => {
+    const source =
+      activeDayworkFolderKey === "completed"
+        ? dayworkCompletedJobs
+        : activeDayworkFolderKey === "all"
+          ? dayworkAllJobs
+          : dayworkReviewJobs;
+    const query = search.trim().toLowerCase();
+    if (!query) return source;
+    return source.filter((job) =>
+      [job.ref, job.customer, job.site, job.description, job.status, job.next].some((value) =>
+        String(value ?? "")
+          .toLowerCase()
+          .includes(query),
+      ),
+    );
+  }, [activeDayworkFolderKey, dayworkAllJobs, dayworkCompletedJobs, dayworkReviewJobs, search]);
+
   const overdueLeadQuoteFollowUps = useMemo(
     () =>
       leads
@@ -12958,6 +12996,82 @@ export default function CoreApp() {
         .filter((item): item is { lead: Lead; followUp: NonNullable<ReturnType<typeof getLeadQuoteFollowUp>> } => Boolean(item.followUp)),
     [getLeadQuoteFollowUp, leads],
   );
+
+  const leadDirectoryGroups = useMemo(() => {
+    const followUpIds = new Set(overdueLeadQuoteFollowUps.map((item) => item.lead.id));
+    return [
+      {
+        key: "new",
+        label: "New enquiry",
+        detail: "Fresh enquiries waiting for first contact",
+        tone: "blue",
+        items: filteredLeads.filter((lead) => lead.status === "New enquiry"),
+      },
+      {
+        key: "scheduling",
+        label: "Needs scheduling",
+        detail: "Surveys that still need a date",
+        tone: "amber",
+        items: filteredLeads.filter((lead) => lead.status === "Needs scheduling"),
+      },
+      {
+        key: "survey",
+        label: "Survey booked",
+        detail: "Surveys booked — ready for quote when complete",
+        tone: "green",
+        items: filteredLeads.filter((lead) => lead.status === "Survey booked"),
+      },
+      {
+        key: "quoted",
+        label: "Quoted",
+        detail: "Leads already converted to a quote",
+        tone: "green",
+        items: filteredLeads.filter((lead) => lead.status === "Quoted"),
+      },
+      {
+        key: "lost",
+        label: "Lost",
+        detail: "Archived or declined leads",
+        tone: "red",
+        items: filteredLeads.filter((lead) => lead.status === "Lost"),
+      },
+      {
+        key: "followup",
+        label: "Follow-ups due",
+        detail: "Survey done — quote overdue",
+        tone: "red",
+        items: filteredLeads.filter((lead) => followUpIds.has(lead.id)),
+      },
+    ];
+  }, [filteredLeads, overdueLeadQuoteFollowUps]);
+
+  const leadDirectoryTabs = useMemo(
+    () => [
+      {
+        key: "all",
+        label: "All leads",
+        tone: "blue",
+        items: filteredLeads,
+      },
+      ...leadDirectoryGroups,
+    ],
+    [filteredLeads, leadDirectoryGroups],
+  );
+
+  const visibleLeadDirectoryGroups = useMemo(() => {
+    if (activeLeadFolderKey === "all") {
+      return [
+        {
+          key: "all",
+          label: "All leads",
+          detail: "Every lead matching the current search and status filter",
+          tone: "blue",
+          items: filteredLeads,
+        },
+      ];
+    }
+    return leadDirectoryGroups.filter((group) => group.key === activeLeadFolderKey);
+  }, [activeLeadFolderKey, filteredLeads, leadDirectoryGroups]);
 
   const quoteResponseFollowUps = useMemo(
     () =>
@@ -12973,9 +13087,11 @@ export default function CoreApp() {
       label: "Follow-up due",
       detail: "Sent quotes that need a call or email",
       tone: quoteResponseFollowUps.some((item) => item.followUp.tone === "red") ? "red" : "amber",
-      items: quoteResponseFollowUps.map((item) => item.quote),
+      items: quoteResponseFollowUps
+        .map((item) => item.quote)
+        .filter((quote) => filteredQuotes.some((row) => row.id === quote.id)),
     }),
-    [quoteResponseFollowUps],
+    [filteredQuotes, quoteResponseFollowUps],
   );
 
   const quoteDirectoryTabs = useMemo(
@@ -19737,6 +19853,60 @@ export default function CoreApp() {
             {" · sorted A–Z by first name"}
           </p>
         ) : null}
+      </div>
+    );
+  }
+
+  function renderDirectoryPanelSearch(placeholder: string) {
+    return (
+      <div className="directory-register-search-row">
+        <label className="directory-panel-search directory-panel-search-wide">
+          <Search size={16} aria-hidden />
+          <input
+            type="search"
+            aria-label={placeholder}
+            placeholder={placeholder}
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </label>
+      </div>
+    );
+  }
+
+  function renderRegisterKpiCards(cards: Array<{ label: string; value: string | number; tone?: string }>) {
+    return (
+      <div className="record-folder-grid register-kpi-grid">
+        {cards.map((card) => (
+          <article className={`record-folder-card ${card.tone ?? "blue"}`} key={card.label}>
+            <span>{card.label}</span>
+            <strong>{card.value}</strong>
+          </article>
+        ))}
+      </div>
+    );
+  }
+
+  function renderRegisterStatusTabs(
+    tabs: Array<{ key: string; label: string }>,
+    activeKey: string,
+    onSelect: (key: string) => void,
+    ariaLabel: string,
+  ) {
+    return (
+      <div className="po-register-tabs" role="tablist" aria-label={ariaLabel}>
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            role="tab"
+            aria-selected={activeKey === tab.key}
+            className={activeKey === tab.key ? "active" : ""}
+            onClick={() => onSelect(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
     );
   }
@@ -31785,7 +31955,7 @@ export default function CoreApp() {
       scrollWorkspaceToTop();
     }
 
-    function openLeadsFolder(folderKey: "all" | "followup") {
+    function openLeadsFolder(folderKey: string) {
       setActiveLeadFolderKey(folderKey);
       setHomeView("leads");
       scrollWorkspaceToTop();
@@ -33804,39 +33974,44 @@ export default function CoreApp() {
             <section className="quote-panel record-directory workflow-directory quote-directory">
               <div className="panel-header">
                 <div>
-                  <h2>Quote folders</h2>
+                  <h2>Quote register</h2>
+                  <p>Draft, sent and closed quotes in one place — open a row to price, send or convert.</p>
                 </div>
                 <div className="panel-controls">
-                  <label className="status-filter">
-                    <select value={quoteStatusFilter} onChange={(event) => setQuoteStatusFilter(event.target.value)} aria-label="Filter quotes by status">
-                      <option>All quotes</option>
-                      {quoteStatuses.map((status) => (
-                        <option key={status}>{status}</option>
-                      ))}
-                    </select>
-                  </label>
                   <button className="primary-button" onClick={createQuote}>
                     <Plus size={16} />
                     New quote
                   </button>
                 </div>
               </div>
-
-              <div className="record-folder-grid record-folder-tabs" role="tablist" aria-label="Quote folders">
-                {[{ key: "all", label: "All quotes", tone: "blue", items: filteredQuotes }, ...quoteDirectoryTabs].map((group) => (
-                  <button
-                    aria-selected={activeQuoteFolderKey === group.key}
-                    className={`record-folder-card ${group.tone} ${activeQuoteFolderKey === group.key ? "active" : ""}`}
-                    key={group.key}
-                    role="tab"
-                    type="button"
-                    onClick={() => setActiveQuoteFolderKey(group.key)}
-                  >
-                    <span>{group.label}</span>
-                    <strong>{group.items.length}</strong>
-                  </button>
-                ))}
-              </div>
+              {renderDirectoryPanelSearch("Search quotes...")}
+              {renderRegisterKpiCards([
+                {
+                  label: "Draft",
+                  value: quoteDirectoryGroups.find((group) => group.key === "incomplete")?.items.length ?? 0,
+                  tone: "amber",
+                },
+                {
+                  label: `Open (last ${quoteArchiveAfterDays}d)`,
+                  value: quoteDirectoryGroups.find((group) => group.key === "open-window")?.items.length ?? 0,
+                  tone: "blue",
+                },
+                {
+                  label: "Won this month",
+                  value: quoteDirectoryGroups.find((group) => group.key === "won-month")?.items.length ?? 0,
+                  tone: "green",
+                },
+              ])}
+              {renderRegisterStatusTabs(
+                [{ key: "all", label: "All quotes" }, ...quoteDirectoryTabs.map((group) => ({ key: group.key, label: group.label }))],
+                activeQuoteFolderKey,
+                setActiveQuoteFolderKey,
+                "Quote folders",
+              )}
+              {renderDirectoryBulkBar(
+                "quotes",
+                visibleQuoteDirectoryGroups.flatMap((group) => group.items.map((item) => item.id)),
+              )}
 
               <div className="record-folder-stack">
                 {visibleQuoteDirectoryGroups.map((group) => (
@@ -33990,48 +34165,49 @@ export default function CoreApp() {
                   </section>
                 ))}
               </div>
-              {renderDirectoryBulkBar(
-                "quotes",
-                visibleQuoteDirectoryGroups.flatMap((group) => group.items.map((item) => item.id)),
-              )}
             </section>
           ) : homeView === "jobs" ? (
             <section className="quote-panel record-directory workflow-directory job-directory">
               <div className="panel-header">
                 <div>
-                  <h2>Job folders</h2>
+                  <h2>Job register</h2>
+                  <p>Pending through complete and ready-to-invoice jobs — open a row for scheduling, costs and billing.</p>
                 </div>
                 <div className="panel-controls">
-                  <label className="status-filter">
-                    <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter jobs by status">
-                      <option>All statuses</option>
-                      {jobStatuses.map((status) => (
-                        <option key={status}>{status}</option>
-                      ))}
-                    </select>
-                  </label>
                   <button className="primary-button" onClick={createJobFromMenu}>
                     <Plus size={16} />
                     New job
                   </button>
                 </div>
               </div>
-
-              <div className="record-folder-grid record-folder-tabs" role="tablist" aria-label="Job folders">
-                {jobDirectoryTabs.map((group) => (
-                  <button
-                    aria-selected={activeJobFolderKey === group.key}
-                    className={`record-folder-card ${group.tone} ${activeJobFolderKey === group.key ? "active" : ""}`}
-                    key={group.key}
-                    role="tab"
-                    type="button"
-                    onClick={() => setActiveJobFolderKey(group.key)}
-                  >
-                    <span>{group.label}</span>
-                    <strong>{group.items.length}</strong>
-                  </button>
-                ))}
-              </div>
+              {renderDirectoryPanelSearch("Search jobs...")}
+              {renderRegisterKpiCards([
+                {
+                  label: "Pending",
+                  value: jobDirectoryGroups.find((group) => group.key === "pending")?.items.length ?? 0,
+                  tone: "amber",
+                },
+                {
+                  label: "In progress",
+                  value: jobDirectoryGroups.find((group) => group.key === "progress")?.items.length ?? 0,
+                  tone: "blue",
+                },
+                {
+                  label: "Ready to invoice",
+                  value: jobDirectoryGroups.find((group) => group.key === "uninvoiced")?.items.length ?? 0,
+                  tone: "green",
+                },
+              ])}
+              {renderRegisterStatusTabs(
+                jobDirectoryTabs.map((group) => ({ key: group.key, label: group.label })),
+                activeJobFolderKey,
+                setActiveJobFolderKey,
+                "Job folders",
+              )}
+              {renderDirectoryBulkBar(
+                "jobs",
+                visibleJobDirectoryGroups.flatMap((group) => group.items.map((item) => item.id)),
+              )}
 
               <div className="record-folder-stack">
                 {visibleJobDirectoryGroups.map((group) => (
@@ -34235,10 +34411,6 @@ export default function CoreApp() {
                   </section>
                 ))}
               </div>
-              {renderDirectoryBulkBar(
-                "jobs",
-                visibleJobDirectoryGroups.flatMap((group) => group.items.map((item) => item.id)),
-              )}
             </section>
           ) : homeView === "reports" ? (
             <section className="reports-shell">
@@ -34864,6 +35036,7 @@ export default function CoreApp() {
                   </label>
                 </div>
               </div>
+              {renderDirectoryPanelSearch("Search purchase orders...")}
 
               <div className="record-folder-grid">
                 {purchaseOrderFolders.map((folder) => (
@@ -34888,6 +35061,11 @@ export default function CoreApp() {
                   </button>
                 ))}
               </div>
+
+              {renderDirectoryBulkBar(
+                "purchase-orders",
+                purchaseOrderRows.map((row) => row.request.id),
+              )}
 
               <section className="record-folder-section">
                 <header>
@@ -34971,10 +35149,6 @@ export default function CoreApp() {
                   </>
                 )}
               </section>
-              {renderDirectoryBulkBar(
-                "purchase-orders",
-                purchaseOrderRows.map((row) => row.request.id),
-              )}
             </section>
           ) : homeView === "purchase-order-record" ? (
             selectedPurchaseOrder ? (() => {
@@ -35523,59 +35697,106 @@ export default function CoreApp() {
               }}
             />
           ) : homeView === "dayworks" ? (
-            <section className="tenders-workspace" aria-label="Dayworks to review">
-              <div className="tenders-toolbar">
+            <section className="quote-panel record-directory workflow-directory daywork-directory" aria-label="Dayworks">
+              <div className="panel-header">
                 <div>
-                  <span className="permission-heading">Variations</span>
-                  <h2>Dayworks to review</h2>
-                  <p>Signed Field daywork sheets waiting for office pricing or sign-off.</p>
+                  <h2>Daywork register</h2>
+                  <p>Signed Field daywork sheets for office pricing, review and completed records.</p>
                 </div>
               </div>
-              <div className="tenders-metric-row">
-                <article>
-                  <span>Waiting review</span>
-                  <strong>{dayworkReviewJobs.length}</strong>
-                </article>
-              </div>
-              <div className="tenders-table-wrap">
-                {dayworkReviewJobs.length === 0 ? (
-                  <p className="tenders-hint">No dayworks waiting for office review.</p>
+              {renderDirectoryPanelSearch("Search dayworks...")}
+              {renderRegisterKpiCards([
+                { label: "To review", value: dayworkReviewJobs.length, tone: "amber" },
+                { label: "Completed", value: dayworkCompletedJobs.length, tone: "green" },
+                { label: "All dayworks", value: dayworkAllJobs.length, tone: "blue" },
+              ])}
+              {renderRegisterStatusTabs(
+                [
+                  { key: "review", label: "To review" },
+                  { key: "completed", label: "Completed" },
+                  { key: "all", label: "All" },
+                ],
+                activeDayworkFolderKey,
+                (key) => setActiveDayworkFolderKey(key as "review" | "completed" | "all"),
+                "Daywork folders",
+              )}
+
+              <section className="record-folder-section">
+                <header>
+                  <div>
+                    <h3>
+                      {activeDayworkFolderKey === "completed"
+                        ? "Completed dayworks"
+                        : activeDayworkFolderKey === "all"
+                          ? "All dayworks"
+                          : "Dayworks to review"}
+                    </h3>
+                  </div>
+                  <span className={`status-pill ${activeDayworkFolderKey === "review" ? "amber" : "green"}`}>
+                    {visibleDayworkJobs.length} records
+                  </span>
+                </header>
+                {visibleDayworkJobs.length === 0 ? (
+                  <div className="record-folder-empty">
+                    {search.trim()
+                      ? "No dayworks match this search in the current folder."
+                      : activeDayworkFolderKey === "completed"
+                        ? "No completed dayworks yet."
+                        : "No dayworks waiting for office review."}
+                  </div>
                 ) : (
-                  <table className="tenders-table">
-                    <thead>
-                      <tr>
-                        <th>Job</th>
-                        <th>Customer</th>
-                        <th>Status</th>
-                        <th>Next</th>
-                        <th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dayworkReviewJobs.map((job) => (
-                        <tr key={job.id}>
-                          <td>
+                  <>
+                    <div className="quote-row table-header">
+                      <span>Job / description</span>
+                      <span>Client / address</span>
+                      <span>Status</span>
+                      <span>Next action</span>
+                      <span>Options</span>
+                    </div>
+                    {visibleDayworkJobs.map((job) => (
+                      <article
+                        className="quote-row clickable"
+                        key={job.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openDayworkAccountRecord(job.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            openDayworkAccountRecord(job.id);
+                          }
+                        }}
+                      >
+                        <div className="job-identity">
+                          <div>
+                            <StatusDot tone={activeDayworkFolderKey === "completed" ? "green" : "amber"} />
                             <strong>{job.ref}</strong>
-                            <div className="tenders-note">{job.description}</div>
-                          </td>
-                          <td>{job.customer}</td>
-                          <td>{job.status}</td>
-                          <td>{job.next}</td>
-                          <td>
-                            <button
-                              type="button"
-                              className="primary-button"
-                              onClick={() => openDayworkAccountRecord(job.id)}
-                            >
-                              Open daywork
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                          </div>
+                          <span>{job.description}</span>
+                        </div>
+                        <span className="record-address-cell">
+                          <strong>{job.customer}</strong>
+                          <small>{job.site}</small>
+                        </span>
+                        <span className={`status-pill ${job.health}`}>{job.status}</span>
+                        <span className="next-action">
+                          <strong>{job.next}</strong>
+                        </span>
+                        <button
+                          type="button"
+                          className="primary-button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openDayworkAccountRecord(job.id);
+                          }}
+                        >
+                          Open daywork
+                        </button>
+                      </article>
+                    ))}
+                  </>
                 )}
-              </div>
+              </section>
             </section>
           ) : homeView === "addons" ? (
             <section className="addon-workspace">
@@ -42116,32 +42337,41 @@ export default function CoreApp() {
             <section className="quote-panel record-directory invoice-directory">
               <div className="panel-header">
                 <div>
-                  <h2>Invoices</h2>
+                  <h2>Invoice register</h2>
+                  <p>Draft, sent and paid invoices plus retention sitting out — open a row to bill or chase.</p>
                 </div>
-                <label className="status-filter">
-                  <select value={invoiceStatusFilter} onChange={(event) => setInvoiceStatusFilter(event.target.value)} aria-label="Filter invoices by status">
-                    <option>All invoices</option>
-                    {invoiceStatuses.map((status) => (
-                      <option key={status}>{status}</option>
-                    ))}
-                  </select>
-                </label>
               </div>
-              <div className="record-folder-grid record-folder-tabs" role="tablist" aria-label="Invoice folders">
-                {[{ key: "all", label: "All invoices", tone: "blue", items: filteredInvoices }, ...invoiceDirectoryGroups].map((group) => (
-                  <button
-                    aria-selected={activeInvoiceFolderKey === group.key}
-                    className={`record-folder-card ${group.tone} ${activeInvoiceFolderKey === group.key ? "active" : ""}`}
-                    key={group.key}
-                    role="tab"
-                    type="button"
-                    onClick={() => setActiveInvoiceFolderKey(group.key)}
-                  >
-                    <span>{group.label}</span>
-                    <strong>{group.key === "retention" ? reportRetentionRows.length : group.items.length}</strong>
-                  </button>
-                ))}
-              </div>
+              {renderDirectoryPanelSearch("Search invoices...")}
+              {renderRegisterKpiCards([
+                {
+                  label: "Draft",
+                  value: invoiceDirectoryGroups.find((group) => group.key === "draft")?.items.length ?? 0,
+                  tone: "amber",
+                },
+                {
+                  label: "Unpaid",
+                  value: invoiceDirectoryGroups.find((group) => group.key === "unpaid")?.items.length ?? 0,
+                  tone: "blue",
+                },
+                {
+                  label: "Overdue",
+                  value: invoiceDirectoryGroups.find((group) => group.key === "overdue")?.items.length ?? 0,
+                  tone: "red",
+                },
+              ])}
+              {renderRegisterStatusTabs(
+                [
+                  { key: "all", label: "All invoices" },
+                  ...invoiceDirectoryGroups.map((group) => ({ key: group.key, label: group.label })),
+                ],
+                activeInvoiceFolderKey,
+                setActiveInvoiceFolderKey,
+                "Invoice folders",
+              )}
+              {renderDirectoryBulkBar(
+                "invoices",
+                visibleInvoiceDirectoryGroups.flatMap((group) => group.items.map((item) => item.id)),
+              )}
 
               <div className="record-folder-stack">
                 {activeInvoiceFolderKey === "retention" ? (
@@ -42372,10 +42602,6 @@ export default function CoreApp() {
                   </section>
                 ))}
               </div>
-              {renderDirectoryBulkBar(
-                "invoices",
-                visibleInvoiceDirectoryGroups.flatMap((group) => group.items.map((item) => item.id)),
-              )}
             </section>
           ) : homeView === "invoice-create" ? (
             jobInvoiceDraft && jobInvoiceDraftJob ? (
@@ -46533,174 +46759,156 @@ export default function CoreApp() {
               </div>
             </section>
           ) : homeView === "leads" ? (
-            <section className="lead-workspace">
+            <section className="quote-panel record-directory workflow-directory lead-directory">
               <div className="panel-header">
                 <div>
-                  <h2>Lead intake</h2>
+                  <h2>Lead register</h2>
+                  <p>Enquiries through survey and quote — open a row to schedule, chase or convert.</p>
                 </div>
                 <div className="panel-controls">
-                  <label className="status-filter">
-                    <select value={leadStatusFilter} onChange={(event) => setLeadStatusFilter(event.target.value)} aria-label="Filter leads by status">
-                      <option>All leads</option>
-                      {leadStatuses.map((status) => (
-                        <option key={status}>{status}</option>
-                      ))}
-                    </select>
-                  </label>
                   <button className="primary-button" onClick={createLead}>
                     <Plus size={16} />
                     New lead
                   </button>
                 </div>
               </div>
+              {renderDirectoryPanelSearch("Search leads...")}
+              {renderRegisterKpiCards([
+                {
+                  label: "Open enquiries",
+                  value: filteredLeads.filter((lead) => !["Quoted", "Lost"].includes(lead.status)).length,
+                  tone: "blue",
+                },
+                {
+                  label: "Surveys booked",
+                  value: filteredLeads.filter((lead) => lead.status === "Survey booked").length,
+                  tone: "green",
+                },
+                {
+                  label: "Quote overdue",
+                  value: leadDirectoryGroups.find((group) => group.key === "followup")?.items.length ?? 0,
+                  tone: "red",
+                },
+              ])}
+              {renderRegisterStatusTabs(
+                leadDirectoryTabs.map((group) => ({ key: group.key, label: group.label })),
+                activeLeadFolderKey,
+                setActiveLeadFolderKey,
+                "Lead folders",
+              )}
+              {renderDirectoryBulkBar(
+                "leads",
+                visibleLeadDirectoryGroups.flatMap((group) => group.items.map((item) => item.id)),
+              )}
 
-              <div className="lead-summary-grid">
-                <article>
-                  <span>Open enquiries</span>
-                  <strong>{leads.filter((lead) => !["Quoted", "Lost"].includes(lead.status)).length}</strong>
-                </article>
-                <article>
-                  <span>Surveys booked</span>
-                  <strong>{leads.filter((lead) => lead.status === "Survey booked").length}</strong>
-                </article>
-                <article>
-                  <span>Need scheduling</span>
-                  <strong>{leads.filter((lead) => lead.status === "Needs scheduling").length}</strong>
-                </article>
-                <button
-                  className={`lead-summary-button ${overdueLeadQuoteFollowUps.length ? "attention" : ""} ${activeLeadFolderKey === "followup" ? "active" : ""}`}
-                  type="button"
-                  onClick={() => setActiveLeadFolderKey(activeLeadFolderKey === "followup" ? "all" : "followup")}
-                >
-                  <span>Quote overdue</span>
-                  <strong>{overdueLeadQuoteFollowUps.length}</strong>
-                  <small>{activeLeadFolderKey === "followup" ? "Showing follow-ups · click for all" : "Click to show all follow-ups"}</small>
-                </button>
-              </div>
-
-              <div className="record-folder-grid record-folder-tabs" role="tablist" aria-label="Lead folders">
-                <button
-                  aria-selected={activeLeadFolderKey === "all"}
-                  className={`record-folder-card blue ${activeLeadFolderKey === "all" ? "active" : ""}`}
-                  type="button"
-                  role="tab"
-                  onClick={() => setActiveLeadFolderKey("all")}
-                >
-                  <span>All leads</span>
-                  <strong>{filteredLeads.length}</strong>
-                </button>
-                <button
-                  aria-selected={activeLeadFolderKey === "followup"}
-                  className={`record-folder-card red ${activeLeadFolderKey === "followup" ? "active" : ""}`}
-                  type="button"
-                  role="tab"
-                  onClick={() => setActiveLeadFolderKey("followup")}
-                >
-                  <span>Follow-ups due</span>
-                  <strong>{overdueLeadQuoteFollowUps.length}</strong>
-                </button>
-              </div>
-
-              <div className="lead-layout">
-                <section className="lead-list-panel">
-                  <div className="lead-row table-header">
-                    <span className="directory-select-cell">Select</span>
-                    <span>Lead / description</span>
-                    <span>Address</span>
-                    <span>Client</span>
-                    <span>Survey</span>
-                    <span>Status</span>
-                    <span>Next action</span>
-                    <span>Options</span>
-                  </div>
-                  {(activeLeadFolderKey === "followup"
-                    ? overdueLeadQuoteFollowUps.map((item) => item.lead)
-                    : filteredLeads
-                  ).map((lead) => {
-                    const linkedQuote = getLeadQuote(lead);
-                    const followUp = getLeadQuoteFollowUp(lead);
-                    return (
-                    <article
-                      className={`lead-row clickable ${followUp ? "needs-attention red" : ""}`}
-                      key={lead.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => openLeadRecord(lead.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openLeadRecord(lead.id);
-                        }
-                      }}
-                    >
-                      {renderDirectorySelectCell("leads", lead.id, lead.ref)}
-                      <div className="job-identity">
-                        <div>
-                          <StatusDot tone={lead.status === "Lost" ? "red" : lead.status === "Survey booked" ? "green" : "amber"} />
-                          <a href="#" onClick={(event) => { event.preventDefault(); event.stopPropagation(); openLeadRecord(lead.id); }}>
-                            {lead.ref}
-                          </a>
-                          <span>{lead.source}</span>
+              <div className="record-folder-stack">
+                {visibleLeadDirectoryGroups.map((group) => (
+                  <section className="record-folder-section" key={group.key}>
+                    <header>
+                      <div>
+                        <h3>{group.label}</h3>
+                      </div>
+                      <span className={`status-pill ${group.tone}`}>{group.items.length} leads</span>
+                    </header>
+                    {group.items.length === 0 ? (
+                      <div className="record-folder-empty">No leads in this folder yet.</div>
+                    ) : (
+                      <>
+                        <div className="lead-row table-header">
+                          <span className="directory-select-cell">Select</span>
+                          <span>Lead / description</span>
+                          <span>Address</span>
+                          <span>Client</span>
+                          <span>Survey</span>
+                          <span>Status</span>
+                          <span>Next action</span>
+                          <span>Options</span>
                         </div>
-                        <strong>{lead.description}</strong>
-                      </div>
-                      <span className="record-address-cell">{lead.address}</span>
-                      <span className="lead-source">{lead.customerName}</span>
-                      <div className="lead-survey-cell">
-                        <strong>{lead.surveyor}</strong>
-                        <small>{lead.surveyDate && lead.surveyTime ? `${lead.surveyDate} at ${lead.surveyTime}` : "Not booked"}</small>
-                      </div>
-                      <span className={`status-pill ${lead.status === "Lost" ? "red" : lead.status === "Survey booked" || lead.status === "Quoted" ? "green" : "amber"}`} title={lead.lostReason || undefined}>
-                        {lead.status}
-                      </span>
-                      <div className="next-action">
-                        <strong>{followUp ? followUp.label : lead.next}</strong>
-                        <small>{followUp ? "Create or chase quote" : lead.createdAt}</small>
-                        {lead.status === "Survey booked" && !linkedQuote ? (
-                          <button className="secondary-button" type="button" onClick={(event) => { event.stopPropagation(); markLeadQuoted(lead); }}>
-                            Create quote
-                          </button>
-                        ) : null}
-                        {linkedQuote ? (
-                          <button className="secondary-button" type="button" onClick={(event) => { event.stopPropagation(); openQuoteDrawer(linkedQuote.id); }}>
-                            View quote
-                          </button>
-                        ) : null}
-                      </div>
-                      {renderDirectoryActionMenu("lead", lead.id, [
-                        { label: "Open lead", onClick: () => openLeadRecord(lead.id) },
-                        {
-                          label: "Create quote",
-                          onClick: () => markLeadQuoted(lead),
-                          disabled: Boolean(linkedQuote),
-                        },
-                        {
-                          label: "Needs scheduling",
-                          onClick: () => updateLeadStatusFromDirectory(lead, "Needs scheduling"),
-                          disabled: lead.status === "Needs scheduling",
-                        },
-                        {
-                          label: "Survey booked",
-                          onClick: () => updateLeadStatusFromDirectory(lead, "Survey booked"),
-                          disabled: lead.status === "Survey booked",
-                        },
-                        {
-                          label: "Archive as lost",
-                          onClick: () => updateLeadStatusFromDirectory(lead, "Lost"),
-                          disabled: lead.status === "Lost",
-                        },
-                        { label: "Delete", onClick: () => deleteLeadFromDirectory(lead), danger: true },
-                      ])}
-                    </article>
-                    );
-                  })}
-                  {renderDirectoryBulkBar(
-                    "leads",
-                    filteredLeads.map((lead) => lead.id),
-                  )}
+                        {group.items.map((lead) => {
+                          const linkedQuote = getLeadQuote(lead);
+                          const followUp = getLeadQuoteFollowUp(lead);
+                          return (
+                            <article
+                              className={`lead-row clickable ${followUp ? "needs-attention red" : ""}`}
+                              key={lead.id}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => openLeadRecord(lead.id)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  openLeadRecord(lead.id);
+                                }
+                              }}
+                            >
+                              {renderDirectorySelectCell("leads", lead.id, lead.ref)}
+                              <div className="job-identity">
+                                <div>
+                                  <StatusDot tone={lead.status === "Lost" ? "red" : lead.status === "Survey booked" ? "green" : "amber"} />
+                                  <a href="#" onClick={(event) => { event.preventDefault(); event.stopPropagation(); openLeadRecord(lead.id); }}>
+                                    {lead.ref}
+                                  </a>
+                                  <span>{lead.source}</span>
+                                </div>
+                                <strong>{lead.description}</strong>
+                              </div>
+                              <span className="record-address-cell">{lead.address}</span>
+                              <span className="lead-source">{lead.customerName}</span>
+                              <div className="lead-survey-cell">
+                                <strong>{lead.surveyor}</strong>
+                                <small>{lead.surveyDate && lead.surveyTime ? `${lead.surveyDate} at ${lead.surveyTime}` : "Not booked"}</small>
+                              </div>
+                              <span className={`status-pill ${lead.status === "Lost" ? "red" : lead.status === "Survey booked" || lead.status === "Quoted" ? "green" : "amber"}`} title={lead.lostReason || undefined}>
+                                {lead.status}
+                              </span>
+                              <div className="next-action">
+                                <strong>{followUp ? followUp.label : lead.next}</strong>
+                                <small>{followUp ? "Create or chase quote" : lead.createdAt}</small>
+                                {lead.status === "Survey booked" && !linkedQuote ? (
+                                  <button className="secondary-button" type="button" onClick={(event) => { event.stopPropagation(); markLeadQuoted(lead); }}>
+                                    Create quote
+                                  </button>
+                                ) : null}
+                                {linkedQuote ? (
+                                  <button className="secondary-button" type="button" onClick={(event) => { event.stopPropagation(); openQuoteDrawer(linkedQuote.id); }}>
+                                    View quote
+                                  </button>
+                                ) : null}
+                              </div>
+                              {renderDirectoryActionMenu("lead", lead.id, [
+                                { label: "Open lead", onClick: () => openLeadRecord(lead.id) },
+                                {
+                                  label: "Create quote",
+                                  onClick: () => markLeadQuoted(lead),
+                                  disabled: Boolean(linkedQuote),
+                                },
+                                {
+                                  label: "Needs scheduling",
+                                  onClick: () => updateLeadStatusFromDirectory(lead, "Needs scheduling"),
+                                  disabled: lead.status === "Needs scheduling",
+                                },
+                                {
+                                  label: "Survey booked",
+                                  onClick: () => updateLeadStatusFromDirectory(lead, "Survey booked"),
+                                  disabled: lead.status === "Survey booked",
+                                },
+                                {
+                                  label: "Archive as lost",
+                                  onClick: () => updateLeadStatusFromDirectory(lead, "Lost"),
+                                  disabled: lead.status === "Lost",
+                                },
+                                { label: "Delete", onClick: () => deleteLeadFromDirectory(lead), danger: true },
+                              ])}
+                            </article>
+                          );
+                        })}
+                      </>
+                    )}
                   </section>
+                ))}
               </div>
             </section>
+
           ) : homeView === "directory-manager" ? (
             (() => {
               const clientNameById = new Map(clients.map((client) => [client.id, client.name]));

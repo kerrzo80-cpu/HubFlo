@@ -9,6 +9,7 @@ import {
   FileSpreadsheet,
   Plus,
   RefreshCw,
+  Search,
   Send,
   Trash2,
 } from "lucide-react";
@@ -79,6 +80,7 @@ export function TendersPanel({
   const [saving, setSaving] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [folderKey, setFolderKey] = useState<"open" | "won" | "lost" | "all">("open");
+  const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [tab, setTab] = useState<TabKey>("overview");
   const [boqImportText, setBoqImportText] = useState("");
@@ -145,8 +147,21 @@ export function TendersPanel({
   }, [tenders]);
 
   const filtered = useMemo(() => {
-    return folders.find((folder) => folder.key === folderKey)?.items ?? tenders;
-  }, [folderKey, folders, tenders]);
+    const query = search.trim().toLowerCase();
+    const folderItems = folders.find((folder) => folder.key === folderKey)?.items ?? tenders;
+    if (!query) return folderItems;
+    return folderItems.filter((tender) =>
+      [
+        tender.name,
+        tender.client,
+        tender.category,
+        tender.area,
+        tender.status,
+        tender.owner,
+        tender.externalId ?? "",
+      ].some((value) => String(value).toLowerCase().includes(query)),
+    );
+  }, [folderKey, folders, search, tenders]);
 
   const pipelineValue = useMemo(
     () =>
@@ -890,14 +905,13 @@ export function TendersPanel({
   }
 
   return (
-    <section className="tenders-workspace" aria-label="Tender tracker">
-      <div className="tenders-toolbar">
+    <section className="quote-panel record-directory workflow-directory tender-directory tenders-workspace" aria-label="Tender tracker">
+      <div className="panel-header">
         <div>
-          <span className="permission-heading">Commercial</span>
-          <h2>Tender tracker</h2>
+          <h2>Tender register</h2>
           <p>Deadlines, owners and bid values — open a row to price their BoQ and generate the Form of Tender.</p>
         </div>
-        <div className="tenders-toolbar-actions">
+        <div className="panel-controls">
           <label className="secondary-button tenders-file-button">
             <FileSpreadsheet size={15} />
             Import tracker Excel
@@ -922,16 +936,29 @@ export function TendersPanel({
         </div>
       </div>
 
-      <div className="tenders-metric-row">
-        <article>
+      <div className="directory-register-search-row">
+        <label className="directory-panel-search directory-panel-search-wide">
+          <Search size={16} aria-hidden />
+          <input
+            type="search"
+            aria-label="Search tenders"
+            placeholder="Search tenders..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </label>
+      </div>
+
+      <div className="record-folder-grid register-kpi-grid">
+        <article className="record-folder-card blue">
           <span>Live tenders</span>
           <strong>{tenders.filter((t) => !["Won", "Lost"].includes(t.status)).length}</strong>
         </article>
-        <article>
+        <article className="record-folder-card green">
           <span>Pipeline value</span>
           <strong>{money(pipelineValue)}</strong>
         </article>
-        <article>
+        <article className="record-folder-card amber">
           <span>Due this week</span>
           <strong>
             {tenders.filter((t) => alertForDeadline(t.submissionDeadline) === "Due this week").length}
@@ -939,20 +966,20 @@ export function TendersPanel({
         </article>
       </div>
 
-      <div className="tenders-folder-grid" role="tablist" aria-label="Tender folders">
+      <div className="po-register-tabs" role="tablist" aria-label="Tender folders">
         {folders.map((folder) => (
           <button
             key={folder.key}
             type="button"
-            className={`tenders-folder-card ${folder.tone} ${folderKey === folder.key ? "active" : ""}`}
+            role="tab"
+            aria-selected={folderKey === folder.key}
+            className={folderKey === folder.key ? "active" : ""}
             onClick={() => {
               setFolderKey(folder.key);
               clearSelection();
             }}
           >
-            <span>{folder.label}</span>
-            <strong>{folder.items.length}</strong>
-            <small>{folder.detail}</small>
+            {folder.label}
           </button>
         ))}
       </div>
@@ -990,7 +1017,7 @@ export function TendersPanel({
         ) : filtered.length === 0 ? (
           <p className="tenders-hint">
             <ClipboardList size={16} style={{ marginRight: 6 }} />
-            No tenders in this folder.
+            {search.trim() ? "No tenders match this search in the current folder." : "No tenders in this folder."}
           </p>
         ) : (
           <table className="tenders-table">

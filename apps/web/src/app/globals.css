@@ -5103,7 +5103,73 @@ h1 {
 .panel-controls {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.directory-panel-search {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  display: inline-flex;
+  gap: 8px;
+  min-width: min(240px, 100%);
+  padding: 0.4rem 0.7rem;
+}
+
+.directory-register-search-row {
+  background: #f7f9fb;
+  border-bottom: 1px solid var(--line-soft);
+  padding: 10px 14px;
+}
+
+.directory-panel-search-wide {
+  display: flex;
+  max-width: none;
+  min-height: 40px;
+  padding: 0.55rem 0.85rem;
+  width: 100%;
+}
+
+.directory-panel-search-wide input {
+  width: 100%;
+}
+
+.directory-panel-search input {
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  flex: 1;
+  font: inherit;
+  font-size: 13px;
+  min-width: 0;
+  outline: none;
+  padding: 0;
+  width: 10rem;
+}
+
+.directory-panel-search input::placeholder {
+  color: var(--subtle);
+}
+
+.panel-controls .directory-panel-search {
+  margin-right: 2px;
+}
+
+.daywork-directory .quote-row {
+  grid-template-columns:
+    minmax(230px, 1.4fr) minmax(200px, 1.3fr) minmax(96px, max-content)
+    minmax(150px, 1fr) minmax(120px, max-content);
+}
+
+.register-kpi-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.purchase-order-directory .record-folder-grid:not(.register-kpi-grid) {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .workspace-actions {
@@ -5584,8 +5650,8 @@ h1 {
   display: grid;
   gap: 15px;
   grid-template-columns:
-    minmax(260px, 2fr) minmax(105px, 0.7fr) minmax(150px, 0.9fr)
-    minmax(110px, 0.75fr) minmax(175px, 1fr);
+    36px minmax(240px, 1.9fr) minmax(150px, 1.2fr) minmax(110px, 0.8fr)
+    minmax(120px, 0.9fr) minmax(96px, max-content) minmax(150px, 1fr) 44px;
   min-height: 92px;
   padding: 11px 16px;
 }
@@ -8685,12 +8751,17 @@ h1 {
 
 .directory-bulk-action-bar {
   background: #fff;
-  border-top: 1px solid var(--line-soft);
-  bottom: 0;
+  border-bottom: 1px solid var(--line-soft);
   gap: 8px;
   padding: 10px 14px;
   position: sticky;
+  top: 0;
   z-index: 4;
+}
+
+.directory-bulk-action-bar.quote-bulk-action-bar {
+  border-top: 0;
+  padding: 10px 14px;
 }
 
 .directory-select-cell {
@@ -24372,13 +24443,15 @@ body:has([data-takeoff-mode="page"]) {
 }
 
 .record-directory .panel-header h2,
-.lead-workspace .panel-header h2 {
+.lead-workspace .panel-header h2,
+.lead-directory .panel-header h2 {
   color: #182331;
   font-size: 15px;
 }
 
 .record-directory .panel-header p,
-.lead-workspace .panel-header p {
+.lead-workspace .panel-header p,
+.lead-directory .panel-header p {
   color: #4d5c66;
   font-size: 11px;
   line-height: 1.35;
@@ -24467,9 +24540,14 @@ body:has([data-takeoff-mode="page"]) {
 
 .lead-row {
   grid-template-columns:
-    36px minmax(300px, 2fr) minmax(100px, 0.62fr) minmax(132px, 0.8fr)
-    minmax(100px, 0.65fr) minmax(180px, 1fr);
+    36px minmax(240px, 1.9fr) minmax(150px, 1.2fr) minmax(110px, 0.8fr)
+    minmax(120px, 0.9fr) minmax(96px, max-content) minmax(150px, 1fr) 44px;
   min-height: 76px;
+}
+
+.lead-directory .lead-row {
+  padding-left: 14px;
+  padding-right: 14px;
 }
 
 .quote-row.table-header,
@@ -24493,7 +24571,8 @@ body:has([data-takeoff-mode="page"]) {
   font-weight: 850;
 }
 
-.lead-workspace .job-identity a {
+.lead-workspace .job-identity a,
+.lead-directory .job-identity a {
   color: #0b8a86;
   font-size: 12px;
   font-weight: 850;
@@ -24564,8 +24643,15 @@ body:has([data-takeoff-mode="page"]) {
   color: #17212b !important;
 }
 
-.quote-directory .panel-header {
-  min-height: 52px;
+.quote-directory .panel-header,
+.job-directory .panel-header,
+.invoice-directory .panel-header,
+.purchase-order-directory .panel-header,
+.lead-directory .panel-header,
+.tender-directory .panel-header {
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 68px;
 }
 
 .quote-directory .record-folder-grid {
@@ -39385,9 +39471,20 @@ button.nexa-kpi-card,
 
 /* —— Tenders module —— */
 .tenders-workspace {
-  display: grid;
-  gap: 16px;
-  padding: 4px 2px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+}
+
+.tender-directory .panel-controls {
+  justify-content: flex-end;
+  max-width: min(720px, 100%);
+}
+
+.tender-directory .directory-bulk-action-bar,
+.tender-directory .tenders-table-wrap {
+  margin: 0 14px 14px;
 }
 
 .tenders-toolbar {
