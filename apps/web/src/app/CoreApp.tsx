@@ -1849,6 +1849,9 @@ type FormTemplate = FormDocumentTemplate;
 type WorkflowRulesSettings = {
   leadQuoteGraceDays: string;
   quoteResponseGraceDays: string;
+  /** Sent quotes with no accept/decline after this many days can auto-archive. */
+  quoteArchiveAfterDays: string;
+  autoArchiveStaleSentQuotes: boolean;
   invoiceDueDays: string;
   defaultMarkupPercent: string;
   poApprovalThreshold: string;
@@ -3458,7 +3461,7 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "documents", label: "Documents", detail: "Default folders, visibility and record scopes", subItems: ["Folders", "Visibility", "Engineer pack"] },
   { key: "cost-centres", label: "Cost centre types", detail: "Default categories and assigned engineer checklists", subItems: ["Types", "Boiler", "Bathroom", "Reactive"] },
   { key: "engineer-checklists", label: "Engineer checklists", detail: "Stop/go flows used inside cost centres", subItems: ["Boiler service", "Boiler replacement", "General works"] },
-  { key: "workflow-rules", label: "Workflow rules", detail: "Lead chases, quote follow-ups, approvals and default margins", subItems: ["Leads", "Quotes", "Approvals"] },
+  { key: "workflow-rules", label: "Triggers & rules", detail: "Quote archive triggers, lead chases, follow-ups and approval gates", subItems: ["Triggers", "Leads", "Quotes", "Approvals"] },
   { key: "imports", label: "Data import", detail: "Bring existing business records into Core", subItems: ["Employees", "Customers", "Sites", "Suppliers", "Contacts", "Contractors", "Leads", "Quotes", "Jobs", "Invoices"] },
   { key: "catalogue", label: "Catalogue import", detail: "Import and manage reusable priced items", subItems: ["Materials", "Labour", "Suppliers"] },
   { key: "prebuilds", label: "Pre-builds", detail: "Material + labour kits that expand onto cost centres" },
@@ -3597,6 +3600,11 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
     },
   },
   "workflow-rules": {
+    Triggers: {
+      summary: "Automatic quote archive and pipeline hygiene — open quotes on the overview only count recent active quotes.",
+      focus: ["Sent quote age before archive", "Auto-archive on/off", "Open quotes window on Operations Overview"],
+      status: "Editable now",
+    },
     Leads: {
       summary: "Configure lead chase rules, including overdue quote prompts after a survey has passed.",
       focus: ["Survey follow-up timing", "No quote warning", "Office notification rules"],
@@ -4551,9 +4559,12 @@ const currentOperatingDate = new Intl.DateTimeFormat("en-CA", {
 const scheduleToday = currentOperatingDate;
 const defaultLeadQuoteGraceDays = 3;
 const defaultQuoteResponseGraceDays = 3;
+const defaultQuoteArchiveAfterDays = 30;
 const defaultWorkflowRules: WorkflowRulesSettings = {
   leadQuoteGraceDays: String(defaultLeadQuoteGraceDays),
   quoteResponseGraceDays: String(defaultQuoteResponseGraceDays),
+  quoteArchiveAfterDays: String(defaultQuoteArchiveAfterDays),
+  autoArchiveStaleSentQuotes: true,
   invoiceDueDays: "14",
   defaultMarkupPercent: "30",
   poApprovalThreshold: "500",
@@ -8893,6 +8904,8 @@ export default function CoreApp() {
   );
   const requestHeadersRef = useRef(requestHeaders);
   requestHeadersRef.current = requestHeaders;
+  /** Quote IDs already processed by the stale-sent auto-archive trigger this session. */
+  const staleQuoteArchiveAttemptedRef = useRef<Set<string>>(new Set());
   /** Stable boot fingerprint — avoids restarting the live fetch when employee object identity changes. */
   const bootAuthFingerprint = `${activeEmployee?.id ?? ""}:${activeEmployee?.role ?? ""}`;
 
@@ -12357,8 +12370,27 @@ export default function CoreApp() {
     [purchaseOrderRows],
   );
 
+  const quoteArchiveAfterDays = Math.max(
+    1,
+    Math.round(numericSetting(workflowRules.quoteArchiveAfterDays, defaultQuoteArchiveAfterDays)),
+  );
+
   const quoteDirectoryGroups = useMemo(
-    () => [
+    () => {
+      const monthStart = currentOperatingDate.slice(0, 7); // YYYY-MM
+      const openWindow = filteredQuotes.filter((quote) => {
+        if (!["Draft", "Sent"].includes(quote.status)) return false;
+        const anchor = quote.sentAt || quote.due || "";
+        const age = daysSinceDate(anchor);
+        if (age === null) return true;
+        return age <= quoteArchiveAfterDays;
+      });
+      const wonMonth = filteredQuotes.filter((quote) => {
+        if (quote.status !== "Accepted") return false;
+        const when = quote.respondedAt || quote.sentAt || quote.due || "";
+        return when.startsWith(monthStart) || (!when && true);
+      });
+      return [
       {
         key: "incomplete",
         label: "Incomplete quotes",
@@ -12374,14 +12406,29 @@ export default function CoreApp() {
         items: filteredQuotes.filter((quote) => quote.status === "Sent"),
       },
       {
+        key: "open-window",
+        label: `Open (last ${quoteArchiveAfterDays}d)`,
+        detail: `Draft or sent quotes within ${quoteArchiveAfterDays} days — matches Live value Open quotes`,
+        tone: "blue",
+        items: openWindow,
+      },
+      {
+        key: "won-month",
+        label: "Won this month",
+        detail: "Accepted quotes in the current calendar month",
+        tone: "green",
+        items: wonMonth,
+      },
+      {
         key: "archived",
         label: "Archived",
         detail: "Lost, declined or already converted",
         tone: "green",
         items: filteredQuotes.filter((quote) => ["Accepted", "Converted", "Declined", "Lost"].includes(quote.status)),
       },
-    ],
-    [filteredQuotes],
+    ];
+    },
+    [currentOperatingDate, filteredQuotes, quoteArchiveAfterDays],
   );
 
   const jobDirectoryGroups = useMemo(
@@ -12397,6 +12444,16 @@ export default function CoreApp() {
       const archived = filteredJobs.filter((job) => ["Closed", "Invoiced"].includes(job.status));
       const groupedIds = new Set([...pending, ...progress, ...review, ...uninvoiced, ...archived].map((job) => job.id));
       const other = filteredJobs.filter((job) => !groupedIds.has(job.id));
+      const onTrack = filteredJobs.filter((job) => job.health !== "amber" && job.health !== "red");
+      const attention = filteredJobs.filter(
+        (job) => job.health === "amber" || job.status === "Approval required",
+      );
+      const blocked = filteredJobs.filter(
+        (job) =>
+          job.health === "red" ||
+          job.status === "Waiting on parts" ||
+          job.status === "Waiting on customer",
+      );
       return [
         {
           key: "pending",
@@ -12411,6 +12468,27 @@ export default function CoreApp() {
           detail: "Live work, blocked work and active site control",
           tone: "blue",
           items: progress,
+        },
+        {
+          key: "health-on-track",
+          label: "On track",
+          detail: "Jobs not waiting on approval, parts or customer",
+          tone: "green",
+          items: onTrack,
+        },
+        {
+          key: "health-attention",
+          label: "Attention",
+          detail: "Approval required — office needs to approve something on the job",
+          tone: "amber",
+          items: attention,
+        },
+        {
+          key: "health-blocked",
+          label: "Blocked",
+          detail: "Waiting on parts or waiting on the customer",
+          tone: "red",
+          items: blocked,
         },
         {
           key: "review",
@@ -12987,6 +13065,44 @@ export default function CoreApp() {
       })
       .sort((left, right) => (left.scheduledDate || "").localeCompare(right.scheduledDate || ""));
   }, [currentOperatingDate, jobs]);
+
+  const upcomingJobsNext4Weeks = useMemo(() => {
+    const closed = new Set(["Completed", "Ready to invoice", "Invoiced", "Cancelled", "Closed"]);
+    const until = shiftIsoDate(currentOperatingDate, 28);
+    const scheduled = jobs
+      .filter((job) => {
+        if (closed.has(job.status)) return false;
+        const date = job.scheduledDate;
+        if (!date || !/^\d{4}-\d{2}-\d{2}/.test(date)) return false;
+        return date >= currentOperatingDate && date <= until;
+      })
+      .map((job) => ({
+        id: `job-${job.id}`,
+        kind: "scheduled" as const,
+        name: job.ref,
+        customer: job.customer,
+        description: job.description,
+        nextDueDate: job.scheduledDate!,
+        frequency: job.scheduledTime ? `Booked ${job.scheduledTime}` : "Scheduled job",
+      }));
+    const recurring = upcomingRecurringJobs.map((plan) => ({
+      id: `recurring-${plan.id}`,
+      kind: "recurring" as const,
+      name: plan.name,
+      customer: plan.customer,
+      description: plan.description,
+      nextDueDate: plan.nextDueDate,
+      frequency: plan.frequency || "Recurring",
+    }));
+    const merged = [...scheduled, ...recurring].sort((a, b) => a.nextDueDate.localeCompare(b.nextDueDate));
+    const seen = new Set<string>();
+    return merged.filter((row) => {
+      const key = `${row.customer}|${row.nextDueDate}|${row.name}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [currentOperatingDate, jobs, upcomingRecurringJobs]);
 
   const uninvoicedCompletedJobs = useMemo(
     () =>
@@ -15838,6 +15954,89 @@ export default function CoreApp() {
     markSetupEdited();
     setWorkflowRules((current) => ({ ...current, ...patch }));
   }
+
+  useEffect(() => {
+    if (!hasLoadedHubDetailState || !workflowRules.autoArchiveStaleSentQuotes) return;
+    const archiveAfterDays = Math.max(
+      1,
+      Math.round(numericSetting(workflowRules.quoteArchiveAfterDays, defaultQuoteArchiveAfterDays)),
+    );
+    const stale = quotes.filter((quote) => {
+      if (quote.status !== "Sent") return false;
+      if (staleQuoteArchiveAttemptedRef.current.has(quote.id)) return false;
+      const anchor = quote.sentAt || quote.due || "";
+      const age = daysSinceDate(anchor);
+      return age !== null && age > archiveAfterDays;
+    });
+    if (!stale.length) return;
+
+    const ids = new Set(stale.map((quote) => quote.id));
+    for (const id of ids) staleQuoteArchiveAttemptedRef.current.add(id);
+
+    const archivedAt = new Date().toISOString();
+    const patchBase = {
+      status: "Lost" as const,
+      next: `Auto-archived — no response within ${archiveAfterDays} days of send.`,
+      respondedAt: archivedAt,
+    };
+
+    setQuotes((current) =>
+      current.map((quote) => (ids.has(quote.id) ? { ...quote, ...patchBase } : quote)),
+    );
+
+    void (async () => {
+      const headers = { ...requestHeadersRef.current, "Content-Type": "application/json" };
+      const results = await Promise.allSettled(
+        stale.map((quote) =>
+          fetch(`/api/quotes/${quote.id}`, {
+            method: "PATCH",
+            headers,
+            body: JSON.stringify(patchBase),
+          }),
+        ),
+      );
+      const failedIds = new Set<string>();
+      results.forEach((result, index) => {
+        const quote = stale[index];
+        if (!quote) return;
+        if (result.status === "rejected" || (result.status === "fulfilled" && !result.value.ok)) {
+          failedIds.add(quote.id);
+          staleQuoteArchiveAttemptedRef.current.delete(quote.id);
+        }
+      });
+      if (failedIds.size) {
+        setQuotes((current) =>
+          current.map((quote) => {
+            if (!failedIds.has(quote.id)) return quote;
+            const prior = stale.find((item) => item.id === quote.id);
+            return prior ?? quote;
+          }),
+        );
+        showNotice(`Unable to auto-archive ${failedIds.size} stale quote${failedIds.size === 1 ? "" : "s"}.`);
+      }
+      const archivedCount = stale.length - failedIds.size;
+      if (!archivedCount) return;
+      logAuditEvent({
+        actor: "Triggers",
+        action: "auto-archived",
+        recordType: "quote",
+        recordId: stale.find((quote) => !failedIds.has(quote.id))?.id ?? "batch",
+        summary: `${archivedCount} sent quote${archivedCount === 1 ? "" : "s"} moved to Archived (Lost) after ${archiveAfterDays} days.`,
+        source: "workflow triggers",
+        importance: "normal",
+      });
+      showNotice(
+        archivedCount === 1
+          ? `${stale.find((quote) => !failedIds.has(quote.id))?.ref ?? "Quote"} archived — no response within ${archiveAfterDays} days.`
+          : `${archivedCount} quotes archived — no response within ${archiveAfterDays} days.`,
+      );
+    })();
+  }, [
+    hasLoadedHubDetailState,
+    quotes,
+    workflowRules.autoArchiveStaleSentQuotes,
+    workflowRules.quoteArchiveAfterDays,
+  ]);
 
   function updateFinanceSettings(patch: Partial<FinanceSettings>) {
     markSetupEdited();
@@ -31651,10 +31850,10 @@ export default function CoreApp() {
       });
     const actionTotal = actionNotificationCards.reduce((total, card) => total + card.count, 0);
     const asOf = currentOperatingDate;
-    const recurringDueNow = upcomingRecurringJobs.filter((plan) => plan.nextDueDate <= asOf).length;
-    const recurringPreview = upcomingRecurringJobs.slice(0, 6);
+    const upcomingDueNow = upcomingJobsNext4Weeks.filter((row) => row.nextDueDate <= asOf).length;
+    const upcomingPreview = upcomingJobsNext4Weeks.slice(0, 6);
 
-    function openJobsFolder(folderKey: "pending" | "progress" | "review" | "uninvoiced" | "timesheets" | "daywork") {
+    function openJobsFolder(folderKey: "pending" | "progress" | "review" | "uninvoiced" | "timesheets" | "daywork" | "health-on-track" | "health-attention" | "health-blocked") {
       setActiveJobFolderKey(folderKey);
       setHomeView("jobs");
       scrollWorkspaceToTop();
@@ -31751,27 +31950,27 @@ export default function CoreApp() {
         className="nexa-kpi-card nexa-kpi-card-button nexa-kpi-card-fixed"
         id="dashboard-recurring-services"
         type="button"
-        onClick={() => setHomeView("recurring")}
+        onClick={() => setHomeView("schedule")}
       >
         <header>
           <h3>Upcoming jobs</h3>
-          <span className="nexa-kpi-sub">{upcomingRecurringJobs.length} / 4 wks</span>
+          <span className="nexa-kpi-sub">{upcomingJobsNext4Weeks.length} / 4 wks</span>
         </header>
         <div className="nexa-kpi-card-scroll">
           <div className="nexa-kpi-metric">
-            <strong>{upcomingRecurringJobs.length}</strong>
+            <strong>{upcomingJobsNext4Weeks.length}</strong>
             <span>
-              {recurringDueNow > 0
-                ? `${recurringDueNow} due now · rest in next 4 weeks`
-                : "recurring jobs to book"}
+              {upcomingDueNow > 0
+                ? `${upcomingDueNow} due now · scheduled + recurring next 4 weeks`
+                : "scheduled + recurring in next 4 weeks"}
             </span>
           </div>
           <div className="nexa-kpi-bars">
-            {recurringPreview.length > 0 ? (
-              recurringPreview.map((plan) => (
-                <div className="nexa-kpi-bar-row" key={plan.id}>
-                  <span className="nexa-kpi-bar-label" title={plan.customer}>
-                    {plan.customer}
+            {upcomingPreview.length > 0 ? (
+              upcomingPreview.map((row) => (
+                <div className="nexa-kpi-bar-row" key={row.id}>
+                  <span className="nexa-kpi-bar-label" title={`${row.customer} · ${row.frequency}`}>
+                    {row.customer}
                   </span>
                   <span className="nexa-kpi-bar-track">
                     <span
@@ -31788,7 +31987,7 @@ export default function CoreApp() {
                                   Math.min(
                                     28,
                                     Math.ceil(
-                                      (new Date(`${plan.nextDueDate}T12:00:00`).getTime() -
+                                      (new Date(`${row.nextDueDate}T12:00:00`).getTime() -
                                         new Date(`${asOf}T12:00:00`).getTime()) /
                                         (24 * 60 * 60 * 1000),
                                     ),
@@ -31798,15 +31997,15 @@ export default function CoreApp() {
                             ),
                           ),
                         )}%`,
-                        background: plan.nextDueDate <= asOf ? "#f04438" : "#f79009",
+                        background: row.nextDueDate <= asOf ? "#f04438" : row.kind === "recurring" ? "#f79009" : "#006eb8",
                       }}
                     />
                   </span>
-                  <strong className="nexa-kpi-bar-value">{formatUkDate(plan.nextDueDate)}</strong>
+                  <strong className="nexa-kpi-bar-value">{formatUkDate(row.nextDueDate)}</strong>
                 </div>
               ))
             ) : (
-              <p className="nexa-kpi-empty">No recurring jobs due in the next 4 weeks.</p>
+              <p className="nexa-kpi-empty">Nothing scheduled in the next 4 weeks.</p>
             )}
           </div>
         </div>
@@ -31904,11 +32103,19 @@ export default function CoreApp() {
             quotes={quotes}
             leads={leads}
             loaded={hasLoadedHubDetailState || jobs.length > 0}
+            openQuoteWindowDays={quoteArchiveAfterDays}
             onOpenJobs={() => {
-              setActiveJobFolderKey("pending");
+              setActiveJobFolderKey("all");
               setHomeView("jobs");
             }}
+            onOpenJobHealth={(tone) => {
+              openJobsFolder(
+                tone === "amber" ? "health-attention" : tone === "red" ? "health-blocked" : "health-on-track",
+              );
+            }}
             onOpenQuotes={() => setHomeView("quotes")}
+            onOpenWonQuotes={() => openQuotesFolder("won-month")}
+            onOpenOpenQuotes={() => openQuotesFolder("open-window")}
             onOpenLeads={() => setHomeView("leads")}
             onOpenInvoices={() => openInvoiceOpsPack("overdue")}
             opsCards={
@@ -44957,13 +45164,33 @@ export default function CoreApp() {
 	                    <section className="setup-panel">
                       <div className="documents-toolbar">
                         <div>
-                          <span className="permission-heading">Workflow automation</span>
-                          <h2>Default rules and approval gates</h2>
+                          <span className="permission-heading">Triggers &amp; rules</span>
+                          <h2>Triggers, chases and approval gates</h2>
                         </div>
                         <span className="setup-status-label">Live rules</span>
                       </div>
 
+                      <div className="setup-readiness-grid" style={{ marginBottom: 18 }}>
+                        <article>
+                          <span>Trigger · Quotes</span>
+                          <strong>Archive after {workflowRules.quoteArchiveAfterDays} days</strong>
+                          <small>
+                            Sent quotes with no accept/decline are auto-moved to Lost when this age is reached
+                            {workflowRules.autoArchiveStaleSentQuotes ? " (on)" : " (off)"}. Open quotes on overview only counts the last {workflowRules.quoteArchiveAfterDays} days.
+                          </small>
+                        </article>
+                      </div>
+
                       <div className="setup-form-grid">
+                        <label>
+                          Archive sent quotes after (days)
+                          <input
+                            type="number"
+                            min="1"
+                            value={workflowRules.quoteArchiveAfterDays}
+                            onChange={(event) => updateWorkflowRules({ quoteArchiveAfterDays: event.target.value })}
+                          />
+                        </label>
                         <label>
                           Lead quote chase after survey
                           <input
@@ -45012,6 +45239,14 @@ export default function CoreApp() {
                       </div>
 
                       <div className="setup-switch-grid">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={workflowRules.autoArchiveStaleSentQuotes}
+                            onChange={(event) => updateWorkflowRules({ autoArchiveStaleSentQuotes: event.target.checked })}
+                          />
+                          Auto-archive sent quotes after the days above (status → Lost)
+                        </label>
                         <label>
                           <input
                             type="checkbox"
