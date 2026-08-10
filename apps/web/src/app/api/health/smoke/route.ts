@@ -75,7 +75,7 @@ async function checkPath(origin: string, path: string, acceptStatuses: number[])
 }
 
 async function runSmoke(origin: string) {
-  const coreModulePaths = ["/jobs", "/quotes", "/leads", "/setup", "/reports", "/people", "/schedule", "/invoices"];
+  const coreModulePaths = ["/jobs", "/quotes", "/leads", "/setup", "/reports", "/people", "/schedule", "/invoices", "/faults"];
   const checks = await Promise.all([
     checkPath(origin, "/api/health", [200]),
     checkPath(origin, "/login", [200]),

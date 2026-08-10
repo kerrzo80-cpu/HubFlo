@@ -28,6 +28,7 @@ export const PILOT_BACKUP_STORE_NAMES = [
   "nexa-sumup-config",
   "nexa-accounting-provider-v1",
   "employee-mailboxes",
+  "nexa-faults-v1",
 ] as const;
 
 /** Preferred alias — same store set. */

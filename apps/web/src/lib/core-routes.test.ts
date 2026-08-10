@@ -22,12 +22,14 @@ describe("core-routes", () => {
     assert.equal(modulePathForHomeView("directory-manager"), "/people");
     assert.equal(modulePathForHomeView("invoice-record"), "/invoices");
     assert.equal(modulePathForHomeView("tenders"), "/tenders");
+    assert.equal(modulePathForHomeView("faults"), "/faults");
   });
 
   it("resolves module paths to directory home views", () => {
     assert.equal(homeViewForPath("/"), "dashboard");
     assert.equal(homeViewForPath("/jobs"), "jobs");
     assert.equal(homeViewForPath("/tenders"), "tenders");
+    assert.equal(homeViewForPath("/faults"), "faults");
     assert.equal(homeViewForPath("/setup"), "settings");
     assert.equal(homeViewForPath("/people"), "employees");
     assert.equal(homeViewForPath("/field"), null);
@@ -37,6 +39,7 @@ describe("core-routes", () => {
   it("normalizes and recognizes core module paths", () => {
     assert.equal(normalizeCorePath("/quotes?x=1"), "/quotes");
     assert.equal(isCoreModulePath("/reports"), true);
+    assert.equal(isCoreModulePath("/faults"), true);
     assert.equal(isCoreModulePath("/takeoff"), false);
   });
 

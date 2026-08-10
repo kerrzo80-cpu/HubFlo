@@ -24,6 +24,7 @@ import {
   BarChart3,
   Bell,
   Bot,
+  Bug,
   Building2,
   CalendarDays,
   Check,
@@ -205,6 +206,10 @@ const StockOpsPanel = dynamic(
 const TendersPanel = dynamic(
   () => import("@/lib/TendersPanel").then((mod) => mod.TendersPanel),
   { ssr: false, loading: () => panelSkeleton("Loading tenders…") },
+);
+const FaultsPanel = dynamic(
+  () => import("@/lib/FaultsPanel").then((mod) => mod.FaultsPanel),
+  { ssr: false, loading: () => panelSkeleton("Loading faults…") },
 );
 const SetupConfigPanel = dynamic(
   () => import("@/lib/SetupExtraPanels").then((mod) => mod.SetupConfigPanel),
@@ -808,6 +813,7 @@ type HomeView =
   | "stock"
   | "recurring"
   | "tenders"
+  | "faults"
   | "dayworks"
   | "reports"
   | "invoices"
@@ -2531,6 +2537,7 @@ const modules: ModuleItem[] = [
   { label: "Tenders", icon: ClipboardList },
   { label: "Jobs", icon: Wrench },
   { label: "Dayworks", icon: ClipboardCheck },
+  { label: "Faults", icon: Bug },
   { label: "Schedules", icon: CalendarDays },
   { label: "Invoices", icon: PoundSterling },
   { label: "POs", icon: Package },
@@ -12789,6 +12796,7 @@ export default function CoreApp() {
       if (module.label === "People" && !access.showCustomers) return false;
       if (module.label === "Jobs" && !access.showJobs) return false;
       if (module.label === "Dayworks") return access.showJobs || access.showFinance;
+      if (module.label === "Faults") return true;
       if (module.label === "Schedules" && !access.showSchedule) return false;
       if (module.label === "Quotes" && !access.showQuotes) return false;
       if (module.label === "Tenders") return access.showQuotes || access.showJobs || access.showFinance;
@@ -20141,6 +20149,8 @@ export default function CoreApp() {
       returnToJobsDirectory();
     } else if (label === "Dayworks") {
       setHomeView("dayworks");
+    } else if (label === "Faults") {
+      setHomeView("faults");
     } else if (label === "POs") {
       setHomeView("purchase-orders");
     } else if (label === "Stock") {
@@ -32864,6 +32874,7 @@ export default function CoreApp() {
                 (module.label === "Tenders" && homeView === "tenders") ||
                 (module.label === "Jobs" && ["jobs", "job-create", "job-record", "cost-centre-record"].includes(homeView)) ||
                 (module.label === "Dayworks" && homeView === "dayworks") ||
+                (module.label === "Faults" && homeView === "faults") ||
                 (module.label === "Schedules" && homeView === "schedule") ||
                 (module.label === "Invoices" && ["invoices", "invoice-record", "invoice-create"].includes(homeView)) ||
                 (module.label === "POs" && ["purchase-orders", "purchase-order-record"].includes(homeView)) ||
@@ -33026,6 +33037,8 @@ export default function CoreApp() {
                   ? "Tenders"
                 : homeView === "dayworks"
                   ? "Dayworks"
+                : homeView === "faults"
+                  ? "Faults"
                 : homeView === "invoices" || homeView === "invoice-create" || homeView === "invoice-record"
                   ? "Invoices"
                 : homeView === "xero"
@@ -33163,6 +33176,10 @@ export default function CoreApp() {
                       ? "Recurring"
                     : homeView === "tenders"
                       ? "Tenders"
+                    : homeView === "dayworks"
+                      ? "Dayworks"
+                    : homeView === "faults"
+                      ? "Faults"
                     : homeView === "invoices"
                       ? "Invoices"
                     : homeView === "xero"
@@ -33227,6 +33244,10 @@ export default function CoreApp() {
                     ? "Recurring plans"
                   : homeView === "tenders"
                     ? "Tender tracker"
+                  : homeView === "dayworks"
+                    ? "Daywork register"
+                  : homeView === "faults"
+                    ? "Faults & improvements"
                   : homeView === "invoices"
                     ? "Invoices"
                   : homeView === "xero"
@@ -33298,6 +33319,10 @@ export default function CoreApp() {
                     ? "Service plans that generate the next job or invoice when due"
                   : homeView === "tenders"
                     ? "Track opportunities, price their BoQ and generate Form of Tender"
+                  : homeView === "dayworks"
+                    ? "Signed Field daywork sheets for office pricing and review"
+                  : homeView === "faults"
+                    ? "Report, prioritise and track NeXa faults, improvements and features"
                   : homeView === "invoices"
                     ? `${filteredInvoices.length} invoices · ${invoiceStatusFilter}`
                   : homeView === "xero"
@@ -33438,7 +33463,7 @@ export default function CoreApp() {
                     <button className="primary-button" onClick={() => editPurchaseOrderFromRegister(selectedPurchaseOrder)}>Edit PO</button>
                   ) : null}
                 </>
-              ) : homeView === "stock" || homeView === "recurring" || homeView === "tenders" || homeView === "dayworks" ? (
+              ) : homeView === "stock" || homeView === "recurring" || homeView === "tenders" || homeView === "dayworks" || homeView === "faults" ? (
                 <button className="secondary-button" onClick={returnToDashboard}>
                   Back to dashboard
                 </button>
@@ -35754,6 +35779,15 @@ export default function CoreApp() {
                 setHomeView("job-record");
                 scrollWorkspaceToTop();
               }}
+            />
+          ) : homeView === "faults" ? (
+            <FaultsPanel
+              requestHeaders={requestHeaders}
+              onNotice={showNotice}
+              actorName={activeEmployee?.name ?? "NeXa user"}
+              canTriage={access.canCustomize || activeEmployee?.role === "Owner/Admin" || activeEmployee?.role === "Manager"}
+              sourceRoute="/faults"
+              sourcePage="Faults & Improvements"
             />
           ) : homeView === "dayworks" ? (
             <section className="quote-panel record-directory workflow-directory daywork-directory" aria-label="Dayworks">

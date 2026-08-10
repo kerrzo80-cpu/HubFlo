@@ -8,11 +8,11 @@ import {
   type RecordDocumentScope,
 } from "@/lib/record-documents";
 
-const scopes: RecordDocumentScope[] = ["lead", "quote", "job", "invoice", "tender"];
+const scopes: RecordDocumentScope[] = ["lead", "quote", "job", "invoice", "tender", "fault"];
 
 function canManage(request: NextRequest) {
   const access = getAccessProfileFromHeaders(request.headers);
-  return access.showQuotes || access.showJobs || access.showFinance || access.canCustomize;
+  return access.showQuotes || access.showJobs || access.showFinance || access.canCustomize || access.showSchedule;
 }
 
 export async function GET(request: NextRequest) {

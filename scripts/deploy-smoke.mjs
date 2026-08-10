@@ -145,7 +145,7 @@ async function runOnce() {
     }),
   );
 
-  for (const path of ["/jobs", "/quotes", "/leads", "/setup", "/reports", "/people", "/schedule", "/invoices"]) {
+  for (const path of ["/jobs", "/quotes", "/leads", "/setup", "/reports", "/people", "/schedule", "/invoices", "/faults"]) {
     results.push(
       await probe(path, {
         expectStatus: [307, 302, 200],
