@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -15,12 +15,12 @@ import {
   ScanLine,
   Send,
   Sparkles,
-  Upload,
 } from "lucide-react";
 import type { SurveyAnswer, SurveyJobLink, SurveyLinkType, SurveyPhoto, SurveyPhotoCategory, SurveyRecord } from "@hubflo/domain";
 import type { QuickCostCentre } from "@/lib/survey-quick-pack";
 import { BuddyCharacter } from "@/lib/BuddyCharacter";
 import { useBrand } from "@/components/BrandProvider";
+import { FileDropZone } from "@/components/FileDropZone";
 import { resolveBrandLogoUrl } from "@/lib/branding";
 import { prepareSurveyEvidenceFile } from "@/lib/survey-evidence-prepare";
 
@@ -142,7 +142,6 @@ export default function SimpleSurveyWorkspacePage() {
   const surveyRef = useRef<SurveyRecord | null>(null);
   const pendingPatchRef = useRef<Partial<SurveyRecord>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const evidenceSummary = useMemo(() => {
     if (!survey) return { drawings: 0, photos: 0, scans: 0 };
@@ -405,13 +404,11 @@ export default function SimpleSurveyWorkspacePage() {
         : `/?job=${encodeURIComponent(survey.jobLink.id)}`
     : null;
 
-  async function uploadEvidence(event: ChangeEvent<HTMLInputElement>) {
-    const files = event.target.files ? Array.from(event.target.files) : [];
+  async function uploadEvidenceFiles(files: File[]) {
     const current = await flushAutosave();
     if (!files.length) return;
     if (!current) {
       setError("Save the survey first, then try uploading again.");
-      event.target.value = "";
       return;
     }
     setUploading(true);
@@ -450,7 +447,6 @@ export default function SimpleSurveyWorkspacePage() {
       setError(uploadError instanceof Error ? uploadError.message : "Unable to upload evidence.");
     } finally {
       setUploading(false);
-      event.target.value = "";
     }
   }
 
@@ -654,22 +650,14 @@ export default function SimpleSurveyWorkspacePage() {
               {!survey.photos.length ? " — start with site photos and plans" : ""}
             </p>
           </div>
-          <button
-            type="button"
-            className="survey-simple-upload-button"
-            disabled={uploading}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {uploading ? <Loader2 className="spin" size={17} /> : <Upload size={17} />}
-            {uploading ? "Uploading…" : "Add photos / drawings"}
-          </button>
-          <input
-            ref={fileInputRef}
-            hidden
-            type="file"
-            multiple
+          <FileDropZone
             accept="image/*,image/heic,image/heif,.heic,.heif,.jpg,.jpeg,.png,.webp,.pdf,application/pdf"
-            onChange={(event) => void uploadEvidence(event)}
+            multiple
+            disabled={uploading}
+            label={uploading ? "Uploading…" : "Drop photos / drawings here or click"}
+            hint="Images and PDFs"
+            onFiles={(files) => void uploadEvidenceFiles(files)}
+            className="survey-simple-upload-drop"
           />
         </div>
 

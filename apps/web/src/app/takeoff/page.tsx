@@ -9,10 +9,10 @@ import {
   Plus,
   Sparkles,
   Trash2,
-  Upload,
 } from "lucide-react";
 
 import { useBrand } from "@/components/BrandProvider";
+import { FileDropZone } from "@/components/FileDropZone";
 import { resolveBrandLogoUrl } from "@/lib/branding";
 import { employeeHeaderName, roleHeaderName } from "@/lib/access";
 import type { TakeoffDocument, TakeoffProject } from "@/lib/takeoff-data";
@@ -547,12 +547,12 @@ export default function TakeoffStudioPage() {
     show(`Added layer “${newLayerName.trim()}”`);
   }
 
-  async function uploadDrawings(event: ChangeEvent<HTMLInputElement>) {
-    if (!selected || !event.target.files?.length) return;
+  async function uploadDrawingFiles(files: File[]) {
+    if (!selected || !files.length) return;
     setBusy("upload");
     try {
       const body = new FormData();
-      for (const file of Array.from(event.target.files)) body.append("files", file);
+      for (const file of files) body.append("files", file);
       body.append("kind", "Drawing");
       const response = await apiFetch(`/api/takeoff-projects/${selected.id}/documents`, {
         method: "POST",
@@ -575,13 +575,18 @@ export default function TakeoffStudioPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studio: nextStudio }),
       });
-      show(`Uploaded ${event.target.files.length} drawing(s)`);
+      show(`Uploaded ${files.length} drawing(s)`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setBusy(null);
-      event.target.value = "";
     }
+  }
+
+  async function uploadDrawings(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    await uploadDrawingFiles(files);
   }
 
   function addClassification() {
@@ -1561,11 +1566,16 @@ export default function TakeoffStudioPage() {
                 <section>
                   <header>
                     <h2>Drawings</h2>
-                    <button type="button" className="ghost" onClick={() => fileRef.current?.click()} disabled={busy === "upload"}>
-                      {busy === "upload" ? <Loader2 className="spin" size={14} /> : <Upload size={14} />}
-                      Upload
-                    </button>
                   </header>
+                  <FileDropZone
+                    accept="application/pdf,.pdf"
+                    multiple
+                    disabled={busy === "upload" || !selected}
+                    label={busy === "upload" ? "Uploading…" : "Drop PDF plans here or click"}
+                    hint="PDF drawing sets"
+                    onFiles={(files) => void uploadDrawingFiles(files)}
+                    className="nexa-studio-drawing-drop"
+                  />
                   <div className="nexa-studio-doc-list">
                     {drawingDocs.length ? drawingDocs.map((doc: TakeoffDocument) => (
                       <button

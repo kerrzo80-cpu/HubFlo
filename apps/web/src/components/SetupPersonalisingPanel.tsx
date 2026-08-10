@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { ImagePlus, Palette, Smartphone } from "lucide-react";
+import { useState } from "react";
+import { Palette, Smartphone } from "lucide-react";
 
+import { FileDropZone } from "@/components/FileDropZone";
 import {
   resolveBrandIconUrl,
   resolveBrandLogoUrl,
@@ -85,9 +86,6 @@ export function SetupPersonalisingPanel({
   onNotice,
   focus = null,
 }: Props) {
-  const logoInputRef = useRef<HTMLInputElement | null>(null);
-  const iconInputRef = useRef<HTMLInputElement | null>(null);
-  const appInputRefs = useRef<Partial<Record<BrandingAssetKind, HTMLInputElement | null>>>({});
   const [uploading, setUploading] = useState<BrandingAssetKind | null>(null);
 
   const showCompany = !focus || focus === "Company";
@@ -289,28 +287,13 @@ export function SetupPersonalisingPanel({
               <div>
                 <strong>Company logo</strong>
                 <p>Used on login, PDFs, forms and as fallback when an app has no logo of its own.</p>
-                <input
-                  ref={logoInputRef}
-                  type="file"
+                <FileDropZone
                   accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
-                  hidden
-                  onChange={(event) => {
-                    const selected = event.target.files?.[0];
-                    event.target.value = "";
-                    void uploadAsset("logo", selected, "Company logo uploaded.");
-                  }}
+                  disabled={busy}
+                  label={uploading === "logo" ? "Uploading…" : "Drop logo here or click to browse"}
+                  hint="PNG, JPEG, WebP, SVG"
+                  onFiles={(picked) => void uploadAsset("logo", picked[0], "Company logo uploaded.")}
                 />
-                <div className="personalising-upload-actions">
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    disabled={busy}
-                    onClick={() => logoInputRef.current?.click()}
-                  >
-                    <ImagePlus size={16} />
-                    {uploading === "logo" ? "Uploading…" : "Upload logo"}
-                  </button>
-                </div>
                 <label>
                   Or logo URL
                   <input
@@ -330,28 +313,13 @@ export function SetupPersonalisingPanel({
               <div>
                 <strong>Default home-screen icon</strong>
                 <p>Used for any app that does not have its own logo uploaded below.</p>
-                <input
-                  ref={iconInputRef}
-                  type="file"
+                <FileDropZone
                   accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
-                  hidden
-                  onChange={(event) => {
-                    const selected = event.target.files?.[0];
-                    event.target.value = "";
-                    void uploadAsset("icon", selected, "Default home-screen icon uploaded.");
-                  }}
+                  disabled={busy}
+                  label={uploading === "icon" ? "Uploading…" : "Drop icon here or click to browse"}
+                  hint="PNG, JPEG, WebP, SVG"
+                  onFiles={(picked) => void uploadAsset("icon", picked[0], "Default home-screen icon uploaded.")}
                 />
-                <div className="personalising-upload-actions">
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    disabled={busy}
-                    onClick={() => iconInputRef.current?.click()}
-                  >
-                    <Smartphone size={16} />
-                    {uploading === "icon" ? "Uploading…" : "Upload default icon"}
-                  </button>
-                </div>
                 <label>
                   Or icon URL
                   <input
@@ -396,29 +364,14 @@ export function SetupPersonalisingPanel({
                         onChange={(event) => onChange({ [app.nameField]: event.target.value })}
                       />
                     </label>
-                    <input
-                      ref={(node) => {
-                        appInputRefs.current[app.kind] = node;
-                      }}
-                      type="file"
+                    <FileDropZone
                       accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
-                      hidden
-                      onChange={(event) => {
-                        const selected = event.target.files?.[0];
-                        event.target.value = "";
-                        void uploadAsset(app.kind, selected, `${app.label} logo uploaded.`);
-                      }}
+                      disabled={busy}
+                      label={uploading === app.kind ? "Uploading…" : "Drop logo here or click"}
+                      hint="PNG, JPEG, WebP, SVG"
+                      onFiles={(picked) => void uploadAsset(app.kind, picked[0], `${app.label} logo uploaded.`)}
                     />
                     <div className="personalising-upload-actions">
-                      <button
-                        className="secondary-button"
-                        type="button"
-                        disabled={busy}
-                        onClick={() => appInputRefs.current[app.kind]?.click()}
-                      >
-                        <ImagePlus size={16} />
-                        {uploading === app.kind ? "Uploading…" : "Upload logo"}
-                      </button>
                       {logoValue ? (
                         <button
                           className="secondary-button"

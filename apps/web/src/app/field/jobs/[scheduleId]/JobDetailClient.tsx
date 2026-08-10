@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import {
@@ -9,17 +9,16 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardCheck,
-  FileUp,
   Layers,
   MapPin,
   MessageCircle,
   PackagePlus,
   Phone,
   ShoppingCart,
-  Video,
   Wrench,
 } from "lucide-react";
 import { BlakeCharacter } from "@/components/field/BlakeCharacter";
+import { FileDropZone } from "@/components/FileDropZone";
 import { ProgrammeBoard } from "@/components/field/ProgrammeBoard";
 import { DayworkSheetForm } from "@/components/field/DayworkSheetForm";
 import { useNexaClient } from "@/lib/field/nexa";
@@ -253,9 +252,6 @@ export default function JobDetailPage() {
   >([]);
   const [poNote, setPoNote] = useState("");
   const [outcomeNote, setOutcomeNote] = useState("");
-  const photoInputRef = useRef<HTMLInputElement | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const videoInputRef = useRef<HTMLInputElement | null>(null);
 
   const orderedDayworkSheets = useMemo(() => {
     if (!job?.jobId) return dayworkSheets;
@@ -648,9 +644,7 @@ export default function JobDetailPage() {
     }
   }
 
-  async function uploadMedia(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []);
-    event.target.value = "";
+  async function uploadMediaFiles(files: File[]) {
     if (!files.length) return;
     setWorkflowBusy(true);
     setError("");
@@ -1599,13 +1593,14 @@ export default function JobDetailPage() {
                           {evidenceType === "Photo" ? (
                             <label className="check-field">
                               <span>Photo</span>
-                              <input
-                                type="file"
+                              <FileDropZone
                                 accept="image/*"
                                 capture="environment"
-                                onChange={(event) => {
-                                  const file = event.target.files?.[0];
-                                  event.target.value = "";
+                                disabled={Boolean(savingId)}
+                                compact
+                                label={draft.photoName ? "Replace photo (drop or click)" : "Drop photo or click"}
+                                onFiles={(picked) => {
+                                  const file = picked[0];
                                   if (!file) return;
                                   void (async () => {
                                     try {
@@ -1685,55 +1680,31 @@ export default function JobDetailPage() {
       {tab === "photos" ? (
         <div className="stack">
           <div className="field-upload-row">
-            <button
-              type="button"
-              className="primary-btn"
-              disabled={workflowBusy}
-              onClick={() => photoInputRef.current?.click()}
-            >
-              <Camera size={17} /> Photos
-            </button>
-            <button
-              type="button"
-              className="ghost-btn"
-              disabled={workflowBusy}
-              onClick={() => videoInputRef.current?.click()}
-            >
-              <Video size={17} /> Video
-            </button>
-            <button
-              type="button"
-              className="ghost-btn"
-              disabled={workflowBusy}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <FileUp size={17} /> Files
-            </button>
-            <input
-              ref={photoInputRef}
-              type="file"
+            <FileDropZone
               accept="image/*"
               capture="environment"
               multiple
-              hidden
-              onChange={(event) => void uploadMedia(event)}
+              disabled={workflowBusy}
+              compact
+              label="Drop photos or click"
+              onFiles={(files) => void uploadMediaFiles(files)}
             />
-            <input
-              ref={videoInputRef}
-              type="file"
+            <FileDropZone
               accept="video/*,.mp4,.mov,.webm,.m4v"
               capture="environment"
               multiple
-              hidden
-              onChange={(event) => void uploadMedia(event)}
+              disabled={workflowBusy}
+              compact
+              label="Drop video or click"
+              onFiles={(files) => void uploadMediaFiles(files)}
             />
-            <input
-              ref={fileInputRef}
-              type="file"
+            <FileDropZone
               accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,application/pdf"
               multiple
-              hidden
-              onChange={(event) => void uploadMedia(event)}
+              disabled={workflowBusy}
+              compact
+              label="Drop files or click"
+              onFiles={(files) => void uploadMediaFiles(files)}
             />
           </div>
 

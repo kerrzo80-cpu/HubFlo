@@ -1,6 +1,7 @@
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { rowsToDelimitedText } from "@/lib/tenders-xlsx";
 import { createJob } from "@/lib/workflow-data";
+import { createTakeoffProject, getTakeoffProject } from "@/lib/takeoff-data";
 import {
   TENDER_STATUSES,
   alertForDeadline,
@@ -229,6 +230,8 @@ function normalizeTender(input: Partial<Tender> & { name: string; client: string
     name: input.name.trim(),
     client: input.client.trim(),
     clientId: input.clientId?.trim() || undefined,
+    linkedTakeoffId: input.linkedTakeoffId?.trim() || undefined,
+    linkedTakeoffRef: input.linkedTakeoffRef?.trim() || undefined,
     category: input.category?.trim() || "Plumbing",
     area: input.area?.trim() || "Aberdeen",
     submissionDeadline: input.submissionDeadline || undefined,
@@ -628,6 +631,41 @@ export function convertTenderToPendingJob(tenderId: string) {
     bidValue: value || tender.bidValue,
   });
   return { tender: updated, job, alreadyConverted: false as const };
+}
+
+export function sendTenderToTakeoff(tenderId: string, options?: { createNew?: boolean }) {
+  const tender = getTender(tenderId);
+  if (!tender) throw new Error("Tender not found.");
+
+  if (tender.linkedTakeoffId && !options?.createNew) {
+    const existing = getTakeoffProject(tender.linkedTakeoffId);
+    if (existing) {
+      return { tender, takeoff: existing, created: false as const };
+    }
+  }
+
+  const takeoff = createTakeoffProject({
+    name: `${tender.name} · takeoff`,
+    customer: tender.client,
+    site: tender.area || "Site to confirm",
+    description: [
+      `Commercial takeoff for tender “${tender.name}”.`,
+      tender.boqTitle ? `BoQ: ${tender.boqTitle}.` : "",
+      tender.category ? `Category: ${tender.category}.` : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
+    clientId: tender.clientId,
+    sourceTenderId: tender.id,
+    sourceTenderRef: tender.externalId || tender.name,
+  });
+
+  const updated = updateTender(tenderId, {
+    linkedTakeoffId: takeoff.id,
+    linkedTakeoffRef: takeoff.reference,
+  });
+
+  return { tender: updated, takeoff, created: true as const };
 }
 
 export function archiveTenders(ids: string[]) {

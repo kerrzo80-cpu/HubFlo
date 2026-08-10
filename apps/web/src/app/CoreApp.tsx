@@ -15,6 +15,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { CorePanelSkeleton } from "@/components/CorePanelSkeleton";
+import { FileDropZone } from "@/components/FileDropZone";
 import { downloadBlob } from "@/lib/download-blob";
 import type { SimpleDocumentPdfInput } from "@/lib/simple-document-pdf";
 import { homeViewForPath } from "@/lib/core-routes";
@@ -29393,9 +29394,10 @@ export default function CoreApp() {
   async function addManualRecordDocuments(
     recordType: RecordDocumentScope,
     recordRef: string,
-    fileList: FileList | null,
+    fileList: FileList | File[] | null,
   ) {
-    if (!fileList?.length) return;
+    const files = fileList ? Array.from(fileList as ArrayLike<File>) : [];
+    if (!files.length) return;
 
     // Live/shared workspace: persist files on the server so they survive refresh.
     if (serverWorkspaceMode === "live") {
@@ -29403,7 +29405,7 @@ export default function CoreApp() {
         const body = new FormData();
         body.set("scope", recordType);
         body.set("recordRef", recordRef);
-        Array.from(fileList).forEach((file) => body.append("files", file));
+        files.forEach((file) => body.append("files", file));
         const response = await fetch("/api/record-documents", {
           method: "POST",
           headers: { ...requestHeaders },
@@ -29443,8 +29445,8 @@ export default function CoreApp() {
       }
     }
 
-    const files = await Promise.all(
-      Array.from(fileList).map(async (file): Promise<RecordDocumentFile> => {
+    const uploaded = await Promise.all(
+      files.map(async (file): Promise<RecordDocumentFile> => {
         const previewImageDataUrl = await new Promise<string>((resolve) => {
           const reader = new FileReader();
           reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
@@ -29461,8 +29463,8 @@ export default function CoreApp() {
         };
       }),
     );
-    appendManualRecordDocuments(recordType, recordRef, files);
-    showNotice(`${files.length} file${files.length === 1 ? "" : "s"} added to ${recordRef}.`);
+    appendManualRecordDocuments(recordType, recordRef, uploaded);
+    showNotice(`${uploaded.length} file${uploaded.length === 1 ? "" : "s"} added to ${recordRef}.`);
   }
 
   function selectLeadAddress(address: string, postcode: string) {
@@ -31207,19 +31209,13 @@ export default function CoreApp() {
             <span className="permission-heading">Document folders</span>
             <h2>{recordRef} document hub</h2>
           </div>
-          <label className="primary-button">
-            <Plus size={15} />
-            Add document
-            <input
-              className="file-input"
-              type="file"
-              multiple
-              onChange={(event) => {
-                void addManualRecordDocuments(recordType, recordRef, event.target.files);
-                event.currentTarget.value = "";
-              }}
-            />
-          </label>
+          <FileDropZone
+            compact
+            multiple
+            label="Add document"
+            hint="Drop files or click to browse"
+            onFiles={(picked) => void addManualRecordDocuments(recordType, recordRef, picked)}
+          />
         </div>
 
         <p className="documents-toolbar-note">
@@ -31923,20 +31919,18 @@ export default function CoreApp() {
                     ) : null}
                     {step.evidence === "Photo" ? (
                       <div className="engineer-flow-evidence-row">
-                        <input
-                          type="file"
+                        <FileDropZone
                           accept="image/*"
-                          onChange={(event) => {
-                            const file = event.target.files?.[0];
+                          compact
+                          label={evidence.photoName ? evidence.photoName : "Drop photo or click"}
+                          onFiles={(picked) => {
+                            const file = picked[0];
                             if (!file) return;
                             updateFlowStepEvidence(completionRecordId, step, { photoName: file.name });
-                            event.target.value = "";
                           }}
-                          aria-label={`${step.label} photo`}
                         />
                         {evidence.photoName ? (
                           <>
-                            <small className="muted">{evidence.photoName}</small>
                             <button
                               className="secondary-button"
                               type="button"
@@ -36480,7 +36474,20 @@ export default function CoreApp() {
                               </div>
                               <label>
                                 Supplier Quote
-                                <input accept=".pdf,.csv,.txt,.tsv" type="file" onChange={handleSupplierQuoteUpload} />
+                                <FileDropZone
+                                  accept=".pdf,.csv,.txt,.tsv"
+                                  label="Drop supplier quote here or click to browse"
+                                  hint="PDF, CSV or TXT"
+                                  onFiles={async (picked) => {
+                                    const file = picked[0];
+                                    if (!file) return;
+                                    const fakeEvent = {
+                                      currentTarget: { files: picked, value: "" },
+                                      target: { files: picked, value: "" },
+                                    } as unknown as ChangeEvent<HTMLInputElement>;
+                                    await handleSupplierQuoteUpload(fakeEvent);
+                                  }}
+                                />
                               </label>
                               <label>
                                 Markup %
@@ -37112,7 +37119,20 @@ export default function CoreApp() {
                               </div>
                               <label>
                                 Supplier Quote
-                                <input accept=".pdf,.csv,.txt,.tsv" type="file" onChange={handleSupplierQuoteUpload} />
+                                <FileDropZone
+                                  accept=".pdf,.csv,.txt,.tsv"
+                                  label="Drop supplier quote here or click to browse"
+                                  hint="PDF, CSV or TXT"
+                                  onFiles={async (picked) => {
+                                    const file = picked[0];
+                                    if (!file) return;
+                                    const fakeEvent = {
+                                      currentTarget: { files: picked, value: "" },
+                                      target: { files: picked, value: "" },
+                                    } as unknown as ChangeEvent<HTMLInputElement>;
+                                    await handleSupplierQuoteUpload(fakeEvent);
+                                  }}
+                                />
                               </label>
                               <label>
                                 Markup %
@@ -38106,7 +38126,20 @@ export default function CoreApp() {
                                         </div>
                                         <label>
                                           Supplier Quote
-                                          <input accept=".pdf,.csv,.txt,.tsv" type="file" onChange={handleSupplierQuoteUpload} />
+                                          <FileDropZone
+                                  accept=".pdf,.csv,.txt,.tsv"
+                                  label="Drop supplier quote here or click to browse"
+                                  hint="PDF, CSV or TXT"
+                                  onFiles={async (picked) => {
+                                    const file = picked[0];
+                                    if (!file) return;
+                                    const fakeEvent = {
+                                      currentTarget: { files: picked, value: "" },
+                                      target: { files: picked, value: "" },
+                                    } as unknown as ChangeEvent<HTMLInputElement>;
+                                    await handleSupplierQuoteUpload(fakeEvent);
+                                  }}
+                                />
                                         </label>
                                         <label>
                                           Markup %
@@ -38312,10 +38345,23 @@ export default function CoreApp() {
                                   ? "CSV/TXT exports are parsed automatically into rows."
                                   : "Review generated rows and edit quantities / costs manually."}
                               </small>
-                              <input
+                              <FileDropZone
                                 accept={kind === "Drawings" ? "application/pdf,image/*,.dwg,.dxf" : ".csv,.txt,.tsv,.pdf"}
-                                type="file"
-                                onChange={(event) => handleTakeoffDocumentUpload(selectedQuoteCostCentre, kind, event)}
+                                label={`Drop ${kind} here or click to browse`}
+                                hint={
+                                  kind === "Contractor BOQ"
+                                    ? "CSV/TXT exports parse into rows"
+                                    : "Review generated rows after upload"
+                                }
+                                onFiles={(picked) => {
+                                  const file = picked[0];
+                                  if (!file) return;
+                                  const fakeEvent = {
+                                    currentTarget: { files: picked, value: "" },
+                                    target: { files: picked, value: "" },
+                                  } as unknown as ChangeEvent<HTMLInputElement>;
+                                  handleTakeoffDocumentUpload(selectedQuoteCostCentre, kind, fakeEvent);
+                                }}
                               />
                             </label>
                           ))}
@@ -41251,7 +41297,20 @@ export default function CoreApp() {
                                         </div>
                                         <label>
                                           Supplier Quote
-                                          <input accept=".pdf,.csv,.txt,.tsv" type="file" onChange={handleJobSupplierQuoteUpload} />
+                                          <FileDropZone
+                                            accept=".pdf,.csv,.txt,.tsv"
+                                            label="Drop supplier quote here or click to browse"
+                                            hint="PDF, CSV or TXT"
+                                            onFiles={async (picked) => {
+                                              const file = picked[0];
+                                              if (!file) return;
+                                              const fakeEvent = {
+                                                currentTarget: { files: picked, value: "" },
+                                                target: { files: picked, value: "" },
+                                              } as unknown as ChangeEvent<HTMLInputElement>;
+                                              handleJobSupplierQuoteUpload(fakeEvent);
+                                            }}
+                                          />
                                         </label>
                                         <label>
                                           Markup %
@@ -45218,7 +45277,28 @@ export default function CoreApp() {
                         </div>
                         <label className="primary-button setup-import-file-button">
                           <Plus size={15} /> Choose file
-                          <input accept=".csv,.tsv,.txt" type="file" onChange={loadBusinessImportFile} />
+                          <FileDropZone
+                            accept=".csv,.tsv,.txt"
+                            label="Drop CSV / TSV here or click to browse"
+                            hint="Business import spreadsheet"
+                            onFiles={async (picked) => {
+                              const file = picked[0];
+                              if (!file) return;
+                              try {
+                                const parsed = parseBusinessImport(await file.text());
+                                setBusinessImportFileName(file.name);
+                                setBusinessImportHeaders(parsed.headers);
+                                setBusinessImportRows(parsed.rows);
+                                setBusinessImportResult(null);
+                                showNotice(
+                                  `${parsed.rows.length} ${businessImportLabels[businessImportType].toLowerCase()} row(s) ready to review.`,
+                                );
+                              } catch (error) {
+                                resetBusinessImportFile();
+                                showNotice(error instanceof Error ? error.message : "Unable to read that import file.");
+                              }
+                            }}
+                          />
                         </label>
                       </div>
 
@@ -45350,7 +45430,20 @@ export default function CoreApp() {
                         </label>
                         <label className="full-field">
                           Upload supplier price list (CSV / TSV / TXT)
-                          <input accept=".csv,.tsv,.txt" type="file" onChange={importCatalogFile} />
+                          <FileDropZone
+                            accept=".csv,.tsv,.txt"
+                            label="Drop catalogue CSV here or click to browse"
+                            hint="Description, cost and sell columns"
+                            onFiles={async (picked) => {
+                              const file = picked[0];
+                              if (!file) return;
+                              const fakeEvent = {
+                                currentTarget: { files: picked, value: "" },
+                                target: { files: picked, value: "" },
+                              } as unknown as ChangeEvent<HTMLInputElement>;
+                              await importCatalogFile(fakeEvent);
+                            }}
+                          />
                           <small>Need columns like Description/Name, Cost/Trade price, and optionally SKU / Part number. Excel .xlsx is not supported yet — save as CSV first.</small>
                         </label>
                       </div>
@@ -48127,10 +48220,18 @@ export default function CoreApp() {
                                 <span>Keep the licence file beside this specific licence record.</span>
                               </div>
                             )}
-                            <label className="employee-inline-upload">
-                              {license.attachmentFileName ? "Replace attachment" : "Upload attachment"}
-                              <input type="file" onChange={(event) => addEmployeeLicenseAttachment(license.id, event)} />
-                            </label>
+                            <FileDropZone
+                              compact
+                              label={license.attachmentFileName ? "Replace attachment" : "Upload attachment"}
+                              onFiles={(picked) => {
+                                const file = picked[0];
+                                if (!file) return;
+                                updateEmployeeLicense(license.id, {
+                                  attachmentFileName: file.name,
+                                  attachmentUploadedAt: new Date().toISOString().slice(0, 10),
+                                });
+                              }}
+                            />
                           </div>
                           <button className="secondary-button" type="button" onClick={() => removeEmployeeLicense(license.id)}>
                             Remove licence
@@ -48146,7 +48247,27 @@ export default function CoreApp() {
                       </div>
 
                       <div className="full-field employee-doc-controls">
-                        <input type="file" multiple onChange={addEmployeeDocument} className="file-input" />
+                        <FileDropZone
+                          multiple
+                          label="Drop employee files here or click to browse"
+                          hint="Licences, certificates, contracts"
+                          onFiles={(picked) => {
+                            if (!picked.length) return;
+                            const uploadedAt = new Date().toISOString().slice(0, 10);
+                            setEmployeeProfileDraft((current) => ({
+                              ...current,
+                              documents: [
+                                ...current.documents,
+                                ...picked.map((file) => ({
+                                  id: `document-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+                                  label: "Document",
+                                  fileName: file.name,
+                                  uploadedAt,
+                                })),
+                              ],
+                            }));
+                          }}
+                        />
                       </div>
 
                       {employeeProfileDraft.documents.length === 0 ? (

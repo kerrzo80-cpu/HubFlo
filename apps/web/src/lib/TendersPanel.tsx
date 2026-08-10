@@ -14,6 +14,7 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { FileDropZone } from "@/components/FileDropZone";
 import {
   TENDER_AREAS,
   TENDER_CATEGORIES,
@@ -257,6 +258,41 @@ export function TendersPanel({
     }
   }
 
+  async function openOrCreateTakeoff(createNew = false) {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/tenders/${selected.id}/send-to-takeoff`, {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ createNew, actor: actorName }),
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        tender?: Tender;
+        takeoff?: { id: string; reference: string };
+        created?: boolean;
+        href?: string;
+      };
+      if (!response.ok) throw new Error(payload.error || "Unable to open Takeoff");
+      if (payload.tender) {
+        setTenders((current) => current.map((row) => (row.id === payload.tender!.id ? payload.tender! : row)));
+      }
+      onNotice(
+        payload.created
+          ? `Takeoff ${payload.takeoff?.reference || ""} created from this tender.`
+          : `Opening linked takeoff ${payload.takeoff?.reference || ""}.`,
+      );
+      if (payload.href) {
+        window.location.href = payload.href;
+      }
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to link Takeoff");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function createTender() {
     try {
       await postAction({
@@ -445,9 +481,28 @@ export function TendersPanel({
               {selected.submissionDeadline ? ` · due ${selected.submissionDeadline}` : ""}
               {daysLeft !== null ? ` · ${daysLeft}d` : ""}
               {alert ? ` · ${alert}` : ""}
+              {selected.linkedTakeoffRef ? ` · Takeoff ${selected.linkedTakeoffRef}` : ""}
             </p>
           </div>
           <div className="tenders-toolbar-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={saving}
+              onClick={() => void openOrCreateTakeoff(false)}
+            >
+              {selected.linkedTakeoffId ? "Open Takeoff" : "Send to Takeoff"}
+            </button>
+            {selected.linkedTakeoffId ? (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={saving}
+                onClick={() => void openOrCreateTakeoff(true)}
+              >
+                New Takeoff
+              </button>
+            ) : null}
             {selected.status !== "Won" ? (
               <button type="button" className="primary-button" disabled={saving} onClick={() => void markWon(selected.id)}>
                 Mark Won → Pending job
@@ -807,10 +862,12 @@ export function TendersPanel({
                 />
               </label>
               <div className="tenders-inline-add">
-                <input
-                  type="file"
+                <FileDropZone
                   accept=".xlsx,.xls,.csv,.tsv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
-                  onChange={(event) => void onBoqFile(event.target.files?.[0] ?? null)}
+                  label="Drop BoQ spreadsheet here or click to browse"
+                  hint=".xlsx, .xls, .csv"
+                  disabled={saving}
+                  onFiles={(files) => void onBoqFile(files[0] ?? null)}
                 />
                 <button type="button" className="primary-button" disabled={saving || !boqImportText.trim()} onClick={() => void importBoq()}>
                   <FileSpreadsheet size={15} />
@@ -908,23 +965,21 @@ export function TendersPanel({
               </label>
               <label>
                 Files
-                <input
-                  type="file"
+                <FileDropZone
                   multiple
                   accept=".pdf,.xlsx,.xls,.csv,.doc,.docx,.png,.jpg,.jpeg,.zip"
-                  onChange={(event) => {
+                  label="Drop tender documents here or click to browse"
+                  hint="PDF, drawings, Excel, Word, images"
+                  disabled={saving}
+                  onFiles={async (files) => {
                     const kindSelect = document.getElementById("tender-doc-kind") as HTMLSelectElement | null;
                     const kind = (kindSelect?.value || "other") as TenderDocumentKind;
-                    const files = Array.from(event.target.files || []);
-                    void (async () => {
-                      for (const file of files) {
-                        await uploadImportFile("upload-document", file, {
-                          tenderId: selected.id,
-                          kind,
-                        });
-                      }
-                      event.target.value = "";
-                    })();
+                    for (const file of files) {
+                      await uploadImportFile("upload-document", file, {
+                        tenderId: selected.id,
+                        kind,
+                      });
+                    }
                   }}
                 />
               </label>
@@ -1009,19 +1064,15 @@ export function TendersPanel({
           <p>Deadlines, owners and bid values — open a row to price their BoQ and generate the Form of Tender.</p>
         </div>
         <div className="panel-controls">
-          <label className="secondary-button tenders-file-button">
-            <FileSpreadsheet size={15} />
-            Import tracker Excel
-            <input
-              type="file"
-              accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
-              hidden
-              onChange={(event) => {
-                void uploadImportFile("import-tracker", event.target.files?.[0] ?? null);
-                event.target.value = "";
-              }}
-            />
-          </label>
+          <FileDropZone
+            compact
+            className="tenders-tracker-drop"
+            accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+            label="Import tracker Excel"
+            hint="Drop spreadsheet or click"
+            disabled={saving || loading}
+            onFiles={(files) => void uploadImportFile("import-tracker", files[0] ?? null)}
+          />
           <button type="button" className="secondary-button" onClick={() => void loadTenders()} disabled={loading}>
             <RefreshCw size={15} />
             Refresh

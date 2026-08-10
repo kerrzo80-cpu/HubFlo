@@ -438,6 +438,11 @@ export type TakeoffProject = {
   linkedQuoteRef?: string;
   linkedJobId?: string;
   linkedJobRef?: string;
+  /** Core people client id when linked from a known customer. */
+  clientId?: string;
+  /** Source commercial tender when opened from the Tenders module. */
+  sourceTenderId?: string;
+  sourceTenderRef?: string;
   status: TakeoffStatus;
   documents: TakeoffDocument[];
   rooms: TakeoffRoom[];
@@ -2439,6 +2444,9 @@ export function createTakeoffProject(payload: Partial<TakeoffProject>): TakeoffP
     linkedQuoteRef: linkedQuote?.ref ?? payload.linkedQuoteRef,
     linkedJobId: payload.linkedJobId,
     linkedJobRef: payload.linkedJobRef,
+    clientId: payload.clientId,
+    sourceTenderId: payload.sourceTenderId,
+    sourceTenderRef: payload.sourceTenderRef,
     status: payload.status ?? "Draft",
     documents: payload.documents ?? [],
     rooms: payload.rooms ?? [],

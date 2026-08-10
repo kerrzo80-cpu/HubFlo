@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   AlertTriangle,
   Camera,
@@ -17,6 +17,7 @@ import {
   XCircle,
 } from "lucide-react";
 import type { EngineerCostCentreOption, EngineerScheduleItem } from "@/lib/engineer-data";
+import { FileDropZone } from "@/components/FileDropZone";
 import { isoDateToUk, toDateInputValue, toUkDateDisplay } from "@/lib/uk-date";
 import type {
   EngineerJobWorkflow,
@@ -98,7 +99,6 @@ function hashToTab(hash: string): EngineerTab | null {
 }
 
 export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspaceProps) {
-  const photoInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<EngineerTab>("checklist");
   const [workflow, setWorkflow] = useState<EngineerJobWorkflow>(() => initialWorkflow(job));
   const [notice, setNotice] = useState("");
@@ -299,9 +299,8 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
     }
   }
 
-  async function uploadPhotos(event: ChangeEvent<HTMLInputElement>) {
-    const fileNames = Array.from(event.target.files ?? []).map((file) => file.name);
-    event.target.value = "";
+  async function uploadPhotoFiles(files: File[]) {
+    const fileNames = files.map((file) => file.name);
     if (!fileNames.length) return;
     await runWorkflowAction(
       "add_photos",
@@ -530,17 +529,18 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
                             />
                           ) : null}
                           {evidenceType === "Photo" ? (
-                            <input
-                              type="file"
+                            <FileDropZone
                               accept="image/*"
-                              onChange={(event) => {
-                                const file = event.target.files?.[0];
+                              capture="environment"
+                              compact
+                              label={draft.photoName ? "Replace photo (drop or click)" : "Drop photo or click"}
+                              onFiles={(picked) => {
+                                const file = picked[0];
                                 if (!file) return;
                                 setDraftByRequirement((current) => ({
                                   ...current,
                                   [requirement.id]: { ...current[requirement.id], photoName: file.name },
                                 }));
-                                event.target.value = "";
                               }}
                             />
                           ) : null}
@@ -665,11 +665,15 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
               ))}
             </div>
             <div className="engineer-upload-row">
-              <button className="engineer-primary-action" type="button" onClick={() => photoInputRef.current?.click()} disabled={isSaving}>
-                <Camera size={17} />
-                Upload photos
-              </button>
-              <input ref={photoInputRef} type="file" accept="image/*" capture="environment" multiple onChange={(event) => void uploadPhotos(event)} hidden />
+              <FileDropZone
+                accept="image/*"
+                capture="environment"
+                multiple
+                disabled={isSaving}
+                compact
+                label="Drop photos or click"
+                onFiles={(files) => void uploadPhotoFiles(files)}
+              />
               <span>{workflow.photos.length} photo{workflow.photos.length === 1 ? "" : "s"} held against this job</span>
             </div>
             {workflow.photos.length ? (

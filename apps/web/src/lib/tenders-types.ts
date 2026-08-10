@@ -79,6 +79,8 @@ export type Tender = {
   name: string;
   client: string;
   clientId?: string;
+  linkedTakeoffId?: string;
+  linkedTakeoffRef?: string;
   category: string;
   area: string;
   submissionDeadline?: string;

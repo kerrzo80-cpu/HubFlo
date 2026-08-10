@@ -3,6 +3,7 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Camera, ImagePlus, SendHorizontal, Video, X } from "lucide-react";
 import { BlakeCharacter } from "@/components/field/BlakeCharacter";
+import { FileDropZone } from "@/components/FileDropZone";
 import {
   ASK_BLAKE_MAX_PHOTOS,
   type AskBlakeJobContext,
@@ -46,9 +47,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const libraryRef = useRef<HTMLInputElement | null>(null);
   const cameraRef = useRef<HTMLInputElement | null>(null);
-  const videoRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -60,7 +59,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
     abortRef.current?.abort();
   }, []);
 
-  async function onPickImages(fileList: FileList | null) {
+  async function onPickImages(fileList: FileList | File[] | null) {
     const files = fileList ? Array.from(fileList) : [];
     if (!files.length) return;
 
@@ -107,8 +106,8 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
     }
   }
 
-  async function onPickVideo(fileList: FileList | null) {
-    const file = fileList?.[0];
+  async function onPickVideo(fileList: FileList | File[] | null) {
+    const file = fileList ? Array.from(fileList)[0] : undefined;
     if (!file) return;
 
     const remaining = ASK_BLAKE_MAX_PHOTOS - attachments.length;
@@ -351,17 +350,6 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
 
       <form className="ask-blake-composer" onSubmit={onSubmit}>
         <input
-          ref={libraryRef}
-          type="file"
-          accept="image/*,.heic,.heif"
-          multiple
-          hidden
-          onChange={(event) => {
-            void onPickImages(event.target.files);
-            event.currentTarget.value = "";
-          }}
-        />
-        <input
           ref={cameraRef}
           type="file"
           accept="image/*"
@@ -372,28 +360,20 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
             event.currentTarget.value = "";
           }}
         />
-        <input
-          ref={videoRef}
-          type="file"
-          accept="video/*,.mp4,.mov,.webm,.m4v"
-          capture="environment"
-          hidden
-          onChange={(event) => {
-            void onPickVideo(event.target.files);
-            event.currentTarget.value = "";
-          }}
-        />
         <div className="ask-blake-attach">
-          <button
-            type="button"
-            className="ask-blake-icon-btn"
-            aria-label="Upload photos"
-            title="Upload photos"
-            onClick={() => libraryRef.current?.click()}
+          <FileDropZone
+            accept="image/*,.heic,.heif"
+            multiple
             disabled={busy || preparingMedia || !canAddMore}
+            compact
+            className="ask-blake-drop"
+            label="Drop photos"
+            onFiles={(files) => void onPickImages(files)}
           >
-            <ImagePlus size={18} />
-          </button>
+            <span className="ask-blake-icon-btn" aria-hidden>
+              <ImagePlus size={18} />
+            </span>
+          </FileDropZone>
           <button
             type="button"
             className="ask-blake-icon-btn"
@@ -404,16 +384,19 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
           >
             <Camera size={18} />
           </button>
-          <button
-            type="button"
-            className="ask-blake-icon-btn"
-            aria-label="Attach video"
-            title="Attach video"
-            onClick={() => videoRef.current?.click()}
+          <FileDropZone
+            accept="video/*,.mp4,.mov,.webm,.m4v"
+            capture="environment"
             disabled={busy || preparingMedia || !canAddMore}
+            compact
+            className="ask-blake-drop"
+            label="Drop video"
+            onFiles={(files) => void onPickVideo(files)}
           >
-            <Video size={18} />
-          </button>
+            <span className="ask-blake-icon-btn" aria-hidden>
+              <Video size={18} />
+            </span>
+          </FileDropZone>
         </div>
         <textarea
           value={draft}
