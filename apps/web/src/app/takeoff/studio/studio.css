@@ -1632,18 +1632,45 @@
 
   .nexa-studio-top {
     flex-wrap: wrap;
+    gap: 8px;
     position: sticky;
     top: 0;
     z-index: 4;
+  }
+
+  .nexa-studio-brand {
+    min-width: 0;
+    flex: 1 1 auto;
   }
 
   .nexa-studio-brand span {
     display: none;
   }
 
+  .nexa-studio-brand strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .nexa-studio-flow {
     order: 3;
     width: 100%;
     overflow-x: auto;
+  }
+
+  .nexa-studio-top-actions .muted-pill {
+    display: none;
+  }
+
+  .nexa-studio-ai {
+    font-size: 0;
+    gap: 0;
+    min-width: 38px;
+    padding: 0 8px;
+  }
+
+  .nexa-studio-ai svg {
+    margin: auto;
   }
 }

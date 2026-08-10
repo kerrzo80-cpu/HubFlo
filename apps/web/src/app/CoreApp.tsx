@@ -32078,7 +32078,7 @@ export default function CoreApp() {
     isSendingLiveEmail;
 
   return (
-    <div className="platform">
+    <div className={`platform${openWorkspaceTabs.length ? " has-open-record-tabs" : ""}`}>
       {showTopBusyBar ? (
         <>
           <div className="nexa-top-busy" role="progressbar" aria-busy="true" aria-label="Working">
