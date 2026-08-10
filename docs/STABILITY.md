@@ -10,9 +10,15 @@
 
 Smoke covers: `/api/health` (incl. `coreRoutes`), `/login`, `/`, Core modules (`/jobs`, `/quotes`, `/leads`, `/setup`, `/reports`, `/people`, `/schedule`, `/invoices`), `/field`, Field SW files, Field manifest, `/heat-design`, `/api/branding`.
 
-**Important:** a Render “server failure” email from `nexa-live-deploy-smoke` usually means the **smoke cron exited non-zero**, not that the main web service crashed. Mid-deploy 502s are retried; only sustained failures should page.
+**Important:** a Render “server failure” email from `nexa-live-deploy-smoke` means the **smoke cron exited non-zero**, not that the main web service crashed.
 
-Health flags: `deploySmoke: retry-settle-hourly-v2`, `coreRoutes: url-modules-v1`.
+- Mid-deploy 502/503s are retried (~5 minutes).
+- If the probe still only sees a deploy/proxy window, the cron **soft-passes (exit 0)** so Render does not page.
+- Only sustained real check failures should email.
+
+Quick check: open https://nexa-live.onrender.com/api/health — if `ok: true`, the app is up.
+
+Health flags: `deploySmoke: soft-pass-deploy-window-v3`, `coreRoutes: url-modules-v1`.
 
 ## Core URL modules (Phase 1)
 

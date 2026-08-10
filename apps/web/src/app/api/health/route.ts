@@ -168,7 +168,7 @@ export async function GET() {
       renderBuildFix: "no-sqlite-in-client-v1",
       setupIndependent: "integrations-one-panel-v1",
       bootTabsReady: "auth-only-v1",
-      deploySmoke: "retry-settle-hourly-v2",
+      deploySmoke: "soft-pass-deploy-window-v3",
       mailboxIcloud: "smtp-mail-me-v1",
       mailboxSendAs: "editable-from-v1",
       mailboxIcloudFix: "hydrate-dirty-v1",
