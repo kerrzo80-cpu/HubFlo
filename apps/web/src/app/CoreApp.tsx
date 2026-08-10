@@ -2537,8 +2537,7 @@ const modules: ModuleItem[] = [
   { label: "Tenders", icon: ClipboardList },
   { label: "Jobs", icon: Wrench },
   { label: "Dayworks", icon: ClipboardCheck },
-  { label: "Faults", icon: Bug },
-  { label: "Schedules", icon: CalendarDays },
+  { label: "Schedules", icon: CalendarDays, subItems: ["Schedule work", "Timesheets"] },
   { label: "Invoices", icon: PoundSterling },
   { label: "POs", icon: Package },
   { label: "People", icon: Users, subItems: ["Employees", "Clients", "Sites", "Suppliers", "Contacts", "Contractors"] },
@@ -8229,6 +8228,7 @@ export default function CoreApp() {
   const [scheduleDate, setScheduleDate] = useState(scheduleToday);
   const [scheduleView, setScheduleView] = useState<ScheduleView>("week");
   const [schedulePane, setSchedulePane] = useState<"diary" | "timesheets">("diary");
+  const [timesheetAdjustHours, setTimesheetAdjustHours] = useState<Record<string, string>>({});
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>(defaultBusinessSettings);
   const [formTemplates, setFormTemplates] = useState<FormTemplate[]>(defaultFormTemplates);
   const [activeFormTemplateId, setActiveFormTemplateId] = useState(defaultFormTemplates[0]?.id ?? "");
@@ -9449,7 +9449,12 @@ export default function CoreApp() {
   );
 
   const pendingTimesheetApprovals = useMemo(
-    () => jobDeliveryEvents.filter((event) => event.kind === "timesheet" && (event.status === "Submitted" || !event.status)),
+    () =>
+      jobDeliveryEvents.filter(
+        (event) =>
+          event.kind === "timesheet" &&
+          (event.status === "Submitted" || event.status === "Queried" || !event.status),
+      ),
     [jobDeliveryEvents],
   );
 
@@ -12796,7 +12801,6 @@ export default function CoreApp() {
       if (module.label === "People" && !access.showCustomers) return false;
       if (module.label === "Jobs" && !access.showJobs) return false;
       if (module.label === "Dayworks") return access.showJobs || access.showFinance;
-      if (module.label === "Faults") return true;
       if (module.label === "Schedules" && !access.showSchedule) return false;
       if (module.label === "Quotes" && !access.showQuotes) return false;
       if (module.label === "Tenders") return access.showQuotes || access.showJobs || access.showFinance;
@@ -20159,8 +20163,11 @@ export default function CoreApp() {
       setHomeView("purchase-orders");
     } else if (label === "Stock") {
       setHomeView("stock");
-    } else if (label === "Schedules") {
+    } else if (label === "Schedules" || label === "Schedule work") {
       setSchedulePane("diary");
+      setHomeView("schedule");
+    } else if (label === "Timesheets") {
+      setSchedulePane("timesheets");
       setHomeView("schedule");
     } else if (label === "Setup") {
       setHomeView("settings");
@@ -24654,27 +24661,53 @@ export default function CoreApp() {
     showNotice("Daywork signed off — removed from Action notifications.");
   }
 
-  function reviewJobTimesheet(eventId: string, decision: "Approved" | "Rejected") {
+  function reviewJobTimesheet(
+    eventId: string,
+    decision: "Approved" | "Rejected" | "Queried",
+    adjustedHours?: number,
+  ) {
     const event = jobDeliveryEvents.find((row) => row.id === eventId);
     if (!event || event.kind !== "timesheet") return;
     if (event.status === "Approved" || event.status === "Rejected") {
       showNotice(`Timesheet already ${event.status.toLowerCase()}.`);
       return;
     }
-    const hours = event.hours ?? 0;
+    const rawHours =
+      adjustedHours != null && Number.isFinite(adjustedHours)
+        ? adjustedHours
+        : Number(timesheetAdjustHours[eventId] ?? event.hours ?? 0);
+    const hours = Math.max(0, Math.round(rawHours * 100) / 100);
+    if (decision !== "Queried" && !(hours > 0) && decision === "Approved") {
+      showNotice("Enter hours before approving.");
+      return;
+    }
     const hourlyRate = employeeHourlyRateByName.get(event.actor) ?? Number(fallbackLabourRateSetting.costRate);
     const costValue = decision === "Approved" ? hours * hourlyRate : event.costValue;
+    const adjustedNote =
+      decision === "Approved" && event.hours != null && hours !== event.hours
+        ? `Adjusted from ${event.hours}h to ${hours}h.`
+        : decision === "Queried"
+          ? "Queried — engineer to confirm or amend hours."
+          : "";
     setJobDeliveryEvents((current) =>
       current.map((row) =>
         row.id === eventId
           ? {
               ...row,
+              hours,
               status: decision,
               costValue,
+              summary: [row.summary, adjustedNote].filter(Boolean).join(" "),
             }
           : row,
       ),
     );
+    setTimesheetAdjustHours((current) => {
+      if (!(eventId in current)) return current;
+      const next = { ...current };
+      delete next[eventId];
+      return next;
+    });
 
     if (decision === "Approved" && hours > 0) {
       setJobEstimateCostCentres((current) => {
@@ -24724,17 +24757,30 @@ export default function CoreApp() {
 
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
-      action: decision === "Approved" ? "timesheet approved" : "timesheet rejected",
+      action:
+        decision === "Approved"
+          ? "timesheet approved"
+          : decision === "Queried"
+            ? "timesheet queried"
+            : "timesheet rejected",
       recordType: "job",
       recordId: event.jobId,
       summary:
         decision === "Approved"
           ? `${hours} hrs approved on ${event.jobRef} at ${currency(hourlyRate)}/hr (${currency(costValue || 0)} labour cost).`
-          : `${hours} hrs timesheet rejected on ${event.jobRef}.`,
+          : decision === "Queried"
+            ? `${hours} hrs timesheet queried on ${event.jobRef} — waiting on engineer.`
+            : `${hours} hrs timesheet rejected on ${event.jobRef}.`,
       source: "timesheet approval",
       importance: "high",
     });
-    showNotice(decision === "Approved" ? `Approved ${hours}h on ${event.jobRef}.` : `Rejected timesheet on ${event.jobRef}.`);
+    showNotice(
+      decision === "Approved"
+        ? `Approved ${hours}h on ${event.jobRef}.`
+        : decision === "Queried"
+          ? `Queried timesheet on ${event.jobRef}.`
+          : `Rejected timesheet on ${event.jobRef}.`,
+    );
   }
 
   function raiseSelectedJobVariation() {
@@ -32917,7 +32963,6 @@ export default function CoreApp() {
                 (module.label === "Tenders" && homeView === "tenders") ||
                 (module.label === "Jobs" && ["jobs", "job-create", "job-record", "cost-centre-record"].includes(homeView)) ||
                 (module.label === "Dayworks" && homeView === "dayworks") ||
-                (module.label === "Faults" && homeView === "faults") ||
                 (module.label === "Schedules" && homeView === "schedule") ||
                 (module.label === "Invoices" && ["invoices", "invoice-record", "invoice-create"].includes(homeView)) ||
                 (module.label === "POs" && ["purchase-orders", "purchase-order-record"].includes(homeView)) ||
@@ -32950,6 +32995,12 @@ export default function CoreApp() {
                           setOpenModuleMenu(module.label);
                           return;
                         }
+                        if (module.label === "Schedules") {
+                          setSchedulePane("diary");
+                          setHomeView("schedule");
+                          setOpenModuleMenu(module.label);
+                          return;
+                        }
                         setOpenModuleMenu(isOpen ? null : module.label);
                       }}
                     >
@@ -32965,6 +33016,14 @@ export default function CoreApp() {
                           onClick={() => {
                             if (module.label === "People") {
                               goToPeopleSection(item);
+                              closeContextSidebarOnMobile();
+                            } else if (module.label === "Schedules") {
+                              if (item === "Timesheets") {
+                                setSchedulePane("timesheets");
+                              } else {
+                                setSchedulePane("diary");
+                              }
+                              setHomeView("schedule");
                               closeContextSidebarOnMobile();
                             } else {
                               navigateToModule(item);
@@ -33093,7 +33152,7 @@ export default function CoreApp() {
                 : homeView === "lead-record"
                   ? "Lead record"
                 : homeView === "schedule"
-                  ? "Schedules"
+                  ? schedulePane === "timesheets" ? "Timesheets" : "Schedules"
                 : homeView === "settings"
                   ? "Setup"
                 : homeView === "addons"
@@ -33242,7 +33301,7 @@ export default function CoreApp() {
                     : homeView === "lead-record"
                       ? "Lead record"
                     : homeView === "schedule"
-                      ? "Schedules"
+                      ? schedulePane === "timesheets" ? "Timesheets" : "Schedules"
                     : homeView === "settings"
                       ? "Setup"
                     : homeView === "profile"
@@ -33310,7 +33369,7 @@ export default function CoreApp() {
                   : homeView === "lead-record"
                     ? selectedLead?.ref ?? "Lead record"
                   : homeView === "schedule"
-                    ? "Scheduler"
+                    ? schedulePane === "timesheets" ? "Timesheets" : "Scheduler"
                     : homeView === "settings"
                       ? "Setup"
                     : homeView === "profile"
@@ -33383,7 +33442,9 @@ export default function CoreApp() {
                   : homeView === "lead-record"
                     ? `${selectedLead?.customerName ?? "Lead"} · ${selectedLead?.address ?? "Address to confirm"}`
                   : homeView === "schedule"
-                    ? `${bookingsForSelectedDate.length} appointments booked · availability for ${surveyorOptions.join(", ")}`
+                    ? schedulePane === "timesheets"
+                      ? `${pendingTimesheetApprovals.length} awaiting approval · ${overdueTimesheetJobs.length} overdue`
+                      : `${bookingsForSelectedDate.length} appointments booked · availability for ${surveyorOptions.join(", ")}`
                   : homeView === "settings"
                     ? `${documentFolderTemplates.length} document folders · ${engineerFlowTemplate.steps.length} engineer stop/go checks`
                   : homeView === "profile"
@@ -44245,8 +44306,8 @@ export default function CoreApp() {
               <div className="scheduler-toolbar">
                 <div>
                   <span className="permission-heading">Team diary</span>
-                  <h2>Schedules</h2>
-                  <p>{schedulePane === "timesheets" ? "Timesheets to review" : schedulePeriodLabel}</p>
+                  <h2>{schedulePane === "timesheets" ? "Timesheets" : "Schedules"}</h2>
+                  <p>{schedulePane === "timesheets" ? "Approve, query or adjust engineer hours" : schedulePeriodLabel}</p>
                 </div>
                 <div className="scheduler-toolbar-actions">
                   <div className="scheduler-view-switch" role="tablist" aria-label="Schedule area">
@@ -44294,24 +44355,130 @@ export default function CoreApp() {
               </div>
 
               {schedulePane === "timesheets" ? (
-                <section className="tenders-workspace" aria-label="Timesheets to review">
+                <section className="tenders-workspace timesheet-review-workspace" aria-label="Timesheets to review">
                   <div className="tenders-metric-row">
                     <article>
-                      <span>To review</span>
-                      <strong>{timesheetReviewJobs.length}</strong>
-                    </article>
-                    <article>
-                      <span>Pending approvals</span>
+                      <span>Awaiting decision</span>
                       <strong>{pendingTimesheetApprovals.length}</strong>
                     </article>
                     <article>
-                      <span>Overdue</span>
+                      <span>Overdue (no sheet)</span>
                       <strong>{overdueTimesheetJobs.length}</strong>
                     </article>
+                    <article>
+                      <span>Jobs in queue</span>
+                      <strong>{timesheetReviewJobs.length}</strong>
+                    </article>
                   </div>
+
                   <div className="tenders-table-wrap">
-                    {timesheetReviewJobs.length === 0 ? (
-                      <p className="tenders-hint">No timesheets waiting for review.</p>
+                    <header className="timesheet-review-section-head">
+                      <strong>Submitted for approval</strong>
+                      <span>Adjust hours if needed, then approve, query, or reject</span>
+                    </header>
+                    {pendingTimesheetApprovals.length === 0 ? (
+                      <p className="tenders-hint">No timesheets waiting for office approval.</p>
+                    ) : (
+                      <table className="tenders-table">
+                        <thead>
+                          <tr>
+                            <th>Job</th>
+                            <th>Engineer</th>
+                            <th>Submitted</th>
+                            <th>Hours</th>
+                            <th>Status</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pendingTimesheetApprovals.map((event) => {
+                            const hoursValue =
+                              timesheetAdjustHours[event.id] ??
+                              (event.hours != null ? String(event.hours) : "");
+                            return (
+                              <tr key={event.id}>
+                                <td>
+                                  <strong>{event.jobRef}</strong>
+                                  <small className="timesheet-review-summary">{event.summary}</small>
+                                </td>
+                                <td>{event.actor || "—"}</td>
+                                <td>{event.createdAt || "—"}</td>
+                                <td>
+                                  <label className="timesheet-hours-adjust">
+                                    <span className="sr-only">Adjust hours</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.25"
+                                      inputMode="decimal"
+                                      value={hoursValue}
+                                      onChange={(changeEvent) => {
+                                        const value = changeEvent.target.value;
+                                        setTimesheetAdjustHours((current) => ({
+                                          ...current,
+                                          [event.id]: value,
+                                        }));
+                                      }}
+                                      aria-label={`Hours for ${event.jobRef}`}
+                                    />
+                                    <em>hrs</em>
+                                  </label>
+                                </td>
+                                <td>
+                                  <span className={`status-pill ${event.status === "Queried" ? "amber" : "blue"}`}>
+                                    {event.status || "Submitted"}
+                                  </span>
+                                </td>
+                                <td>
+                                  <span className="directory-inline-actions timesheet-review-actions">
+                                    <button
+                                      className="primary-button"
+                                      type="button"
+                                      onClick={() => reviewJobTimesheet(event.id, "Approved")}
+                                    >
+                                      Approve
+                                    </button>
+                                    <button
+                                      className="secondary-button"
+                                      type="button"
+                                      onClick={() => reviewJobTimesheet(event.id, "Queried")}
+                                    >
+                                      Query
+                                    </button>
+                                    <button
+                                      className="secondary-button"
+                                      type="button"
+                                      onClick={() => reviewJobTimesheet(event.id, "Rejected")}
+                                    >
+                                      Reject
+                                    </button>
+                                    <button
+                                      className="secondary-button"
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedJobId(event.jobId);
+                                        setHomeView("job-record");
+                                      }}
+                                    >
+                                      Open job
+                                    </button>
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+
+                  <div className="tenders-table-wrap">
+                    <header className="timesheet-review-section-head">
+                      <strong>Overdue — no timesheet yet</strong>
+                      <span>Chase engineers who finished visits without submitting hours</span>
+                    </header>
+                    {overdueTimesheetJobs.length === 0 ? (
+                      <p className="tenders-hint">Nothing overdue right now.</p>
                     ) : (
                       <table className="tenders-table">
                         <thead>
@@ -44324,7 +44491,7 @@ export default function CoreApp() {
                           </tr>
                         </thead>
                         <tbody>
-                          {timesheetReviewJobs.map((job) => (
+                          {overdueTimesheetJobs.map((job) => (
                             <tr key={job.id}>
                               <td>
                                 <strong>{job.ref}</strong>
@@ -44335,7 +44502,7 @@ export default function CoreApp() {
                               <td>
                                 <button
                                   type="button"
-                                  className="primary-button"
+                                  className="secondary-button"
                                   onClick={() => {
                                     setSelectedJobId(job.id);
                                     setHomeView("job-record");

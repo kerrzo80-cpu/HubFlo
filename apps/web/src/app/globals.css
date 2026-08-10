@@ -15764,6 +15764,61 @@ h1 {
   max-width: 1540px;
 }
 
+.timesheet-review-workspace {
+  padding: 16px 18px 22px;
+  display: grid;
+  gap: 18px;
+}
+
+.timesheet-review-section-head {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.timesheet-review-section-head strong {
+  font-size: 15px;
+}
+
+.timesheet-review-section-head span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.timesheet-review-summary {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  max-width: 280px;
+}
+
+.timesheet-hours-adjust {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.timesheet-hours-adjust input {
+  width: 72px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+}
+
+.timesheet-hours-adjust em {
+  font-style: normal;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.timesheet-review-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .scheduler-shell > .panel-header {
   border-bottom: 1px solid var(--line);
 }
@@ -18079,7 +18134,6 @@ h1 {
 
   .open-record-tabs {
     padding: 6px 8px 7px;
-    top: 48px;
   }
 
   .open-record-tab {
@@ -23350,7 +23404,7 @@ body:has([data-takeoff-mode="page"]) {
 }
 
 .platform {
-  --core-chrome-offset: 112px;
+  --core-chrome-offset: 121px; /* header 72 + module bar 49 */
   --open-record-tabs-height: 0px;
   display: flex;
   flex-direction: column;
@@ -23359,8 +23413,8 @@ body:has([data-takeoff-mode="page"]) {
 }
 
 .platform.has-open-record-tabs {
-  --open-record-tabs-height: 40px;
-  --core-chrome-offset: calc(112px + var(--open-record-tabs-height));
+  --open-record-tabs-height: 44px;
+  --core-chrome-offset: calc(121px + var(--open-record-tabs-height));
 }
 
 .global-header,
