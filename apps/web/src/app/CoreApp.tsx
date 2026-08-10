@@ -31856,7 +31856,6 @@ export default function CoreApp() {
         return right.count - left.count;
       });
     const actionTotal = actionNotificationCards.reduce((total, card) => total + card.count, 0);
-    const asOf = currentOperatingDate;
     const upcomingScheduledCount = upcomingJobsNext4Weeks.filter((row) => row.kind === "scheduled").length;
     const upcomingRecurringCount = upcomingJobsNext4Weeks.filter((row) => row.kind === "recurring").length;
     const upcomingSplitMax = Math.max(1, upcomingScheduledCount, upcomingRecurringCount);
