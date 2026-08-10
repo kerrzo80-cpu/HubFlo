@@ -5,6 +5,7 @@ import {
   Bug,
   CheckCircle2,
   ClipboardList,
+  ExternalLink,
   Plus,
   RefreshCw,
   Search,
@@ -29,6 +30,15 @@ import {
 type RequestHeaders = HeadersInit;
 type TabKey = "overview" | "notes" | "attachments" | "activity" | "workflow";
 type FolderKey = "open" | "inbox" | "development" | "testing" | "complete" | "feedback" | "all";
+
+type FaultAttachment = {
+  id: string;
+  name: string;
+  type: string;
+  fileUrl: string;
+  size?: number;
+  uploadedAt?: string;
+};
 
 type Stats = {
   openFaults: number;
@@ -112,6 +122,8 @@ export function FaultsPanel({
   const [customerRequests, setCustomerRequests] = useState<CustomerRequest[]>([]);
   const [githubConfigured, setGithubConfigured] = useState(false);
   const [taskMarkdown, setTaskMarkdown] = useState("");
+  const [attachments, setAttachments] = useState<FaultAttachment[]>([]);
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false);
 
   const selected = useMemo(
     () => issues.find((issue) => issue.id === selectedId) ?? null,
@@ -140,6 +152,49 @@ export function FaultsPanel({
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function loadAttachments(reference: string) {
+    const recordRef = reference.trim();
+    if (!recordRef) {
+      setAttachments([]);
+      return;
+    }
+    setAttachmentsLoading(true);
+    try {
+      const response = await fetch(
+        `/api/record-documents?scope=fault&recordRef=${encodeURIComponent(recordRef)}`,
+        { headers: requestHeaders, cache: "no-store" },
+      );
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || "Could not load attachments");
+      const docs = Array.isArray(data?.documents) ? data.documents : [];
+      setAttachments(
+        docs.map((doc: FaultAttachment) => ({
+          id: String(doc.id || ""),
+          name: String(doc.name || "Attachment"),
+          type: String(doc.type || "Attachment"),
+          fileUrl: String(doc.fileUrl || ""),
+          size: typeof doc.size === "number" ? doc.size : undefined,
+          uploadedAt: typeof doc.uploadedAt === "string" ? doc.uploadedAt : undefined,
+        })).filter((doc: FaultAttachment) => Boolean(doc.id && doc.fileUrl)),
+      );
+    } catch (error) {
+      setAttachments([]);
+      onNotice(error instanceof Error ? error.message : "Could not load attachments");
+    } finally {
+      setAttachmentsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!selected?.reference) {
+      setAttachments([]);
+      return;
+    }
+    if (tab !== "attachments") return;
+    void loadAttachments(selected.reference);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id, selected?.reference, tab]);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -257,6 +312,7 @@ export function FaultsPanel({
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || "Upload failed");
       onNotice(`Uploaded ${files.length} file${files.length === 1 ? "" : "s"} to ${selected.reference}`);
+      await loadAttachments(selected.reference);
       await postAction({
         action: "comment",
         id: selected.id,
@@ -881,6 +937,29 @@ export function FaultsPanel({
                   disabled={saving}
                   onFiles={(files) => void uploadFiles(files)}
                 />
+                {attachmentsLoading ? (
+                  <p className="faults-hint">Loading attachments…</p>
+                ) : attachments.length ? (
+                  <ul className="faults-attachment-list">
+                    {attachments.map((doc) => (
+                      <li key={doc.id}>
+                        <div>
+                          <strong>{doc.name}</strong>
+                          <small>
+                            {doc.type}
+                            {doc.uploadedAt ? ` · ${new Date(doc.uploadedAt).toLocaleString("en-GB")}` : ""}
+                            {typeof doc.size === "number" ? ` · ${Math.max(1, Math.round(doc.size / 1024))} KB` : ""}
+                          </small>
+                        </div>
+                        <a className="secondary-button" href={doc.fileUrl} target="_blank" rel="noreferrer">
+                          <ExternalLink size={14} /> Open
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="faults-hint">No attachments yet — drop files above.</p>
+                )}
               </div>
             ) : null}
 

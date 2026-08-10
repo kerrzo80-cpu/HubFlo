@@ -46,6 +46,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "scope and recordRef are required" }, { status: 400 });
   }
 
+  const requestedFolder = String(formData.get("folderId") || "").trim();
+  const requestedVisibility = String(formData.get("visibility") || "").trim();
+
   const files = formData.getAll("files").filter((item): item is File => typeof File !== "undefined" && item instanceof File);
   if (!files.length) {
     return NextResponse.json({ error: "No files uploaded" }, { status: 400 });
@@ -55,12 +58,33 @@ export async function POST(request: NextRequest) {
   for (const file of files) {
     const bytes = Buffer.from(await file.arrayBuffer());
     const isImage = (file.type || "").startsWith("image/");
+    const defaultFolderId = isImage
+      ? scope === "job"
+        ? "mid-work-photos"
+        : scope === "fault"
+          ? "evidence"
+          : "survey-photos"
+      : scope === "tender"
+        ? "office-private"
+        : scope === "fault"
+          ? "evidence"
+          : "office-private";
+    const folderId = requestedFolder || defaultFolderId;
+    const visibility =
+      requestedVisibility === "Private" ||
+      requestedVisibility === "Engineer" ||
+      requestedVisibility === "Public" ||
+      requestedVisibility === "Client"
+        ? requestedVisibility
+        : scope === "job" && isImage
+          ? "Engineer"
+          : "Private";
     saved.push(
       saveUploadedRecordDocument({
         scope,
         recordRef,
-        folderId: isImage ? (scope === "job" ? "mid-work-photos" : "survey-photos") : scope === "tender" ? "office-private" : "office-private",
-        visibility: scope === "job" && isImage ? "Engineer" : "Private",
+        folderId,
+        visibility,
         fileName: file.name || "upload.bin",
         mimeType: file.type || "application/octet-stream",
         bytes,

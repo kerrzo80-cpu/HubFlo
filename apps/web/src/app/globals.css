@@ -40413,6 +40413,33 @@ button.nexa-kpi-card,
   color: var(--muted);
 }
 
+.faults-attachment-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.faults-attachment-list li {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 10px 12px;
+}
+
+.faults-attachment-list strong {
+  display: block;
+}
+
+.faults-attachment-list small {
+  color: var(--muted);
+}
+
 .faults-meta {
   display: grid;
   gap: 10px;
