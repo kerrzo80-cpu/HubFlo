@@ -265,7 +265,19 @@ export function DashboardOverview({
   }, [leads, quotes, jobs]);
 
   const value = useMemo(() => {
-    const jobsValue = jobs.reduce((sum, job) => sum + num(job, "value"), 0);
+    const liveJobStatuses = new Set([
+      "Accepted",
+      "Pending",
+      "Enquiry",
+      "Quoted",
+      "Scheduled",
+      "In progress",
+      "Waiting on parts",
+      "Waiting on customer",
+      "Approval required",
+    ]);
+    const liveJobs = jobs.filter((job) => liveJobStatuses.has(str(job, "status")));
+    const jobsValue = liveJobs.reduce((sum, job) => sum + num(job, "value"), 0);
     const wonValue = quotes
       .filter((quote) => {
         if (str(quote, "status") !== "Accepted") return false;
@@ -289,7 +301,7 @@ export function DashboardOverview({
         return daysBetween(when, now) <= openQuoteWindowDays;
       })
       .reduce((sum, quote) => sum + num(quote, "value"), 0);
-    return { jobsValue, wonValue, openValue };
+    return { jobsValue, liveJobCount: liveJobs.length, wonValue, openValue };
   }, [jobs, now, openQuoteWindowDays, quotes]);
 
   const healthTotal = health.green + health.amber + health.red;
@@ -420,18 +432,13 @@ export function DashboardOverview({
       <Card onClick={onOpenJobs} label="Open live job value">
         <header>
           <h3>Live value</h3>
-          <span className="nexa-kpi-sub">sum of all job values</span>
+          <span className="nexa-kpi-sub">pending + in progress</span>
         </header>
         <div className="nexa-kpi-card-scroll">
           <div className="nexa-kpi-metric">
             <strong>{gbp.format(shownJobsValue)}</strong>
-            <span>
-              {loaded ? `${jobs.length} job${jobs.length === 1 ? "" : "s"} · each job’s Value field` : "…"}
-            </span>
+            <span>{loaded ? `${value.liveJobCount} live job${value.liveJobCount === 1 ? "" : "s"}` : "…"}</span>
           </div>
-          <p className="nexa-kpi-empty" style={{ margin: "0 0 8px", fontSize: 11 }}>
-            Not quotes or tenders — tap to open Jobs. Bars below are quote pipeline for comparison.
-          </p>
           <Bars
             money
             onSelect={(row) => {
@@ -439,8 +446,8 @@ export function DashboardOverview({
               else if (row.key === "open") (onOpenOpenQuotes || onOpenQuotes)?.();
             }}
             data={[
-              { key: "won", label: "Quotes won this month", value: value.wonValue },
-              { key: "open", label: `Open quotes (last ${openQuoteWindowDays}d)`, value: value.openValue },
+              { key: "won", label: "Won this month", value: value.wonValue },
+              { key: "open", label: `Open (last ${openQuoteWindowDays}d)`, value: value.openValue },
             ]}
           />
         </div>
