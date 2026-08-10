@@ -1,5 +1,6 @@
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { rowsToDelimitedText } from "@/lib/tenders-xlsx";
+import { createJob } from "@/lib/workflow-data";
 import {
   TENDER_STATUSES,
   alertForDeadline,
@@ -248,6 +249,8 @@ function normalizeTender(input: Partial<Tender> & { name: string; client: string
     boqLines: lines,
     documents: Array.isArray(input.documents) ? input.documents : [],
     submittedAt: input.submittedAt,
+    convertedJobId: input.convertedJobId,
+    convertedJobRef: input.convertedJobRef,
     createdAt: input.createdAt || now,
     updatedAt: now,
   };
@@ -594,6 +597,58 @@ export function addTenderDocument(
   return updateTender(tenderId, {
     documents: [nextDoc, ...existing.documents.filter((item) => item.id !== nextDoc.id)],
   });
+}
+
+export function convertTenderToPendingJob(tenderId: string) {
+  const tender = getTender(tenderId);
+  if (!tender) throw new Error("Tender not found.");
+  if (tender.convertedJobId) {
+    return { tender, job: null as ReturnType<typeof createJob> | null, alreadyConverted: true as const };
+  }
+  const value = Number.isFinite(tender.tenderSum) ? Number(tender.tenderSum) : computeBoqTotal(tender.boqLines) || tender.bidValue || 0;
+  const job = createJob({
+    customer: tender.client,
+    site: tender.area || "Site to be confirmed",
+    description: `${tender.name}${tender.boqTitle ? ` — ${tender.boqTitle}` : ""}`.trim(),
+    manager: tender.owner || "Unassigned",
+    status: "Pending",
+    value,
+    next: "Won tender — schedule and start checks",
+    due: tender.submissionDeadline || new Date().toISOString().slice(0, 10),
+    sourceTenderId: tender.id,
+    sourceTenderName: tender.name,
+  });
+  const updated = updateTender(tenderId, {
+    status: "Won",
+    convertedJobId: job.id,
+    convertedJobRef: job.ref,
+    tenderSum: value,
+    bidValue: value || tender.bidValue,
+  });
+  return { tender: updated, job, alreadyConverted: false as const };
+}
+
+export function archiveTenders(ids: string[]) {
+  const updated = ids.map((id) => {
+    const existing = getTender(id);
+    if (!existing) return null;
+    if (existing.status === "Won" && existing.convertedJobId) {
+      return updateTender(id, { status: "Won" });
+    }
+    return updateTender(id, { status: "Lost" });
+  }).filter(Boolean) as Tender[];
+  return { updated, tenders: listTenders() };
+}
+
+export function deleteTenders(ids: string[]) {
+  for (const id of ids) {
+    try {
+      deleteTender(id);
+    } catch {
+      // skip missing
+    }
+  }
+  return { tenders: listTenders() };
 }
 
 export { DEFAULT_DAYWORK, DEFAULT_QUALIFICATIONS, alertForDeadline, daysLeftForDeadline };

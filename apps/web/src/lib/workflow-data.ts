@@ -33,6 +33,8 @@ export interface Job {
   simproSentAt?: string;
   sourceQuoteId?: string;
   sourceQuoteRef?: string;
+  sourceTenderId?: string;
+  sourceTenderName?: string;
   customer: string;
   site: string;
   description: string;

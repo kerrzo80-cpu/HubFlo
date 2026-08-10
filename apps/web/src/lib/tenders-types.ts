@@ -93,6 +93,8 @@ export type Tender = {
   boqLines: TenderBoqLine[];
   documents: TenderDocument[];
   submittedAt?: string;
+  convertedJobId?: string;
+  convertedJobRef?: string;
   createdAt: string;
   updatedAt: string;
 };

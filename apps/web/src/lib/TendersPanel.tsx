@@ -26,6 +26,8 @@ import {
   type TenderStatus,
 } from "@/lib/tenders-types";
 
+// TenderStatus kept for status dropdowns inside overview.
+
 type RequestHeaders = HeadersInit;
 
 const gbp = new Intl.NumberFormat("en-GB", {
@@ -64,17 +66,20 @@ export function TendersPanel({
   onNotice,
   businessName = "Errol Watson Group Ltd",
   actorName = "NeXa user",
+  onOpenPendingJob,
 }: {
   requestHeaders: RequestHeaders;
   onNotice: (message: string) => void;
   businessName?: string;
   actorName?: string;
+  onOpenPendingJob?: (jobId: string) => void;
 }) {
   const [tenders, setTenders] = useState<Tender[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"all" | TenderStatus>("all");
+  const [folderKey, setFolderKey] = useState<"open" | "won" | "lost" | "all">("open");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [tab, setTab] = useState<TabKey>("overview");
   const [boqImportText, setBoqImportText] = useState("");
   const [qualificationDraft, setQualificationDraft] = useState("");
@@ -111,7 +116,13 @@ export function TendersPanel({
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const payload = (await response.json()) as { error?: string; tenders?: Tender[]; tender?: Tender };
+      const payload = (await response.json()) as {
+        error?: string;
+        tenders?: Tender[];
+        tender?: Tender;
+        job?: { id: string; ref: string } | null;
+        alreadyConverted?: boolean;
+      };
       if (!response.ok) throw new Error(payload.error || "Request failed");
       if (Array.isArray(payload.tenders)) setTenders(payload.tenders);
       if (payload.tender?.id) setSelectedId(payload.tender.id);
@@ -121,10 +132,21 @@ export function TendersPanel({
     }
   }
 
+  const folders = useMemo(() => {
+    const open = tenders.filter((tender) => !["Won", "Lost"].includes(tender.status));
+    const won = tenders.filter((tender) => tender.status === "Won");
+    const lost = tenders.filter((tender) => tender.status === "Lost");
+    return [
+      { key: "open" as const, label: "Open", tone: "blue", items: open, detail: "Live and in-progress tenders" },
+      { key: "won" as const, label: "Won", tone: "green", items: won, detail: "Accepted — pending job created when marked won" },
+      { key: "lost" as const, label: "Lost / archived", tone: "amber", items: lost, detail: "Lost or archived tenders" },
+      { key: "all" as const, label: "All", tone: "blue", items: tenders, detail: "Everything" },
+    ];
+  }, [tenders]);
+
   const filtered = useMemo(() => {
-    if (statusFilter === "all") return tenders;
-    return tenders.filter((tender) => tender.status === statusFilter);
-  }, [statusFilter, tenders]);
+    return folders.find((folder) => folder.key === folderKey)?.items ?? tenders;
+  }, [folderKey, folders, tenders]);
 
   const pipelineValue = useMemo(
     () =>
@@ -133,6 +155,61 @@ export function TendersPanel({
         .reduce((sum, tender) => sum + (tender.tenderSum || tender.bidValue || 0), 0),
     [tenders],
   );
+
+  function toggleSelected(id: string) {
+    setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+  }
+
+  function selectAllVisible() {
+    setSelectedIds(filtered.map((tender) => tender.id));
+  }
+
+  function clearSelection() {
+    setSelectedIds([]);
+  }
+
+  async function bulkArchive() {
+    if (!selectedIds.length) return;
+    if (!window.confirm(`Archive ${selectedIds.length} tender(s) as Lost?`)) return;
+    try {
+      await postAction({ action: "archive-bulk", ids: selectedIds });
+      clearSelection();
+      onNotice("Selected tenders archived as Lost.");
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to archive");
+    }
+  }
+
+  async function bulkDelete() {
+    if (!selectedIds.length) return;
+    if (!window.confirm(`Permanently delete ${selectedIds.length} tender(s)?`)) return;
+    try {
+      await postAction({ action: "delete-bulk", ids: selectedIds });
+      clearSelection();
+      onNotice("Selected tenders deleted.");
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to delete");
+    }
+  }
+
+  async function markWon(tenderId: string) {
+    try {
+      const result = await postAction({ action: "convert-won", id: tenderId });
+      if (result.alreadyConverted && result.tender?.convertedJobId) {
+        onNotice(`Already won — job ${result.tender.convertedJobRef || result.tender.convertedJobId}.`);
+        onOpenPendingJob?.(result.tender.convertedJobId);
+        return;
+      }
+      if (result.job?.id) {
+        onNotice(`Tender won — pending job ${result.job.ref} created.`);
+        onOpenPendingJob?.(result.job.id);
+      } else {
+        onNotice("Tender marked Won.");
+      }
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to mark won");
+    }
+  }
 
   async function createTender() {
     try {
@@ -325,13 +402,34 @@ export function TendersPanel({
             </p>
           </div>
           <div className="tenders-toolbar-actions">
+            {selected.status !== "Won" ? (
+              <button type="button" className="primary-button" disabled={saving} onClick={() => void markWon(selected.id)}>
+                Mark Won → Pending job
+              </button>
+            ) : selected.convertedJobId ? (
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => onOpenPendingJob?.(selected.convertedJobId!)}
+              >
+                Open job {selected.convertedJobRef || ""}
+              </button>
+            ) : null}
             <button type="button" className="secondary-button" disabled={saving} onClick={() => void downloadFormOfTender()}>
               <Download size={15} />
               Form of Tender
             </button>
-            <button type="button" className="primary-button" disabled={saving} onClick={() => void submitTender()}>
+            <button type="button" className="secondary-button" disabled={saving} onClick={() => void submitTender()}>
               <Send size={15} />
               Mark submitted
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={saving}
+              onClick={() => void saveSelected({ status: "Lost" })}
+            >
+              Archive as Lost
             </button>
             <button type="button" className="secondary-button" onClick={() => void deleteSelected()}>
               <Trash2 size={15} />
@@ -841,21 +939,49 @@ export function TendersPanel({
         </article>
       </div>
 
-      <div className="tenders-filters">
-        <label>
-          Status
-          <select
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value as "all" | TenderStatus)}
+      <div className="tenders-folder-grid" role="tablist" aria-label="Tender folders">
+        {folders.map((folder) => (
+          <button
+            key={folder.key}
+            type="button"
+            className={`tenders-folder-card ${folder.tone} ${folderKey === folder.key ? "active" : ""}`}
+            onClick={() => {
+              setFolderKey(folder.key);
+              clearSelection();
+            }}
           >
-            <option value="all">All</option>
-            {TENDER_STATUSES.map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
-          </select>
-        </label>
+            <span>{folder.label}</span>
+            <strong>{folder.items.length}</strong>
+            <small>{folder.detail}</small>
+          </button>
+        ))}
+      </div>
+
+      <div className="directory-bulk-action-bar quote-bulk-action-bar">
+        <span>{selectedIds.length} selected</span>
+        <button className="simpro-options-button" type="button" onClick={selectAllVisible} disabled={!filtered.length}>
+          Select all
+        </button>
+        <button className="simpro-options-button" type="button" onClick={clearSelection} disabled={!selectedIds.length}>
+          Deselect all
+        </button>
+        <button className="simpro-options-button" type="button" disabled={!selectedIds.length || saving} onClick={() => void bulkArchive()}>
+          Archive selected
+        </button>
+        <button className="simpro-options-button" type="button" disabled={!selectedIds.length || saving} onClick={() => void bulkDelete()}>
+          Delete selected
+        </button>
+        <button
+          className="simpro-options-button"
+          type="button"
+          disabled={selectedIds.length !== 1 || saving}
+          onClick={() => {
+            const id = selectedIds[0];
+            if (id) void markWon(id);
+          }}
+        >
+          Mark Won → job
+        </button>
       </div>
 
       <div className="tenders-table-wrap">
@@ -864,12 +990,23 @@ export function TendersPanel({
         ) : filtered.length === 0 ? (
           <p className="tenders-hint">
             <ClipboardList size={16} style={{ marginRight: 6 }} />
-            No tenders yet — create one or import from your tracker next.
+            No tenders in this folder.
           </p>
         ) : (
           <table className="tenders-table">
             <thead>
               <tr>
+                <th className="tenders-check-col">
+                  <input
+                    type="checkbox"
+                    checked={filtered.length > 0 && filtered.every((tender) => selectedIds.includes(tender.id))}
+                    onChange={(event) => {
+                      if (event.target.checked) selectAllVisible();
+                      else clearSelection();
+                    }}
+                    aria-label="Select all visible tenders"
+                  />
+                </th>
                 <th>Opportunity</th>
                 <th>Client</th>
                 <th>Category</th>
@@ -887,10 +1024,33 @@ export function TendersPanel({
                 const days = daysLeftForDeadline(tender.submissionDeadline);
                 const alert = alertForDeadline(tender.submissionDeadline);
                 return (
-                  <tr key={tender.id} onClick={() => { setSelectedId(tender.id); setTab("overview"); }}>
-                    <td>
+                  <tr key={tender.id}>
+                    <td className="tenders-check-col" onClick={(event) => event.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(tender.id)}
+                        onChange={() => toggleSelected(tender.id)}
+                        aria-label={`Select ${tender.name}`}
+                      />
+                    </td>
+                    <td
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        setSelectedId(tender.id);
+                        setTab("overview");
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedId(tender.id);
+                          setTab("overview");
+                        }
+                      }}
+                    >
                       <strong>{tender.name}</strong>
                       {tender.externalId ? <small> #{tender.externalId}</small> : null}
+                      {tender.convertedJobRef ? <div className="tenders-note">Job {tender.convertedJobRef}</div> : null}
                       {tender.materialsNote ? <div className="tenders-note">{tender.materialsNote}</div> : null}
                     </td>
                     <td>{tender.client}</td>

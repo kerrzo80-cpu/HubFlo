@@ -39734,3 +39734,54 @@ button.nexa-kpi-card,
     grid-template-columns: 1fr;
   }
 }
+
+.tenders-folder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.tenders-folder-card {
+  appearance: none;
+  text-align: left;
+  border: 1px solid #e4ebf1;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px 14px;
+  display: grid;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.tenders-folder-card span {
+  color: var(--subtle);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.tenders-folder-card strong {
+  font-size: 1.35rem;
+}
+
+.tenders-folder-card small {
+  color: var(--subtle);
+  font-size: 12px;
+}
+
+.tenders-folder-card.active {
+  border-color: #006eb8;
+  box-shadow: inset 0 0 0 1px #006eb8;
+}
+
+.tenders-folder-card.green.active { border-color: #12b76a; box-shadow: inset 0 0 0 1px #12b76a; }
+.tenders-folder-card.amber.active { border-color: #f79009; box-shadow: inset 0 0 0 1px #f79009; }
+
+.tenders-check-col {
+  width: 36px;
+}
+
+.tenders-table tbody td[role="button"] {
+  cursor: pointer;
+}

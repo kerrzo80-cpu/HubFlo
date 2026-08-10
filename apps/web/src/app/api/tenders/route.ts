@@ -4,6 +4,9 @@ import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import {
   deleteTender,
+  deleteTenders,
+  archiveTenders,
+  convertTenderToPendingJob,
   importBoqIntoTender,
   listTenders,
   markTenderSubmitted,
@@ -44,10 +47,14 @@ export async function POST(request: NextRequest) {
       | "upsert"
       | "update"
       | "delete"
+      | "delete-bulk"
+      | "archive-bulk"
       | "import-boq"
       | "update-boq-line"
-      | "submit";
+      | "submit"
+      | "convert-won";
     id?: string;
+    ids?: string[];
     tender?: Partial<Tender> & { name?: string; client?: string };
     patch?: Partial<Tender>;
     lineId?: string;
@@ -83,6 +90,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, tenders: listTenders() });
     }
 
+    if (body?.action === "delete-bulk") {
+      if (!body.ids?.length) return NextResponse.json({ error: "ids required" }, { status: 400 });
+      const result = deleteTenders(body.ids);
+      return NextResponse.json({ ok: true, ...result });
+    }
+
+    if (body?.action === "archive-bulk") {
+      if (!body.ids?.length) return NextResponse.json({ error: "ids required" }, { status: 400 });
+      const result = archiveTenders(body.ids);
+      return NextResponse.json({ ok: true, ...result });
+    }
+
     if (body?.action === "import-boq") {
       if (!body.id || !body.boqText) {
         return NextResponse.json({ error: "id and boqText required" }, { status: 400 });
@@ -103,6 +122,12 @@ export async function POST(request: NextRequest) {
       if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
       const tender = markTenderSubmitted(body.id, { tenderSum: body.tenderSum });
       return NextResponse.json({ tender, tenders: listTenders() });
+    }
+
+    if (body?.action === "convert-won") {
+      if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const result = convertTenderToPendingJob(body.id);
+      return NextResponse.json({ ...result, tenders: listTenders() });
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });

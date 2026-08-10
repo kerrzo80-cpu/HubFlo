@@ -807,6 +807,7 @@ type HomeView =
   | "stock"
   | "recurring"
   | "tenders"
+  | "dayworks"
   | "reports"
   | "invoices"
   | "invoice-create"
@@ -2528,6 +2529,7 @@ const modules: ModuleItem[] = [
   { label: "Quotes", icon: FileText },
   { label: "Tenders", icon: ClipboardList },
   { label: "Jobs", icon: Wrench },
+  { label: "Dayworks", icon: ClipboardCheck },
   { label: "Schedules", icon: CalendarDays },
   { label: "Invoices", icon: PoundSterling },
   { label: "POs", icon: Package },
@@ -8216,6 +8218,7 @@ export default function CoreApp() {
   const [activeReportTab, setActiveReportTab] = useState<ReportTab>("executive");
   const [scheduleDate, setScheduleDate] = useState(scheduleToday);
   const [scheduleView, setScheduleView] = useState<ScheduleView>("week");
+  const [schedulePane, setSchedulePane] = useState<"diary" | "timesheets">("diary");
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>(defaultBusinessSettings);
   const [formTemplates, setFormTemplates] = useState<FormTemplate[]>(defaultFormTemplates);
   const [activeFormTemplateId, setActiveFormTemplateId] = useState(defaultFormTemplates[0]?.id ?? "");
@@ -12458,16 +12461,6 @@ export default function CoreApp() {
       const archived = filteredJobs.filter((job) => ["Closed", "Invoiced"].includes(job.status));
       const groupedIds = new Set([...pending, ...progress, ...review, ...uninvoiced, ...archived].map((job) => job.id));
       const other = filteredJobs.filter((job) => !groupedIds.has(job.id));
-      const onTrack = filteredJobs.filter((job) => job.health !== "amber" && job.health !== "red");
-      const attention = filteredJobs.filter(
-        (job) => job.health === "amber" || job.status === "Approval required",
-      );
-      const blocked = filteredJobs.filter(
-        (job) =>
-          job.health === "red" ||
-          job.status === "Waiting on parts" ||
-          job.status === "Waiting on customer",
-      );
       return [
         {
           key: "pending",
@@ -12482,27 +12475,6 @@ export default function CoreApp() {
           detail: "Live work, blocked work and active site control",
           tone: "blue",
           items: progress,
-        },
-        {
-          key: "health-on-track",
-          label: "On track",
-          detail: "Jobs not waiting on approval, parts or customer",
-          tone: "green",
-          items: onTrack,
-        },
-        {
-          key: "health-attention",
-          label: "Attention",
-          detail: "Approval required — office needs to approve something on the job",
-          tone: "amber",
-          items: attention,
-        },
-        {
-          key: "health-blocked",
-          label: "Blocked",
-          detail: "Waiting on parts or waiting on the customer",
-          tone: "red",
-          items: blocked,
         },
         {
           key: "review",
@@ -12534,6 +12506,45 @@ export default function CoreApp() {
               items: other,
             }]
           : []),
+      ];
+    },
+    [filteredJobs],
+  );
+
+  const jobHealthDirectoryGroups = useMemo(
+    () => {
+      const onTrack = filteredJobs.filter((job) => job.health !== "amber" && job.health !== "red");
+      const attention = filteredJobs.filter(
+        (job) => job.health === "amber" || job.status === "Approval required",
+      );
+      const blocked = filteredJobs.filter(
+        (job) =>
+          job.health === "red" ||
+          job.status === "Waiting on parts" ||
+          job.status === "Waiting on customer",
+      );
+      return [
+        {
+          key: "health-on-track",
+          label: "On track",
+          detail: "Jobs not waiting on approval, parts or customer",
+          tone: "green",
+          items: onTrack,
+        },
+        {
+          key: "health-attention",
+          label: "Attention",
+          detail: "Approval required — office needs to approve something on the job",
+          tone: "amber",
+          items: attention,
+        },
+        {
+          key: "health-blocked",
+          label: "Blocked",
+          detail: "Waiting on parts or waiting on the customer",
+          tone: "red",
+          items: blocked,
+        },
       ];
     },
     [filteredJobs],
@@ -12717,6 +12728,7 @@ export default function CoreApp() {
     return modules.filter((module) => {
       if (module.label === "People" && !access.showCustomers) return false;
       if (module.label === "Jobs" && !access.showJobs) return false;
+      if (module.label === "Dayworks") return access.showJobs || access.showFinance;
       if (module.label === "Schedules" && !access.showSchedule) return false;
       if (module.label === "Quotes" && !access.showQuotes) return false;
       if (module.label === "Tenders") return access.showQuotes || access.showJobs || access.showFinance;
@@ -13046,10 +13058,9 @@ export default function CoreApp() {
         tone: "blue",
         items: filteredJobs,
       },
-      ...actionJobDirectoryGroups,
       ...jobDirectoryGroups,
     ],
-    [actionJobDirectoryGroups, filteredJobs, jobDirectoryGroups],
+    [filteredJobs, jobDirectoryGroups],
   );
 
   const visibleJobDirectoryGroups = useMemo(() => {
@@ -13066,8 +13077,10 @@ export default function CoreApp() {
     }
     const actionMatch = actionJobDirectoryGroups.filter((group) => group.key === activeJobFolderKey);
     if (actionMatch.length) return actionMatch;
+    const healthMatch = jobHealthDirectoryGroups.filter((group) => group.key === activeJobFolderKey);
+    if (healthMatch.length) return healthMatch;
     return jobDirectoryGroups.filter((group) => group.key === activeJobFolderKey);
-  }, [actionJobDirectoryGroups, activeJobFolderKey, filteredJobs, jobDirectoryGroups]);
+  }, [actionJobDirectoryGroups, activeJobFolderKey, filteredJobs, jobDirectoryGroups, jobHealthDirectoryGroups]);
 
   const overdueScheduledJobs = useMemo(() => {
     const closed = new Set(["Completed", "Ready to invoice", "Invoiced", "Cancelled", "Closed"]);
@@ -19897,11 +19910,14 @@ export default function CoreApp() {
       setHomeView("tenders");
     } else if (label === "Jobs") {
       returnToJobsDirectory();
+    } else if (label === "Dayworks") {
+      setHomeView("dayworks");
     } else if (label === "POs") {
       setHomeView("purchase-orders");
     } else if (label === "Stock") {
       setHomeView("stock");
     } else if (label === "Schedules") {
+      setSchedulePane("diary");
       setHomeView("schedule");
     } else if (label === "Setup") {
       setHomeView("settings");
@@ -31790,7 +31806,11 @@ export default function CoreApp() {
         count: overdueTimesheetJobs.length + pendingTimesheetApprovals.length,
         title: "Timesheets",
         detail: `${pendingTimesheetApprovals.length} approve · ${overdueTimesheetJobs.length} overdue`,
-        onClick: () => openJobsFolder("timesheets"),
+        onClick: () => {
+          setSchedulePane("timesheets");
+          setHomeView("schedule");
+          scrollWorkspaceToTop();
+        },
       },
       {
         id: "daywork",
@@ -31798,7 +31818,10 @@ export default function CoreApp() {
         count: dashboardDayworkReviews.length,
         title: "Daywork",
         detail: "From Field — review & sign off",
-        onClick: () => openJobsFolder("daywork"),
+        onClick: () => {
+          setHomeView("dayworks");
+          scrollWorkspaceToTop();
+        },
       },
       {
         id: "po-requests",
@@ -32618,6 +32641,7 @@ export default function CoreApp() {
                 (module.label === "Quotes" && ["quotes", "quote-create", "quote-record", "quote-cost-centre-record"].includes(homeView)) ||
                 (module.label === "Tenders" && homeView === "tenders") ||
                 (module.label === "Jobs" && ["jobs", "job-create", "job-record", "cost-centre-record"].includes(homeView)) ||
+                (module.label === "Dayworks" && homeView === "dayworks") ||
                 (module.label === "Schedules" && homeView === "schedule") ||
                 (module.label === "Invoices" && ["invoices", "invoice-record", "invoice-create"].includes(homeView)) ||
                 (module.label === "POs" && ["purchase-orders", "purchase-order-record"].includes(homeView)) ||
@@ -32778,6 +32802,8 @@ export default function CoreApp() {
                   ? "Recurring"
                 : homeView === "tenders"
                   ? "Tenders"
+                : homeView === "dayworks"
+                  ? "Dayworks"
                 : homeView === "invoices" || homeView === "invoice-create" || homeView === "invoice-record"
                   ? "Invoices"
                 : homeView === "xero"
@@ -33190,7 +33216,7 @@ export default function CoreApp() {
                     <button className="primary-button" onClick={() => editPurchaseOrderFromRegister(selectedPurchaseOrder)}>Edit PO</button>
                   ) : null}
                 </>
-              ) : homeView === "stock" || homeView === "recurring" || homeView === "tenders" ? (
+              ) : homeView === "stock" || homeView === "recurring" || homeView === "tenders" || homeView === "dayworks" ? (
                 <button className="secondary-button" onClick={returnToDashboard}>
                   Back to dashboard
                 </button>
@@ -35489,7 +35515,68 @@ export default function CoreApp() {
               onNotice={showNotice}
               businessName={businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group Ltd"}
               actorName={activeEmployee?.name ?? "NeXa user"}
+              onOpenPendingJob={(jobId) => {
+                setSelectedJobId(jobId);
+                setActiveJobFolderKey("pending");
+                setHomeView("job-record");
+                scrollWorkspaceToTop();
+              }}
             />
+          ) : homeView === "dayworks" ? (
+            <section className="tenders-workspace" aria-label="Dayworks to review">
+              <div className="tenders-toolbar">
+                <div>
+                  <span className="permission-heading">Variations</span>
+                  <h2>Dayworks to review</h2>
+                  <p>Signed Field daywork sheets waiting for office pricing or sign-off.</p>
+                </div>
+              </div>
+              <div className="tenders-metric-row">
+                <article>
+                  <span>Waiting review</span>
+                  <strong>{dayworkReviewJobs.length}</strong>
+                </article>
+              </div>
+              <div className="tenders-table-wrap">
+                {dayworkReviewJobs.length === 0 ? (
+                  <p className="tenders-hint">No dayworks waiting for office review.</p>
+                ) : (
+                  <table className="tenders-table">
+                    <thead>
+                      <tr>
+                        <th>Job</th>
+                        <th>Customer</th>
+                        <th>Status</th>
+                        <th>Next</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dayworkReviewJobs.map((job) => (
+                        <tr key={job.id}>
+                          <td>
+                            <strong>{job.ref}</strong>
+                            <div className="tenders-note">{job.description}</div>
+                          </td>
+                          <td>{job.customer}</td>
+                          <td>{job.status}</td>
+                          <td>{job.next}</td>
+                          <td>
+                            <button
+                              type="button"
+                              className="primary-button"
+                              onClick={() => openDayworkAccountRecord(job.id)}
+                            >
+                              Open daywork
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </section>
           ) : homeView === "addons" ? (
             <section className="addon-workspace">
               <div className="addon-hero">
@@ -43725,9 +43812,27 @@ export default function CoreApp() {
                 <div>
                   <span className="permission-heading">Team diary</span>
                   <h2>Schedules</h2>
-                  <p>{schedulePeriodLabel}</p>
+                  <p>{schedulePane === "timesheets" ? "Timesheets to review" : schedulePeriodLabel}</p>
                 </div>
                 <div className="scheduler-toolbar-actions">
+                  <div className="scheduler-view-switch" role="tablist" aria-label="Schedule area">
+                    <button
+                      className={schedulePane === "diary" ? "active" : ""}
+                      type="button"
+                      onClick={() => setSchedulePane("diary")}
+                    >
+                      Diary
+                    </button>
+                    <button
+                      className={schedulePane === "timesheets" ? "active" : ""}
+                      type="button"
+                      onClick={() => setSchedulePane("timesheets")}
+                    >
+                      Timesheets{timesheetReviewJobs.length ? ` (${timesheetReviewJobs.length})` : ""}
+                    </button>
+                  </div>
+                  {schedulePane === "diary" ? (
+                    <>
                   <div className="scheduler-view-switch" role="tablist" aria-label="Schedule view">
                     {(["day", "week", "month"] as ScheduleView[]).map((view) => (
                       <button
@@ -43749,9 +43854,71 @@ export default function CoreApp() {
                     <CalendarDays size={15} />
                     <input type="date" value={scheduleDate} onChange={(event) => setScheduleDate(event.target.value)} />
                   </label>
+                    </>
+                  ) : null}
                 </div>
               </div>
 
+              {schedulePane === "timesheets" ? (
+                <section className="tenders-workspace" aria-label="Timesheets to review">
+                  <div className="tenders-metric-row">
+                    <article>
+                      <span>To review</span>
+                      <strong>{timesheetReviewJobs.length}</strong>
+                    </article>
+                    <article>
+                      <span>Pending approvals</span>
+                      <strong>{pendingTimesheetApprovals.length}</strong>
+                    </article>
+                    <article>
+                      <span>Overdue</span>
+                      <strong>{overdueTimesheetJobs.length}</strong>
+                    </article>
+                  </div>
+                  <div className="tenders-table-wrap">
+                    {timesheetReviewJobs.length === 0 ? (
+                      <p className="tenders-hint">No timesheets waiting for review.</p>
+                    ) : (
+                      <table className="tenders-table">
+                        <thead>
+                          <tr>
+                            <th>Job</th>
+                            <th>Customer</th>
+                            <th>Engineer</th>
+                            <th>Status</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {timesheetReviewJobs.map((job) => (
+                            <tr key={job.id}>
+                              <td>
+                                <strong>{job.ref}</strong>
+                              </td>
+                              <td>{job.customer}</td>
+                              <td>{job.manager || "—"}</td>
+                              <td>{job.status}</td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="primary-button"
+                                  onClick={() => {
+                                    setSelectedJobId(job.id);
+                                    setHomeView("job-record");
+                                  }}
+                                >
+                                  Open job
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </section>
+              ) : (
+              <>
               <section className="scheduler-create-panel" aria-label="Schedule a job">
                 {unassignedProgressJobs.length ? (
                   <div className="scheduler-unassigned-rail" aria-label="Unassigned progress jobs">
@@ -44079,6 +44246,8 @@ export default function CoreApp() {
                   </div>
                 </div>
               ) : null}
+              </>
+              )}
             </section>
           ) : homeView === "settings" ? (
             <section className="setup-workspace setup-page-shell">
