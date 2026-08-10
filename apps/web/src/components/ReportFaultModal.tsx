@@ -132,7 +132,15 @@ export function ReportFaultModal({
         form.set("folderId", "evidence");
         form.set("visibility", "Private");
         for (const file of files) form.append("files", file);
-        await fetch("/api/record-documents", { method: "POST", headers: requestHeaders, body: form });
+        const uploadResponse = await fetch("/api/record-documents", {
+          method: "POST",
+          headers: requestHeaders,
+          body: form,
+        });
+        const uploadData = await uploadResponse.json().catch(() => null);
+        if (!uploadResponse.ok) {
+          throw new Error(uploadData?.error || `Logged as ${reference}, but attachment upload failed.`);
+        }
       }
       onCreated?.(reference);
       setDescription("");
