@@ -23260,6 +23260,20 @@ body:has([data-takeoff-mode="page"]) {
   -webkit-overflow-scrolling: touch;
 }
 
+/* Studio on short Mac/desktop viewports: allow the document to scroll past clipped chrome. */
+@media (max-height: 920px) {
+  html.nexa-takeoff-scroll:has(.nexa-studio),
+  html.nexa-takeoff-scroll:has(.nexa-studio) body {
+    height: auto !important;
+    max-height: none !important;
+    min-height: 100% !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    overscroll-behavior-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
 .platform {
   display: flex;
   flex-direction: column;
