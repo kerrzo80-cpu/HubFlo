@@ -8,7 +8,7 @@ import {
   type RecordDocumentScope,
 } from "@/lib/record-documents";
 
-const scopes: RecordDocumentScope[] = ["lead", "quote", "job", "invoice"];
+const scopes: RecordDocumentScope[] = ["lead", "quote", "job", "invoice", "tender"];
 
 function canManage(request: NextRequest) {
   const access = getAccessProfileFromHeaders(request.headers);
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
       saveUploadedRecordDocument({
         scope,
         recordRef,
-        folderId: isImage ? (scope === "job" ? "mid-work-photos" : "survey-photos") : "office-private",
+        folderId: isImage ? (scope === "job" ? "mid-work-photos" : "survey-photos") : scope === "tender" ? "office-private" : "office-private",
         visibility: scope === "job" && isImage ? "Engineer" : "Private",
         fileName: file.name || "upload.bin",
         mimeType: file.type || "application/octet-stream",

@@ -123,7 +123,7 @@ export async function createFormOfTenderPdf(input: {
   write(`Contractor: ${tender.client}`);
   write(`Tender Total excluding VAT: ${money(tenderSum)}`, { bold: true, gap: 10 });
   write(
-    "The tender total stated above is based on the priced Bill of Quantities and excludes unpriced items, provisional sums, contingencies and works outside our package unless expressly included in writing.",
+    "The tender total stated above is based on the priced Bill of Quantities and leaves unpriced measured items blank on the return BoQ (not NIL / not £0). Blank rates mean not priced — they are not free work.",
     { size: 9, color: muted, gap: 12, max: 95 },
   );
   write(`Main priced Bill of Quantities  ${money(boqTotal)}`);

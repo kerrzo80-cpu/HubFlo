@@ -63,6 +63,7 @@ export type TenderBoqLine = {
   rate?: number | null;
   value?: number | null;
   note?: string;
+  /** @deprecated Unpriced lines stay on the BoQ with blank rates — do not use. */
   excluded?: boolean;
 };
 
@@ -99,16 +100,16 @@ export type Tender = {
 export function computeBoqTotal(lines: TenderBoqLine[]) {
   return Math.round(
     lines.reduce((sum, line) => {
-      if (line.kind !== "measured" || line.excluded) return sum;
-      const value =
-        typeof line.value === "number" && Number.isFinite(line.value)
-          ? line.value
-          : typeof line.rate === "number" &&
-              typeof line.quantity === "number" &&
-              Number.isFinite(line.rate) &&
-              Number.isFinite(line.quantity)
-            ? line.rate * line.quantity
-            : 0;
+      if (line.kind !== "measured") return sum;
+      // Blank rate AND blank value = not priced (still shown on the BoQ; not free / NIL).
+      const hasRate = typeof line.rate === "number" && Number.isFinite(line.rate);
+      const hasValue = typeof line.value === "number" && Number.isFinite(line.value);
+      if (!hasRate && !hasValue) return sum;
+      const value = hasValue
+        ? line.value!
+        : typeof line.quantity === "number" && Number.isFinite(line.quantity)
+          ? line.rate! * line.quantity
+          : line.rate!;
       return sum + value;
     }, 0) * 100,
   ) / 100;
@@ -116,18 +117,15 @@ export function computeBoqTotal(lines: TenderBoqLine[]) {
 
 export function boqProgress(lines: TenderBoqLine[]) {
   const measured = lines.filter((line) => line.kind === "measured");
-  const priced = measured.filter(
-    (line) =>
-      !line.excluded &&
-      ((typeof line.rate === "number" && Number.isFinite(line.rate)) ||
-        (typeof line.value === "number" && Number.isFinite(line.value))),
-  );
-  const excluded = measured.filter((line) => line.excluded);
+  const priced = measured.filter((line) => {
+    const hasRate = typeof line.rate === "number" && Number.isFinite(line.rate);
+    const hasValue = typeof line.value === "number" && Number.isFinite(line.value);
+    return hasRate || hasValue;
+  });
   return {
     measured: measured.length,
     priced: priced.length,
-    excluded: excluded.length,
-    unpriced: measured.length - priced.length - excluded.length,
+    unpriced: measured.length - priced.length,
   };
 }
 

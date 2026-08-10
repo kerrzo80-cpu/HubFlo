@@ -19,7 +19,9 @@ describe("tenders-data BoQ parse", () => {
     assert.equal(parsed.lines[0]?.kind, "header");
     assert.equal(parsed.lines[1]?.ref, "8/1/A");
     assert.equal(parsed.lines[1]?.rate, 1836);
-    assert.equal(parsed.lines[3]?.excluded, true);
+    assert.equal(parsed.lines[3]?.ref, "14/1/d");
+    assert.equal(parsed.lines[3]?.rate, null);
+    assert.equal(parsed.lines[3]?.value, null);
     assert.equal(computeBoqTotal(parsed.lines), 3272);
   });
 });

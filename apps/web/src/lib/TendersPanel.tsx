@@ -39,7 +39,25 @@ function money(value: number | null | undefined) {
   return gbp.format(value);
 }
 
+type TenderDocumentKind =
+  | "issued-boq"
+  | "priced-boq"
+  | "form-of-tender"
+  | "drawing"
+  | "specification"
+  | "supplier-quote"
+  | "other";
+
 type TabKey = "overview" | "boq" | "documents" | "submit";
+
+const DOC_KINDS: Array<{ kind: TenderDocumentKind; label: string }> = [
+  { kind: "issued-boq", label: "Issued BoQ" },
+  { kind: "priced-boq", label: "Priced BoQ return" },
+  { kind: "form-of-tender", label: "Form of Tender" },
+  { kind: "drawing", label: "Drawings" },
+  { kind: "specification", label: "Specification" },
+  { kind: "supplier-quote", label: "Supplier quotes" },
+];
 
 export function TendersPanel({
   requestHeaders,
@@ -169,9 +187,52 @@ export function TendersPanel({
       });
       setBoqImportText("");
       setTab("boq");
-      onNotice("BoQ imported — price rates on their item refs.");
+      onNotice("BoQ imported — all issued lines kept; blank rates stay unpriced (not free).");
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "Unable to import BoQ");
+    }
+  }
+
+  async function uploadImportFile(action: "import-boq" | "import-tracker" | "upload-document", file: File | null, extra?: Record<string, string>) {
+    if (!file) return;
+    setSaving(true);
+    try {
+      const body = new FormData();
+      body.set("action", action);
+      body.set("file", file);
+      if (extra) {
+        for (const [key, value] of Object.entries(extra)) body.set(key, value);
+      }
+      const response = await fetch("/api/tenders/import", {
+        method: "POST",
+        headers: requestHeaders,
+        body,
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        message?: string;
+        tenders?: Tender[];
+        tender?: Tender;
+        created?: number;
+        updated?: number;
+      };
+      if (!response.ok) throw new Error(payload.error || "Upload failed");
+      if (Array.isArray(payload.tenders)) setTenders(payload.tenders);
+      if (payload.tender?.id) setSelectedId(payload.tender.id);
+      onNotice(
+        payload.message ||
+          (action === "import-boq"
+            ? "BoQ spreadsheet imported."
+            : action === "import-tracker"
+              ? `Tracker imported (${payload.created ?? 0} new, ${payload.updated ?? 0} updated).`
+              : "Document uploaded."),
+      );
+      if (action === "import-boq") setTab("boq");
+      if (action === "upload-document") setTab("documents");
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to upload");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -179,7 +240,7 @@ export function TendersPanel({
     if (!file || !selected) return;
     const name = file.name.toLowerCase();
     if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
-      onNotice("Excel .xlsx — save/export the BoQ as CSV (or copy-paste) then import. Native Excel import is next.");
+      await uploadImportFile("import-boq", file, { tenderId: selected.id });
       return;
     }
     const text = await file.text();
@@ -451,7 +512,9 @@ export function TendersPanel({
             <div className="tenders-span-2 tenders-qualifications">
               <div className="tenders-inline-head">
                 <strong>Qualifications</strong>
-                <span>{progress.priced} priced · {progress.unpriced} unpriced · {progress.excluded} excluded</span>
+                <span>
+                  {progress.priced} priced · {progress.unpriced} unpriced (blank rate — not free)
+                </span>
               </div>
               <ul>
                 {selected.qualifications.map((item, index) => (
@@ -502,7 +565,7 @@ export function TendersPanel({
                 <span className="permission-heading">Client BoQ</span>
                 <h3>{selected.boqTitle || "Import their spreadsheet structure"}</h3>
                 <p>
-                  Price on their refs (e.g. 8/1/A). Leave unpriced items blank or mark excluded — same return format they issued.
+                  Price on their refs (e.g. 8/1/A). Keep every issued line — leave Rate blank if not priced so they can see it was not priced (do not put £0 / NIL).
                 </p>
               </div>
               <div className="tenders-metric-row">
@@ -525,7 +588,7 @@ export function TendersPanel({
 
             <div className="tenders-boq-import">
               <label>
-                Import CSV / paste (columns: Ref, Description, Quantity, Units, Rate, Value)
+                Import Excel / CSV / paste (columns: Ref, Description, Quantity, Units, Rate, Value)
                 <textarea
                   rows={5}
                   value={boqImportText}
@@ -536,12 +599,12 @@ export function TendersPanel({
               <div className="tenders-inline-add">
                 <input
                   type="file"
-                  accept=".csv,.tsv,.txt,text/csv"
+                  accept=".xlsx,.xls,.csv,.tsv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
                   onChange={(event) => void onBoqFile(event.target.files?.[0] ?? null)}
                 />
                 <button type="button" className="primary-button" disabled={saving || !boqImportText.trim()} onClick={() => void importBoq()}>
                   <FileSpreadsheet size={15} />
-                  Import BoQ
+                  Import pasted BoQ
                 </button>
               </div>
             </div>
@@ -557,18 +620,24 @@ export function TendersPanel({
                     <th>Rate</th>
                     <th>Value</th>
                     <th>Note</th>
-                    <th>Excl.</th>
+                    <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {selected.boqLines.length ? (
-                    selected.boqLines.map((line) =>
-                      line.kind === "header" ? (
-                        <tr key={line.id} className="tenders-boq-header-row">
-                          <td colSpan={8}>{line.description}</td>
-                        </tr>
-                      ) : (
-                        <tr key={line.id} className={line.excluded ? "excluded" : ""}>
+                    selected.boqLines.map((line) => {
+                      if (line.kind === "header") {
+                        return (
+                          <tr key={line.id} className="tenders-boq-header-row">
+                            <td colSpan={8}>{line.description}</td>
+                          </tr>
+                        );
+                      }
+                      const priced =
+                        (typeof line.rate === "number" && Number.isFinite(line.rate)) ||
+                        (typeof line.value === "number" && Number.isFinite(line.value));
+                      return (
+                        <tr key={line.id} className={priced ? "" : "unpriced"}>
                           <td>{line.ref || "—"}</td>
                           <td>{line.description}</td>
                           <td>{line.quantity ?? ""}</td>
@@ -578,14 +647,16 @@ export function TendersPanel({
                               type="number"
                               step="0.01"
                               defaultValue={line.rate ?? ""}
-                              disabled={Boolean(line.excluded)}
+                              placeholder=""
+                              aria-label={priced ? "Rate" : "Unpriced — leave blank"}
                               onBlur={(event) => {
-                                const rate = event.target.value === "" ? null : Number(event.target.value);
-                                void patchBoqLine(line.id, { rate, excluded: false });
+                                const raw = event.target.value.trim();
+                                const rate = raw === "" ? null : Number(raw);
+                                void patchBoqLine(line.id, { rate, value: rate === null ? null : undefined });
                               }}
                             />
                           </td>
-                          <td>{money(line.value)}</td>
+                          <td>{priced ? money(line.value) : ""}</td>
                           <td>
                             <input
                               defaultValue={line.note || ""}
@@ -593,24 +664,16 @@ export function TendersPanel({
                             />
                           </td>
                           <td>
-                            <input
-                              type="checkbox"
-                              checked={Boolean(line.excluded)}
-                              onChange={(event) =>
-                                void patchBoqLine(line.id, {
-                                  excluded: event.target.checked,
-                                  rate: event.target.checked ? null : line.rate,
-                                  value: event.target.checked ? null : line.value,
-                                })
-                              }
-                            />
+                            <span className={`tenders-line-status ${priced ? "priced" : "unpriced"}`}>
+                              {priced ? "Priced" : "Unpriced"}
+                            </span>
                           </td>
                         </tr>
-                      ),
-                    )
+                      );
+                    })
                   ) : (
                     <tr>
-                      <td colSpan={8}>No BoQ lines yet — import their issued bill as CSV/paste.</td>
+                      <td colSpan={8}>No BoQ lines yet — import their issued Excel/CSV bill.</td>
                     </tr>
                   )}
                 </tbody>
@@ -621,34 +684,69 @@ export function TendersPanel({
 
         {tab === "documents" ? (
           <div className="tenders-docs">
-            <p>
-              Store issued pack, priced BoQ, drawings and supplier quotes here. Upload into this tender folder on the file
-              server next; for now documents are tracked as a checklist against the pack you already keep.
-            </p>
+            <p>Upload the issued pack, priced return, drawings, specs and supplier quotes against this tender.</p>
+            <div className="tenders-doc-upload">
+              <label>
+                Document type
+                <select id="tender-doc-kind" defaultValue="drawing">
+                  {DOC_KINDS.map((item) => (
+                    <option key={item.kind} value={item.kind}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Files
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.xlsx,.xls,.csv,.doc,.docx,.png,.jpg,.jpeg,.zip"
+                  onChange={(event) => {
+                    const kindSelect = document.getElementById("tender-doc-kind") as HTMLSelectElement | null;
+                    const kind = (kindSelect?.value || "other") as TenderDocumentKind;
+                    const files = Array.from(event.target.files || []);
+                    void (async () => {
+                      for (const file of files) {
+                        await uploadImportFile("upload-document", file, {
+                          tenderId: selected.id,
+                          kind,
+                        });
+                      }
+                      event.target.value = "";
+                    })();
+                  }}
+                />
+              </label>
+            </div>
             <ul className="tenders-doc-list">
-              {(
-                [
-                  ["issued-boq", "Issued BoQ"],
-                  ["priced-boq", "Priced BoQ return"],
-                  ["form-of-tender", "Form of Tender"],
-                  ["drawing", "Drawings"],
-                  ["specification", "Specification"],
-                  ["supplier-quote", "Supplier quotes"],
-                ] as const
-              ).map(([kind, label]) => {
+              {DOC_KINDS.map(({ kind, label }) => {
                 const matched = selected.documents.filter((doc) => doc.kind === kind);
                 return (
                   <li key={kind}>
                     <strong>{label}</strong>
-                    <span>{matched.length ? matched.map((doc) => doc.name).join(", ") : "Not attached yet"}</span>
+                    {matched.length ? (
+                      <span>
+                        {matched.map((doc, index) => (
+                          <span key={doc.id}>
+                            {index > 0 ? ", " : ""}
+                            {doc.url ? (
+                              <a href={doc.url} target="_blank" rel="noreferrer">
+                                {doc.name}
+                              </a>
+                            ) : (
+                              doc.name
+                            )}
+                          </span>
+                        ))}
+                      </span>
+                    ) : (
+                      <span>Not attached yet</span>
+                    )}
                   </li>
                 );
               })}
             </ul>
-            <p className="tenders-hint">
-              Harlaw pattern: Architect + Mechanical drawings, Appendix specs, blank BoQ, priced Plumbing.xlsx, FoT PDF,
-              supplier quotation.
-            </p>
           </div>
         ) : null}
 
@@ -702,6 +800,19 @@ export function TendersPanel({
           <p>Deadlines, owners and bid values — open a row to price their BoQ and generate the Form of Tender.</p>
         </div>
         <div className="tenders-toolbar-actions">
+          <label className="secondary-button tenders-file-button">
+            <FileSpreadsheet size={15} />
+            Import tracker Excel
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+              hidden
+              onChange={(event) => {
+                void uploadImportFile("import-tracker", event.target.files?.[0] ?? null);
+                event.target.value = "";
+              }}
+            />
+          </label>
           <button type="button" className="secondary-button" onClick={() => void loadTenders()} disabled={loading}>
             <RefreshCw size={15} />
             Refresh

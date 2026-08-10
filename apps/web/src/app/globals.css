@@ -39650,6 +39650,50 @@ button.nexa-kpi-card,
   opacity: 0.55;
 }
 
+.tenders-boq-table tr.unpriced {
+  background: #fffaf3;
+}
+
+.tenders-line-status {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.tenders-line-status.priced {
+  background: #e8f7ef;
+  color: #176b45;
+}
+
+.tenders-line-status.unpriced {
+  background: #fff4ee;
+  color: #9a3412;
+}
+
+.tenders-file-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.tenders-doc-upload {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) 1fr;
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.tenders-doc-upload label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--subtle);
+}
+
 .tenders-boq-table input[type="number"],
 .tenders-boq-table input[type="text"] {
   min-width: 72px;

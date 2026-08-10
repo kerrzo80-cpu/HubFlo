@@ -1,4 +1,5 @@
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
+import { rowsToDelimitedText } from "@/lib/tenders-xlsx";
 import {
   TENDER_STATUSES,
   alertForDeadline,
@@ -7,6 +8,7 @@ import {
   type Tender,
   type TenderBoqLine,
   type TenderDayworkRates,
+  type TenderDocument,
   type TenderStatus,
 } from "@/lib/tenders-types";
 
@@ -118,7 +120,8 @@ function seedTenders(): Tender[] {
           description: "Allow for the removal of existing compressed air pipework, fittings, supports and equipment",
           quantity: 1,
           unit: "ITEM",
-          excluded: true,
+          rate: null,
+          value: null,
         },
       ],
       documents: [
@@ -379,11 +382,14 @@ export function parseBoqDelimitedText(raw: string, title?: string): { title: str
       rate,
       value: value ?? (rate !== null && quantity !== null ? roundMoney(rate * quantity) : null),
       note: note || undefined,
-      excluded: rate === null && value === null,
     });
   }
 
   return { title: resolvedTitle, lines };
+}
+
+export function parseBoqFromRows(rows: string[][], title?: string) {
+  return parseBoqDelimitedText(rowsToDelimitedText(rows), title);
 }
 
 export function importBoqIntoTender(id: string, raw: string, title?: string) {
@@ -400,17 +406,160 @@ export function importBoqIntoTender(id: string, raw: string, title?: string) {
   });
 }
 
+export function importBoqRowsIntoTender(id: string, rows: string[][], title?: string) {
+  return importBoqIntoTender(id, rowsToDelimitedText(rows), title);
+}
+
+function cell(row: string[], index: number) {
+  return (row[index] || "").trim();
+}
+
+function parseOptionalPercent(value: string) {
+  const cleaned = value.replace(/%/g, "").trim();
+  if (!cleaned) return undefined;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseOptionalMoney(value: string) {
+  const cleaned = value.replace(/£/g, "").replace(/,/g, "").trim();
+  if (!cleaned) return 0;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeTrackerStatus(value: string): TenderStatus {
+  const trimmed = value.trim();
+  if (TENDER_STATUSES.includes(trimmed as TenderStatus)) return trimmed as TenderStatus;
+  const lower = trimmed.toLowerCase();
+  if (lower.includes("progress")) return "In Progress";
+  if (lower.includes("review")) return "Needs Reviewed";
+  if (lower.includes("won")) return "Won";
+  if (lower.includes("lost")) return "Lost";
+  if (lower.includes("sent")) return "Sent";
+  if (lower.includes("not")) return "Not Started";
+  return "Not Started";
+}
+
+function excelSerialToIso(value: string) {
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  const asNumber = Number(value);
+  if (Number.isFinite(asNumber) && asNumber > 20000 && asNumber < 80000) {
+    // Excel serial date
+    const utc = Date.UTC(1899, 11, 30) + Math.round(asNumber) * 86_400_000;
+    return new Date(utc).toISOString().slice(0, 10);
+  }
+  const parsed = Date.parse(value);
+  if (Number.isFinite(parsed)) return new Date(parsed).toISOString().slice(0, 10);
+  return undefined;
+}
+
+/** Import / merge rows from the EWG Tender Tracker spreadsheet shape. */
+export function importTrackerRows(rows: string[][]) {
+  if (!rows.length) return { created: 0, updated: 0, tenders: listTenders() };
+
+  const headerIndex = rows.findIndex((row) =>
+    row.some((cell) => /opportunity name/i.test(cell)) && row.some((cell) => /^client$/i.test(cell)),
+  );
+  const start = headerIndex >= 0 ? headerIndex : 0;
+  const header = (rows[start] || []).map((item) => item.toLowerCase());
+  const col = (...names: string[]) => {
+    for (const name of names) {
+      const index = header.findIndex((cell) => cell === name || cell.includes(name));
+      if (index >= 0) return index;
+    }
+    return -1;
+  };
+
+  const idx = {
+    id: col("tender id", "id"),
+    name: col("opportunity name", "opportunity"),
+    client: col("client"),
+    category: col("category"),
+    area: col("area"),
+    deadline: col("submission deadline", "deadline"),
+    status: col("status"),
+    owner: col("owner"),
+    bid: col("bid value", "value"),
+    win: col("win probability", "probability"),
+    materials: col("materials", "alert") >= 0 && header.includes("materials ") ? header.indexOf("materials ") : -1,
+  };
+  // materials notes often live in column O without a stable header — fall back to index 14
+  const materialsIndex = idx.materials >= 0 ? idx.materials : 14;
+
+  let created = 0;
+  let updated = 0;
+  const current = listTenders();
+  for (let i = start + 1; i < rows.length; i += 1) {
+    const row = rows[i] || [];
+    const name = idx.name >= 0 ? cell(row, idx.name) : "";
+    const client = idx.client >= 0 ? cell(row, idx.client) : "";
+    if (!name || !client) continue;
+    if (/^sent$/i.test(name) && !client) continue;
+
+    const externalId = idx.id >= 0 ? cell(row, idx.id) : "";
+    const existing =
+      (externalId ? current.find((tender) => tender.externalId === externalId) : undefined) ||
+      current.find(
+        (tender) =>
+          tender.name.toLowerCase() === name.toLowerCase() && tender.client.toLowerCase() === client.toLowerCase(),
+      );
+
+    const deadlineRaw = idx.deadline >= 0 ? cell(row, idx.deadline) : "";
+    const statusRaw = idx.status >= 0 ? cell(row, idx.status) : "";
+    const bidRaw = idx.bid >= 0 ? cell(row, idx.bid) : "";
+    const winRaw = idx.win >= 0 ? cell(row, idx.win) : "";
+    const materialsNote = cell(row, materialsIndex);
+
+    const payload = {
+      id: existing?.id,
+      externalId: externalId || existing?.externalId,
+      name,
+      client,
+      category: (idx.category >= 0 ? cell(row, idx.category) : "") || existing?.category || "Plumbing",
+      area: (idx.area >= 0 ? cell(row, idx.area) : "") || existing?.area || "Aberdeen",
+      submissionDeadline: deadlineRaw ? excelSerialToIso(deadlineRaw) : existing?.submissionDeadline,
+      status: statusRaw ? normalizeTrackerStatus(statusRaw) : existing?.status || ("Not Started" as TenderStatus),
+      owner: (idx.owner >= 0 ? cell(row, idx.owner) : "") || existing?.owner || "",
+      bidValue: bidRaw ? parseOptionalMoney(bidRaw) : existing?.bidValue || 0,
+      tenderSum: bidRaw ? parseOptionalMoney(bidRaw) : existing?.tenderSum || 0,
+      winProbability: winRaw ? parseOptionalPercent(winRaw) : existing?.winProbability,
+      materialsNote: materialsNote || existing?.materialsNote || "",
+      boqLines: existing?.boqLines || [],
+      documents: existing?.documents || [],
+      qualifications: existing?.qualifications,
+      daywork: existing?.daywork,
+    };
+
+    const saved = upsertTender(payload);
+    if (existing) {
+      updated += 1;
+      const index = current.findIndex((tender) => tender.id === saved.id);
+      if (index >= 0) current[index] = saved;
+    } else {
+      created += 1;
+      current.unshift(saved);
+    }
+  }
+
+  return { created, updated, tenders: listTenders() };
+}
+
 export function updateBoqLine(tenderId: string, lineId: string, patch: Partial<TenderBoqLine>) {
   const existing = getTender(tenderId);
   if (!existing) throw new Error("Tender not found.");
   const boqLines = existing.boqLines.map((line) => {
     if (line.id !== lineId) return line;
-    const next = { ...line, ...patch };
-    if (next.kind === "measured" && !next.excluded) {
-      if (
-        (patch.rate !== undefined || patch.quantity !== undefined) &&
+    const next: TenderBoqLine = { ...line, ...patch };
+    delete next.excluded;
+    if (next.kind === "measured") {
+      if (patch.rate === null) {
+        next.rate = null;
+        if (patch.value === undefined) next.value = null;
+      } else if (
         typeof next.rate === "number" &&
-        typeof next.quantity === "number"
+        typeof next.quantity === "number" &&
+        (patch.rate !== undefined || patch.quantity !== undefined)
       ) {
         next.value = roundMoney(next.rate * next.quantity);
       }
@@ -421,6 +570,29 @@ export function updateBoqLine(tenderId: string, lineId: string, patch: Partial<T
   return updateTender(tenderId, {
     boqLines,
     bidValue: boqTotal,
+  });
+}
+
+export function addTenderDocument(
+  tenderId: string,
+  document: Omit<TenderDocument, "id" | "uploadedAt"> & {
+    id?: string;
+    uploadedAt?: string;
+  },
+) {
+  const existing = getTender(tenderId);
+  if (!existing) throw new Error("Tender not found.");
+  const nextDoc: TenderDocument = {
+    id: document.id || uid("tdoc"),
+    kind: document.kind,
+    name: document.name,
+    mimeType: document.mimeType,
+    url: document.url,
+    uploadedAt: document.uploadedAt || nowIso(),
+    note: document.note,
+  };
+  return updateTender(tenderId, {
+    documents: [nextDoc, ...existing.documents.filter((item) => item.id !== nextDoc.id)],
   });
 }
 
