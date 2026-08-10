@@ -8315,7 +8315,6 @@ export default function CoreApp() {
   ]);
   const nexaAssistantMessagesRef = useRef<HTMLDivElement | null>(null);
   const [createMenuPosition, setCreateMenuPosition] = useState({ left: 0, top: 0 });
-  const [openModuleMenu, setOpenModuleMenu] = useState<string | null>(null);
   const [openDirectoryActionMenu, setOpenDirectoryActionMenu] = useState<{ scope: DirectoryRecordScope; id: string } | null>(null);
   // Mobile-first: blue context rail starts closed so it does not cover the workspace.
   const [contextSidebarCollapsed, setContextSidebarCollapsed] = useState(true);
@@ -20022,7 +20021,6 @@ export default function CoreApp() {
   }
 
   function goToPeopleSection(item: string) {
-    setOpenModuleMenu(null);
     resetPeopleDirectoryFilters();
     if (item === "Employees") {
       clearEmployeeEditingState();
@@ -32994,7 +32992,7 @@ export default function CoreApp() {
       </div>
 
       <nav
-        className={openModuleMenu ? "module-bar is-menu-open" : "module-bar"}
+        className="module-bar"
         aria-label="Main modules"
       >
         <button
@@ -33028,45 +33026,52 @@ export default function CoreApp() {
                 (module.label === "Xero" && homeView === "xero");
 
               if (module.subItems?.length) {
-                const isOpen = openModuleMenu === module.label;
                 const submenuItems = module.subItems;
                 return (
                   <div
                     key={module.label}
                     className="module-dropdown-host"
-                    onMouseEnter={() => setOpenModuleMenu(module.label)}
-                    onMouseLeave={() => setOpenModuleMenu(null)}
+                    onMouseEnter={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      // Overlap by 1px so the pointer never drops :hover between trigger and menu.
+                      event.currentTarget.style.setProperty("--module-menu-top", `${Math.round(rect.bottom) - 1}px`);
+                      event.currentTarget.style.setProperty("--module-menu-left", `${Math.round(rect.left)}px`);
+                    }}
+                    onFocus={(event) => {
+                      const host = event.currentTarget;
+                      const rect = host.getBoundingClientRect();
+                      host.style.setProperty("--module-menu-top", `${Math.round(rect.bottom) - 1}px`);
+                      host.style.setProperty("--module-menu-left", `${Math.round(rect.left)}px`);
+                    }}
                   >
                     <button
                       type="button"
-                      className={`${isOpen || isActiveModule ? "module-link active" : "module-link"} module-dropdown-trigger`}
-                      aria-expanded={isOpen}
+                      className={`${isActiveModule ? "module-link active" : "module-link"} module-dropdown-trigger`}
+                      aria-haspopup="menu"
                       onClick={() => {
                         // Always open a useful People view — menu alone looked broken when
                         // overflow clipping hid the submenu after the iPad nav scroll fix.
                         if (module.label === "People") {
                           goToPeopleSection("Employees");
-                          setOpenModuleMenu(module.label);
                           return;
                         }
                         if (module.label === "Schedules") {
                           setSchedulePane("diary");
                           setHomeView("schedule");
-                          setOpenModuleMenu(module.label);
                           return;
                         }
-                        setOpenModuleMenu(isOpen ? null : module.label);
                       }}
                     >
                       <Icon size={16} strokeWidth={1.8} />
                       <span>{module.label}</span>
                       <ChevronDown size={13} />
                     </button>
-                    <div className={isOpen ? "module-submenu open" : "module-submenu"}>
+                    <div className="module-submenu" role="menu">
                       {submenuItems.map((item) => (
                         <button
                           key={item}
                           type="button"
+                          role="menuitem"
                           onClick={() => {
                             if (module.label === "People") {
                               goToPeopleSection(item);
@@ -33082,7 +33087,6 @@ export default function CoreApp() {
                             } else {
                               navigateToModule(item);
                             }
-                            setOpenModuleMenu(null);
                           }}
                         >
                           {item}
