@@ -7,13 +7,13 @@ type BuddyCharacterProps = {
   size?: "sm" | "md" | "lg" | "hero";
   className?: string;
   title?: string;
-  /** Soft bob on hover — no disjointed limb puppeting. */
+  /** Soft motion on hover / idle — CSS-driven, no limb puppeting. */
   interactive?: boolean;
 };
 
 /**
  * Blake pose sheet — one full still per mood.
- * No masked body parts: swap the photo when the situation changes.
+ * Motion lives in CSS (breathe / presence / mood pulse), not cut-up body parts.
  */
 const BLAKE_POSES: Record<BuddyMood, { src: string; label: string }> = {
   idle: {
@@ -62,6 +62,8 @@ export function BuddyCharacter({
       aria-hidden
     >
       <span className="blake-character-stage">
+        <span className="blake-aura" aria-hidden />
+        <span className="blake-shadow" aria-hidden />
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           key={pose.src}
@@ -70,6 +72,7 @@ export function BuddyCharacter({
           className="blake-pose"
           draggable={false}
         />
+        <span className="blake-visor-shine" aria-hidden />
       </span>
     </span>
   );
