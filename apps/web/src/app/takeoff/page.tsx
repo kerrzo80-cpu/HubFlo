@@ -8,6 +8,7 @@ import {
   Loader2,
   Plus,
   Sparkles,
+  Trash2,
   Upload,
 } from "lucide-react";
 
@@ -24,16 +25,19 @@ import {
   countAiStudioPipeRuns,
   isAiStudioGeometry,
   nextClassificationColour,
-  SERVICE_CLASS_DEFS,
   setClassificationColour,
   setStudioActiveLayer,
-  STUDIO_SERVICE_LAYERS,
+  listStudioLayers,
+  addCustomStudioLayer,
+  removeCustomStudioLayer,
   studioId,
   studioHasAiCounts,
   studioHasAiPipeRuns,
   studioNeedsAiReview,
   studioQuantitiesToMaterialAllowances,
   summariseStudioQuantities,
+  fillMissingPageScalesFromDocument,
+  mergeStudioScales,
   type StudioAiReviewMeasuredQuantity,
   type StudioClassKind,
   type StudioClassification,
@@ -41,7 +45,6 @@ import {
 } from "@/lib/takeoff-studio";
 import {
   ensurePlantClassifications,
-  PLANT_CLASS_DEFS,
   type BlakeEmitterMode,
   type BlakePlantKind,
 } from "@/lib/takeoff-blake-propose";
@@ -64,6 +67,7 @@ import {
   STUDIO_PIPE_SPECS,
   summariseStudioBoq,
   summariseStudioPipeBoq,
+  summariseUnscaledStudioLinears,
   type StudioBoqRow,
 } from "@/lib/takeoff-studio-pipe";
 import { recordTakeoffLearningClient } from "@/lib/takeoff-learning-client";
@@ -146,6 +150,8 @@ export default function TakeoffStudioPage() {
   const [proposeEmitters, setProposeEmitters] = useState<BlakeEmitterMode>("radiators");
   const [proposeCylinder, setProposeCylinder] = useState(true);
   const [proposeQuestions, setProposeQuestions] = useState<string[]>([]);
+  const [logOpen, setLogOpen] = useState(false);
+  const [newLayerName, setNewLayerName] = useState("");
   const saveTimer = useRef<number | null>(null);
   const historyRef = useRef<StudioState[]>([]);
   const futureRef = useRef<StudioState[]>([]);
@@ -167,23 +173,10 @@ export default function TakeoffStudioPage() {
     drawingDocs.find((doc) => doc.id === studio.activeDocumentId) || drawingDocs[0] || null;
   const activeClass = studio.classifications.find((cls) => cls.id === studio.activeClassificationId) || null;
   const activeLayerId = studio.activeLayerId || "all";
+  const studioLayers = listStudioLayers(studio);
   const visibleClassifications = studio.classifications.filter((cls) =>
     activeLayerId === "all" ? true : classificationLayer(cls) === activeLayerId,
   );
-  // Always show every preset service + any custom linears/counts so Draw as isn't stuck on Hot/Cold only.
-  const presetIds = new Set([
-    ...SERVICE_CLASS_DEFS.map((def) => def.id),
-    ...PLANT_CLASS_DEFS.map((def) => def.id),
-  ]);
-  const pipeServiceClasses = [
-    ...SERVICE_CLASS_DEFS
-      .map((def) => studio.classifications.find((cls) => cls.id === def.id))
-      .filter((cls): cls is StudioClassification => Boolean(cls)),
-    ...PLANT_CLASS_DEFS
-      .map((def) => studio.classifications.find((cls) => cls.id === def.id))
-      .filter((cls): cls is StudioClassification => Boolean(cls)),
-    ...studio.classifications.filter((cls) => !presetIds.has(cls.id) && (cls.kind === "linear" || cls.kind === "count")),
-  ];
   const quantities = summariseStudioQuantities(studio);
   const layerBoq = summariseStudioBoq(studio, activeLayerId);
   const masterBoq = summariseStudioBoq(studio, "all");
@@ -203,7 +196,7 @@ export default function TakeoffStudioPage() {
   );
   const boqMaterialCost = summarisePricedMaterials(pricedBoqForPanel).materialCost;
   const boqLayerLabel =
-    STUDIO_SERVICE_LAYERS.find((layer) => layer.id === activeLayerId)?.label || "Master / all";
+    studioLayers.find((layer) => layer.id === activeLayerId)?.label || "Master / all";
   const showSizeBar = studio.tool === "linear" || activeClass?.kind === "linear";
   const linkedQuote = quotes.find((q) => q.id === selected?.linkedQuoteId);
   // Pin review board is fixture counts only — ignore legacy pipe-metre rows in aiReviewMeasured.
@@ -219,6 +212,7 @@ export default function TakeoffStudioPage() {
   const blakePinCount = countAiStudioCountPins(studio);
   const hasBlakePipesOnSheet = studioHasAiPipeRuns(studio);
   const unscaledLinearCount = countUnscaledStudioLinears(studio, activeLayerId);
+  const unscaledLinearSummary = summariseUnscaledStudioLinears(studio, activeLayerId);
   const canUndo = historyRef.current.length > 0;
   const canRedo = futureRef.current.length > 0;
   void historyTick;
@@ -317,15 +311,13 @@ export default function TakeoffStudioPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    // On phones, collapse Projects + BOQ so the drawing fills the first screen.
+    // On phones, collapse Projects so the drawing fills the first screen.
     const narrow = window.matchMedia("(max-width: 960px)").matches;
     if (!narrow) {
       setRailCollapsed(false);
-      setBoqOpen(true);
       return;
     }
     setRailCollapsed(Boolean(activeDoc));
-    setBoqOpen(false);
   }, [selectedId, activeDoc?.id]);
 
   useEffect(() => {
@@ -522,6 +514,39 @@ export default function TakeoffStudioPage() {
     }
   }
 
+  async function deleteProject(projectId: string, reference: string) {
+    const ok = window.confirm(
+      `Delete takeoff ${reference}? Drawings and mark-up for this project will be removed. This cannot be undone.`,
+    );
+    if (!ok) return;
+    setBusy(`delete-${projectId}`);
+    try {
+      const response = await apiFetch(`/api/takeoff-projects/${projectId}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Could not delete project");
+      setProjects((current) => current.filter((row) => row.id !== projectId));
+      if (selectedId === projectId) {
+        setSelectedId(null);
+        setBoqOpen(false);
+      }
+      show(`Deleted ${reference}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function addCustomLayer() {
+    const next = addCustomStudioLayer(studio, newLayerName);
+    if (next === studio) {
+      setError(newLayerName.trim() ? "That layer already exists." : "Enter a layer name first.");
+      return;
+    }
+    setNewLayerName("");
+    void persistStudio(next);
+    show(`Added layer “${newLayerName.trim()}”`);
+  }
+
   async function uploadDrawings(event: ChangeEvent<HTMLInputElement>) {
     if (!selected || !event.target.files?.length) return;
     setBusy("upload");
@@ -581,39 +606,6 @@ export default function TakeoffStudioPage() {
     setNewClassName("");
   }
 
-  function selectPipeService(cls: StudioClassification) {
-    void persistStudio({
-      ...studio,
-      activeClassificationId: cls.id,
-      tool: cls.kind,
-      activeLayerId: classificationLayer(cls),
-    });
-  }
-
-  function quickAddDrawItem() {
-    const name = window.prompt("Name for this mark-up (e.g. Condensate, Gas branch, Radiators)", "");
-    if (name == null) return;
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    const kindAnswer = window.prompt("Type: linear (pipe length) or count (tap fixtures)", "linear");
-    const kind: StudioClassKind = kindAnswer?.trim().toLowerCase() === "count" ? "count" : "linear";
-    const colour = kind === "count" ? "#7a4f9a" : nextClassificationColour(studio.classifications);
-    const cls: StudioClassification = {
-      id: studioId("cls"),
-      kind,
-      name: trimmed,
-      colour,
-      unit: kind === "count" ? "nr" : "m",
-      layer: activeLayerId === "all" ? "general" : activeLayerId,
-    };
-    void persistStudio({
-      ...studio,
-      classifications: [...studio.classifications, cls],
-      activeClassificationId: cls.id,
-      tool: kind,
-    });
-  }
-
   function deleteClassification(id: string) {
     const remaining = studio.classifications.filter((cls) => cls.id !== id);
     const activeClassificationId =
@@ -645,8 +637,8 @@ export default function TakeoffStudioPage() {
     const steps = [
       "Blake is analysing your drawings…",
       "Building a measurement plan…",
-      "Reading PDF text tags and coloured pipe runs…",
-      "Placing pins and tracing pipe runs on the sheet…",
+      "Reading PDF text tags and coloured CAD pipe lines…",
+      "Placing fixture pins from tags on the sheet…",
     ];
     let stepIndex = 0;
     setBlakeStep(steps[0] || "Blake is working…");
@@ -655,6 +647,9 @@ export default function TakeoffStudioPage() {
       setBlakeStep(steps[stepIndex] || "Blake is working…");
     }, 2200);
     try {
+      // Flush scale / mark-up before Blake — otherwise the server may miss Set scale and wipe it on return.
+      await persistStudio(studio, {}, { immediate: true, skipHistory: true });
+
       setBlakeStep("Reading text from the open PDF…");
       const clientExtracts = [];
       for (const drawing of drawingDocs.slice(0, 4)) {
@@ -677,7 +672,7 @@ export default function TakeoffStudioPage() {
         }
       }
 
-      setBlakeStep("Tracing coloured pipe runs on the open PDF…");
+      setBlakeStep("Looking for coloured CAD pipe lines in the PDF (not your Length marks)…");
       const clientStrokeRuns = [];
       for (const drawing of drawingDocs.slice(0, 2)) {
         try {
@@ -738,7 +733,12 @@ export default function TakeoffStudioPage() {
       const response = await apiFetch(`/api/takeoff-projects/${selected.id}/blake-run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientExtracts, clientStrokeRuns, pageImages }),
+        body: JSON.stringify({
+          clientExtracts,
+          clientStrokeRuns,
+          pageImages,
+          clientScales: studio.scales,
+        }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
@@ -756,18 +756,20 @@ export default function TakeoffStudioPage() {
       if (!response.ok || !payload.ok || !payload.project) {
         throw new Error(payload.error || `Blake failed (${response.status}).`);
       }
-      const nextStudio = payload.project.studio ?? createDefaultStudioState();
+      let nextStudio = payload.project.studio ?? createDefaultStudioState();
+      // Never let Blake wipe a user Set scale — merge + propagate to sibling pages with mark-up.
+      nextStudio = {
+        ...nextStudio,
+        scales: mergeStudioScales(studio.scales, nextStudio.scales || []),
+      };
+      nextStudio = fillMissingPageScalesFromDocument(nextStudio);
       if (payload.focus) {
         nextStudio.activeDocumentId = payload.focus.documentId;
         nextStudio.activePage = payload.focus.page;
         nextStudio.activeClassificationId = payload.focus.classificationId;
         nextStudio.tool = "select";
       }
-      upsert({
-        ...payload.project,
-        studio: nextStudio,
-      });
-      setSaveState("saved");
+      await persistStudio(nextStudio, {}, { immediate: true, skipHistory: true });
       const actorLabel = payload.actor && payload.actor !== "Blake" ? ` · ${payload.actor}` : "";
       const message = `${payload.message || "Blake finished."}${actorLabel}`;
       const pinCount = payload.pinCount || 0;
@@ -775,7 +777,7 @@ export default function TakeoffStudioPage() {
       const found = pinCount + pipeRunCount;
       setBlakeStep(
         found
-          ? `Done — ${pinCount} pin(s) · ${pipeRunCount} pipe run(s)${
+          ? `Done — ${pinCount} fixture pin(s) · ${pipeRunCount} CAD pipe line(s)${
               payload.visionUsed ? " · vision" : ""
             }.`
           : "Done — nothing Blake could auto-measure yet.",
@@ -1178,11 +1180,13 @@ export default function TakeoffStudioPage() {
       return;
     }
     if (unscaledLinearCount > 0) {
+      const detail = unscaledLinearSummary;
+      const where = detail.pageLabels.length ? ` on ${detail.pageLabels.join(", ")}` : "";
       const ok = window.confirm(
-        `${unscaledLinearCount} pipe run(s) still need Set scale before they become metres. Push scaled BOQ only?`,
+        `${detail.count} length run(s) still need Set scale${where} before they become metres. Push scaled BOQ only?`,
       );
       if (!ok) {
-        show("Set scale on the open page, then Push again.", 10000);
+        show("Set scale on those pages (or re-set on the open page — it copies across the drawing), then Push again.", 12000);
         void persistStudio({ ...studio, tool: "scale" });
         return;
       }
@@ -1259,7 +1263,9 @@ export default function TakeoffStudioPage() {
     activeDoc && studio.scales.some((row) => row.documentId === activeDoc.id && row.page === (studio.activePage || 1)),
   );
   const hasMarks = studio.geometries.length > 0;
-  const flowStep: "upload" | "scale" | "blake" | "review" | "mark" | "push" = !drawingDocs.length
+  const flowStep: "upload" | "scale" | "blake" | "review" | "mark" | "boq" | "push" = boqOpen
+    ? "boq"
+    : !drawingDocs.length
     ? "upload"
     : hasPendingAiReview
       ? "review"
@@ -1281,51 +1287,51 @@ export default function TakeoffStudioPage() {
         setError("Create a project first, then upload a PDF.");
         return;
       }
+      setBoqOpen(false);
       fileRef.current?.click();
       return;
     }
+    if (step === "boq") {
+      setReviewOpen(false);
+      setBoqOpen(true);
+      return;
+    }
     if (step === "scale") {
+      setBoqOpen(false);
       if (!activeDoc) {
-        setError("Upload a PDF first, then set scale.");
+        setError("Upload a drawing first.");
         return;
       }
       void persistStudio({ ...studio, tool: "scale" });
-      show("Scale tool on — tap two points on a known length, enter metres (or use a 1:N chip).");
       return;
     }
     if (step === "blake") {
+      setBoqOpen(false);
       void runAiAssist();
       return;
     }
     if (step === "review") {
-      if (hasPendingAiReview || hasAiCounts || hasAiReviewRows) {
+      setBoqOpen(false);
+      if (hasAiReviewRows) {
         setReviewOpen(true);
-        show(
-          studio.aiReviewStatus === "confirmed"
-            ? "Fixture pins already confirmed. Pipe runs are edited on the sheet."
-            : studio.aiReviewStatus === "rejected"
-              ? "Fixture pins were rejected. Ask Blake again for a new pin review."
-              : "Review Blake’s fixture pins, then confirm or reject. Pipe runs are already in the BOQ.",
-        );
         return;
       }
       if (hasBlakePipesOnSheet) {
-        setReviewOpen(false);
         setBoqOpen(true);
-        show("Blake’s pipe runs are on the sheet already — open BOQ or Edit to trim. No pin review needed.", 12000);
+        show("Pipe runs are already on the sheet — check the BOQ.", 10000);
         return;
       }
-      setError("Ask Blake first — review is only for fixture pins. Pipe runs go straight to the BOQ.");
+      setError("Ask Blake first to place pins to review.");
       return;
     }
     if (step === "mark") {
-      if (!activeDoc) {
-        setError("Upload a PDF first.");
-        return;
-      }
-      const tool = studio.classifications.find((cls) => cls.id === studio.activeClassificationId)?.kind || "count";
-      void persistStudio({ ...studio, tool: tool === "area" || tool === "linear" || tool === "count" ? tool : "count" });
-      show("Mark-up mode — tap Count / Linear / Area on the toolbar, or ask Blake first.");
+      setBoqOpen(false);
+      void persistStudio({
+        ...studio,
+        tool: activeClass?.kind === "area" || activeClass?.kind === "linear" || activeClass?.kind === "count"
+          ? activeClass.kind
+          : "count",
+      });
       return;
     }
     if (step === "push") {
@@ -1371,6 +1377,7 @@ export default function TakeoffStudioPage() {
               ["blake", "Blake"],
               ["review", "Review"],
               ["mark", "Mark"],
+              ["boq", "BOQ"],
               ["push", "Push"],
             ] as const
           ).map(([id, label]) => (
@@ -1378,7 +1385,7 @@ export default function TakeoffStudioPage() {
               key={id}
               type="button"
               className={flowStep === id ? "on" : undefined}
-              disabled={(id === "blake" && busy === "ai") || (id === "review" && !hasAiCounts)}
+              disabled={(id === "blake" && busy === "ai") || (id === "review" && !hasAiCounts && !hasBlakePipesOnSheet)}
               onClick={() => runFlowAction(id)}
             >
               {label}
@@ -1470,241 +1477,287 @@ export default function TakeoffStudioPage() {
             </div>
             <div className="nexa-studio-project-list">
               {projects.map((project) => (
-                <button
-                  key={project.id}
-                  type="button"
-                  className={project.id === selectedId ? "on" : undefined}
-                  onClick={() => setSelectedId(project.id)}
-                >
-                  <strong>{project.reference}</strong>
-                  <span>{project.name}</span>
-                </button>
+                <div key={project.id} className={`nexa-studio-project-row${project.id === selectedId ? " on" : ""}`}>
+                  <button
+                    type="button"
+                    className="nexa-studio-project-pick"
+                    onClick={() => {
+                      setSelectedId(project.id);
+                      setBoqOpen(false);
+                    }}
+                  >
+                    <strong>{project.reference}</strong>
+                    <span>{project.name}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="nexa-studio-project-delete"
+                    aria-label={`Delete ${project.reference}`}
+                    title="Delete project"
+                    disabled={busy === `delete-${project.id}`}
+                    onClick={() => void deleteProject(project.id, project.reference)}
+                  >
+                    {busy === `delete-${project.id}` ? <Loader2 className="spin" size={13} /> : <Trash2 size={13} />}
+                  </button>
+                </div>
               ))}
             </div>
+            <p className="muted nexa-studio-hint">Projects stay until you delete them — finishing a takeoff does not remove them.</p>
           </section>
 
           {selected ? (
             <>
-              <section>
+              <section className="nexa-studio-core-link">
                 <header>
-                  <h2>Drawings</h2>
-                  <button type="button" className="ghost" onClick={() => fileRef.current?.click()} disabled={busy === "upload"}>
-                    {busy === "upload" ? <Loader2 className="spin" size={14} /> : <Upload size={14} />}
-                    Upload
-                  </button>
+                  <h2>Link quote</h2>
                 </header>
-                <div className="nexa-studio-doc-list">
-                  {drawingDocs.length ? drawingDocs.map((doc: TakeoffDocument) => (
+                <label>
+                  Quote
+                  <select
+                    value={selected.linkedQuoteId || ""}
+                    onChange={(e) => {
+                      const linkedQuoteId = e.target.value || undefined;
+                      void persistStudio(studio, { linkedQuoteId });
+                    }}
+                  >
+                    <option value="">Select Core quote</option>
+                    {quotes.map((quote) => (
+                      <option key={quote.id} value={quote.id}>
+                        {quote.ref} · {quote.customer}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {linkedQuote ? (
+                  <a className="ghost link" href={`/?quote=${encodeURIComponent(linkedQuote.id)}`}>
+                    Open {linkedQuote.ref} in Core
+                    <ExternalLink size={13} />
+                  </a>
+                ) : null}
+                <div className="nexa-studio-push-actions">
+                  <button
+                    type="button"
+                    className="nexa-studio-primary"
+                    disabled={busy === "push"}
+                    onClick={() => void pushToCore()}
+                  >
+                    {busy === "push" ? <Loader2 className="spin" size={14} /> : null}
+                    {selected.linkedQuoteId ? "Push BOQ + drawings" : "Push to new quote"}
+                  </button>
+                  {selected.linkedQuoteId ? (
                     <button
-                      key={doc.id}
                       type="button"
-                      className={doc.id === activeDoc?.id ? "on" : undefined}
-                      onClick={() => void persistStudio({ ...studio, activeDocumentId: doc.id, activePage: 1 })}
+                      className="ghost"
+                      disabled={busy === "push"}
+                      onClick={() => void pushToCore({ createNew: true })}
                     >
-                      {doc.fileName}
+                      New quote instead
                     </button>
-                  )) : <p className="muted">Upload a PDF plan set.</p>}
+                  ) : null}
                 </div>
               </section>
+
+              {!boqOpen ? (
+                <section>
+                  <header>
+                    <h2>Drawings</h2>
+                    <button type="button" className="ghost" onClick={() => fileRef.current?.click()} disabled={busy === "upload"}>
+                      {busy === "upload" ? <Loader2 className="spin" size={14} /> : <Upload size={14} />}
+                      Upload
+                    </button>
+                  </header>
+                  <div className="nexa-studio-doc-list">
+                    {drawingDocs.length ? drawingDocs.map((doc: TakeoffDocument) => (
+                      <button
+                        key={doc.id}
+                        type="button"
+                        className={doc.id === activeDoc?.id ? "on" : undefined}
+                        onClick={() => void persistStudio({ ...studio, activeDocumentId: doc.id, activePage: 1 })}
+                      >
+                        {doc.fileName}
+                      </button>
+                    )) : <p className="muted">Upload a PDF plan set.</p>}
+                  </div>
+                </section>
+              ) : null}
 
               <section>
                 <header>
                   <h2>Layers</h2>
                 </header>
                 <div className="nexa-studio-layer-list" role="tablist" aria-label="Service layers">
-                  {STUDIO_SERVICE_LAYERS.map((layer) => (
-                    <button
-                      key={layer.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={activeLayerId === layer.id}
-                      className={activeLayerId === layer.id ? "on" : undefined}
-                      onClick={() => void persistStudio(setStudioActiveLayer(studio, layer.id))}
-                    >
-                      {layer.label}
-                    </button>
+                  {studioLayers.map((layer) => (
+                    <div key={layer.id} className={`nexa-studio-layer-row${activeLayerId === layer.id ? " on" : ""}`}>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={activeLayerId === layer.id}
+                        className={activeLayerId === layer.id ? "on" : undefined}
+                        onClick={() => void persistStudio(setStudioActiveLayer(studio, layer.id))}
+                      >
+                        {layer.label}
+                      </button>
+                      {layer.id !== "all" && (studio.customLayers || []).some((row) => row.id === layer.id) ? (
+                        <button
+                          type="button"
+                          className="nexa-studio-layer-delete"
+                          aria-label={`Remove ${layer.label}`}
+                          title="Remove custom layer"
+                          onClick={() => void persistStudio(removeCustomStudioLayer(studio, String(layer.id)))}
+                        >
+                          ×
+                        </button>
+                      ) : null}
+                    </div>
                   ))}
                 </div>
-                <div className="nexa-studio-layer-actions">
-                  <button
-                    type="button"
-                    className="ghost"
-                    disabled={busy === "save-layer" || !activeDoc}
-                    onClick={() => {
-                      setBusy("save-layer");
-                      void saveStudioLayerDrawing(activeLayerId)
-                        .finally(() => setBusy(null));
+                <div className="nexa-studio-create class">
+                  <input
+                    value={newLayerName}
+                    onChange={(e) => setNewLayerName(e.target.value)}
+                    placeholder="New layer (e.g. Ventilation)"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") addCustomLayer();
                     }}
-                  >
-                    {busy === "save-layer" ? <Loader2 className="spin" size={14} /> : null}
-                    Save this layer
-                  </button>
-                  <button
-                    type="button"
-                    className="nexa-studio-primary"
-                    disabled={busy === "save-layers" || !activeDoc}
-                    onClick={() => {
-                      setBusy("save-layers");
-                      void saveAllStudioLayerDrawings()
-                        .finally(() => setBusy(null));
-                    }}
-                  >
-                    {busy === "save-layers" ? <Loader2 className="spin" size={14} /> : null}
-                    Save all layers to quote
+                  />
+                  <button type="button" className="ghost" onClick={addCustomLayer}>
+                    <Plus size={14} />
+                    Add
                   </button>
                 </div>
-                <p className="muted nexa-studio-hint">
-                  Like old markups: <strong>Master / all</strong> shows everything; each service layer is a fresh drawing view.
-                  Save writes a marked SVG into takeoff + linked quote Documents (then onto the job when the quote converts).
-                </p>
+                {!boqOpen ? (
+                  <div className="nexa-studio-layer-actions">
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={busy === "save-layer" || !activeDoc}
+                      onClick={() => {
+                        setBusy("save-layer");
+                        void saveStudioLayerDrawing(activeLayerId)
+                          .finally(() => setBusy(null));
+                      }}
+                    >
+                      {busy === "save-layer" ? <Loader2 className="spin" size={14} /> : null}
+                      Save this layer
+                    </button>
+                    <button
+                      type="button"
+                      className="nexa-studio-primary"
+                      disabled={busy === "save-layers" || !activeDoc}
+                      onClick={() => {
+                        setBusy("save-layers");
+                        void saveAllStudioLayerDrawings()
+                          .finally(() => setBusy(null));
+                      }}
+                    >
+                      {busy === "save-layers" ? <Loader2 className="spin" size={14} /> : null}
+                      Save all layers to quote
+                    </button>
+                  </div>
+                ) : null}
               </section>
 
               <section className="nexa-studio-boq-rail">
                 <header>
                   <h2>Bill of quantities</h2>
                 </header>
-                <p className="muted nexa-studio-hint">
-                  Totals for <strong>{boqLayerLabel}</strong>
-                  {activeLayerId === "all" ? " (master — all layers)" : ""}.
-                  Switch Layers above to see each service BOQ. Push BOQ sends the master total into Core.
-                </p>
+                <button
+                  type="button"
+                  className={`nexa-studio-primary nexa-studio-boq-open${boqOpen ? " on" : ""}`}
+                  onClick={() => {
+                    setReviewOpen(false);
+                    setBoqOpen(true);
+                  }}
+                >
+                  Open full BOQ · {boqForPanel.length || 0} lines
+                  {boqMaterialCost > 0 ? ` · £${boqMaterialCost.toFixed(0)}` : ""}
+                </button>
                 {unscaledLinearCount > 0 ? (
                   <p className="nexa-studio-boq-scale-warn">
-                    {unscaledLinearCount} run{unscaledLinearCount === 1 ? "" : "s"} need Set scale for metres (not pushed).
+                    {unscaledLinearCount} run{unscaledLinearCount === 1 ? "" : "s"} need Set scale
+                    {unscaledLinearSummary.pageLabels.length
+                      ? ` — ${unscaledLinearSummary.pageLabels.join(", ")}`
+                      : ""}.
                   </p>
                 ) : null}
-                {boqForPanel.length ? (
-                  <div className="nexa-studio-boq-list" aria-label={`Bill of quantities · ${boqLayerLabel}`}>
-                    {(["Pipework", "Fittings", "Counts", "Areas"] as const).map((section) => {
-                      const rows = boqForPanel.filter((row) => row.section === section);
-                      if (!rows.length) return null;
+              </section>
+
+              {!boqOpen ? (
+                <section>
+                  <header>
+                    <h2>Draw as</h2>
+                  </header>
+                  <div className="nexa-studio-class-list">
+                    {visibleClassifications.map((cls) => {
+                      const qty = quantities.find((row) => row.classificationId === cls.id);
                       return (
-                        <div key={section} className="nexa-studio-boq-section">
-                          <strong>{section}</strong>
-                          <ul>
-                            {rows.map((row: StudioBoqRow) => (
-                              <li key={row.id}>
-                                <span>{row.description}</span>
-                                <em>
-                                  {row.quantity} {row.unit}
-                                </em>
-                              </li>
-                            ))}
-                          </ul>
+                        <div
+                          key={cls.id}
+                          className={`nexa-studio-class-row${cls.id === studio.activeClassificationId ? " on" : ""}`}
+                        >
+                          <label className="nexa-studio-class-colour" title="Pipe / mark colour">
+                            <span style={{ background: cls.colour }} />
+                            <input
+                              type="color"
+                              value={/^#[0-9a-fA-F]{6}$/.test(cls.colour) ? cls.colour : "#2878c8"}
+                              aria-label={`Colour for ${cls.name}`}
+                              onChange={(e) => {
+                                void persistStudio(setClassificationColour(studio, cls.id, e.target.value));
+                              }}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className="nexa-studio-class-pick"
+                            onClick={() => void persistStudio({
+                              ...studio,
+                              activeClassificationId: cls.id,
+                              tool: cls.kind,
+                              activeLayerId: classificationLayer(cls),
+                            })}
+                          >
+                            <span>
+                              <strong>{cls.name}</strong>
+                              <small>{cls.kind} · {qty?.pieces || 0} item{(qty?.pieces || 0) === 1 ? "" : "s"}</small>
+                            </span>
+                            <em>
+                              {qty && qty.quantity > 0 ? `${qty.quantity} ${qty.unit}` : "—"}
+                            </em>
+                          </button>
+                          <button
+                            type="button"
+                            className="nexa-studio-class-delete"
+                            aria-label={`Delete ${cls.name}`}
+                            title="Delete classification"
+                            onClick={() => deleteClassification(cls.id)}
+                          >
+                            ×
+                          </button>
                         </div>
                       );
                     })}
                   </div>
-                ) : (
-                  <p className="muted">No quantities on this layer yet — Ask Blake or finish a Length run (Done run).</p>
-                )}
-              </section>
-
-              <section className="nexa-studio-audit-rail" aria-label="Takeoff activity">
-                <header>
-                  <h2>Activity</h2>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => void refreshTakeoffAudit(selectedId)}
-                    title="Refresh takeoff audit"
-                  >
-                    Refresh
-                  </button>
-                </header>
-                <p className="muted nexa-studio-hint">
-                  Blake runs, AI confirm/reject, and rate library saves for this takeoff.
-                </p>
-                {takeoffAudit.length ? (
-                  <ul className="nexa-studio-audit-list">
-                    {takeoffAudit.map((event) => (
-                      <li key={event.id}>
-                        <strong>{event.summary}</strong>
-                        <span>
-                          {event.actor} · {formatAuditWhen(event.createdAt)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="muted">No takeoff audit yet — Ask Blake or save rates to start the trail.</p>
-                )}
-              </section>
-
-              <section>
-                <header>
-                  <h2>Classifications</h2>
-                </header>
-                <div className="nexa-studio-class-list">
-                  {visibleClassifications.map((cls) => {
-                    const qty = quantities.find((row) => row.classificationId === cls.id);
-                    return (
-                      <div
-                        key={cls.id}
-                        className={`nexa-studio-class-row${cls.id === studio.activeClassificationId ? " on" : ""}`}
-                      >
-                        <label className="nexa-studio-class-colour" title="Pipe / mark colour">
-                          <span style={{ background: cls.colour }} />
-                          <input
-                            type="color"
-                            value={/^#[0-9a-fA-F]{6}$/.test(cls.colour) ? cls.colour : "#2878c8"}
-                            aria-label={`Colour for ${cls.name}`}
-                            onChange={(e) => {
-                              void persistStudio(setClassificationColour(studio, cls.id, e.target.value));
-                            }}
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          className="nexa-studio-class-pick"
-                          onClick={() => void persistStudio({
-                            ...studio,
-                            activeClassificationId: cls.id,
-                            tool: cls.kind,
-                            activeLayerId: classificationLayer(cls),
-                          })}
-                        >
-                          <span>
-                            <strong>{cls.name}</strong>
-                            <small>{cls.kind} · {qty?.pieces || 0} item{(qty?.pieces || 0) === 1 ? "" : "s"}</small>
-                          </span>
-                          <em>
-                            {qty && qty.quantity > 0 ? `${qty.quantity} ${qty.unit}` : "—"}
-                          </em>
-                        </button>
-                        <button
-                          type="button"
-                          className="nexa-studio-class-delete"
-                          aria-label={`Delete ${cls.name}`}
-                          title="Delete classification"
-                          onClick={() => deleteClassification(cls.id)}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="nexa-studio-create class">
-                  <select value={newClassKind} onChange={(e) => setNewClassKind(e.target.value as StudioClassKind)}>
-                    <option value="linear">Linear</option>
-                    <option value="count">Count</option>
-                    <option value="area">Area</option>
-                  </select>
-                  <input
-                    type="color"
-                    value={newClassColour}
-                    onChange={(e) => setNewClassColour(e.target.value)}
-                    aria-label="New classification colour"
-                    title="Colour"
-                  />
-                  <input value={newClassName} onChange={(e) => setNewClassName(e.target.value)} placeholder="Name" />
-                  <button type="button" className="ghost" onClick={addClassification}>Add</button>
-                </div>
-                <p className="muted nexa-studio-hint">
-                  Tap a coloured service (Cold = blue, Hot = red), then Length. Or change the swatch colour anytime. Ask Blake can still auto-trace vector pipes.
-                </p>
-              </section>
+                  <div className="nexa-studio-create class">
+                    <select value={newClassKind} onChange={(e) => setNewClassKind(e.target.value as StudioClassKind)}>
+                      <option value="linear">Linear</option>
+                      <option value="count">Count</option>
+                      <option value="area">Area</option>
+                    </select>
+                    <input
+                      type="color"
+                      value={newClassColour}
+                      onChange={(e) => setNewClassColour(e.target.value)}
+                      aria-label="New classification colour"
+                      title="Colour"
+                    />
+                    <input value={newClassName} onChange={(e) => setNewClassName(e.target.value)} placeholder="Name" />
+                    <button type="button" className="ghost" onClick={addClassification}>Add</button>
+                  </div>
+                  <p className="muted nexa-studio-hint">
+                    Pick Hot / Cold / Waste here, then draw on the sheet. Colour swatches can be changed any time.
+                  </p>
+                </section>
+              ) : null}
 
               <section className="nexa-studio-rates-rail">
                 <header>
@@ -1801,58 +1854,44 @@ export default function TakeoffStudioPage() {
                 ) : null}
               </section>
 
-              <section className="nexa-studio-core-link">
+              <section className="nexa-studio-audit-rail" aria-label="Takeoff log">
                 <header>
-                  <h2>Core link</h2>
-                </header>
-                <p className="muted nexa-studio-hint">
-                  Marks auto-save here. <strong>Push BOQ</strong> sends quantities plus master/layer marked drawings into the linked quote Documents.
-                  When that quote converts to a job, those drawings stay available on the job.
-                </p>
-                <label>
-                  Quote
-                  <select
-                    value={selected.linkedQuoteId || ""}
-                    onChange={(e) => {
-                      const linkedQuoteId = e.target.value || undefined;
-                      void persistStudio(studio, { linkedQuoteId });
-                    }}
-                  >
-                    <option value="">Select Core quote</option>
-                    {quotes.map((quote) => (
-                      <option key={quote.id} value={quote.id}>
-                        {quote.ref} · {quote.customer}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {linkedQuote ? (
-                  <a className="ghost link" href={`/?quote=${encodeURIComponent(linkedQuote.id)}`}>
-                    Open {linkedQuote.ref} in Core
-                    <ExternalLink size={13} />
-                  </a>
-                ) : null}
-                <div className="nexa-studio-push-actions">
-                  <button
-                    type="button"
-                    className="nexa-studio-primary"
-                    disabled={busy === "push"}
-                    onClick={() => void pushToCore()}
-                  >
-                    {busy === "push" ? <Loader2 className="spin" size={14} /> : null}
-                    {selected.linkedQuoteId ? "Push BOQ + drawings" : "Push to new quote"}
+                  <h2>Log</h2>
+                  <button type="button" className="ghost" onClick={() => setLogOpen((open) => !open)}>
+                    {logOpen ? "Hide" : "Show"}
                   </button>
-                  {selected.linkedQuoteId ? (
+                </header>
+                {logOpen ? (
+                  <>
+                    <p className="muted nexa-studio-hint">
+                      Blake runs, AI confirm/reject, and rate library saves for this takeoff.
+                    </p>
                     <button
                       type="button"
                       className="ghost"
-                      disabled={busy === "push"}
-                      onClick={() => void pushToCore({ createNew: true })}
+                      onClick={() => void refreshTakeoffAudit(selectedId)}
+                      title="Refresh takeoff audit"
                     >
-                      New quote instead
+                      Refresh
                     </button>
-                  ) : null}
-                </div>
+                    {takeoffAudit.length ? (
+                      <ul className="nexa-studio-audit-list">
+                        {takeoffAudit.map((event) => (
+                          <li key={event.id}>
+                            <strong>{event.summary}</strong>
+                            <span>
+                              {event.actor} · {formatAuditWhen(event.createdAt)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="muted">No takeoff log yet — Ask Blake or save rates to start the trail.</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="muted nexa-studio-hint">Hidden by default so mark-up stays clear.</p>
+                )}
               </section>
             </>
           ) : null}
@@ -1873,6 +1912,101 @@ export default function TakeoffStudioPage() {
                 onClose={() => setReviewOpen(false)}
               />
             </div>
+          ) : selected && boqOpen ? (
+            <div className="nexa-studio-boq-workspace" aria-label={`Bill of quantities · ${boqLayerLabel}`}>
+              <header className="nexa-studio-boq-workspace-head">
+                <div>
+                  <p className="eyebrow">Bill of quantities</p>
+                  <h1>{boqLayerLabel}</h1>
+                  <p className="muted">
+                    Full list for this takeoff — switch layers below. Drawing register stays on Mark when you go back.
+                  </p>
+                </div>
+                <div className="nexa-studio-boq-workspace-actions">
+                  <button type="button" className="ghost" onClick={() => setBoqOpen(false)}>
+                    Back to drawing
+                  </button>
+                  <button type="button" className="nexa-studio-primary" disabled={busy === "push"} onClick={() => void pushToCore()}>
+                    {busy === "push" ? <Loader2 className="spin" size={14} /> : null}
+                    {selected.linkedQuoteId ? "Push master BOQ" : "Push to new quote"}
+                  </button>
+                </div>
+              </header>
+              <div className="nexa-studio-boq-layers" role="tablist" aria-label="Cost centre layers">
+                {studioLayers.map((layer) => (
+                  <button
+                    key={layer.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeLayerId === layer.id}
+                    className={activeLayerId === layer.id ? "on" : undefined}
+                    onClick={() => void persistStudio(setStudioActiveLayer(studio, layer.id))}
+                  >
+                    {layer.id === "all" ? "Master" : layer.label}
+                  </button>
+                ))}
+              </div>
+              <p className="nexa-studio-boq-workspace-meta">
+                {activeLayerId === "all"
+                  ? "Master BOQ — every cost centre."
+                  : `${boqLayerLabel} cost centre only. Master rolls them all up for Push.`}
+                {boqMaterialCost > 0 ? ` Indicative materials ≈ £${boqMaterialCost.toFixed(0)}.` : ""}
+                {boqForPanel.length ? ` · ${boqForPanel.length} line${boqForPanel.length === 1 ? "" : "s"}` : ""}
+              </p>
+              {unscaledLinearCount > 0 ? (
+                <p className="nexa-studio-boq-scale-warn">
+                  {unscaledLinearCount} length run{unscaledLinearCount === 1 ? "" : "s"} need <strong>Set scale</strong>
+                  {unscaledLinearSummary.pageLabels.length
+                    ? ` (${unscaledLinearSummary.pageLabels.join(", ")})`
+                    : ""}
+                  — they are not pushed as quantities.
+                </p>
+              ) : null}
+              {pricedBoqForPanel.length ? (
+                <div className="nexa-studio-boq-list nexa-studio-boq-list-full">
+                  {(["Pipework", "Fittings", "Counts", "Areas"] as const).map((section) => {
+                    const rows = pricedBoqForPanel.filter((row) => row.section === section);
+                    if (!rows.length) return null;
+                    return (
+                      <div key={section} className="nexa-studio-boq-section">
+                        <strong>{section}</strong>
+                        <ul>
+                          {rows.map((row) => {
+                            const state =
+                              row.pricingState
+                              || (row.supplierRequired || !(row.unitCost > 0) ? "rfq" : "guide");
+                            return (
+                              <li key={row.id}>
+                                <span>
+                                  {row.description}{" "}
+                                  <small className={`price-ledger-chip is-${state}`}>
+                                    {state === "budget"
+                                      ? "Budget"
+                                      : state === "guide"
+                                        ? "Guide"
+                                        : state === "firm"
+                                          ? "Firm"
+                                          : "RFQ"}
+                                  </small>
+                                </span>
+                                <em>
+                                  {row.quantity} {row.unit}
+                                  {row.unitCost > 0
+                                    ? ` · £${(row.quantity * row.unitCost).toFixed(0)}`
+                                    : " · RFQ"}
+                                </em>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="empty">Nothing on this layer yet — go Back to drawing, Ask Blake or finish a Length run.</p>
+              )}
+            </div>
           ) : selected ? (
             <>
               {activeDoc ? (
@@ -1884,7 +2018,7 @@ export default function TakeoffStudioPage() {
                   >
                     {hasScale ? "Scale ✓" : "Set scale"}
                   </button>
-                  <button type="button" className={boqOpen ? "on" : undefined} onClick={() => setBoqOpen((open) => !open)}>
+                  <button type="button" onClick={() => runFlowAction("boq")}>
                     BOQ · {boqForPanel.length || 0}
                   </button>
                   <button type="button" disabled={busy === "ai"} onClick={() => void runAiAssist()}>
@@ -1988,52 +2122,12 @@ export default function TakeoffStudioPage() {
                   )}
                 </div>
               ) : null}
-              {takeoffAudit.length ? (
-                <div className="nexa-studio-audit-strip" aria-label="Recent takeoff activity">
-                  <span className="nexa-studio-audit-strip-label">Activity</span>
-                  <ul>
-                    {takeoffAudit.slice(0, 3).map((event) => (
-                      <li key={event.id}>
-                        <strong>{event.summary}</strong>
-                        <em>{formatAuditWhen(event.createdAt)}</em>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+              {activeClass ? (
+                <p className="nexa-studio-active-draw muted">
+                  Drawing: <strong style={{ color: activeClass.colour }}>{activeClass.name}</strong>
+                  {" "}— change from <strong>Draw as</strong> in the left rail.
+                </p>
               ) : null}
-              <div className="nexa-studio-service-bar" aria-label="Pipe service colours">
-                <span className="nexa-studio-service-bar-label">Draw as</span>
-                {pipeServiceClasses.map((cls) => (
-                  <button
-                    key={cls.id}
-                    type="button"
-                    className={cls.id === studio.activeClassificationId ? "on" : undefined}
-                    style={{ ["--svc" as string]: cls.colour }}
-                    onClick={() => selectPipeService(cls)}
-                    title={`Draw ${cls.name} in this colour`}
-                  >
-                    <i style={{ background: cls.colour }} />
-                    {cls.name
-                      .replace(/ pipe runs$/i, "")
-                      .replace(/ runs$/i, "")
-                      .replace(/ ware$/i, "")}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  className="nexa-studio-service-add"
-                  onClick={quickAddDrawItem}
-                  title="Add another item to draw (gas, condensate, radiators…)"
-                >
-                  <Plus size={14} />
-                  Add
-                </button>
-                {activeClass ? (
-                  <strong className="nexa-studio-service-active" style={{ color: activeClass.colour }}>
-                    Drawing: {activeClass.name}
-                  </strong>
-                ) : null}
-              </div>
               {showSizeBar ? (
                 <div className="nexa-studio-size-bar" aria-label="Pipe size">
                   <span className="nexa-studio-service-bar-label">Size</span>
@@ -2062,105 +2156,10 @@ export default function TakeoffStudioPage() {
                     );
                   })}
                   <span className="nexa-studio-size-note">
-                    Fittings match the Size chip (e.g. 22 Cu → 22mm Copper elbows &amp; couplings every 3 m). Scale required for metres/couplings.
+                    Fittings match the Size chip. Scale required for metres/couplings.
                   </span>
                 </div>
               ) : null}
-              <div className="nexa-studio-boq-sheet">
-                <button
-                  type="button"
-                  className="nexa-studio-boq-toggle"
-                  aria-expanded={boqOpen}
-                  onClick={() => setBoqOpen((open) => !open)}
-                >
-                  <span>Bill of quantities · {boqLayerLabel}</span>
-                  <strong>
-                    {boqForPanel.length
-                      ? `${boqForPanel.length} line${boqForPanel.length === 1 ? "" : "s"}${
-                          boqMaterialCost > 0 ? ` · £${boqMaterialCost.toFixed(0)}` : ""
-                        }`
-                      : "Empty"}
-                  </strong>
-                </button>
-                {boqOpen ? (
-                  <div className="nexa-studio-boq-panel" aria-label={`Bill of quantities · ${boqLayerLabel}`}>
-                    <div className="nexa-studio-boq-layers" role="tablist" aria-label="Cost centre layers">
-                      {STUDIO_SERVICE_LAYERS.map((layer) => (
-                        <button
-                          key={layer.id}
-                          type="button"
-                          role="tab"
-                          aria-selected={activeLayerId === layer.id}
-                          className={activeLayerId === layer.id ? "on" : undefined}
-                          onClick={() => void persistStudio(setStudioActiveLayer(studio, layer.id))}
-                        >
-                          {layer.id === "all" ? "Master" : layer.label}
-                        </button>
-                      ))}
-                    </div>
-                    <p>
-                      {activeLayerId === "all"
-                        ? "Master BOQ — every cost centre. Switch tabs for Hot & cold / Heating / Waste alone."
-                        : `${boqLayerLabel} cost centre only. Master rolls them all up for Push.`}
-                      {boqMaterialCost > 0 ? ` Indicative materials ≈ £${boqMaterialCost.toFixed(0)}.` : ""}
-                    </p>
-                    {unscaledLinearCount > 0 ? (
-                      <p className="nexa-studio-boq-scale-warn">
-                        {unscaledLinearCount} pipe run{unscaledLinearCount === 1 ? "" : "s"} on this layer need <strong>Set scale</strong> before metres appear — they are not pushed as quantities.
-                      </p>
-                    ) : null}
-                    {pricedBoqForPanel.length ? (
-                      <div className="nexa-studio-boq-list">
-                        {(["Pipework", "Fittings", "Counts", "Areas"] as const).map((section) => {
-                          const rows = pricedBoqForPanel.filter((row) => row.section === section);
-                          if (!rows.length) return null;
-                          return (
-                            <div key={section} className="nexa-studio-boq-section">
-                              <strong>{section}</strong>
-                              <ul>
-                                {rows.map((row) => {
-                                  const state =
-                                    row.pricingState
-                                    || (row.supplierRequired || !(row.unitCost > 0) ? "rfq" : "guide");
-                                  return (
-                                    <li key={row.id}>
-                                      <span>
-                                        {row.description}{" "}
-                                        <small className={`price-ledger-chip is-${state}`}>
-                                          {state === "budget"
-                                            ? "Budget"
-                                            : state === "guide"
-                                              ? "Guide"
-                                              : state === "firm"
-                                                ? "Firm"
-                                                : "RFQ"}
-                                        </small>
-                                      </span>
-                                      <em>
-                                        {row.quantity} {row.unit}
-                                        {row.unitCost > 0
-                                          ? ` · £${(row.quantity * row.unitCost).toFixed(0)}`
-                                          : " · RFQ"}
-                                      </em>
-                                    </li>
-                                  );
-                                })}
-                              </ul>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <p className="empty">Nothing on this layer yet — tap Done run after Length, or Count fixtures.</p>
-                    )}
-                    <div className="nexa-studio-boq-panel-actions">
-                      <button type="button" className="nexa-studio-primary" disabled={busy === "push"} onClick={() => void pushToCore()}>
-                        {selected.linkedQuoteId ? "Push master BOQ" : "Push to new quote"}
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
               <StudioCanvas
                 projectId={selected.id}
                 document={activeDoc}
@@ -2171,7 +2170,6 @@ export default function TakeoffStudioPage() {
                 canUndo={canUndo}
                 canRedo={canRedo}
                 onLinearFinished={(summary) => {
-                  setBoqOpen(true);
                   const bits = [
                     summary.metres != null ? `${summary.metres.toFixed(2)} m` : "run saved · set scale for m",
                     summary.elbows ? `${summary.elbows} elbow${summary.elbows === 1 ? "" : "s"}` : null,

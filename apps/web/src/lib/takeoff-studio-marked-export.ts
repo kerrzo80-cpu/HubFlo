@@ -2,10 +2,10 @@
 
 import {
   classificationLayer,
+  listStudioLayers,
   polylineLength,
   polygonArea,
   scaleForPage,
-  STUDIO_SERVICE_LAYERS,
   type StudioGeometry,
   type StudioServiceLayerId,
   type StudioState,
@@ -31,9 +31,13 @@ function escapeSvg(value: string) {
     .replace(/"/g, "&quot;");
 }
 
-export function studioLayerLabel(layerId: StudioExportLayerId) {
+export function studioLayerLabel(layerId: StudioExportLayerId, studio?: StudioState | null) {
   if (layerId === "all") return "Master all layers";
-  return STUDIO_SERVICE_LAYERS.find((row) => row.id === layerId)?.label || layerId;
+  if (studio) {
+    const match = listStudioLayers(studio).find((row) => row.id === layerId);
+    if (match) return match.label;
+  }
+  return String(layerId);
 }
 
 export function geometriesForStudioLayer(
@@ -63,7 +67,7 @@ export function buildStudioMarkedSnapshot(
 ): StudioMarkedSnapshot {
   return {
     layerId,
-    layerLabel: studioLayerLabel(layerId),
+    layerLabel: studioLayerLabel(layerId, studio),
     geometries: geometriesForStudioLayer(studio, layerId, {
       documentId: options.documentId,
       page: options.page,
@@ -79,7 +83,7 @@ export function layersWithStudioMarks(
   studio: StudioState,
   options?: { documentId?: string; page?: number },
 ): StudioExportLayerId[] {
-  return STUDIO_SERVICE_LAYERS
+  return listStudioLayers(studio)
     .map((layer) => layer.id)
     .filter((layerId) => geometriesForStudioLayer(studio, layerId, options).length > 0);
 }

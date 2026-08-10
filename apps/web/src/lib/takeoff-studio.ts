@@ -47,13 +47,21 @@ export type StudioAiReviewMeasuredQuantity = {
   }>;
 };
 
-/** Service layer — filter takeoff work like CAD layers (hot/cold vs heating vs waste). */
-export type StudioServiceLayerId =
+/** Builtin service layers — custom layers use ids like `custom-…`. */
+export type StudioBuiltinLayerId =
   | "hot-cold"
   | "heating"
   | "sanitary-waste"
   | "gas"
   | "general";
+
+/** Service layer — filter takeoff work like CAD layers (hot/cold vs heating vs waste). */
+export type StudioServiceLayerId = StudioBuiltinLayerId | string;
+
+export type StudioCustomLayer = {
+  id: string;
+  label: string;
+};
 
 export type StudioClassification = {
   id: string;
@@ -135,6 +143,8 @@ export type StudioState = {
   activeClassificationId?: string;
   /** Filter geometries / class list by service layer (`all` = show everything). */
   activeLayerId?: StudioServiceLayerId | "all";
+  /** Extra user-defined service layers (Ventilation, Fire alarm, …). */
+  customLayers?: StudioCustomLayer[];
   /** Active pipe size for Length tool (e.g. cu-22). */
   activePipeSpecId?: string;
   tool: StudioTool;
@@ -157,6 +167,48 @@ export const STUDIO_SERVICE_LAYERS: Array<{ id: StudioServiceLayerId | "all"; la
   { id: "gas", label: "Gas" },
   { id: "general", label: "General" },
 ];
+
+/** Builtin + custom layers for filters / BOQ tabs. */
+export function listStudioLayers(studio: StudioState): Array<{ id: StudioServiceLayerId | "all"; label: string }> {
+  const custom = (studio.customLayers || []).map((row) => ({
+    id: row.id,
+    label: row.label,
+  }));
+  return [...STUDIO_SERVICE_LAYERS, ...custom];
+}
+
+export function addCustomStudioLayer(studio: StudioState, label: string): StudioState {
+  const name = label.trim();
+  if (!name) return studio;
+  const existing = (studio.customLayers || []).some(
+    (row) => row.label.toLowerCase() === name.toLowerCase(),
+  );
+  if (existing) return studio;
+  const id = studioId("custom");
+  return {
+    ...studio,
+    customLayers: [...(studio.customLayers || []), { id, label: name }],
+    activeLayerId: id,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function removeCustomStudioLayer(studio: StudioState, layerId: string): StudioState {
+  if (!layerId.startsWith("custom-") && !(studio.customLayers || []).some((row) => row.id === layerId)) {
+    return studio;
+  }
+  const customLayers = (studio.customLayers || []).filter((row) => row.id !== layerId);
+  const classifications = studio.classifications.map((cls) =>
+    cls.layer === layerId ? { ...cls, layer: "general" as StudioServiceLayerId } : cls,
+  );
+  return {
+    ...studio,
+    customLayers,
+    classifications,
+    activeLayerId: studio.activeLayerId === layerId ? "all" : studio.activeLayerId,
+    updatedAt: new Date().toISOString(),
+  };
+}
 
 /** Preset pipe / fixture services with fixed colours — tap these instead of guessing. */
 export const SERVICE_CLASS_DEFS: Array<StudioClassification & { role?: "hot" | "cold" | "waste" }> = [
@@ -270,6 +322,101 @@ export function polygonArea(points: StudioPoint[]): number {
 
 export function scaleForPage(studio: StudioState, documentId: string, page: number): StudioPageScale | undefined {
   return studio.scales.find((row) => row.documentId === documentId && row.page === page);
+}
+
+/** Prefer existing calibrated scales; fill gaps from `incoming` without wiping user calibration. */
+export function mergeStudioScales(
+  preferred: StudioPageScale[],
+  incoming: StudioPageScale[],
+): StudioPageScale[] {
+  const byKey = new Map<string, StudioPageScale>();
+  const keyOf = (row: StudioPageScale) => `${row.documentId}::${row.page}`;
+  for (const row of incoming) {
+    if (!(row.metresPerUnit > 0)) continue;
+    byKey.set(keyOf(row), row);
+  }
+  for (const row of preferred) {
+    if (!(row.metresPerUnit > 0)) continue;
+    const key = keyOf(row);
+    const existing = byKey.get(key);
+    // Prefer two-point / knownMetres user calibrations over sheet-ratio hints.
+    if (!existing || row.knownMetres || row.calibrateFrom || !existing.knownMetres) {
+      byKey.set(key, row);
+    }
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * When a drawing has scale on one page, copy metresPerUnit to sibling pages that
+ * already have mark-up / Blake runs but no scale yet (drawing-level expectation).
+ */
+export function fillMissingPageScalesFromDocument(studio: StudioState): StudioState {
+  const scales = [...studio.scales];
+  const byDoc = new Map<string, StudioPageScale[]>();
+  for (const row of scales) {
+    if (!(row.metresPerUnit > 0)) continue;
+    const list = byDoc.get(row.documentId) || [];
+    list.push(row);
+    byDoc.set(row.documentId, list);
+  }
+  if (!byDoc.size) return studio;
+
+  const pagesNeeding = new Map<string, Set<number>>();
+  for (const geo of studio.geometries) {
+    if (geo.kind !== "linear" && geo.kind !== "area") continue;
+    const set = pagesNeeding.get(geo.documentId) || new Set<number>();
+    set.add(geo.page);
+    pagesNeeding.set(geo.documentId, set);
+  }
+  // Always include any page that already has an explicit scale source page's siblings
+  // for documents the user calibrated, even before mark-up exists.
+  for (const [documentId, rows] of byDoc) {
+    const set = pagesNeeding.get(documentId) || new Set<number>();
+    for (const row of rows) set.add(row.page);
+    pagesNeeding.set(documentId, set);
+  }
+
+  let changed = false;
+  for (const [documentId, pages] of pagesNeeding) {
+    const sources = byDoc.get(documentId);
+    if (!sources?.length) continue;
+    const preferred =
+      sources.find((row) => row.knownMetres || row.calibrateFrom) ||
+      sources.find((row) => Boolean(row.label)) ||
+      sources[0];
+    if (!preferred) continue;
+    for (const page of pages) {
+      const exists = scales.some((row) => row.documentId === documentId && row.page === page && row.metresPerUnit > 0);
+      if (exists) continue;
+      scales.push({
+        documentId,
+        page,
+        metresPerUnit: preferred.metresPerUnit,
+        label: preferred.label || (preferred.knownMetres ? `${preferred.knownMetres} m` : undefined),
+      });
+      changed = true;
+    }
+  }
+  if (!changed) return studio;
+  return { ...studio, scales, updatedAt: new Date().toISOString() };
+}
+
+/** Upsert one page scale; optionally copy metres to other pages of the same drawing that lack scale. */
+export function upsertStudioPageScale(
+  studio: StudioState,
+  scale: StudioPageScale,
+  options?: { applyToDocumentPages?: boolean },
+): StudioState {
+  const nextScales = [
+    ...studio.scales.filter((row) => !(row.documentId === scale.documentId && row.page === scale.page)),
+    scale,
+  ];
+  let next: StudioState = { ...studio, scales: nextScales, updatedAt: new Date().toISOString() };
+  if (options?.applyToDocumentPages !== false) {
+    next = fillMissingPageScalesFromDocument(next);
+  }
+  return next;
 }
 
 export function isAiStudioGeometry(geo: StudioGeometry): boolean {

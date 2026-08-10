@@ -2,6 +2,7 @@
 
 import {
   classificationLayer,
+  listStudioLayers,
   polygonArea,
   polylineLength,
   scaleForPage,
@@ -286,7 +287,11 @@ export type StudioBoqRow = {
   unit: string;
 };
 
-function layerLabelFor(layerId: StudioServiceLayerId) {
+function layerLabelFor(layerId: StudioServiceLayerId, studio?: StudioState) {
+  if (studio) {
+    const match = listStudioLayers(studio).find((row) => row.id === layerId);
+    if (match) return match.label;
+  }
   return STUDIO_SERVICE_LAYERS.find((row) => row.id === layerId)?.label || layerId;
 }
 
@@ -377,7 +382,7 @@ export function summariseStudioBoq(
     .map(([key, row]) => ({
       id: key,
       layerId: row.layerId,
-      layerLabel: layerLabelFor(row.layerId),
+      layerLabel: layerLabelFor(row.layerId, studio),
       section: row.section,
       description: row.description,
       quantity: row.unit === "nr" ? row.quantity : Number(row.quantity.toFixed(2)),
@@ -416,7 +421,16 @@ export function countUnscaledStudioLinears(
   studio: StudioState,
   layerFilter: StudioServiceLayerId | "all" = "all",
 ): number {
+  return summariseUnscaledStudioLinears(studio, layerFilter).count;
+}
+
+/** Pages/docs that still block metres — for Push warnings. */
+export function summariseUnscaledStudioLinears(
+  studio: StudioState,
+  layerFilter: StudioServiceLayerId | "all" = "all",
+): { count: number; pageLabels: string[] } {
   let count = 0;
+  const pages = new Map<string, number>();
   for (const geo of studio.geometries) {
     if (geo.kind !== "linear") continue;
     const layerId = layerForGeometry(studio, geo);
@@ -424,9 +438,18 @@ export function countUnscaledStudioLinears(
     const scale = scaleForPage(studio, geo.documentId, geo.page);
     const mpu = scale?.metresPerUnit || 0;
     if (mpu > 0) continue;
-    if (polylineLength(geo.points) > 0) count += 1;
+    if (polylineLength(geo.points) <= 0) continue;
+    count += 1;
+    const key = `${geo.documentId}::${geo.page}`;
+    pages.set(key, (pages.get(key) || 0) + 1);
   }
-  return count;
+  const pageLabels = [...pages.entries()]
+    .map(([key, runs]) => {
+      const page = key.split("::")[1] || "?";
+      return `page ${page} (${runs})`;
+    })
+    .slice(0, 4);
+  return { count, pageLabels };
 }
 
 export function createLinearId() {

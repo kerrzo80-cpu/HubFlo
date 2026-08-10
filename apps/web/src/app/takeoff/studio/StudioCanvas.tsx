@@ -22,6 +22,7 @@ import {
   scaleForPage,
   isAiStudioGeometry,
   studioId,
+  upsertStudioPageScale,
   type StudioGeometry,
   type StudioPoint,
   type StudioState,
@@ -515,8 +516,8 @@ export default function StudioCanvas({
     const units = dist(from, to);
     if (units < 1) return;
     const metresPerUnit = metres / units;
-    const nextScales = [
-      ...studio.scales.filter((s) => !(s.documentId === document.id && s.page === page)),
+    const next = upsertStudioPageScale(
+      studio,
       {
         documentId: document.id,
         page,
@@ -526,9 +527,10 @@ export default function StudioCanvas({
         knownMetres: metres,
         label: `${metres} m`,
       },
-    ];
+      { applyToDocumentPages: true },
+    );
     setScaleDraft([]);
-    patchStudio({ scales: nextScales, tool: activeClass?.kind || "count" });
+    patchStudio({ scales: next.scales, tool: activeClass?.kind || "count" });
     recordTakeoffLearningClient({
       type: "scale_choice",
       projectId,
@@ -542,17 +544,18 @@ export default function StudioCanvas({
     const denom = parseScaleRatioLabel(label);
     const metresPerUnit = denom != null ? metresPerUnitFromRatio(denom, RENDER_SCALE) : null;
     if (metresPerUnit == null) return;
-    const nextScales = [
-      ...studio.scales.filter((s) => !(s.documentId === document.id && s.page === page)),
+    const next = upsertStudioPageScale(
+      studio,
       {
         documentId: document.id,
         page,
         metresPerUnit,
         label,
       },
-    ];
+      { applyToDocumentPages: true },
+    );
     setScaleDraft([]);
-    patchStudio({ scales: nextScales, tool: activeClass?.kind || "count" });
+    patchStudio({ scales: next.scales, tool: activeClass?.kind || "count" });
     recordTakeoffLearningClient({
       type: "scale_choice",
       projectId,

@@ -30,13 +30,16 @@ import {
 import {
   applyScaleHintsToStudio,
   createDefaultStudioState,
+  fillMissingPageScalesFromDocument,
   importPipeRunsIntoStudio,
   importSkillCountsIntoStudio,
+  mergeStudioScales,
   metresPerUnitFromRatio,
   parseScaleRatioLabel,
   polylineLength,
   scaleForPage,
   studioHasAiPipeRuns,
+  type StudioPageScale,
 } from "@/lib/takeoff-studio";
 import {
   applyLearningToMeasuredRows,
@@ -44,6 +47,7 @@ import {
 } from "@/lib/takeoff-learning-store";
 import {
   appendLinearWithAutoFittings,
+  countUnscaledStudioLinears,
   pipeSpecById,
 } from "@/lib/takeoff-studio-pipe";
 import { measureTakeoffPagesWithVision, type BlakeTextHint } from "@/lib/takeoff-blake-vision";
@@ -109,7 +113,24 @@ type BlakeRunBody = {
   }>;
   /** JPEG screenshots of open pages — vision fallback for scanned PDFs. */
   pageImages?: BlakePageImage[];
+  /** Client page scales (Set scale) so Blake does not drop a just-saved calibration. */
+  clientScales?: StudioPageScale[];
 };
+
+function normalizeClientScales(raw: StudioPageScale[] | undefined): StudioPageScale[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((row) => row && typeof row.documentId === "string" && Number(row.metresPerUnit) > 0)
+    .map((row) => ({
+      documentId: String(row.documentId),
+      page: Number(row.page) || 1,
+      metresPerUnit: Number(row.metresPerUnit),
+      calibrateFrom: row.calibrateFrom,
+      calibrateTo: row.calibrateTo,
+      knownMetres: typeof row.knownMetres === "number" ? row.knownMetres : undefined,
+      label: typeof row.label === "string" ? row.label : undefined,
+    }));
+}
 
 function normalizePageImages(raw: BlakePageImage[] | undefined) {
   if (!Array.isArray(raw)) return [];
@@ -486,6 +507,7 @@ export async function POST(
   const actor = request.headers.get(employeeHeaderName) || "Blake";
   const body = await parseJsonRequestBody<BlakeRunBody>(request);
   const clientExtracts = normalizeClientExtracts(body?.clientExtracts);
+  const clientScales = normalizeClientScales(body?.clientScales);
   const clientPipeRuns = (Array.isArray(body?.clientStrokeRuns) ? body!.clientStrokeRuns : [])
     .flatMap((doc) => {
       const documentId = String(doc?.documentId || "");
@@ -671,7 +693,11 @@ export async function POST(
     }
 
     const latest = getTakeoffProject(id) || project;
-    const baseStudio = latest.studio ?? createDefaultStudioState();
+    const storedStudio = latest.studio ?? createDefaultStudioState();
+    const baseStudio = {
+      ...storedStudio,
+      scales: mergeStudioScales(clientScales, storedStudio.scales || []),
+    };
 
     // Auto-apply scale from sheet text so pipe metres resolve.
     const scalePages = [
@@ -794,6 +820,8 @@ export async function POST(
     }
     nextStudio.tool = "select";
     nextStudio.updatedAt = new Date().toISOString();
+    // Copy Set scale across sibling drawing pages Blake just marked.
+    nextStudio = fillMissingPageScalesFromDocument(nextStudio);
 
     const updated = updateTakeoffProject(id, { studio: nextStudio });
     const firstAi = nextStudio.geometries.find((geo) => geo.id.startsWith("ai-"));
@@ -809,7 +837,7 @@ export async function POST(
       const bits = [
         pinCount > 0 ? `${pinCount} fixture pin(s)` : null,
         pipeRunCount > 0
-          ? `${pipeRunCount} pipe run(s)${
+          ? `${pipeRunCount} coloured CAD pipe line(s)${
               hot.metres + cold.metres + waste.metres > 0
                 ? ` · ~${(hot.metres + cold.metres + waste.metres).toFixed(1)} m`
                 : ""
@@ -819,15 +847,25 @@ export async function POST(
         visionUsed && !pinCount && !pipeRunCount ? "vision estimate from the open sheet" : null,
         visionUsed && (pinCount > 0 || pipeRunCount > 0) && !visionPipeRuns.length ? "incl. vision assist" : null,
         scaled.appliedLabel ? `scale ${scaled.appliedLabel}` : null,
-        !scaled.appliedLabel && pipeRunCount > 0 ? "set scale to lock metres" : null,
+        !scaled.appliedLabel
+          && pipeRunCount > 0
+          && countUnscaledStudioLinears(nextStudio, "all") > 0
+          ? "set scale to lock metres on those pages"
+          : null,
+        !scaled.appliedLabel
+          && pipeRunCount > 0
+          && countUnscaledStudioLinears(nextStudio, "all") === 0
+          && nextStudio.scales.some((row) => row.metresPerUnit > 0)
+          ? "using your Set scale"
+          : null,
         learning.eventCount >= 2 ? "using your takeoff habits" : null,
       ].filter(Boolean);
       if (pinCount > 0 && pipeRunCount > 0) {
-        message = `Blake found ${bits.join(" · ")}. Pipe runs are already in the BOQ — Confirm fixture pins, then Push.`;
+        message = `Blake found ${bits.join(" · ")}. Coloured CAD lines are on the sheet (verify they match real pipes) — Confirm fixture pins, then Push.`;
       } else if (pinCount > 0) {
         message = `Blake found ${bits.join(" · ")}. Confirm or reject the fixture pins before Push.`;
       } else if (pipeRunCount > 0) {
-        message = `Blake found ${bits.join(" · ")}. Already on the sheet and in the BOQ — Edit to trim, then Push (no pin review needed).`;
+        message = `Blake found ${bits.join(" · ")}. These are coloured CAD strokes from the PDF, not your Length marks — Edit to trim, then Push.`;
       } else {
         message = `Blake found ${bits.join(" · ")}. Check the sheet and BOQ.`;
       }
