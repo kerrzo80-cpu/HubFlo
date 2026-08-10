@@ -6,16 +6,22 @@ import {
   FAULT_PRIORITY_LABELS,
   FAULT_STATUS_LABELS,
   FAULT_TYPE_LABELS,
+  customerStatusForInternal,
   formatFaultReference,
   isFaultPriority,
   isFaultStatus,
   isFaultType,
+  type CustomerFeedbackRequest,
+  type CustomerFeedbackStatus,
   type FaultActivity,
   type FaultComment,
+  type FaultDevelopmentBrief,
+  type FaultGithubLink,
   type FaultIssue,
   type FaultModule,
   type FaultPriority,
   type FaultStatus,
+  type FaultTestResult,
   type FaultType,
   type FaultsStore,
   type FaultVisibility,
@@ -24,20 +30,33 @@ import {
 export const FAULTS_STORE_NAME = "nexa-faults-v1";
 
 const defaultStore = (): FaultsStore => ({
-  version: 1,
+  version: 2,
   nextNumber: 1,
   modules: [...FAULT_MODULES],
   issues: [],
+  customerRequests: [],
 });
+
+function normalizeIssue(raw: FaultIssue): FaultIssue {
+  return {
+    ...raw,
+    promotedFromRequestIds: Array.isArray(raw.promotedFromRequestIds) ? raw.promotedFromRequestIds : [],
+    linkedRequestIds: Array.isArray(raw.linkedRequestIds) ? raw.linkedRequestIds : [],
+    testHistory: Array.isArray(raw.testHistory) ? raw.testHistory : [],
+    comments: Array.isArray(raw.comments) ? raw.comments : [],
+    activity: Array.isArray(raw.activity) ? raw.activity : [],
+  };
+}
 
 function readStore(): FaultsStore {
   const loaded = loadServerStore<FaultsStore>(FAULTS_STORE_NAME, defaultStore());
   if (!loaded || typeof loaded !== "object") return defaultStore();
   return {
-    version: 1,
+    version: 2,
     nextNumber: Math.max(1, Number(loaded.nextNumber) || 1),
     modules: Array.isArray(loaded.modules) && loaded.modules.length ? loaded.modules.map(String) : [...FAULT_MODULES],
-    issues: Array.isArray(loaded.issues) ? loaded.issues : [],
+    issues: Array.isArray(loaded.issues) ? loaded.issues.map((issue) => normalizeIssue(issue as FaultIssue)) : [],
+    customerRequests: Array.isArray(loaded.customerRequests) ? loaded.customerRequests : [],
   };
 }
 
@@ -69,15 +88,28 @@ export function listFaultModules() {
   return readStore().modules;
 }
 
-export function listFaultIssues() {
-  return [...readStore().issues].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+export function listFaultIssues(options?: { visibility?: FaultVisibility; companyId?: string }) {
+  let issues = [...readStore().issues].map(normalizeIssue).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  if (options?.visibility) issues = issues.filter((issue) => issue.visibility === options.visibility);
+  if (options?.companyId) {
+    issues = issues.filter(
+      (issue) => issue.sourceCompanyId === options.companyId || issue.visibility === "customer_feedback",
+    );
+  }
+  return issues;
+}
+
+export function listCustomerFeedbackRequests(companyId?: string) {
+  const rows = [...readStore().customerRequests].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  if (!companyId) return rows;
+  return rows.filter((row) => row.companyId === companyId);
 }
 
 export function getFaultIssue(idOrRef: string) {
   const key = idOrRef.trim();
-  return (
-    readStore().issues.find((issue) => issue.id === key || issue.reference.toLowerCase() === key.toLowerCase()) ?? null
-  );
+  const found =
+    readStore().issues.find((issue) => issue.id === key || issue.reference.toLowerCase() === key.toLowerCase()) ?? null;
+  return found ? normalizeIssue(found) : null;
 }
 
 export function createFaultIssue(input: {
@@ -98,6 +130,8 @@ export function createFaultIssue(input: {
   visibility?: FaultVisibility;
   developmentNotes?: string;
   testingNotes?: string;
+  aiDescription?: string;
+  customerStatus?: CustomerFeedbackStatus;
 }) {
   const description = String(input.description || "").trim();
   if (!description) throw new Error("description required");
@@ -119,16 +153,16 @@ export function createFaultIssue(input: {
   const priority: FaultPriority = isFaultPriority(input.priority) ? input.priority : "medium";
   const status: FaultStatus = isFaultStatus(input.status) ? input.status : "inbox";
   const moduleName = String(input.module || "Other").trim() || "Other";
-  if (!store.modules.includes(moduleName)) {
-    store.modules = [...store.modules, moduleName];
-  }
+  if (!store.modules.includes(moduleName)) store.modules = [...store.modules, moduleName];
 
   const createdAt = nowIso();
+  const visibility = input.visibility === "customer_feedback" ? "customer_feedback" : "internal";
   const issue: FaultIssue = {
     id: `fault-${randomUUID()}`,
     reference,
     title,
     originalDescription: description,
+    aiDescription: input.aiDescription,
     module: moduleName,
     type,
     priority,
@@ -143,8 +177,11 @@ export function createFaultIssue(input: {
     sourceRoute: input.sourceRoute,
     sourceCompanyId: input.sourceCompanyId,
     sourceCompanyName: input.sourceCompanyName,
-    visibility: input.visibility === "customer_feedback" ? "customer_feedback" : "internal",
+    visibility,
+    customerStatus: input.customerStatus || (visibility === "customer_feedback" ? "submitted" : undefined),
     promotedFromRequestIds: [],
+    linkedRequestIds: [],
+    testHistory: [],
     createdAt,
     updatedAt: createdAt,
     comments: [],
@@ -177,14 +214,20 @@ export function updateFaultIssue(
     sourcePage: string;
     sourceRoute: string;
     visibility: FaultVisibility;
+    customerStatus: CustomerFeedbackStatus;
+    developmentBrief: FaultDevelopmentBrief;
+    developmentTaskMarkdown: string;
+    github: FaultGithubLink;
+    buildVersion: string;
   }>,
   actor: { id?: string; name: string },
 ) {
   const store = readStore();
   const index = store.issues.findIndex((issue) => issue.id === id);
-  if (index < 0) throw new Error("Issue not found");
+  const existing = index >= 0 ? store.issues[index] : undefined;
+  if (!existing) throw new Error("Issue not found");
 
-  const current = store.issues[index];
+  const current = normalizeIssue(existing);
   const next: FaultIssue = { ...current };
   const events: FaultActivity[] = [];
   const actorName = actor.name || "NeXa user";
@@ -237,6 +280,9 @@ export function updateFaultIssue(
     next.status = patch.status;
     if (patch.status === "complete") next.completedAt = nowIso();
     if (current.status === "complete" && patch.status !== "complete") next.completedAt = undefined;
+    if (next.visibility === "customer_feedback" || next.customerStatus) {
+      next.customerStatus = customerStatusForInternal(patch.status);
+    }
     events.push(
       activity(
         actorName,
@@ -266,9 +312,28 @@ export function updateFaultIssue(
   }
   if (typeof patch.sourcePage === "string") next.sourcePage = patch.sourcePage;
   if (typeof patch.sourceRoute === "string") next.sourceRoute = patch.sourceRoute;
-  if (patch.visibility === "internal" || patch.visibility === "customer_feedback") {
-    next.visibility = patch.visibility;
+  if (patch.visibility === "internal" || patch.visibility === "customer_feedback") next.visibility = patch.visibility;
+  if (patch.customerStatus) next.customerStatus = patch.customerStatus;
+  if (patch.developmentBrief) {
+    next.developmentBrief = patch.developmentBrief;
+    events.push(activity(actorName, "brief_generated", "Development brief updated", { actorId: actor.id }));
   }
+  if (typeof patch.developmentTaskMarkdown === "string") {
+    next.developmentTaskMarkdown = patch.developmentTaskMarkdown;
+    events.push(activity(actorName, "sent_to_development", "Development task package prepared", { actorId: actor.id }));
+  }
+  if (patch.github) {
+    next.github = { ...next.github, ...patch.github };
+    if (patch.github.issueUrl) {
+      events.push(
+        activity(actorName, "github_synced", `Synced to GitHub${patch.github.issueNumber ? ` #${patch.github.issueNumber}` : ""}`, {
+          actorId: actor.id,
+          detail: patch.github.issueUrl,
+        }),
+      );
+    }
+  }
+  if (typeof patch.buildVersion === "string") next.buildVersion = patch.buildVersion;
 
   next.updatedAt = nowIso();
   next.activity = [...events, ...current.activity];
@@ -287,8 +352,9 @@ export function addFaultComment(
   if (!text) throw new Error("comment required");
   const store = readStore();
   const index = store.issues.findIndex((issue) => issue.id === id);
-  if (index < 0) throw new Error("Issue not found");
-  const current = store.issues[index];
+  const existing = index >= 0 ? store.issues[index] : undefined;
+  if (!existing) throw new Error("Issue not found");
+  const current = normalizeIssue(existing);
   const comment: FaultComment = {
     id: `cmt-${randomUUID()}`,
     at: nowIso(),
@@ -314,6 +380,206 @@ export function addFaultComment(
   return next;
 }
 
+export function recordFaultTestResult(
+  id: string,
+  input: {
+    result: "pass" | "fail";
+    note?: string;
+    buildVersion?: string;
+  },
+  actor: { id?: string; name: string },
+) {
+  const store = readStore();
+  const index = store.issues.findIndex((issue) => issue.id === id);
+  const existing = index >= 0 ? store.issues[index] : undefined;
+  if (!existing) throw new Error("Issue not found");
+  const current = normalizeIssue(existing);
+  if (input.result === "fail" && !String(input.note || "").trim()) {
+    throw new Error("FAIL requires a note explaining what failed");
+  }
+
+  const entry: FaultTestResult = {
+    id: `test-${randomUUID()}`,
+    at: nowIso(),
+    result: input.result,
+    testedById: actor.id,
+    testedByName: actor.name || "NeXa user",
+    note: input.note?.trim() || undefined,
+    buildVersion: input.buildVersion?.trim() || current.buildVersion,
+  };
+
+  const nextStatus: FaultStatus = input.result === "pass" ? "complete" : "in_progress";
+  const next: FaultIssue = {
+    ...current,
+    status: nextStatus,
+    testedByName: entry.testedByName,
+    testedAt: entry.at,
+    buildVersion: entry.buildVersion,
+    completedAt: input.result === "pass" ? entry.at : undefined,
+    testingNotes:
+      input.result === "fail"
+        ? [current.testingNotes, `FAIL: ${entry.note}`].filter(Boolean).join("\n\n")
+        : current.testingNotes,
+    customerStatus:
+      current.visibility === "customer_feedback" || current.customerStatus
+        ? customerStatusForInternal(nextStatus)
+        : current.customerStatus,
+    testHistory: [entry, ...current.testHistory],
+    updatedAt: entry.at,
+    activity: [
+      activity(
+        actor.name || "NeXa user",
+        input.result === "pass" ? "test_pass" : "test_fail",
+        input.result === "pass"
+          ? `${actor.name || "NeXa user"}: PASS — moved to Complete`
+          : `${actor.name || "NeXa user"}: FAIL — returned to In Progress`,
+        { actorId: actor.id, detail: entry.note, to: nextStatus },
+      ),
+      ...current.activity,
+    ],
+  };
+  store.issues[index] = next;
+  persist(store);
+  return next;
+}
+
+export function createCustomerFeedbackRequest(input: {
+  companyId?: string;
+  companyName: string;
+  title?: string;
+  description: string;
+  module?: FaultModule;
+  type?: FaultType;
+  reporterId?: string;
+  reporterName: string;
+  sourcePage?: string;
+  sourceRoute?: string;
+}) {
+  const description = String(input.description || "").trim();
+  if (!description) throw new Error("description required");
+  const store = readStore();
+  const createdAt = nowIso();
+  const request: CustomerFeedbackRequest = {
+    id: `fb-${randomUUID()}`,
+    companyId: input.companyId,
+    companyName: String(input.companyName || "Company").trim() || "Company",
+    title:
+      String(input.title || "").trim() ||
+      description.split(/[\n.!?]/).map((part) => part.trim()).find(Boolean)?.slice(0, 100) ||
+      "Customer feedback",
+    description,
+    module: input.module,
+    type: isFaultType(input.type) ? input.type : "improvement",
+    reporterId: input.reporterId,
+    reporterName: input.reporterName || "Customer",
+    customerStatus: "submitted",
+    sourcePage: input.sourcePage,
+    sourceRoute: input.sourceRoute,
+    createdAt,
+    updatedAt: createdAt,
+  };
+  store.customerRequests = [request, ...store.customerRequests];
+  persist(store);
+  return request;
+}
+
+export function promoteCustomerFeedbackToIssue(
+  requestId: string,
+  actor: { id?: string; name: string },
+  options?: { linkToIssueId?: string },
+) {
+  const store = readStore();
+  const requestIndex = store.customerRequests.findIndex((row) => row.id === requestId);
+  const request = requestIndex >= 0 ? store.customerRequests[requestIndex] : undefined;
+  if (!request) throw new Error("Customer request not found");
+
+  if (options?.linkToIssueId) {
+    const issueIndex = store.issues.findIndex((issue) => issue.id === options.linkToIssueId);
+    const existingIssue = issueIndex >= 0 ? store.issues[issueIndex] : undefined;
+    if (!existingIssue) throw new Error("Issue not found");
+    const issue = normalizeIssue(existingIssue);
+    const nextIssue: FaultIssue = {
+      ...issue,
+      linkedRequestIds: Array.from(new Set([...issue.linkedRequestIds, request.id])),
+      promotedFromRequestIds: Array.from(new Set([...issue.promotedFromRequestIds, request.id])),
+      updatedAt: nowIso(),
+      activity: [
+        activity(actor.name, "promoted", `Linked customer request from ${request.companyName}`, {
+          actorId: actor.id,
+          detail: request.title,
+        }),
+        ...issue.activity,
+      ],
+    };
+    store.issues[issueIndex] = nextIssue;
+    const linkedRequest: CustomerFeedbackRequest = {
+      ...request,
+      linkedIssueId: nextIssue.id,
+      linkedIssueReference: nextIssue.reference,
+      customerStatus: "planned",
+      updatedAt: nowIso(),
+    };
+    store.customerRequests[requestIndex] = linkedRequest;
+    persist(store);
+    return { issue: nextIssue, request: linkedRequest };
+  }
+
+  const issue = createFaultIssue({
+    title: request.title,
+    description: request.description,
+    module: request.module || "Other",
+    type: request.type || "improvement",
+    priority: "medium",
+    status: "inbox",
+    reporterId: request.reporterId,
+    reporterName: request.reporterName,
+    sourcePage: request.sourcePage,
+    sourceRoute: request.sourceRoute,
+    sourceCompanyId: request.companyId,
+    sourceCompanyName: request.companyName,
+    visibility: "internal",
+  });
+
+  // createFaultIssue persisted a new store — re-read and patch links
+  const refreshed = readStore();
+  const issueIndex = refreshed.issues.findIndex((row) => row.id === issue.id);
+  const reqIndex = refreshed.customerRequests.findIndex((row) => row.id === requestId);
+  const linkedIssueRaw = issueIndex >= 0 ? refreshed.issues[issueIndex] : undefined;
+  if (linkedIssueRaw) {
+    const linked = normalizeIssue(linkedIssueRaw);
+    refreshed.issues[issueIndex] = {
+      ...linked,
+      promotedFromRequestIds: [request.id],
+      linkedRequestIds: [request.id],
+      activity: [
+        activity(actor.name, "promoted", `Promoted from ${request.companyName} feedback`, {
+          actorId: actor.id,
+          detail: request.id,
+        }),
+        ...linked.activity,
+      ],
+    };
+  }
+  const existingRequest = reqIndex >= 0 ? refreshed.customerRequests[reqIndex] : undefined;
+  let finalRequest: CustomerFeedbackRequest = request;
+  if (existingRequest) {
+    finalRequest = {
+      ...existingRequest,
+      linkedIssueId: issue.id,
+      linkedIssueReference: issue.reference,
+      customerStatus: "planned",
+      updatedAt: nowIso(),
+    };
+    refreshed.customerRequests[reqIndex] = finalRequest;
+  }
+  persist(refreshed);
+  const finalIssueRaw = issueIndex >= 0 ? refreshed.issues[issueIndex] : undefined;
+  return {
+    issue: finalIssueRaw ? normalizeIssue(finalIssueRaw) : issue,
+    request: finalRequest,
+  };
+}
+
 export function deleteFaultIssue(id: string, actor: { id?: string; name: string }) {
   const store = readStore();
   const existing = store.issues.find((issue) => issue.id === id);
@@ -321,6 +587,52 @@ export function deleteFaultIssue(id: string, actor: { id?: string; name: string 
   store.issues = store.issues.filter((issue) => issue.id !== id);
   persist(store);
   return { ok: true as const, reference: existing.reference, deletedBy: actor.name };
+}
+
+export function buildDevelopmentTaskMarkdown(issue: FaultIssue) {
+  const brief = issue.developmentBrief;
+  const criteria = brief?.acceptanceCriteria?.length
+    ? brief.acceptanceCriteria.map((item) => `- [ ] ${item}`).join("\n")
+    : "- [ ] Reproduce the reported behaviour\n- [ ] Implement required behaviour\n- [ ] Verify on desktop and mobile";
+  return [
+    `# ${issue.reference} — ${issue.title}`,
+    "",
+    `**Module:** ${issue.module}`,
+    `**Type:** ${FAULT_TYPE_LABELS[issue.type]}`,
+    `**Priority:** ${FAULT_PRIORITY_LABELS[issue.priority]}`,
+    `**Status:** ${FAULT_STATUS_LABELS[issue.status]}`,
+    `**Reporter:** ${issue.reporterName}`,
+    issue.assignedToName ? `**Assigned:** ${issue.assignedToName}` : "",
+    "",
+    "## Issue",
+    brief?.issueSummary || issue.aiDescription || issue.title,
+    "",
+    "## Original report",
+    issue.originalDescription,
+    "",
+    "## Current behaviour",
+    brief?.currentBehaviour || "_To be confirmed_",
+    "",
+    "## Required behaviour",
+    brief?.requiredBehaviour || "_To be confirmed_",
+    "",
+    "## Steps to reproduce",
+    brief?.stepsToReproduce || issue.sourceRoute || "_Not provided_",
+    "",
+    "## Acceptance criteria",
+    criteria,
+    "",
+    "## Technical context",
+    brief?.technicalContext || `Source route: ${issue.sourceRoute || "n/a"} · Page: ${issue.sourcePage || "n/a"}`,
+    "",
+    "## Attachments",
+    brief?.attachmentsNote || `Use record-documents scope fault / ${issue.reference}`,
+    "",
+    "## Development notes",
+    issue.developmentNotes || "_None yet_",
+  ]
+    .filter((line) => line !== undefined)
+    .join("\n");
 }
 
 export function faultDashboardStats(issues = listFaultIssues()) {
@@ -348,5 +660,6 @@ export function faultDashboardStats(issues = listFaultIssues()) {
     waitingForTesting: waitingTest.length,
     completedRecent: completed,
     openByModule: byModule,
+    customerFeedbackOpen: listCustomerFeedbackRequests().filter((row) => row.customerStatus !== "completed").length,
   };
 }

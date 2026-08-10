@@ -3,13 +3,17 @@ import { describe, it } from "node:test";
 
 import {
   addFaultComment,
+  buildDevelopmentTaskMarkdown,
+  createCustomerFeedbackRequest,
   createFaultIssue,
   faultDashboardStats,
   getFaultIssue,
   listFaultIssues,
+  promoteCustomerFeedbackToIssue,
+  recordFaultTestResult,
   updateFaultIssue,
 } from "@/lib/faults-data";
-import { formatFaultReference } from "@/lib/faults-types";
+import { formatFaultReference, guessModuleFromRoute } from "@/lib/faults-types";
 
 describe("faults-data", () => {
   it("formats permanent NX references", () => {
@@ -78,5 +82,68 @@ describe("faults-data", () => {
     const stats = faultDashboardStats();
     assert.ok(stats.openFaults >= 1);
     assert.ok(typeof stats.openByModule.Field === "number" || typeof stats.openByModule.Core === "number");
+  });
+
+  it("guesses module from route for quick report capture", () => {
+    assert.equal(guessModuleFromRoute("/takeoffs"), "TakeOff");
+    assert.equal(guessModuleFromRoute("/field/jobs"), "Field");
+    assert.equal(guessModuleFromRoute("/setup"), "Setup / Admin");
+  });
+
+  it("PASS completes and FAIL returns to in progress with required note", () => {
+    const issue = createFaultIssue({
+      description: "Ready for test item",
+      module: "Core",
+      type: "fault",
+      reporterName: "Brian",
+      status: "ready_to_test",
+    });
+    assert.throws(
+      () => recordFaultTestResult(issue.id, { result: "fail" }, { name: "Tester" }),
+      /FAIL requires a note/,
+    );
+    const failed = recordFaultTestResult(
+      issue.id,
+      { result: "fail", note: "Still resets on back", buildVersion: "build-1" },
+      { name: "Tester" },
+    );
+    assert.equal(failed.status, "in_progress");
+    assert.equal(failed.testHistory[0]?.result, "fail");
+
+    const ready = updateFaultIssue(failed.id, { status: "ready_to_test" }, { name: "Dev" });
+    const passed = recordFaultTestResult(ready.id, { result: "pass", buildVersion: "build-2" }, { name: "Tester" });
+    assert.equal(passed.status, "complete");
+    assert.ok(passed.completedAt);
+    assert.equal(passed.testHistory[0]?.result, "pass");
+  });
+
+  it("promotes customer feedback into a permanent NX issue", () => {
+    const request = createCustomerFeedbackRequest({
+      companyName: "Acme Plumbing",
+      description: "Please add a date filter on invoices.",
+      reporterName: "Customer",
+      module: "Core",
+      type: "improvement",
+    });
+    const { issue, request: linked } = promoteCustomerFeedbackToIssue(request.id, { name: "Brian" });
+    assert.match(issue.reference, /^NX-\d{3,}$/);
+    assert.equal(linked?.linkedIssueReference, issue.reference);
+    assert.equal(linked?.customerStatus, "planned");
+    assert.deepEqual(issue.promotedFromRequestIds, [request.id]);
+    assert.ok(issue.activity.some((row) => row.kind === "promoted"));
+  });
+
+  it("builds a development task markdown package", () => {
+    const issue = createFaultIssue({
+      description: "Search box clears after opening a customer",
+      module: "Core",
+      type: "fault",
+      priority: "high",
+      reporterName: "Brian",
+    });
+    const md = buildDevelopmentTaskMarkdown(issue);
+    assert.match(md, new RegExp(issue.reference));
+    assert.match(md, /Acceptance criteria/i);
+    assert.match(md, /Search box clears/);
   });
 });

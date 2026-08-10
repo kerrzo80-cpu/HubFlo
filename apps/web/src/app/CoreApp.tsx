@@ -211,6 +211,10 @@ const FaultsPanel = dynamic(
   () => import("@/lib/FaultsPanel").then((mod) => mod.FaultsPanel),
   { ssr: false, loading: () => panelSkeleton("Loading faults…") },
 );
+const ReportFaultModal = dynamic(
+  () => import("@/components/ReportFaultModal").then((mod) => mod.ReportFaultModal),
+  { ssr: false },
+);
 const SetupConfigPanel = dynamic(
   () => import("@/lib/SetupExtraPanels").then((mod) => mod.SetupConfigPanel),
   { ssr: false, loading: () => panelSkeleton("Loading setup…") },
@@ -2486,7 +2490,7 @@ type LoginDraft = {
 
 type NexaAssistantAction = {
   id: string;
-  kind: "confirm_booking";
+  kind: "confirm_booking" | "confirm_fault_report";
   title: string;
   detail: string;
   confirmLabel: string;
@@ -8300,6 +8304,7 @@ export default function CoreApp() {
   const [sectionError, setSectionError] = useState<string | null>(null);
   const [sectionNotice, setSectionNotice] = useState<string | null>(null);
   const [nexaAssistantOpen, setNexaAssistantOpen] = useState(false);
+  const [reportFaultOpen, setReportFaultOpen] = useState(false);
   const [nexaAssistantDraft, setNexaAssistantDraft] = useState("");
   const [nexaAssistantBusy, setNexaAssistantBusy] = useState(false);
   const [buddyMemory, setBuddyMemory] = useState<BuddyMemory>(() => defaultBuddyMemory());
@@ -15145,6 +15150,8 @@ export default function CoreApp() {
         body: JSON.stringify({
           message,
           history,
+          sourceRoute: typeof window !== "undefined" ? window.location.pathname : undefined,
+          sourcePage: homeView,
           buddyContext: {
             ...buddyMemoryPrompt(buddyMemory),
             quoteWatch: selectedQuote
@@ -15212,7 +15219,9 @@ export default function CoreApp() {
         },
       ]);
       if (response.ok) {
-        if (result.assignment) {
+        if (action.kind === "confirm_fault_report") {
+          showNotice(result.reply || "Fault logged.");
+        } else if (result.assignment) {
           setJobSchedulePlans((current) => ({
             ...current,
             [result.assignment!.jobId]: [
@@ -15222,9 +15231,9 @@ export default function CoreApp() {
               `${first.startDate}T${first.startTime}`.localeCompare(`${second.startDate}T${second.startTime}`),
             ),
           }));
+          await refreshCoreWorkflowRecords();
+          showNotice("Live schedule updated by Blake.");
         }
-        await refreshCoreWorkflowRecords();
-        showNotice("Live schedule updated by Blake.");
       }
     } catch {
       setNexaAssistantMessages((current) => [
@@ -32657,6 +32666,16 @@ export default function CoreApp() {
         </div>
       </header>
 
+      <ReportFaultModal
+        open={reportFaultOpen}
+        onClose={() => setReportFaultOpen(false)}
+        requestHeaders={requestHeaders}
+        actorName={activeEmployee?.name ?? "NeXa user"}
+        sourceRoute={typeof window !== "undefined" ? window.location.pathname : `/${homeView}`}
+        sourcePage={homeView}
+        onCreated={(reference) => showNotice(`Added as ${reference}`)}
+      />
+
       <div className="buddy-dock" aria-live="polite">
         {nexaAssistantOpen ? (
           <aside className="buddy-panel" aria-label="Blake assistant">
@@ -32824,6 +32843,16 @@ export default function CoreApp() {
             </small>
           </aside>
         ) : null}
+        <button
+          className="report-fault-launcher"
+          type="button"
+          aria-label="Report a problem or suggest an improvement"
+          title="Report problem / suggest improvement"
+          onClick={() => setReportFaultOpen(true)}
+        >
+          <Bug size={18} />
+          <span>Report</span>
+        </button>
         <button
           className={nexaAssistantOpen ? `buddy-launcher active mood-${buddyMood}` : `buddy-launcher mood-${buddyMood}`}
           aria-label={nexaAssistantOpen ? "Close Blake" : "Open Blake"}

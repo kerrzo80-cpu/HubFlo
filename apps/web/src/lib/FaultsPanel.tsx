@@ -27,8 +27,8 @@ import {
 } from "@/lib/faults-types";
 
 type RequestHeaders = HeadersInit;
-type TabKey = "overview" | "notes" | "attachments" | "activity";
-type FolderKey = "open" | "inbox" | "development" | "testing" | "complete" | "all";
+type TabKey = "overview" | "notes" | "attachments" | "activity" | "workflow";
+type FolderKey = "open" | "inbox" | "development" | "testing" | "complete" | "feedback" | "all";
 
 type Stats = {
   openFaults: number;
@@ -36,6 +36,18 @@ type Stats = {
   inDevelopment: number;
   waitingForTesting: number;
   openByModule: Record<string, number>;
+  customerFeedbackOpen?: number;
+};
+
+type CustomerRequest = {
+  id: string;
+  companyName: string;
+  title: string;
+  description: string;
+  customerStatus: string;
+  linkedIssueReference?: string;
+  reporterName: string;
+  createdAt: string;
 };
 
 const OPEN_STATUSES = new Set<FaultStatus>([
@@ -95,6 +107,11 @@ export function FaultsPanel({
   const [draftType, setDraftType] = useState<FaultType>("fault");
   const [draftPriority, setDraftPriority] = useState<FaultPriority>("medium");
   const [commentDraft, setCommentDraft] = useState("");
+  const [failNote, setFailNote] = useState("");
+  const [buildVersion, setBuildVersion] = useState("");
+  const [customerRequests, setCustomerRequests] = useState<CustomerRequest[]>([]);
+  const [githubConfigured, setGithubConfigured] = useState(false);
+  const [taskMarkdown, setTaskMarkdown] = useState("");
 
   const selected = useMemo(
     () => issues.find((issue) => issue.id === selectedId) ?? null,
@@ -110,6 +127,8 @@ export function FaultsPanel({
       setIssues(Array.isArray(data.issues) ? data.issues : []);
       setModules(Array.isArray(data.modules) ? data.modules : []);
       setStats(data.stats || null);
+      setCustomerRequests(Array.isArray(data.customerRequests) ? data.customerRequests : []);
+      setGithubConfigured(Boolean(data.githubConfigured));
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "Could not load faults");
     } finally {
@@ -132,6 +151,7 @@ export function FaultsPanel({
       }
       if (folderKey === "testing" && issue.status !== "ready_to_test") return false;
       if (folderKey === "complete" && issue.status !== "complete" && issue.status !== "rejected") return false;
+      if (folderKey === "feedback") return false;
       if (filterModule !== "all" && issue.module !== filterModule) return false;
       if (filterType !== "all" && issue.type !== filterType) return false;
       if (filterPriority !== "all" && issue.priority !== filterPriority) return false;
@@ -187,6 +207,7 @@ export function FaultsPanel({
       priority: draftPriority,
       sourceRoute,
       sourcePage,
+      classifyWithAi: true,
     });
     if (data?.issue) {
       onNotice(`Added as ${data.issue.reference}`);
@@ -311,6 +332,7 @@ export function FaultsPanel({
               ["development", "Development"],
               ["testing", "Ready to test"],
               ["complete", "Complete"],
+              ["feedback", "Customer feedback"],
               ["all", "All"],
             ] as const
           ).map(([key, label]) => (
@@ -425,9 +447,44 @@ export function FaultsPanel({
 
       <div className={`faults-layout${selected ? " has-detail" : ""}`}>
         <div className="faults-list" aria-label="Backlog list">
-          {loading ? <p className="faults-hint">Loading backlog…</p> : null}
-          {!loading && !filtered.length ? <p className="faults-hint">No items match these filters.</p> : null}
-          {filtered.map((issue) => (
+          {folderKey === "feedback" ? (
+            <>
+              {!customerRequests.length ? <p className="faults-hint">No customer feedback waiting.</p> : null}
+              {customerRequests.map((request) => (
+                <div key={request.id} className="faults-row">
+                  <span className="faults-row-top">
+                    <b>{request.companyName}</b>
+                    <em>{request.customerStatus}</em>
+                  </span>
+                  <strong>{request.title}</strong>
+                  <p className="faults-hint">{request.description}</p>
+                  <span className="faults-row-meta">
+                    <span>{request.reporterName}</span>
+                    <span>{request.linkedIssueReference || "Not promoted"}</span>
+                  </span>
+                  {canTriage && !request.linkedIssueReference ? (
+                    <button
+                      type="button"
+                      className="primary-button"
+                      disabled={saving}
+                      onClick={() =>
+                        void postAction({ action: "promote-feedback", requestId: request.id }).then((data) => {
+                          if (data?.issue) onNotice(`Promoted to ${data.issue.reference}`);
+                        })
+                      }
+                    >
+                      Promote to NeXa Development
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+            </>
+          ) : null}
+          {folderKey !== "feedback" && loading ? <p className="faults-hint">Loading backlog…</p> : null}
+          {folderKey !== "feedback" && !loading && !filtered.length ? (
+            <p className="faults-hint">No items match these filters.</p>
+          ) : null}
+          {folderKey !== "feedback" && filtered.map((issue) => (
             <button
               key={issue.id}
               type="button"
@@ -473,6 +530,7 @@ export function FaultsPanel({
               {(
                 [
                   ["overview", "Overview"],
+                  ["workflow", "Workflow"],
                   ["notes", "Notes"],
                   ["attachments", "Attachments"],
                   ["activity", "Activity"],
@@ -483,7 +541,12 @@ export function FaultsPanel({
                   type="button"
                   role="tab"
                   className={tab === key ? "on" : ""}
-                  onClick={() => setTab(key)}
+                  onClick={() => {
+                    setTab(key);
+                    if (key === "workflow") {
+                      setTaskMarkdown(selected.developmentTaskMarkdown || selected.developmentBrief?.editableMarkdown || "");
+                    }
+                  }}
                 >
                   {label}
                 </button>
@@ -621,7 +684,146 @@ export function FaultsPanel({
                       <dd>{new Date(selected.completedAt).toLocaleString("en-GB")}</dd>
                     </div>
                   ) : null}
+                  {selected.linkedRequestIds?.length ? (
+                    <div>
+                      <dt>Linked customer requests</dt>
+                      <dd>{selected.linkedRequestIds.length}</dd>
+                    </div>
+                  ) : null}
                 </dl>
+              </div>
+            ) : null}
+
+            {tab === "workflow" && canTriage ? (
+              <div className="faults-detail-body">
+                <div className="faults-header-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={saving}
+                    onClick={() =>
+                      void postAction({ action: "generate-brief", id: selected.id }).then((data) => {
+                        if (data?.brief?.editableMarkdown) setTaskMarkdown(data.brief.editableMarkdown);
+                        if (data?.issue) onNotice("Development brief generated");
+                      })
+                    }
+                  >
+                    Generate development brief
+                  </button>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={saving}
+                    onClick={() =>
+                      void postAction({ action: "send-to-development", id: selected.id }).then((data) => {
+                        if (data?.developmentTaskMarkdown) setTaskMarkdown(data.developmentTaskMarkdown);
+                        if (data?.issue) onNotice("Development task ready");
+                      })
+                    }
+                  >
+                    Send to development
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={saving || !githubConfigured}
+                    title={githubConfigured ? "Sync to GitHub" : "Set GITHUB_TOKEN + GITHUB_FAULTS_REPO"}
+                    onClick={() =>
+                      void postAction({ action: "sync-github", id: selected.id }).then((data) => {
+                        if (data?.issue?.github?.issueUrl) onNotice(`GitHub: ${data.issue.github.issueUrl}`);
+                      })
+                    }
+                  >
+                    Sync GitHub
+                  </button>
+                </div>
+
+                {selected.status === "ready_to_test" ? (
+                  <div className="faults-block">
+                    <h4>Testing queue</h4>
+                    <label>
+                      Build / version
+                      <input value={buildVersion} onChange={(event) => setBuildVersion(event.target.value)} placeholder="Optional commit or build" />
+                    </label>
+                    <label>
+                      Fail note (required for FAIL)
+                      <textarea value={failNote} onChange={(event) => setFailNote(event.target.value)} rows={3} />
+                    </label>
+                    <div className="faults-header-actions">
+                      <button
+                        type="button"
+                        className="primary-button"
+                        disabled={saving}
+                        onClick={() =>
+                          void postAction({
+                            action: "test-result",
+                            id: selected.id,
+                            testResult: "pass",
+                            buildVersion,
+                          }).then((data) => {
+                            if (data?.issue) onNotice(`${data.issue.reference} PASS → Complete`);
+                          })
+                        }
+                      >
+                        PASS
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={saving}
+                        onClick={() =>
+                          void postAction({
+                            action: "test-result",
+                            id: selected.id,
+                            testResult: "fail",
+                            testNote: failNote,
+                            buildVersion,
+                          }).then((data) => {
+                            if (data?.issue) {
+                              setFailNote("");
+                              onNotice(`${data.issue.reference} FAIL → In Progress`);
+                            }
+                          })
+                        }
+                      >
+                        FAIL
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {selected.testHistory?.length ? (
+                  <div className="faults-block">
+                    <h4>Test history</h4>
+                    <ol className="faults-activity">
+                      {selected.testHistory.map((row) => (
+                        <li key={row.id}>
+                          <time>{new Date(row.at).toLocaleString("en-GB")}</time>
+                          <strong>
+                            {row.result.toUpperCase()} · {row.testedByName}
+                            {row.buildVersion ? ` · ${row.buildVersion}` : ""}
+                          </strong>
+                          {row.note ? <p>{row.note}</p> : null}
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                ) : null}
+
+                <label>
+                  Development task / brief
+                  <textarea
+                    value={taskMarkdown || selected.developmentBrief?.editableMarkdown || selected.developmentTaskMarkdown || ""}
+                    onChange={(event) => setTaskMarkdown(event.target.value)}
+                    rows={14}
+                    placeholder="Generate a brief or send to development to populate this package."
+                  />
+                </label>
+                {selected.github?.issueUrl ? (
+                  <p className="faults-hint">
+                    GitHub: <a href={selected.github.issueUrl}>{selected.github.issueUrl}</a>
+                  </p>
+                ) : null}
               </div>
             ) : null}
 
