@@ -3814,11 +3814,7 @@ a,
 
 .module-bar {
   align-items: center;
-  background:
-    linear-gradient(90deg, rgba(21, 127, 168, 0.05), transparent 28%, rgba(142, 116, 62, 0.05)),
-    rgba(255, 255, 255, 0.86);
-  backdrop-filter: saturate(160%) blur(12px);
-  -webkit-backdrop-filter: saturate(160%) blur(12px);
+  background: rgba(255, 255, 255, 0.86);
   border-bottom: 1px solid color-mix(in srgb, var(--nexa-brass, #8e743e) 18%, var(--line));
   box-shadow: 0 1px 0 rgba(16, 24, 40, 0.03);
   display: flex;
@@ -3836,6 +3832,26 @@ a,
   z-index: 10;
 }
 
+/* Glass sits on a pseudo layer so backdrop-filter does not become a
+   containing block for position:fixed / absolute submenu geometry. */
+.module-bar::before {
+  background:
+    linear-gradient(90deg, rgba(21, 127, 168, 0.05), transparent 28%, rgba(142, 116, 62, 0.05)),
+    transparent;
+  backdrop-filter: saturate(160%) blur(12px);
+  -webkit-backdrop-filter: saturate(160%) blur(12px);
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+
+.module-bar > * {
+  position: relative;
+  z-index: 1;
+}
+
 .module-bar-scroll {
   align-items: center;
   display: flex;
@@ -3848,6 +3864,12 @@ a,
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
+}
+
+/* While a submenu is open, stop the scroll strip clipping it downward. */
+.module-bar-scroll:has(.module-dropdown-host:hover),
+.module-bar-scroll:has(.module-dropdown-host:focus-within) {
+  overflow: visible;
 }
 
 .module-dropdown-host {
@@ -3869,11 +3891,11 @@ a,
   box-shadow: 0 10px 28px rgba(16, 31, 36, 0.16);
   display: none;
   gap: 2px;
-  left: var(--module-menu-left, 0);
+  left: 0;
   min-width: 180px;
   padding: 6px;
-  position: fixed;
-  top: var(--module-menu-top, 121px);
+  position: absolute;
+  top: calc(100% - 1px);
   z-index: 120;
 }
 
@@ -15815,6 +15837,160 @@ h1 {
   padding: 16px 18px 22px;
   display: grid;
   gap: 18px;
+}
+
+.timesheet-week-board-wrap {
+  display: grid;
+  gap: 14px;
+  padding: 16px 18px 22px;
+}
+
+.timesheet-week-hint {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.timesheet-week-cell {
+  border-radius: 12px !important;
+  gap: 8px;
+}
+
+.timesheet-week-cell.confirmed {
+  background: #f3faf6;
+  border-color: #b7dcc6;
+}
+
+.timesheet-day-track {
+  display: grid;
+  gap: 6px;
+  min-height: 44px;
+}
+
+.timesheet-hour-bar {
+  align-items: stretch;
+  background: linear-gradient(90deg, #2f7fad, #3d96c4);
+  border-radius: 10px;
+  color: #fff;
+  display: flex;
+  max-width: 100%;
+  min-height: 34px;
+  overflow: hidden;
+  position: relative;
+}
+
+.timesheet-hour-bar.confirmed {
+  background: linear-gradient(90deg, #2f8f5b, #45a86d);
+}
+
+.timesheet-hour-bar.active {
+  outline: 2px solid #17303d;
+  outline-offset: 1px;
+}
+
+.timesheet-hour-bar-main {
+  align-items: flex-start;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  flex: 1 1 auto;
+  gap: 1px;
+  min-width: 0;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.timesheet-hour-bar-main strong,
+.timesheet-hour-bar-main span {
+  font-size: 11px;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timesheet-hour-bar-handle {
+  background: rgba(255, 255, 255, 0.28);
+  cursor: ew-resize;
+  flex: 0 0 10px;
+  touch-action: none;
+}
+
+.timesheet-hour-bar-handle:hover,
+.timesheet-hour-bar-handle:focus-visible {
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.timesheet-day-confirm {
+  appearance: none;
+  background: #fff;
+  border: 1px solid #c5d4dc;
+  border-radius: 999px;
+  color: #24414e;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 8px;
+}
+
+.timesheet-day-confirm.done {
+  background: #e8f6ee;
+  border-color: #9ecfb3;
+  color: #1f6b45;
+}
+
+.timesheet-block-editor {
+  align-items: end;
+  background: #f7fafc;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(180px, 1.4fr) 120px minmax(180px, 1.2fr) auto;
+  padding: 14px 16px;
+}
+
+.timesheet-block-editor h3 {
+  font-size: 16px;
+  margin: 4px 0;
+}
+
+.timesheet-block-editor p {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.timesheet-block-editor label {
+  display: grid;
+  font-size: 11px;
+  font-weight: 700;
+  gap: 6px;
+  text-transform: uppercase;
+}
+
+.timesheet-block-editor input,
+.timesheet-block-editor select {
+  border: 1px solid #c5d4dc;
+  border-radius: 10px;
+  font: inherit;
+  height: 38px;
+  padding: 0 10px;
+  text-transform: none;
+}
+
+.timesheet-block-editor-actions {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 980px) {
+  .timesheet-block-editor {
+    grid-template-columns: 1fr;
+  }
 }
 
 .timesheet-review-workspace .tenders-table-wrap {

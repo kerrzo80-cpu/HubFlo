@@ -1719,6 +1719,7 @@ type JobDeliveryEvent = {
   plumberSignerName?: string;
   clientSignerName?: string;
   weekEnding?: string;
+  workDate?: string;
   labourTrade?: string;
   labourDaysJson?: string;
   labourRate?: string;
@@ -8239,6 +8240,10 @@ export default function CoreApp() {
     return monday.toISOString().slice(0, 10);
   });
   const [timesheetAdjustHours, setTimesheetAdjustHours] = useState<Record<string, string>>({});
+  const [timesheetHourOverrides, setTimesheetHourOverrides] = useState<Record<string, number>>({});
+  const [timesheetJobOverrides, setTimesheetJobOverrides] = useState<Record<string, string>>({});
+  const [timesheetActiveBlockKey, setTimesheetActiveBlockKey] = useState<string | null>(null);
+  const timesheetResizeRef = useRef<{ key: string; startX: number; startHours: number } | null>(null);
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>(defaultBusinessSettings);
   const [formTemplates, setFormTemplates] = useState<FormTemplate[]>(defaultFormTemplates);
   const [activeFormTemplateId, setActiveFormTemplateId] = useState(defaultFormTemplates[0]?.id ?? "");
@@ -13240,11 +13245,24 @@ export default function CoreApp() {
     return `${fmt(start)} – ${fmt(end)}`;
   }, [timesheetWeekEnd, timesheetWeekStart]);
 
+  const timesheetWeekDays = useMemo(
+    () =>
+      Array.from({ length: 7 }, (_, index) => {
+        const date = new Date(`${timesheetWeekStart}T12:00:00`);
+        date.setDate(date.getDate() + index);
+        return date.toISOString().slice(0, 10);
+      }),
+    [timesheetWeekStart],
+  );
+
   const payrollApprovedHours = useMemo(() => {
     const startMs = new Date(`${timesheetWeekStart}T00:00:00`).getTime();
     const endMs = new Date(`${timesheetWeekEnd}T23:59:59`).getTime();
     return jobDeliveryEvents.filter((event) => {
       if (event.kind !== "timesheet" || event.status !== "Approved") return false;
+      if (event.workDate) {
+        return event.workDate >= timesheetWeekStart && event.workDate <= timesheetWeekEnd;
+      }
       const at = new Date(event.createdAt).getTime();
       return Number.isFinite(at) && at >= startMs && at <= endMs;
     });
@@ -13688,6 +13706,58 @@ export default function CoreApp() {
       return [...plannedBookings, ...legacyBookings];
     },
     [jobSchedulePlans, jobs],
+  );
+
+  const timesheetWeekBlocks = useMemo(() => {
+    return scheduledJobs
+      .filter((booking) => booking.date >= timesheetWeekStart && booking.date <= timesheetWeekEnd)
+      .map((booking) => {
+        const key = `${booking.surveyor}|${booking.date}|${booking.id}`;
+        const jobId = timesheetJobOverrides[key] ?? booking.jobId;
+        const job = jobs.find((row) => row.id === jobId);
+        const hours = Math.max(
+          0.25,
+          timesheetHourOverrides[key] ??
+            (typeof booking.plannedHours === "number" && booking.plannedHours > 0
+              ? booking.plannedHours
+              : 1),
+        );
+        const confirmed = jobDeliveryEvents.some(
+          (event) =>
+            event.kind === "timesheet" &&
+            event.status === "Approved" &&
+            event.jobId === jobId &&
+            event.actor === booking.surveyor &&
+            (event.workDate === booking.date ||
+              (!event.workDate && event.createdAt?.slice(0, 10) === booking.date)),
+        );
+        return {
+          key,
+          bookingId: booking.id,
+          jobId,
+          jobRef: job?.ref ?? booking.ref,
+          customer: job?.customer ?? booking.customer ?? booking.customerName,
+          employeeName: booking.surveyor,
+          date: booking.date,
+          hours,
+          confirmed,
+          time: booking.time,
+        };
+      })
+      .sort((left, right) => left.time.localeCompare(right.time));
+  }, [
+    jobDeliveryEvents,
+    jobs,
+    scheduledJobs,
+    timesheetHourOverrides,
+    timesheetJobOverrides,
+    timesheetWeekEnd,
+    timesheetWeekStart,
+  ]);
+
+  const timesheetActiveBlock = useMemo(
+    () => timesheetWeekBlocks.find((block) => block.key === timesheetActiveBlockKey) ?? null,
+    [timesheetActiveBlockKey, timesheetWeekBlocks],
   );
 
   const dashboardScheduleEntries = useMemo(() => {
@@ -24973,6 +25043,120 @@ export default function CoreApp() {
     );
   }
 
+  function confirmTimesheetBlock(block: {
+    key: string;
+    jobId: string;
+    jobRef: string;
+    employeeName: string;
+    date: string;
+    hours: number;
+    confirmed: boolean;
+  }) {
+    const hours = Math.max(0.25, Math.round(block.hours * 100) / 100);
+    const hourlyRate = employeeHourlyRateByName.get(block.employeeName) ?? Number(fallbackLabourRateSetting.costRate);
+    const costValue = hours * hourlyRate;
+    const existing = jobDeliveryEvents.find(
+      (event) =>
+        event.kind === "timesheet" &&
+        event.jobId === block.jobId &&
+        event.actor === block.employeeName &&
+        event.workDate === block.date,
+    );
+    const eventId = existing?.id ?? `ts-week-${block.key}`;
+    setJobDeliveryEvents((current) => {
+      const nextEvent: JobDeliveryEvent = {
+        id: eventId,
+        jobId: block.jobId,
+        jobRef: block.jobRef,
+        kind: "timesheet",
+        actor: block.employeeName,
+        summary: `Week board confirm · ${block.date} · ${hours}h`,
+        createdAt: existing?.createdAt ?? new Date().toISOString(),
+        hours,
+        costValue,
+        status: "Approved",
+        source: "NeXa",
+        workDate: block.date,
+        weekEnding: timesheetWeekEnd,
+      };
+      if (existing) {
+        return current.map((row) => (row.id === existing.id ? { ...row, ...nextEvent } : row));
+      }
+      return [nextEvent, ...current];
+    });
+
+    setJobEstimateCostCentres((current) => {
+      const existingCentres = current[block.jobId] ?? [];
+      const job = jobs.find((row) => row.id === block.jobId);
+      const centres: EstimateCostCentre[] = existingCentres.length
+        ? existingCentres.map((centre) => ({ ...centre, labour: [...centre.labour], materials: [...centre.materials] }))
+        : job
+          ? makeDefaultEstimateCostCentres(job)
+          : [];
+      if (!centres.length) return current;
+      const target = centres[0];
+      if (!target) return current;
+      const labourLine: EstimateLabourLine = {
+        id: `labour-ts-${eventId}`,
+        role: `${block.employeeName} (timesheet ${block.date})`,
+        hours,
+        costRate: hourlyRate,
+        markupPercent: Number(fallbackLabourRateSetting.markupPercent) || 30,
+        rateSource: "manual",
+      };
+      return {
+        ...current,
+        [block.jobId]: [
+          {
+            ...target,
+            labour: [...target.labour.filter((line) => line.id !== labourLine.id), labourLine],
+          },
+          ...centres.slice(1),
+        ],
+      };
+    });
+
+    const job = jobs.find((row) => row.id === block.jobId);
+    if (job) {
+      const approvedHours =
+        jobDeliveryEvents
+          .filter(
+            (row) =>
+              row.jobId === block.jobId &&
+              row.kind === "timesheet" &&
+              (row.status === "Approved" || row.id === eventId),
+          )
+          .reduce((total, row) => total + (row.id === eventId ? hours : row.hours ?? 0), 0) || hours;
+      const plannedHours = Math.max(0, job.scheduledDurationHours ?? 0);
+      void persistJobPatch(block.jobId, {
+        actualDurationHours: approvedHours,
+        labourCostVariance: plannedHours > 0 ? approvedHours - plannedHours : undefined,
+      }).catch(() => undefined);
+    }
+
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "timesheet approved",
+      recordType: "job",
+      recordId: block.jobId,
+      summary: `${hours} hrs confirmed for ${block.employeeName} on ${block.date} → ${block.jobRef} (${currency(costValue)}).`,
+      source: "timesheet week board",
+      importance: "high",
+    });
+  }
+
+  function confirmTimesheetDay(employeeName: string, date: string) {
+    const blocks = timesheetWeekBlocks.filter(
+      (block) => block.employeeName === employeeName && block.date === date,
+    );
+    if (!blocks.length) {
+      showNotice("No scheduled hours for that engineer on this day.");
+      return;
+    }
+    for (const block of blocks) confirmTimesheetBlock(block);
+    showNotice(`Confirmed ${blocks.length} booking${blocks.length === 1 ? "" : "s"} for ${employeeName} on ${formatUkDate(date)}.`);
+  }
+
   function raiseSelectedJobVariation() {
     if (!selectedJob) return;
     const description = selectedJobDeliveryDraft.variationDescription.trim();
@@ -33185,22 +33369,7 @@ export default function CoreApp() {
               if (module.subItems?.length) {
                 const submenuItems = module.subItems;
                 return (
-                  <div
-                    key={module.label}
-                    className="module-dropdown-host"
-                    onMouseEnter={(event) => {
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      // Overlap by 1px so the pointer never drops :hover between trigger and menu.
-                      event.currentTarget.style.setProperty("--module-menu-top", `${Math.round(rect.bottom) - 1}px`);
-                      event.currentTarget.style.setProperty("--module-menu-left", `${Math.round(rect.left)}px`);
-                    }}
-                    onFocus={(event) => {
-                      const host = event.currentTarget;
-                      const rect = host.getBoundingClientRect();
-                      host.style.setProperty("--module-menu-top", `${Math.round(rect.bottom) - 1}px`);
-                      host.style.setProperty("--module-menu-left", `${Math.round(rect.left)}px`);
-                    }}
-                  >
+                  <div key={module.label} className="module-dropdown-host">
                     <button
                       type="button"
                       className={`${isActiveModule ? "module-link active" : "module-link"} module-dropdown-trigger`}
@@ -44512,7 +44681,7 @@ export default function CoreApp() {
                   </h2>
                   <p>
                     {schedulePane === "timesheets"
-                      ? "Approve, query or adjust engineer hours"
+                      ? "Week board — edit hours on the bars, fix the job if needed, then confirm the day to charge costs and send hours to Payroll"
                       : schedulePane === "payroll"
                         ? "Approved hours ready for payroll export"
                         : schedulePeriodLabel}
@@ -44532,7 +44701,7 @@ export default function CoreApp() {
                       type="button"
                       onClick={() => setSchedulePane("timesheets")}
                     >
-                      Timesheets{timesheetReviewJobs.length ? ` (${timesheetReviewJobs.length})` : ""}
+                      Timesheets{timesheetWeekBlocks.length ? ` (${timesheetWeekBlocks.length})` : ""}
                     </button>
                     <button
                       className={schedulePane === "payroll" ? "active" : ""}
@@ -44566,184 +44735,271 @@ export default function CoreApp() {
                     <input type="date" value={scheduleDate} onChange={(event) => setScheduleDate(event.target.value)} />
                   </label>
                     </>
+                  ) : schedulePane === "timesheets" || schedulePane === "payroll" ? (
+                    <>
+                      <div className="scheduler-period-nav">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const date = new Date(`${timesheetWeekStart}T12:00:00`);
+                            date.setDate(date.getDate() - 7);
+                            setTimesheetWeekStart(date.toISOString().slice(0, 10));
+                          }}
+                          title="Previous week"
+                          aria-label="Previous week"
+                        >
+                          <ChevronLeft size={16} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const today = new Date();
+                            const day = today.getDay();
+                            const mondayOffset = day === 0 ? -6 : 1 - day;
+                            const monday = new Date(today);
+                            monday.setDate(today.getDate() + mondayOffset);
+                            setTimesheetWeekStart(monday.toISOString().slice(0, 10));
+                          }}
+                        >
+                          This week
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const date = new Date(`${timesheetWeekStart}T12:00:00`);
+                            date.setDate(date.getDate() + 7);
+                            setTimesheetWeekStart(date.toISOString().slice(0, 10));
+                          }}
+                          title="Next week"
+                          aria-label="Next week"
+                        >
+                          <ChevronRight size={16} />
+                        </button>
+                      </div>
+                      <label className="scheduler-date-picker">
+                        <CalendarDays size={15} />
+                        <input
+                          type="date"
+                          value={timesheetWeekStart}
+                          onChange={(event) => {
+                            const raw = event.target.value;
+                            if (!raw) return;
+                            const date = new Date(`${raw}T12:00:00`);
+                            const day = date.getDay();
+                            const mondayOffset = day === 0 ? -6 : 1 - day;
+                            date.setDate(date.getDate() + mondayOffset);
+                            setTimesheetWeekStart(date.toISOString().slice(0, 10));
+                          }}
+                        />
+                      </label>
+                    </>
                   ) : null}
                 </div>
               </div>
 
               {schedulePane === "timesheets" ? (
-                <section className="tenders-workspace timesheet-review-workspace" aria-label="Timesheets to review">
-                  <div className="timesheet-week-picker">
-                    <label>
-                      Week commencing
-                      <input
-                        type="date"
-                        value={timesheetWeekStart}
-                        onChange={(event) => {
-                          const raw = event.target.value;
-                          if (!raw) return;
-                          const date = new Date(`${raw}T12:00:00`);
-                          const day = date.getDay();
-                          const mondayOffset = day === 0 ? -6 : 1 - day;
-                          date.setDate(date.getDate() + mondayOffset);
-                          setTimesheetWeekStart(date.toISOString().slice(0, 10));
-                        }}
-                      />
-                    </label>
-                    <span>{timesheetWeekLabel}</span>
-                  </div>
+                <section className="timesheet-week-board-wrap" aria-label="Timesheet week board">
+                  <p className="timesheet-week-hint">
+                    {timesheetWeekLabel} · Click a bar to edit · Drag the right edge to change hours · Confirm the day to charge
+                    labour and push hours to Payroll — stay on this board (no job hop).
+                  </p>
 
-                  <div className="tenders-metric-row">
-                    <article>
-                      <span>Awaiting decision</span>
-                      <strong>{pendingTimesheetApprovals.length}</strong>
-                    </article>
-                    <article>
-                      <span>Overdue (no sheet)</span>
-                      <strong>{overdueTimesheetJobs.length}</strong>
-                    </article>
-                    <article>
-                      <span>Approved this week</span>
-                      <strong>{payrollApprovedHours.length}</strong>
-                    </article>
-                  </div>
-
-                  <div className="tenders-table-wrap">
-                    <header className="timesheet-review-section-head">
-                      <strong>Submitted for approval</strong>
-                      <span>Click a row to open the job · Approve charges labour to the job and queues hours for Payroll</span>
-                    </header>
-                    {pendingTimesheetApprovals.length === 0 ? (
-                      <p className="tenders-hint">No timesheets waiting for office approval.</p>
-                    ) : (
-                      <table className="tenders-table">
-                        <thead>
-                          <tr>
-                            <th>Job</th>
-                            <th>Engineer</th>
-                            <th>Submitted</th>
-                            <th>Hours</th>
-                            <th>Status</th>
-                            <th />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {pendingTimesheetApprovals.map((event) => {
-                            const hoursValue =
-                              timesheetAdjustHours[event.id] ??
-                              (event.hours != null ? String(event.hours) : "");
-                            return (
-                              <tr
-                                key={event.id}
-                                className="timesheet-row-clickable"
-                                onClick={() => {
-                                  setSelectedJobId(event.jobId);
-                                  setHomeView("job-record");
-                                }}
-                              >
-                                <td>
-                                  <strong>{event.jobRef}</strong>
-                                  <small className="timesheet-review-summary">{event.summary}</small>
-                                </td>
-                                <td>{event.actor || "—"}</td>
-                                <td>{event.createdAt || "—"}</td>
-                                <td onClick={(clickEvent) => clickEvent.stopPropagation()}>
-                                  <label className="timesheet-hours-adjust">
-                                    <span className="sr-only">Adjust hours</span>
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      step="0.25"
-                                      inputMode="decimal"
-                                      value={hoursValue}
-                                      onChange={(changeEvent) => {
-                                        const value = changeEvent.target.value;
-                                        setTimesheetAdjustHours((current) => ({
-                                          ...current,
-                                          [event.id]: value,
-                                        }));
-                                      }}
-                                      aria-label={`Hours for ${event.jobRef}`}
-                                    />
-                                    <em>hrs</em>
-                                  </label>
-                                </td>
-                                <td>
-                                  <span className={`status-pill ${event.status === "Queried" ? "amber" : "blue"}`}>
-                                    {event.status || "Submitted"}
-                                  </span>
-                                </td>
-                                <td onClick={(clickEvent) => clickEvent.stopPropagation()}>
-                                  <span className="directory-inline-actions timesheet-review-actions">
-                                    <button
-                                      className="primary-button"
-                                      type="button"
-                                      onClick={() => reviewJobTimesheet(event.id, "Approved")}
-                                    >
-                                      Approve
-                                    </button>
-                                    <button
-                                      className="secondary-button"
-                                      type="button"
-                                      onClick={() => reviewJobTimesheet(event.id, "Queried")}
-                                    >
-                                      Query
-                                    </button>
-                                    <button
-                                      className="secondary-button"
-                                      type="button"
-                                      onClick={() => reviewJobTimesheet(event.id, "Rejected")}
-                                    >
-                                      Reject
-                                    </button>
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-
-                  <div className="tenders-table-wrap">
-                    <header className="timesheet-review-section-head">
-                      <strong>Overdue — no timesheet yet</strong>
-                      <span>Click a row to open the job and chase hours</span>
-                    </header>
-                    {overdueTimesheetJobs.length === 0 ? (
-                      <p className="tenders-hint">Nothing overdue right now.</p>
-                    ) : (
-                      <table className="tenders-table">
-                        <thead>
-                          <tr>
-                            <th>Job</th>
-                            <th>Customer</th>
-                            <th>Engineer</th>
-                            <th>Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {overdueTimesheetJobs.map((job) => (
-                            <tr
-                              key={job.id}
-                              className="timesheet-row-clickable"
-                              onClick={() => {
-                                setSelectedJobId(job.id);
-                                setHomeView("job-record");
-                              }}
+                  <div className="timesheet-week-board scheduler-week-board">
+                    <div className="scheduler-week-row scheduler-week-head">
+                      <span>Engineer</span>
+                      {timesheetWeekDays.map((day) => (
+                        <time key={day}>
+                          {formatScheduleDate(day, { weekday: "short", day: "numeric", month: "short" })}
+                        </time>
+                      ))}
+                    </div>
+                    {schedulerDiaryPeople.map((engineer) => (
+                      <div className="scheduler-week-row timesheet-week-row" key={engineer}>
+                        <header>
+                          <strong>{engineer}</strong>
+                          <span>Week hours</span>
+                        </header>
+                        {timesheetWeekDays.map((day) => {
+                          const blocks = timesheetWeekBlocks.filter(
+                            (block) => block.employeeName === engineer && block.date === day,
+                          );
+                          const dayHours = blocks.reduce((total, block) => total + block.hours, 0);
+                          const allConfirmed = blocks.length > 0 && blocks.every((block) => block.confirmed);
+                          return (
+                            <section
+                              className={
+                                allConfirmed
+                                  ? "scheduler-week-cell timesheet-week-cell confirmed"
+                                  : "scheduler-week-cell timesheet-week-cell"
+                              }
+                              key={day}
                             >
-                              <td>
-                                <strong>{job.ref}</strong>
-                              </td>
-                              <td>{job.customer}</td>
-                              <td>{job.manager || "—"}</td>
-                              <td>{job.status}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
+                              <small>
+                                {blocks.length
+                                  ? `${dayHours.toFixed(dayHours % 1 ? 2 : 0)}h`
+                                  : "No schedule"}
+                              </small>
+                              <div className="timesheet-day-track" aria-label={`${engineer} on ${day}`}>
+                                {blocks.map((block) => {
+                                  const widthPct = Math.min(100, Math.max(12, (block.hours / 10) * 100));
+                                  return (
+                                    <div
+                                      key={block.key}
+                                      className={
+                                        timesheetActiveBlockKey === block.key
+                                          ? `timesheet-hour-bar active${block.confirmed ? " confirmed" : ""}`
+                                          : `timesheet-hour-bar${block.confirmed ? " confirmed" : ""}`
+                                      }
+                                      style={{ width: `${widthPct}%` }}
+                                      title={`${block.jobRef} · ${block.hours}h · ${block.customer}`}
+                                    >
+                                      <button
+                                        type="button"
+                                        className="timesheet-hour-bar-main"
+                                        onClick={() => setTimesheetActiveBlockKey(block.key)}
+                                      >
+                                        <strong>{block.jobRef}</strong>
+                                        <span>{block.hours}h</span>
+                                      </button>
+                                      <span
+                                        className="timesheet-hour-bar-handle"
+                                        role="slider"
+                                        aria-label={`Resize hours for ${block.jobRef}`}
+                                        aria-valuemin={0.25}
+                                        aria-valuemax={12}
+                                        aria-valuenow={block.hours}
+                                        tabIndex={0}
+                                        onPointerDown={(event) => {
+                                          event.preventDefault();
+                                          event.stopPropagation();
+                                          (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+                                          timesheetResizeRef.current = {
+                                            key: block.key,
+                                            startX: event.clientX,
+                                            startHours: block.hours,
+                                          };
+                                        }}
+                                        onPointerMove={(event) => {
+                                          const drag = timesheetResizeRef.current;
+                                          if (!drag || drag.key !== block.key) return;
+                                          const deltaHours = (event.clientX - drag.startX) / 36;
+                                          const next = Math.max(
+                                            0.25,
+                                            Math.min(12, Math.round((drag.startHours + deltaHours) * 4) / 4),
+                                          );
+                                          setTimesheetHourOverrides((current) => ({
+                                            ...current,
+                                            [block.key]: next,
+                                          }));
+                                        }}
+                                        onPointerUp={() => {
+                                          timesheetResizeRef.current = null;
+                                        }}
+                                        onPointerCancel={() => {
+                                          timesheetResizeRef.current = null;
+                                        }}
+                                      />
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              {blocks.length ? (
+                                <button
+                                  type="button"
+                                  className={allConfirmed ? "timesheet-day-confirm done" : "timesheet-day-confirm"}
+                                  onClick={() => confirmTimesheetDay(engineer, day)}
+                                >
+                                  {allConfirmed ? "Confirmed" : "Confirm day"}
+                                </button>
+                              ) : null}
+                            </section>
+                          );
+                        })}
+                      </div>
+                    ))}
                   </div>
+
+                  {timesheetActiveBlock ? (
+                    <aside className="timesheet-block-editor" aria-label="Edit timesheet bar">
+                      <div>
+                        <span className="permission-heading">Edit hours</span>
+                        <h3>
+                          {timesheetActiveBlock.employeeName} ·{" "}
+                          {formatScheduleDate(timesheetActiveBlock.date, {
+                            weekday: "short",
+                            day: "numeric",
+                            month: "short",
+                          })}
+                        </h3>
+                        <p>Change hours or the job here — confirming posts labour cost and payroll hours.</p>
+                      </div>
+                      <label>
+                        Hours
+                        <input
+                          type="number"
+                          min="0.25"
+                          max="12"
+                          step="0.25"
+                          value={timesheetActiveBlock.hours}
+                          onChange={(event) => {
+                            const value = Number(event.target.value);
+                            if (!Number.isFinite(value)) return;
+                            setTimesheetHourOverrides((current) => ({
+                              ...current,
+                              [timesheetActiveBlock.key]: Math.max(0.25, Math.min(12, value)),
+                            }));
+                          }}
+                        />
+                      </label>
+                      <label>
+                        Job
+                        <select
+                          value={timesheetActiveBlock.jobId}
+                          onChange={(event) => {
+                            setTimesheetJobOverrides((current) => ({
+                              ...current,
+                              [timesheetActiveBlock.key]: event.target.value,
+                            }));
+                          }}
+                        >
+                          {jobs
+                            .filter(
+                              (job) =>
+                                job.id === timesheetActiveBlock.jobId ||
+                                ["Scheduled", "In progress", "Waiting on parts", "Approval required", "Complete"].includes(
+                                  job.status,
+                                ),
+                            )
+                            .map((job) => (
+                              <option key={job.id} value={job.id}>
+                                {job.ref} — {job.customer}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                      <div className="timesheet-block-editor-actions">
+                        <button
+                          type="button"
+                          className="primary-button"
+                          onClick={() => {
+                            confirmTimesheetBlock(timesheetActiveBlock);
+                            showNotice(
+                              `Confirmed ${timesheetActiveBlock.hours}h on ${timesheetActiveBlock.jobRef} for ${timesheetActiveBlock.employeeName}.`,
+                            );
+                          }}
+                        >
+                          Confirm hours
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => setTimesheetActiveBlockKey(null)}
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </aside>
+                  ) : null}
                 </section>
               ) : schedulePane === "payroll" ? (
                 <section className="tenders-workspace timesheet-review-workspace" aria-label="Payroll hours">
@@ -44767,8 +45023,8 @@ export default function CoreApp() {
                     <span>{timesheetWeekLabel}</span>
                   </div>
                   <p className="payroll-stub-note">
-                    Payroll stub: approved timesheet hours for the selected week land here after office approval.
-                    Full export / payroll provider sync comes next — for now review totals and open the job if needed.
+                    Approved hours from the Timesheets week board land here after Confirm day / Confirm hours.
+                    Provider export (Xero / payroll file) comes next — review totals on this board for now.
                   </p>
                   <div className="tenders-metric-row">
                     <article>
