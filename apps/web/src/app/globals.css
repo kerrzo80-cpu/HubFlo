@@ -15350,6 +15350,26 @@ h1 {
   font: inherit;
   min-height: 36px;
   padding: 6px 10px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.simpro-summary-block .site-address-line {
+  margin: 0;
+  color: #4d6672;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.simpro-summary-block .site-address-line strong {
+  display: block;
+  color: #173949;
+  font-weight: 700;
+  margin-bottom: 2px;
 }
 
 .simpro-summary-actions {

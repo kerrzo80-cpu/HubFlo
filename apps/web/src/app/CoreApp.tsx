@@ -36256,7 +36256,7 @@ export default function CoreApp() {
                         </div>
                         {selectedQuoteClient ? (
                           <label className="full-field">
-                            Linked site
+                            Site address
                             <select
                               value={siteSelectionValueForForm(
                                 selectedQuoteClient,
@@ -36277,17 +36277,19 @@ export default function CoreApp() {
                                 .filter((site) => site.clientId === selectedQuoteClient.id)
                                 .map((site) => (
                                   <option key={site.id} value={site.id}>
-                                    {site.name} - {site.address}
+                                    {site.name} — {site.address}
                                   </option>
                                 ))}
                               <option value={CLIENT_SITE_NEW}>+ New site address</option>
                             </select>
                           </label>
                         ) : null}
-                        <dl>
-                          <div><dt>Site</dt><dd>{selectedQuoteSite?.name ?? "Site to confirm"}</dd></div>
-                          <div><dt>Address</dt><dd>{selectedQuoteSite?.address ?? "Address to confirm"}</dd></div>
-                        </dl>
+                        <p className="site-address-line">
+                          <strong>{selectedQuoteSite?.name || "Site"}</strong>
+                          {selectedQuoteSite?.address
+                            || selectedQuoteClient?.billingAddress
+                            || "No site address yet — pick one above or add a new site."}
+                        </p>
                       </section>
                       <section className="simpro-summary-block">
                         <div className="simpro-summary-block-head">
@@ -39361,7 +39363,7 @@ export default function CoreApp() {
                         </div>
                         {selectedJobClient ? (
                           <label className="full-field">
-                            Linked site
+                            Site address
                             <select
                               value={siteSelectionValueForForm(
                                 selectedJobClient,
@@ -39382,17 +39384,24 @@ export default function CoreApp() {
                                 .filter((site) => site.clientId === selectedJobClient.id)
                                 .map((site) => (
                                   <option key={site.id} value={site.id}>
-                                    {site.name} - {site.address}
+                                    {site.name} — {site.address}
                                   </option>
                                 ))}
                               <option value={CLIENT_SITE_NEW}>+ New site address</option>
                             </select>
                           </label>
                         ) : null}
-                        <dl>
-                          <div><dt>Site</dt><dd>{selectedJobSite?.name ?? selectedJob.site ?? "Site to confirm"}</dd></div>
-                          <div><dt>Address</dt><dd>{selectedJobSite?.address ?? selectedJob.site ?? "Address to confirm"}</dd></div>
-                        </dl>
+                        <p className="site-address-line">
+                          <strong>
+                            {selectedJobSite?.name
+                              || (selectedJob.site && selectedJob.site !== selectedJobSite?.address ? selectedJob.site : null)
+                              || "Site"}
+                          </strong>
+                          {selectedJobSite?.address
+                            || (selectedJob.site && selectedJob.site !== selectedJobSite?.name ? selectedJob.site : null)
+                            || selectedJobClient?.billingAddress
+                            || "No site address yet — pick one above or add a new site."}
+                        </p>
                       </section>
                       <section className="simpro-summary-block">
                         <div className="simpro-summary-block-head">
@@ -44181,7 +44190,7 @@ export default function CoreApp() {
                         </div>
                         {selectedLeadClient ? (
                           <label className="full-field">
-                            Linked site
+                            Site address
                             <select
                               value={siteSelectionValueForForm(
                                 selectedLeadClient,
@@ -44202,20 +44211,37 @@ export default function CoreApp() {
                                 .filter((site) => site.clientId === selectedLeadClient.id)
                                 .map((site) => (
                                   <option key={site.id} value={site.id}>
-                                    {site.name} - {site.address}
+                                    {site.name} — {site.address}
                                   </option>
                                 ))}
                               <option value={CLIENT_SITE_NEW}>+ New site address</option>
                             </select>
                           </label>
                         ) : null}
-                        <dl>
-                          <div><dt>Site</dt><dd>{selectedLeadSite?.name ?? (selectedLead.addressParts?.line1 || "Site to confirm")}</dd></div>
-                          <div><dt>Address</dt><dd>{selectedLeadSite?.address ?? selectedLead.addressParts?.line1 ?? selectedLead.address}</dd></div>
-                          <div><dt>Town / Suburb</dt><dd>{selectedLead.addressParts?.town || "—"}</dd></div>
-                          <div><dt>County / State</dt><dd>{selectedLead.addressParts?.county || "—"}</dd></div>
-                          <div><dt>Postal code</dt><dd>{selectedLead.addressParts?.postcode || "—"}</dd></div>
-                        </dl>
+                        <p className="site-address-line">
+                          <strong>
+                            {selectedLeadSite?.name || selectedLead.addressParts?.line1 || "Site"}
+                          </strong>
+                          {selectedLeadSite?.address
+                            || selectedLead.addressParts?.line1
+                            || selectedLead.address
+                            || "No site address yet — pick one above or add a new site."}
+                        </p>
+                        {(selectedLead.addressParts?.town
+                          || selectedLead.addressParts?.county
+                          || selectedLead.addressParts?.postcode) ? (
+                          <dl>
+                            {selectedLead.addressParts?.town ? (
+                              <div><dt>Town / Suburb</dt><dd>{selectedLead.addressParts.town}</dd></div>
+                            ) : null}
+                            {selectedLead.addressParts?.county ? (
+                              <div><dt>County / State</dt><dd>{selectedLead.addressParts.county}</dd></div>
+                            ) : null}
+                            {selectedLead.addressParts?.postcode ? (
+                              <div><dt>Postal code</dt><dd>{selectedLead.addressParts.postcode}</dd></div>
+                            ) : null}
+                          </dl>
+                        ) : null}
                       </section>
                       <section className="simpro-summary-block">
                         <div className="simpro-summary-block-head">

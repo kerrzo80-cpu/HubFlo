@@ -117,12 +117,23 @@ async function callStructuredJson(
   }
 }
 
+export function classifyFaultReportSync(input: {
+  description: string;
+  sourceRoute?: string;
+  sourcePage?: string;
+}): FaultAiClassifyResult {
+  return heuristicClassify(input);
+}
+
 export async function classifyFaultReport(input: {
   description: string;
   sourceRoute?: string;
   sourcePage?: string;
+  /** Blake confirm drafts should stay instant — skip OpenAI so Core never hangs on report. */
+  skipAi?: boolean;
 }): Promise<FaultAiClassifyResult> {
   const fallback = heuristicClassify(input);
+  if (input.skipAi) return fallback;
   try {
     const parsed = await callStructuredJson(
       "You structure NeXa product fault/improvement reports. Keep important detail. Never invent evidence.",

@@ -1,6 +1,6 @@
 import { appendAuditEvent, getClients } from "@/lib/people-data";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
-import { classifyFaultReport } from "@/lib/faults-ai";
+import { classifyFaultReportSync } from "@/lib/faults-ai";
 import { createFaultIssue } from "@/lib/faults-data";
 import { guessModuleFromRoute, type FaultPriority, type FaultType } from "@/lib/faults-types";
 import { getLeads } from "@/lib/lead-store";
@@ -792,7 +792,9 @@ async function handleFaultReportMessage(
   actor: { id: string; name: string },
   options: { sourceRoute?: string; sourcePage?: string } = {},
 ): Promise<NexaAssistantResponse> {
-  const classified = await classifyFaultReport({
+  // Keep this local/heuristic so "Report a problem" never waits on OpenAI
+  // (live was timing out / 502ing while classifying).
+  const classified = classifyFaultReportSync({
     description: message,
     sourceRoute: options.sourceRoute,
     sourcePage: options.sourcePage,
@@ -840,7 +842,7 @@ async function handleFaultReportMessage(
       detail: `${classified.module} · ${classified.type} · ${classified.priority}`,
       confirmLabel: "Add to Faults",
     },
-    aiUsed: classified.aiUsed,
+    aiUsed: false,
   };
 }
 
