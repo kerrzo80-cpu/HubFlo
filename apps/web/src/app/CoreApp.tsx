@@ -12420,6 +12420,13 @@ export default function CoreApp() {
         items: wonMonth,
       },
       {
+        key: "lost",
+        label: "Lost",
+        detail: "Quotes marked lost or auto-archived with no response",
+        tone: "red",
+        items: filteredQuotes.filter((quote) => quote.status === "Lost"),
+      },
+      {
         key: "archived",
         label: "Archived",
         detail: "Lost, declined or already converted",
@@ -31850,7 +31857,6 @@ export default function CoreApp() {
       });
     const actionTotal = actionNotificationCards.reduce((total, card) => total + card.count, 0);
     const asOf = currentOperatingDate;
-    const upcomingDueNow = upcomingJobsNext4Weeks.filter((row) => row.nextDueDate <= asOf).length;
     const upcomingPreview = upcomingJobsNext4Weeks.slice(0, 6);
 
     function openJobsFolder(folderKey: "pending" | "progress" | "review" | "uninvoiced" | "timesheets" | "daywork" | "health-on-track" | "health-attention" | "health-blocked") {
@@ -31959,11 +31965,6 @@ export default function CoreApp() {
         <div className="nexa-kpi-card-scroll">
           <div className="nexa-kpi-metric">
             <strong>{upcomingJobsNext4Weeks.length}</strong>
-            <span>
-              {upcomingDueNow > 0
-                ? `${upcomingDueNow} due now · scheduled + recurring next 4 weeks`
-                : "scheduled + recurring in next 4 weeks"}
-            </span>
           </div>
           <div className="nexa-kpi-bars">
             {upcomingPreview.length > 0 ? (
@@ -32113,10 +32114,29 @@ export default function CoreApp() {
                 tone === "amber" ? "health-attention" : tone === "red" ? "health-blocked" : "health-on-track",
               );
             }}
-            onOpenQuotes={() => setHomeView("quotes")}
+            onOpenQuotes={() => {
+              setActiveQuoteFolderKey("all");
+              setHomeView("quotes");
+            }}
+            onOpenQuoteStatus={(status) => {
+              const folderKey =
+                status === "Draft"
+                  ? "incomplete"
+                  : status === "Sent"
+                    ? "sent"
+                    : status === "Lost"
+                      ? "lost"
+                      : status === "Accepted"
+                        ? "won-month"
+                        : "archived";
+              openQuotesFolder(folderKey);
+            }}
             onOpenWonQuotes={() => openQuotesFolder("won-month")}
             onOpenOpenQuotes={() => openQuotesFolder("open-window")}
-            onOpenLeads={() => setHomeView("leads")}
+            onOpenLeads={() => {
+              setActiveLeadFolderKey("all");
+              setHomeView("leads");
+            }}
             onOpenInvoices={() => openInvoiceOpsPack("overdue")}
             opsCards={
               <>

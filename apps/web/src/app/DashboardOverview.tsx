@@ -211,6 +211,7 @@ type DashboardOverviewProps = {
   onOpenJobs?: () => void;
   onOpenJobHealth?: (tone: JobHealthTone) => void;
   onOpenQuotes?: () => void;
+  onOpenQuoteStatus?: (status: string) => void;
   onOpenWonQuotes?: () => void;
   onOpenOpenQuotes?: () => void;
   onOpenLeads?: () => void;
@@ -228,6 +229,7 @@ export function DashboardOverview({
   onOpenJobs,
   onOpenJobHealth,
   onOpenQuotes,
+  onOpenQuoteStatus,
   onOpenWonQuotes,
   onOpenOpenQuotes,
   onOpenLeads,
@@ -256,9 +258,9 @@ export function DashboardOverview({
 
   const pipeline = useMemo(() => {
     return [
-      { label: "Leads", value: leads.length },
-      { label: "Quotes", value: quotes.length },
-      { label: "Jobs", value: jobs.length },
+      { key: "leads", label: "Leads", value: leads.length },
+      { key: "quotes", label: "Quotes", value: quotes.length },
+      { key: "jobs", label: "Jobs", value: jobs.length },
     ];
   }, [leads, quotes, jobs]);
 
@@ -375,32 +377,39 @@ export function DashboardOverview({
 
       {opsCards}
 
-      <Card
-        onClick={() => {
-          if (leads.length && onOpenLeads) onOpenLeads();
-          else if (onOpenQuotes) onOpenQuotes();
-          else onOpenJobs?.();
-        }}
-        label="Open pipeline"
-      >
+      <article className="nexa-kpi-card nexa-kpi-card-fixed" aria-label="Pipeline">
         <header>
           <h3>Pipeline</h3>
           <span className="nexa-kpi-sub">lead → quote → job</span>
         </header>
         <div className="nexa-kpi-card-scroll">
-          <Bars data={pipeline} />
+          <Bars
+            data={pipeline}
+            onSelect={(row) => {
+              if (row.key === "leads") onOpenLeads?.();
+              else if (row.key === "quotes") onOpenQuotes?.();
+              else if (row.key === "jobs") onOpenJobs?.();
+            }}
+          />
         </div>
-      </Card>
+      </article>
 
-      <Card onClick={onOpenQuotes} label="Open quotes">
+      <article className="nexa-kpi-card nexa-kpi-card-fixed" aria-label="Quotes by status">
         <header>
           <h3>Quotes by status</h3>
           <span className="nexa-kpi-sub">{quotes.length} total</span>
         </header>
         <div className="nexa-kpi-card-scroll">
-          <Bars data={quotesByStatus} />
+          <Bars
+            data={quotesByStatus.map((row) => ({ ...row, key: row.label }))}
+            onSelect={(row) => {
+              const status = row.key || row.label;
+              if (onOpenQuoteStatus) onOpenQuoteStatus(status);
+              else onOpenQuotes?.();
+            }}
+          />
         </div>
-      </Card>
+      </article>
 
       {invoicesCard ?? (
         <Card onClick={onOpenInvoices} label="Open invoices">
