@@ -272,16 +272,21 @@ export function TendersPanel({
         tender?: Tender;
         takeoff?: { id: string; reference: string };
         created?: boolean;
+        drawingsCopied?: number;
         href?: string;
       };
       if (!response.ok) throw new Error(payload.error || "Unable to open Takeoff");
       if (payload.tender) {
         setTenders((current) => current.map((row) => (row.id === payload.tender!.id ? payload.tender! : row)));
       }
+      const drawingNote =
+        payload.drawingsCopied && payload.drawingsCopied > 0
+          ? ` · ${payload.drawingsCopied} drawing${payload.drawingsCopied === 1 ? "" : "s"} copied across`
+          : "";
       onNotice(
         payload.created
-          ? `Takeoff ${payload.takeoff?.reference || ""} created from this tender.`
-          : `Opening linked takeoff ${payload.takeoff?.reference || ""}.`,
+          ? `Takeoff ${payload.takeoff?.reference || ""} created from this tender${drawingNote}.`
+          : `Opening linked takeoff ${payload.takeoff?.reference || ""}${drawingNote}.`,
       );
       if (payload.href) {
         window.location.href = payload.href;

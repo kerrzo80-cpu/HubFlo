@@ -27,8 +27,12 @@ export async function POST(
       recordType: "takeoff",
       recordId: result.takeoff.id,
       summary: result.created
-        ? `Takeoff ${result.takeoff.reference} created from tender ${result.tender.name}.`
-        : `Opened linked takeoff ${result.takeoff.reference} from tender ${result.tender.name}.`,
+        ? `Takeoff ${result.takeoff.reference} created from tender ${result.tender.name}${
+            result.drawingsCopied ? ` · ${result.drawingsCopied} drawing(s) copied` : ""
+          }.`
+        : `Opened linked takeoff ${result.takeoff.reference} from tender ${result.tender.name}${
+            result.drawingsCopied ? ` · ${result.drawingsCopied} new drawing(s) copied` : ""
+          }.`,
       source: "tenders",
       importance: "normal",
     });
@@ -36,6 +40,7 @@ export async function POST(
       tender: result.tender,
       takeoff: result.takeoff,
       created: result.created,
+      drawingsCopied: result.drawingsCopied,
       href: `/takeoff?projectId=${encodeURIComponent(result.takeoff.id)}`,
     });
   } catch (error) {

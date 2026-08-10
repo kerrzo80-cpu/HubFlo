@@ -1,7 +1,12 @@
-import { loadServerStore, writeServerStore } from "@/lib/server-store";
+import { randomUUID } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+
+import { loadServerStore, writeServerStore, getServerStoreDirectory } from "@/lib/server-store";
 import { rowsToDelimitedText } from "@/lib/tenders-xlsx";
 import { createJob } from "@/lib/workflow-data";
-import { createTakeoffProject, getTakeoffProject } from "@/lib/takeoff-data";
+import { createTakeoffProject, getTakeoffProject, updateTakeoffProject } from "@/lib/takeoff-data";
+import { readRecordDocumentFile } from "@/lib/record-documents";
 import {
   TENDER_STATUSES,
   alertForDeadline,
@@ -633,6 +638,80 @@ export function convertTenderToPendingJob(tenderId: string) {
   return { tender: updated, job, alreadyConverted: false as const };
 }
 
+function recordDocumentIdFromUrl(url?: string) {
+  if (!url) return null;
+  const match = url.match(/\/api\/record-documents\/([^/]+)\/file/i);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function safeTakeoffFileName(fileName: string) {
+  const cleaned = fileName.replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^_+|_+$/g, "");
+  return cleaned.slice(0, 140) || "drawing";
+}
+
+/** Copy tender drawing files into a takeoff project (skip ones already transferred). */
+export function copyTenderDrawingsToTakeoff(tender: Tender, takeoffId: string) {
+  const project = getTakeoffProject(takeoffId);
+  if (!project) return { copied: 0, takeoff: null as ReturnType<typeof getTakeoffProject> };
+
+  const drawings = tender.documents.filter((doc) => doc.kind === "drawing");
+  if (!drawings.length) return { copied: 0, takeoff: project };
+
+  const storageRoot = path.join(getServerStoreDirectory(), "takeoff-files", takeoffId);
+  mkdirSync(storageRoot, { recursive: true });
+
+  const added = [];
+  for (const doc of drawings) {
+    const sourceTag = `sourceTenderDoc:${doc.id}`;
+    const alreadyThere = project.documents.some(
+      (row) =>
+        row.notes.includes(sourceTag)
+        || (row.kind === "Drawing" && row.fileName === doc.name),
+    );
+    if (alreadyThere) continue;
+
+    const recordId = recordDocumentIdFromUrl(doc.url);
+    const file = recordId ? readRecordDocumentFile(recordId) : null;
+    if (!file?.bytes?.length) continue;
+
+    const documentId = `takeoff-doc-${randomUUID()}`;
+    const storedFileName = `${documentId}-${safeTakeoffFileName(doc.name)}`;
+    const storageKey = ["takeoff-files", takeoffId, storedFileName].join("/");
+    writeFileSync(path.join(storageRoot, storedFileName), file.bytes);
+
+    added.push({
+      id: documentId,
+      kind: "Drawing" as const,
+      fileName: doc.name,
+      mimeType: doc.mimeType || file.record.type || "application/pdf",
+      size: file.bytes.length,
+      storageKey,
+      uploadedAt: nowIso(),
+      status: "Uploaded" as const,
+      notes: ["Copied from tender drawings on Send to Takeoff.", sourceTag],
+    });
+  }
+
+  if (!added.length) return { copied: 0, takeoff: project };
+
+  const documents = [...added, ...project.documents];
+  const studio = project.studio
+    ? {
+        ...project.studio,
+        activeDocumentId: project.studio.activeDocumentId || added[0]?.id,
+        updatedAt: nowIso(),
+      }
+    : undefined;
+
+  const takeoff = updateTakeoffProject(takeoffId, {
+    documents,
+    ...(studio ? { studio } : {}),
+    status: project.status === "Draft" ? "In review" : project.status,
+  });
+
+  return { copied: added.length, takeoff: takeoff ?? project };
+}
+
 export function sendTenderToTakeoff(tenderId: string, options?: { createNew?: boolean }) {
   const tender = getTender(tenderId);
   if (!tender) throw new Error("Tender not found.");
@@ -640,7 +719,13 @@ export function sendTenderToTakeoff(tenderId: string, options?: { createNew?: bo
   if (tender.linkedTakeoffId && !options?.createNew) {
     const existing = getTakeoffProject(tender.linkedTakeoffId);
     if (existing) {
-      return { tender, takeoff: existing, created: false as const };
+      const synced = copyTenderDrawingsToTakeoff(tender, existing.id);
+      return {
+        tender,
+        takeoff: synced.takeoff || existing,
+        created: false as const,
+        drawingsCopied: synced.copied,
+      };
     }
   }
 
@@ -660,12 +745,20 @@ export function sendTenderToTakeoff(tenderId: string, options?: { createNew?: bo
     sourceTenderRef: tender.externalId || tender.name,
   });
 
+  const synced = copyTenderDrawingsToTakeoff(tender, takeoff.id);
+  const withDrawings = synced.takeoff || takeoff;
+
   const updated = updateTender(tenderId, {
-    linkedTakeoffId: takeoff.id,
-    linkedTakeoffRef: takeoff.reference,
+    linkedTakeoffId: withDrawings.id,
+    linkedTakeoffRef: withDrawings.reference,
   });
 
-  return { tender: updated, takeoff, created: true as const };
+  return {
+    tender: updated,
+    takeoff: withDrawings,
+    created: true as const,
+    drawingsCopied: synced.copied,
+  };
 }
 
 /** Bidirectional link: takeoff.sourceTender* ↔ tender.linkedTakeoff*. */

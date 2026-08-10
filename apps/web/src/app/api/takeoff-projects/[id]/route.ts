@@ -9,7 +9,7 @@ import {
   updateTakeoffProject,
   type TakeoffProject,
 } from "@/lib/takeoff-data";
-import { getTender, linkTakeoffToTender } from "@/lib/tenders-data";
+import { getTender, linkTakeoffToTender, copyTenderDrawingsToTakeoff } from "@/lib/tenders-data";
 
 export async function GET(
   request: NextRequest,
@@ -78,6 +78,15 @@ export async function PATCH(
         { error: error instanceof Error ? error.message : "Unable to link tender" },
         { status: 400 },
       );
+    }
+    if (updated.sourceTenderId) {
+      const tender = getTender(updated.sourceTenderId);
+      if (tender) {
+        const synced = copyTenderDrawingsToTakeoff(tender, updated.id);
+        if (synced.takeoff) {
+          return NextResponse.json(synced.takeoff);
+        }
+      }
     }
   }
 
