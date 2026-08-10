@@ -9,6 +9,7 @@ import {
   updateTakeoffProject,
   type TakeoffProject,
 } from "@/lib/takeoff-data";
+import { getTender, linkTakeoffToTender } from "@/lib/tenders-data";
 
 export async function GET(
   request: NextRequest,
@@ -44,9 +45,40 @@ export async function PATCH(
 
   const { id } = await params;
   const previous = getTakeoffProject(id);
-  const updated = updateTakeoffProject(id, body);
+
+  const patch: Partial<TakeoffProject> = { ...body };
+  if (body.sourceTenderId !== undefined) {
+    const tenderId = body.sourceTenderId || undefined;
+    if (tenderId) {
+      const tender = getTender(tenderId);
+      if (!tender) {
+        return NextResponse.json({ error: "Tender not found" }, { status: 400 });
+      }
+      patch.sourceTenderId = tender.id;
+      patch.sourceTenderRef = tender.externalId || tender.name;
+      if (!body.customer) patch.customer = tender.client;
+      if (!body.site && tender.area) patch.site = tender.area;
+      if (!body.clientId && tender.clientId) patch.clientId = tender.clientId;
+    } else {
+      patch.sourceTenderId = undefined;
+      patch.sourceTenderRef = undefined;
+    }
+  }
+
+  const updated = updateTakeoffProject(id, patch);
   if (!updated) {
     return NextResponse.json({ error: "Takeoff project not found" }, { status: 404 });
+  }
+
+  if (body.sourceTenderId !== undefined) {
+    try {
+      linkTakeoffToTender(updated.id, updated.reference, updated.sourceTenderId || null);
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Unable to link tender" },
+        { status: 400 },
+      );
+    }
   }
 
   const prevStatus = previous?.studio?.aiReviewStatus;

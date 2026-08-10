@@ -668,6 +668,49 @@ export function sendTenderToTakeoff(tenderId: string, options?: { createNew?: bo
   return { tender: updated, takeoff, created: true as const };
 }
 
+/** Bidirectional link: takeoff.sourceTender* ↔ tender.linkedTakeoff*. */
+export function linkTakeoffToTender(
+  takeoffId: string,
+  takeoffRef: string,
+  tenderId?: string | null,
+) {
+  const store = readStore();
+  let changed = false;
+
+  for (const tender of store.tenders) {
+    if (tender.linkedTakeoffId === takeoffId && tender.id !== tenderId) {
+      tender.linkedTakeoffId = undefined;
+      tender.linkedTakeoffRef = undefined;
+      tender.updatedAt = nowIso();
+      changed = true;
+    }
+  }
+
+  if (tenderId) {
+    const tender = store.tenders.find((row) => row.id === tenderId);
+    if (!tender) throw new Error("Tender not found.");
+    if (tender.linkedTakeoffId !== takeoffId || tender.linkedTakeoffRef !== takeoffRef) {
+      tender.linkedTakeoffId = takeoffId;
+      tender.linkedTakeoffRef = takeoffRef;
+      tender.updatedAt = nowIso();
+      changed = true;
+    }
+  }
+
+  if (changed) writeStore(store);
+}
+
+export function getTenderOptionList() {
+  return listTenders().map((tender) => ({
+    id: tender.id,
+    name: tender.name,
+    client: tender.client,
+    status: tender.status,
+    externalId: tender.externalId,
+    linkedTakeoffId: tender.linkedTakeoffId,
+  }));
+}
+
 export function archiveTenders(ids: string[]) {
   const updated = ids.map((id) => {
     const existing = getTender(id);

@@ -1198,8 +1198,25 @@ export function TendersPanel({
               {filtered.map((tender) => {
                 const days = daysLeftForDeadline(tender.submissionDeadline);
                 const alert = alertForDeadline(tender.submissionDeadline);
+                const openTender = () => {
+                  setSelectedId(tender.id);
+                  setTab("overview");
+                };
                 return (
-                  <tr key={tender.id}>
+                  <tr
+                    key={tender.id}
+                    className="tenders-row-clickable"
+                    onClick={openTender}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openTender();
+                      }
+                    }}
+                    role="link"
+                    tabIndex={0}
+                    aria-label={`Open tender ${tender.name}`}
+                  >
                     <td className="tenders-check-col" onClick={(event) => event.stopPropagation()}>
                       <input
                         type="checkbox"
@@ -1208,24 +1225,11 @@ export function TendersPanel({
                         aria-label={`Select ${tender.name}`}
                       />
                     </td>
-                    <td
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => {
-                        setSelectedId(tender.id);
-                        setTab("overview");
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          setSelectedId(tender.id);
-                          setTab("overview");
-                        }
-                      }}
-                    >
+                    <td>
                       <strong>{tender.name}</strong>
                       {tender.externalId ? <small> #{tender.externalId}</small> : null}
                       {tender.convertedJobRef ? <div className="tenders-note">Job {tender.convertedJobRef}</div> : null}
+                      {tender.linkedTakeoffRef ? <div className="tenders-note">Takeoff {tender.linkedTakeoffRef}</div> : null}
                       {tender.materialsNote ? <div className="tenders-note">{tender.materialsNote}</div> : null}
                     </td>
                     <td>{tender.client}</td>

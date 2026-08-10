@@ -85,6 +85,14 @@ import "./takeoff-skill.css";
 import "./studio/studio.css";
 
 type QuoteOption = { id: string; ref: string; customer: string; site: string };
+type TenderOption = {
+  id: string;
+  name: string;
+  client: string;
+  status: string;
+  externalId?: string;
+  linkedTakeoffId?: string;
+};
 type AuthState = "checking" | "signed-in" | "signed-out" | "pilot";
 
 let sessionActor = "Office";
@@ -129,6 +137,7 @@ export default function TakeoffStudioPage() {
   const [projects, setProjects] = useState<TakeoffProject[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [quotes, setQuotes] = useState<QuoteOption[]>([]);
+  const [tenders, setTenders] = useState<TenderOption[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -199,6 +208,7 @@ export default function TakeoffStudioPage() {
     studioLayers.find((layer) => layer.id === activeLayerId)?.label || "Master / all";
   const showSizeBar = studio.tool === "linear" || activeClass?.kind === "linear";
   const linkedQuote = quotes.find((q) => q.id === selected?.linkedQuoteId);
+  const linkedTender = tenders.find((t) => t.id === selected?.sourceTenderId);
   // Pin review board is fixture counts only — ignore legacy pipe-metre rows in aiReviewMeasured.
   const aiReviewRows = (studio.aiReviewMeasured || []).filter((row) => row.unit === "nr");
   const aiReviewPinCount = aiReviewRows.reduce(
@@ -240,9 +250,10 @@ export default function TakeoffStudioPage() {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [projectRes, quoteRes] = await Promise.all([
+    const [projectRes, quoteRes, tenderRes] = await Promise.all([
       apiFetch("/api/takeoff-projects"),
       apiFetch("/api/quotes"),
+      apiFetch("/api/tenders"),
     ]);
     if (projectRes.status === 401) {
       setAuthState("signed-out");
@@ -280,6 +291,23 @@ export default function TakeoffStudioPage() {
             site: String(quote.site || ""),
           }))
           .filter((quote) => quote.id),
+      );
+    }
+    if (tenderRes.ok) {
+      const tenderPayload = (await tenderRes.json()) as {
+        tenders?: Array<Record<string, unknown>>;
+      };
+      setTenders(
+        (tenderPayload.tenders || [])
+          .map((tender) => ({
+            id: String(tender.id || ""),
+            name: String(tender.name || ""),
+            client: String(tender.client || ""),
+            status: String(tender.status || ""),
+            externalId: tender.externalId ? String(tender.externalId) : undefined,
+            linkedTakeoffId: tender.linkedTakeoffId ? String(tender.linkedTakeoffId) : undefined,
+          }))
+          .filter((tender) => tender.id),
       );
     }
   }, []);
@@ -1512,6 +1540,38 @@ export default function TakeoffStudioPage() {
 
           {selected ? (
             <>
+              <section className="nexa-studio-core-link">
+                <header>
+                  <h2>Link tender</h2>
+                </header>
+                <label>
+                  Tender
+                  <select
+                    value={selected.sourceTenderId || ""}
+                    onChange={(e) => {
+                      const sourceTenderId = e.target.value || undefined;
+                      void persistStudio(studio, { sourceTenderId });
+                    }}
+                  >
+                    <option value="">Select Core tender</option>
+                    {tenders.map((tender) => (
+                      <option key={tender.id} value={tender.id}>
+                        {tender.externalId ? `${tender.externalId} · ` : ""}
+                        {tender.name} · {tender.client}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {linkedTender ? (
+                  <a className="ghost link" href={`/?view=tenders`}>
+                    Open tenders in Core
+                    <ExternalLink size={13} />
+                  </a>
+                ) : (
+                  <p className="muted">Optional — pick the opportunity this takeoff belongs to.</p>
+                )}
+              </section>
+
               <section className="nexa-studio-core-link">
                 <header>
                   <h2>Link quote</h2>
