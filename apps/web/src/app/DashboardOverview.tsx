@@ -417,16 +417,21 @@ export function DashboardOverview({
         </Card>
       )}
 
-      <Card onClick={onOpenQuotes} label="Open live value">
+      <Card onClick={onOpenJobs} label="Open live job value">
         <header>
           <h3>Live value</h3>
-          <span className="nexa-kpi-sub">workspace</span>
+          <span className="nexa-kpi-sub">sum of all job values</span>
         </header>
         <div className="nexa-kpi-card-scroll">
           <div className="nexa-kpi-metric">
             <strong>{gbp.format(shownJobsValue)}</strong>
-            <span>across {jobs.length} jobs</span>
+            <span>
+              {loaded ? `${jobs.length} job${jobs.length === 1 ? "" : "s"} · each job’s Value field` : "…"}
+            </span>
           </div>
+          <p className="nexa-kpi-empty" style={{ margin: "0 0 8px", fontSize: 11 }}>
+            Not quotes or tenders — tap to open Jobs. Bars below are quote pipeline for comparison.
+          </p>
           <Bars
             money
             onSelect={(row) => {
@@ -434,8 +439,8 @@ export function DashboardOverview({
               else if (row.key === "open") (onOpenOpenQuotes || onOpenQuotes)?.();
             }}
             data={[
-              { key: "won", label: "Won this month", value: value.wonValue },
-              { key: "open", label: `Open (last ${openQuoteWindowDays}d)`, value: value.openValue },
+              { key: "won", label: "Quotes won this month", value: value.wonValue },
+              { key: "open", label: `Open quotes (last ${openQuoteWindowDays}d)`, value: value.openValue },
             ]}
           />
         </div>
