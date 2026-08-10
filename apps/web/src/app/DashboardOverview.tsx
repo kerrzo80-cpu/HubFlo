@@ -351,8 +351,6 @@ export function DashboardOverview({
                 <button
                   type="button"
                   className="nexa-kpi-legend-btn"
-                  title="Approval required — office needs to approve something on the job"
-                  onClick={() => openHealth("amber")}
                 >
                   <span style={{ background: HEALTH_COLORS.amber }} /> Attention <strong>{health.amber}</strong>
                 </button>
@@ -361,16 +359,12 @@ export function DashboardOverview({
                 <button
                   type="button"
                   className="nexa-kpi-legend-btn"
-                  title="Waiting on parts or waiting on customer"
                   onClick={() => openHealth("red")}
                 >
                   <span style={{ background: HEALTH_COLORS.red }} /> Blocked <strong>{health.red}</strong>
                 </button>
               </li>
             </ul>
-            <p className="nexa-kpi-card-hint">
-              Attention = approval required · Blocked = waiting on parts / customer
-            </p>
           </div>
         </div>
       </article>

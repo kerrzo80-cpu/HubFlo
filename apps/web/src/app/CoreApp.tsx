@@ -31857,7 +31857,9 @@ export default function CoreApp() {
       });
     const actionTotal = actionNotificationCards.reduce((total, card) => total + card.count, 0);
     const asOf = currentOperatingDate;
-    const upcomingPreview = upcomingJobsNext4Weeks.slice(0, 6);
+    const upcomingScheduledCount = upcomingJobsNext4Weeks.filter((row) => row.kind === "scheduled").length;
+    const upcomingRecurringCount = upcomingJobsNext4Weeks.filter((row) => row.kind === "recurring").length;
+    const upcomingSplitMax = Math.max(1, upcomingScheduledCount, upcomingRecurringCount);
 
     function openJobsFolder(folderKey: "pending" | "progress" | "review" | "uninvoiced" | "timesheets" | "daywork" | "health-on-track" | "health-attention" | "health-blocked") {
       setActiveJobFolderKey(folderKey);
@@ -31952,12 +31954,7 @@ export default function CoreApp() {
     );
 
     const upcomingCard = (
-      <button
-        className="nexa-kpi-card nexa-kpi-card-button nexa-kpi-card-fixed"
-        id="dashboard-recurring-services"
-        type="button"
-        onClick={() => setHomeView("schedule")}
-      >
+      <article className="nexa-kpi-card nexa-kpi-card-fixed" id="dashboard-recurring-services" aria-label="Upcoming jobs">
         <header>
           <h3>Upcoming jobs</h3>
           <span className="nexa-kpi-sub">{upcomingJobsNext4Weeks.length} / 4 wks</span>
@@ -31967,50 +31964,65 @@ export default function CoreApp() {
             <strong>{upcomingJobsNext4Weeks.length}</strong>
           </div>
           <div className="nexa-kpi-bars">
-            {upcomingPreview.length > 0 ? (
-              upcomingPreview.map((row) => (
-                <div className="nexa-kpi-bar-row" key={row.id}>
-                  <span className="nexa-kpi-bar-label" title={`${row.customer} · ${row.frequency}`}>
-                    {row.customer}
-                  </span>
-                  <span className="nexa-kpi-bar-track">
-                    <span
-                      className="nexa-kpi-bar-fill"
-                      style={{
-                        width: `${Math.max(
-                          12,
-                          Math.min(
-                            100,
-                            Math.round(
-                              100 -
-                                Math.max(
-                                  0,
-                                  Math.min(
-                                    28,
-                                    Math.ceil(
-                                      (new Date(`${row.nextDueDate}T12:00:00`).getTime() -
-                                        new Date(`${asOf}T12:00:00`).getTime()) /
-                                        (24 * 60 * 60 * 1000),
-                                    ),
-                                  ),
-                                ) *
-                                  (100 / 28),
-                            ),
-                          ),
-                        )}%`,
-                        background: row.nextDueDate <= asOf ? "#f04438" : row.kind === "recurring" ? "#f79009" : "#006eb8",
-                      }}
-                    />
-                  </span>
-                  <strong className="nexa-kpi-bar-value">{formatUkDate(row.nextDueDate)}</strong>
-                </div>
-              ))
-            ) : (
-              <p className="nexa-kpi-empty">Nothing scheduled in the next 4 weeks.</p>
-            )}
+            <div
+              className="nexa-kpi-bar-row nexa-kpi-bar-row-click"
+              role="link"
+              tabIndex={0}
+              onClick={() => {
+                setHomeView("schedule");
+                scrollWorkspaceToTop();
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setHomeView("schedule");
+                  scrollWorkspaceToTop();
+                }
+              }}
+            >
+              <span className="nexa-kpi-bar-label">Scheduled</span>
+              <span className="nexa-kpi-bar-track">
+                <span
+                  className="nexa-kpi-bar-fill"
+                  style={{
+                    width: `${(upcomingScheduledCount / upcomingSplitMax) * 100}%`,
+                    background: "#006eb8",
+                  }}
+                />
+              </span>
+              <strong className="nexa-kpi-bar-value">{upcomingScheduledCount}</strong>
+            </div>
+            <div
+              className="nexa-kpi-bar-row nexa-kpi-bar-row-click"
+              role="link"
+              tabIndex={0}
+              onClick={() => {
+                setHomeView("recurring");
+                scrollWorkspaceToTop();
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setHomeView("recurring");
+                  scrollWorkspaceToTop();
+                }
+              }}
+            >
+              <span className="nexa-kpi-bar-label">Recurring</span>
+              <span className="nexa-kpi-bar-track">
+                <span
+                  className="nexa-kpi-bar-fill"
+                  style={{
+                    width: `${(upcomingRecurringCount / upcomingSplitMax) * 100}%`,
+                    background: "#f79009",
+                  }}
+                />
+              </span>
+              <strong className="nexa-kpi-bar-value">{upcomingRecurringCount}</strong>
+            </div>
           </div>
         </div>
-      </button>
+      </article>
     );
 
     const invoicesCard = (
