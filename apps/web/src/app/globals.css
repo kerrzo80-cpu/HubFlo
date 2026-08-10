@@ -3822,6 +3822,7 @@ a,
   border-bottom: 1px solid color-mix(in srgb, var(--nexa-brass, #8e743e) 18%, var(--line));
   box-shadow: 0 1px 0 rgba(16, 24, 40, 0.03);
   display: flex;
+  flex: 0 0 auto;
   flex-wrap: nowrap;
   gap: 4px;
   height: 49px;
@@ -3829,8 +3830,8 @@ a,
   min-width: 0;
   overflow: hidden;
   padding: 0 10px 0 8px;
-  position: sticky;
-  top: 0;
+  /* Stay in normal document flow inside .platform — sticky was covering open-record tabs. */
+  position: relative;
   z-index: 10;
 }
 
@@ -3875,14 +3876,16 @@ a,
 
 .open-record-tabs {
   align-items: stretch;
-  background: #f4f7f8;
+  background: #eef3f5;
   border-bottom: 1px solid var(--line);
   display: flex;
+  flex: 0 0 auto;
   gap: 6px;
+  min-height: 42px;
   overflow-x: auto;
   padding: 6px 16px 7px;
-  position: sticky;
-  top: 49px;
+  /* Full-width strip between module bar and blue rail — never tuck under sticky chrome. */
+  position: relative;
   z-index: 9;
 }
 
@@ -3893,7 +3896,7 @@ a,
   border-radius: 8px;
   display: inline-flex;
   flex: 0 0 auto;
-  max-width: 240px;
+  max-width: min(320px, 70vw);
   min-width: 0;
 }
 
