@@ -33369,7 +33369,22 @@ export default function CoreApp() {
               if (module.subItems?.length) {
                 const submenuItems = module.subItems;
                 return (
-                  <div key={module.label} className="module-dropdown-host">
+                  <div
+                    key={module.label}
+                    className="module-dropdown-host"
+                    onPointerEnter={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      // Viewport coords only — do not touch React state (that re-renders Core and flickers).
+                      event.currentTarget.style.setProperty("--module-menu-top", `${Math.round(rect.bottom) - 1}px`);
+                      event.currentTarget.style.setProperty("--module-menu-left", `${Math.round(rect.left)}px`);
+                    }}
+                    onFocus={(event) => {
+                      const host = event.currentTarget;
+                      const rect = host.getBoundingClientRect();
+                      host.style.setProperty("--module-menu-top", `${Math.round(rect.bottom) - 1}px`);
+                      host.style.setProperty("--module-menu-left", `${Math.round(rect.left)}px`);
+                    }}
+                  >
                     <button
                       type="button"
                       className={`${isActiveModule ? "module-link active" : "module-link"} module-dropdown-trigger`}

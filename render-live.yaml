@@ -5,7 +5,10 @@ services:
     region: frankfurt
     # Core + SQLite hub needs headroom. Starter (512MB) OOMs → ECONNRESET / port-bind flaps.
     plan: standard
-    autoDeploy: true
+    # Freeze live auto-deploys. Ship WIP to nexa-pilot; promote to live only after
+    # office acceptance (or a blocking fault fix). Confirm Auto-Deploy is Off in
+    # the Render dashboard for nexa-live as well if Blueprint sync is not applied.
+    autoDeploy: false
     healthCheckPath: /api/health
     # Build heap is set only here (not as a runtime env var).
     buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile --filter @hubflo/web... && NODE_OPTIONS=--max-old-space-size=3072 pnpm --filter @hubflo/web build && echo "nexa-runtime-mem=standard-1536-v1"
