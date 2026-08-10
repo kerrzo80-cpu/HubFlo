@@ -14,6 +14,7 @@ import {
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { CorePanelSkeleton } from "@/components/CorePanelSkeleton";
 import { FileDropZone } from "@/components/FileDropZone";
 import { downloadBlob } from "@/lib/download-blob";
@@ -8156,6 +8157,103 @@ function makeEstimateLabourLine(
     costRate,
     markupPercent,
   };
+}
+
+type ModuleBarDropdownProps = {
+  label: string;
+  icon: ComponentType<{ size?: number; strokeWidth?: number }>;
+  active: boolean;
+  items: string[];
+  onTriggerClick: () => void;
+  onItemClick: (item: string) => void;
+};
+
+/** Local-state portal menu — opens without re-rendering CoreApp (avoids top-bar flicker). */
+function ModuleBarDropdown({
+  label,
+  icon: Icon,
+  active,
+  items,
+  onTriggerClick,
+  onItemClick,
+}: ModuleBarDropdownProps) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const closeTimerRef = useRef<number | null>(null);
+
+  function clearCloseTimer() {
+    if (closeTimerRef.current != null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }
+
+  function pinAndOpen() {
+    clearCloseTimer();
+    const rect = hostRef.current?.getBoundingClientRect();
+    if (rect) {
+      setPos({ top: Math.round(rect.bottom) - 1, left: Math.round(rect.left) });
+    }
+    setOpen(true);
+  }
+
+  function scheduleClose() {
+    clearCloseTimer();
+    closeTimerRef.current = window.setTimeout(() => setOpen(false), 140);
+  }
+
+  useEffect(() => () => clearCloseTimer(), []);
+
+  return (
+    <>
+      <div
+        ref={hostRef}
+        className="module-dropdown-host"
+        onMouseEnter={pinAndOpen}
+        onMouseLeave={scheduleClose}
+        onFocus={pinAndOpen}
+      >
+        <button
+          type="button"
+          className={`${active ? "module-link active" : "module-link"} module-dropdown-trigger`}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={onTriggerClick}
+        >
+          <Icon size={16} strokeWidth={1.8} />
+          <span>{label}</span>
+          <ChevronDown size={13} />
+        </button>
+      </div>
+      {open && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="module-submenu module-submenu-portal"
+              role="menu"
+              style={{ top: pos.top, left: pos.left }}
+              onMouseEnter={clearCloseTimer}
+              onMouseLeave={scheduleClose}
+            >
+              {items.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpen(false);
+                    onItemClick(item);
+                  }}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  );
 }
 
 export default function CoreApp() {
@@ -33369,74 +33467,41 @@ export default function CoreApp() {
               if (module.subItems?.length) {
                 const submenuItems = module.subItems;
                 return (
-                  <div
+                  <ModuleBarDropdown
                     key={module.label}
-                    className="module-dropdown-host"
-                    onPointerEnter={(event) => {
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      // Viewport coords only — do not touch React state (that re-renders Core and flickers).
-                      event.currentTarget.style.setProperty("--module-menu-top", `${Math.round(rect.bottom) - 1}px`);
-                      event.currentTarget.style.setProperty("--module-menu-left", `${Math.round(rect.left)}px`);
+                    label={module.label}
+                    icon={Icon}
+                    active={isActiveModule}
+                    items={submenuItems}
+                    onTriggerClick={() => {
+                      if (module.label === "People") {
+                        goToPeopleSection("Employees");
+                        return;
+                      }
+                      if (module.label === "Schedules") {
+                        setSchedulePane("diary");
+                        setHomeView("schedule");
+                      }
                     }}
-                    onFocus={(event) => {
-                      const host = event.currentTarget;
-                      const rect = host.getBoundingClientRect();
-                      host.style.setProperty("--module-menu-top", `${Math.round(rect.bottom) - 1}px`);
-                      host.style.setProperty("--module-menu-left", `${Math.round(rect.left)}px`);
-                    }}
-                  >
-                    <button
-                      type="button"
-                      className={`${isActiveModule ? "module-link active" : "module-link"} module-dropdown-trigger`}
-                      aria-haspopup="menu"
-                      onClick={() => {
-                        // Always open a useful People view — menu alone looked broken when
-                        // overflow clipping hid the submenu after the iPad nav scroll fix.
-                        if (module.label === "People") {
-                          goToPeopleSection("Employees");
-                          return;
-                        }
-                        if (module.label === "Schedules") {
+                    onItemClick={(item) => {
+                      if (module.label === "People") {
+                        goToPeopleSection(item);
+                        closeContextSidebarOnMobile();
+                      } else if (module.label === "Schedules") {
+                        if (item === "Timesheets") {
+                          setSchedulePane("timesheets");
+                        } else if (item === "Payroll") {
+                          setSchedulePane("payroll");
+                        } else {
                           setSchedulePane("diary");
-                          setHomeView("schedule");
-                          return;
                         }
-                      }}
-                    >
-                      <Icon size={16} strokeWidth={1.8} />
-                      <span>{module.label}</span>
-                      <ChevronDown size={13} />
-                    </button>
-                    <div className="module-submenu" role="menu">
-                      {submenuItems.map((item) => (
-                        <button
-                          key={item}
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            if (module.label === "People") {
-                              goToPeopleSection(item);
-                              closeContextSidebarOnMobile();
-                            } else if (module.label === "Schedules") {
-                              if (item === "Timesheets") {
-                                setSchedulePane("timesheets");
-                              } else if (item === "Payroll") {
-                                setSchedulePane("payroll");
-                              } else {
-                                setSchedulePane("diary");
-                              }
-                              setHomeView("schedule");
-                              closeContextSidebarOnMobile();
-                            } else {
-                              navigateToModule(item);
-                            }
-                          }}
-                        >
-                          {item}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                        setHomeView("schedule");
+                        closeContextSidebarOnMobile();
+                      } else {
+                        navigateToModule(item);
+                      }
+                    }}
+                  />
                 );
               }
 

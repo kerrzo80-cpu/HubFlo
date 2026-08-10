@@ -3814,7 +3814,9 @@ a,
 
 .module-bar {
   align-items: center;
-  background: rgba(255, 255, 255, 0.86);
+  background:
+    linear-gradient(90deg, rgba(21, 127, 168, 0.05), transparent 28%, rgba(142, 116, 62, 0.05)),
+    rgba(255, 255, 255, 0.86);
   border-bottom: 1px solid color-mix(in srgb, var(--nexa-brass, #8e743e) 18%, var(--line));
   box-shadow: 0 1px 0 rgba(16, 24, 40, 0.03);
   display: flex;
@@ -3824,32 +3826,10 @@ a,
   height: 49px;
   max-width: 100%;
   min-width: 0;
-  /* visible so Schedules/People menus can open without overflow thrash */
   overflow: visible;
   padding: 0 10px 0 8px;
-  /* Stay in normal document flow inside .platform — sticky was covering open-record tabs. */
   position: relative;
   z-index: 10;
-}
-
-/* Glass sits on a pseudo layer so backdrop-filter does not become a
-   containing block for position:fixed / absolute submenu geometry. */
-.module-bar::before {
-  background:
-    linear-gradient(90deg, rgba(21, 127, 168, 0.05), transparent 28%, rgba(142, 116, 62, 0.05)),
-    transparent;
-  backdrop-filter: saturate(160%) blur(12px);
-  -webkit-backdrop-filter: saturate(160%) blur(12px);
-  content: "";
-  inset: 0;
-  pointer-events: none;
-  position: absolute;
-  z-index: 0;
-}
-
-.module-bar > * {
-  position: relative;
-  z-index: 1;
 }
 
 .module-bar-scroll {
@@ -3865,8 +3845,6 @@ a,
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
 }
-
-/* Do NOT toggle overflow on hover — that resizes the bar and flickers the whole top nav. */
 
 .module-dropdown-host {
   align-items: stretch;
@@ -3887,18 +3865,16 @@ a,
   box-shadow: 0 10px 28px rgba(16, 31, 36, 0.16);
   display: none;
   gap: 2px;
-  /* Fixed + pinned via --module-menu-* so menus escape the scroll strip without overflow thrash. */
-  left: var(--module-menu-left, 0px);
   min-width: 180px;
   padding: 6px;
-  position: fixed;
-  top: var(--module-menu-top, 0px);
   z-index: 120;
 }
 
-.module-dropdown-host:hover > .module-submenu,
-.module-dropdown-host:focus-within > .module-submenu {
+/* Portaled to document.body — escapes module-bar overflow clip without flicker. */
+.module-submenu-portal {
   display: grid;
+  position: fixed;
+  z-index: 4000;
 }
 
 .module-bar-scroll::-webkit-scrollbar {
