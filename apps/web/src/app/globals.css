@@ -2676,7 +2676,7 @@ kbd {
   color: #7a5d08;
 }
 
-/* Blake pose stills — soft presence motion (not a static sticker) */
+/* Blake cut-out character — transparent stills + wave/wink sprite, no sticker plate */
 .blake-character {
   display: inline-flex;
   line-height: 0;
@@ -2700,184 +2700,55 @@ kbd {
 
 .blake-character.size-sm { width: 44px; }
 .blake-character.size-md { width: 60px; }
-.blake-character.size-lg { width: 84px; }
-.blake-character.size-hero { width: 120px; }
+.blake-character.size-lg { width: 92px; }
+.blake-character.size-hero { width: 128px; }
 
-.blake-aura {
-  background:
-    radial-gradient(circle at 50% 42%, rgba(56, 161, 206, 0.28), rgba(56, 161, 206, 0.06) 42%, transparent 68%);
+.blake-ground-shadow {
+  background: radial-gradient(ellipse at center, rgba(17, 52, 68, 0.22), transparent 72%);
   border-radius: 50%;
-  inset: -6%;
+  bottom: 1%;
+  height: 10%;
+  left: 22%;
   opacity: 0.7;
+  pointer-events: none;
   position: absolute;
-  transform: scale(0.96);
+  right: 22%;
   z-index: 0;
 }
 
-.blake-shadow {
-  background: radial-gradient(ellipse at center, rgba(17, 52, 68, 0.2), transparent 70%);
-  border-radius: 50%;
-  bottom: 2%;
-  height: 12%;
-  left: 18%;
-  opacity: 0.55;
-  position: absolute;
-  right: 18%;
-  z-index: 0;
-}
-
-.blake-character .blake-pose {
-  animation: blake-breathe 4.8s ease-in-out infinite;
+.blake-character .blake-pose,
+.blake-character .blake-sprite {
   display: block;
-  filter: drop-shadow(0 10px 16px rgba(17, 52, 68, 0.16));
+  filter: drop-shadow(0 10px 18px rgba(17, 52, 68, 0.18));
   height: 100%;
   object-fit: contain;
   position: relative;
-  transform-origin: 50% 82%;
-  transition: opacity 0.28s ease, filter 0.28s ease;
   width: 100%;
   z-index: 1;
 }
 
-.blake-visor-shine {
-  animation: blake-visor 5.6s ease-in-out infinite;
-  background: linear-gradient(
-    115deg,
-    transparent 28%,
-    rgba(255, 255, 255, 0.18) 46%,
-    transparent 58%
-  );
-  border-radius: 40%;
-  height: 28%;
-  left: 28%;
-  mix-blend-mode: soft-light;
-  opacity: 0;
-  pointer-events: none;
-  position: absolute;
-  top: 18%;
-  width: 44%;
-  z-index: 2;
+.blake-character .blake-sprite {
+  background-color: transparent;
+  image-rendering: auto;
 }
 
-.blake-character .blake-aura {
-  animation: blake-aura-idle 4.8s ease-in-out infinite;
-}
-
-.blake-character .blake-shadow {
-  animation: blake-shadow-idle 4.8s ease-in-out infinite;
-}
-
-.blake-character.mood-thinking .blake-aura {
-  animation: blake-aura-think 2.4s ease-in-out infinite;
-  background:
-    radial-gradient(circle at 50% 42%, rgba(56, 161, 206, 0.36), rgba(21, 127, 168, 0.1) 46%, transparent 70%);
-}
-
-.blake-character.mood-thinking .blake-pose {
-  animation: blake-think 2.8s ease-in-out infinite;
-}
-
-.blake-character.mood-alert .blake-aura {
-  animation: blake-aura-alert 1.8s ease-in-out infinite;
-  background:
-    radial-gradient(circle at 50% 42%, rgba(196, 92, 38, 0.28), rgba(196, 92, 38, 0.08) 48%, transparent 70%);
-}
-
-.blake-character.mood-alert .blake-pose {
-  animation: blake-alert 2.2s ease-in-out infinite;
-}
-
-.blake-character.mood-guide .blake-aura {
-  background:
-    radial-gradient(circle at 50% 42%, rgba(184, 137, 18, 0.26), rgba(184, 137, 18, 0.06) 48%, transparent 70%);
-}
-
-.blake-character.mood-good .blake-aura {
-  background:
-    radial-gradient(circle at 50% 42%, rgba(47, 143, 107, 0.26), rgba(47, 143, 107, 0.06) 48%, transparent 70%);
-}
-
-.blake-character.is-interactive:hover .blake-pose {
-  animation-play-state: paused;
-  filter: drop-shadow(0 12px 18px rgba(17, 52, 68, 0.2));
-  transform: translateY(-2px) scale(1.035);
-}
-
-.blake-character.is-interactive:hover .blake-aura {
-  animation-play-state: paused;
-  opacity: 0.95;
-  transform: scale(1.04);
+.blake-character.is-interactive:hover .blake-pose,
+.blake-character.is-interactive:hover .blake-sprite {
+  filter: drop-shadow(0 12px 20px rgba(17, 52, 68, 0.22));
 }
 
 .buddy-launcher-mascot.blake-character.size-lg {
-  width: 92px;
+  width: 96px;
 }
 
-.buddy-launcher .blake-character .blake-pose {
-  filter: drop-shadow(0 12px 20px rgba(17, 52, 68, 0.2));
-}
-
-@keyframes blake-breathe {
-  0%,
-  100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-2px) scale(1.018); }
-}
-
-@keyframes blake-think {
-  0%,
-  100% { transform: translateY(0) rotate(0deg) scale(1); }
-  35% { transform: translateY(-2px) rotate(-1.2deg) scale(1.015); }
-  70% { transform: translateY(-1px) rotate(1deg) scale(1.02); }
-}
-
-@keyframes blake-alert {
-  0%,
-  100% { transform: translateY(0) scale(1); }
-  40% { transform: translateY(-1.5px) scale(1.025); }
-  55% { transform: translateY(0) scale(1.01); }
-}
-
-@keyframes blake-aura-idle {
-  0%,
-  100% { opacity: 0.55; transform: scale(0.94); }
-  50% { opacity: 0.85; transform: scale(1.02); }
-}
-
-@keyframes blake-aura-think {
-  0%,
-  100% { opacity: 0.45; transform: scale(0.92); }
-  50% { opacity: 0.95; transform: scale(1.08); }
-}
-
-@keyframes blake-aura-alert {
-  0%,
-  100% { opacity: 0.4; transform: scale(0.94); }
-  50% { opacity: 0.9; transform: scale(1.06); }
-}
-
-@keyframes blake-shadow-idle {
-  0%,
-  100% { opacity: 0.5; transform: scaleX(1); }
-  50% { opacity: 0.32; transform: scaleX(0.9); }
-}
-
-@keyframes blake-visor {
-  0%,
-  62%,
-  100% { opacity: 0; transform: translateX(-8%); }
-  70% { opacity: 0.55; }
-  78% { opacity: 0; transform: translateX(18%); }
+.buddy-launcher .blake-character .blake-pose,
+.buddy-launcher .blake-character .blake-sprite {
+  filter: drop-shadow(0 14px 22px rgba(17, 52, 68, 0.22));
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .blake-character .blake-pose,
-  .blake-character .blake-aura,
-  .blake-character .blake-shadow,
-  .blake-character .blake-visor-shine {
-    animation: none !important;
-  }
-  .blake-character.is-interactive:hover .blake-pose {
-    transform: none;
+  .blake-character.is-waving .blake-sprite {
+    animation: none;
   }
 }
 

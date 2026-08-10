@@ -32667,7 +32667,7 @@ export default function CoreApp() {
             <header>
               <div>
                 <span className={`buddy-mark mood-${buddyMood}`}>
-                  <BuddyCharacter mood={buddyMood} size="md" />
+                  <BuddyCharacter mood={buddyMood} size="md" greet={nexaAssistantOpen} />
                 </span>
                 <div>
                   <strong>Blake</strong>
