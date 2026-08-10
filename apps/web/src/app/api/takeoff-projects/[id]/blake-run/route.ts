@@ -892,6 +892,33 @@ export async function POST(
       // Audit must never block Blake.
     }
 
+    const scannedIds = new Set<string>();
+    for (const extract of clientExtracts) scannedIds.add(extract.documentId);
+    for (const run of pipeExtract.runs) scannedIds.add(run.documentId);
+    for (const geo of nextStudio.geometries) {
+      if (geo.id.startsWith("ai-")) scannedIds.add(geo.documentId);
+    }
+    for (const image of pageImages) scannedIds.add(image.documentId);
+    const scannedDrawings = drawings.filter((doc) => scannedIds.has(doc.id));
+    const coverage = {
+      drawingCount: drawings.length,
+      scannedCount: scannedDrawings.length || Math.min(drawings.length, diagnostics.docsRead || 0),
+      scannedNames: scannedDrawings.map((doc) => doc.fileName),
+      capped: drawings.length > 4,
+      activeOnlyVision: Boolean(pageImages.length && visionUsed),
+      note:
+        drawings.length <= 1
+          ? "Blake ran on this drawing file."
+          : scannedDrawings.length >= drawings.length
+            ? `Blake scanned all ${drawings.length} drawing files. BOQ totals are for the whole project.`
+            : `Blake scanned ${scannedDrawings.length || Math.min(drawings.length, 4)} of ${drawings.length} drawing files${
+                drawings.length > 4 ? " (cap 4 PDFs per Ask)" : ""
+              }. Switch sheet and Ask Blake again for the rest. BOQ totals combine every sheet already measured.`,
+    };
+    if (coverage.note && !message.includes("Blake scanned") && !message.includes("Blake ran on this")) {
+      message = `${message} ${coverage.note}`;
+    }
+
     return NextResponse.json({
       ok: true,
       project: updated,
@@ -916,6 +943,7 @@ export async function POST(
       visionPipeRuns: visionPipeRuns.length,
       usedFallback,
       diagnostics,
+      coverage,
       focus: firstAi
         ? { documentId: firstAi.documentId, page: firstAi.page, classificationId: firstAi.classificationId }
         : null,

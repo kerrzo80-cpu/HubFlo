@@ -784,6 +784,13 @@ export default function TakeoffStudioPage() {
         visionPipeRuns?: number;
         actor?: string;
         project?: TakeoffProject;
+        coverage?: {
+          drawingCount: number;
+          scannedCount: number;
+          scannedNames?: string[];
+          capped?: boolean;
+          note?: string;
+        };
         focus?: { documentId: string; page: number; classificationId: string } | null;
       };
       if (!response.ok || !payload.ok || !payload.project) {
@@ -804,7 +811,14 @@ export default function TakeoffStudioPage() {
       }
       await persistStudio(nextStudio, {}, { immediate: true, skipHistory: true });
       const actorLabel = payload.actor && payload.actor !== "Blake" ? ` · ${payload.actor}` : "";
-      const message = `${payload.message || "Blake finished."}${actorLabel}`;
+      const coverage = payload.coverage;
+      const coverageNote = coverage?.note
+        || (coverage
+          ? ` Scanned ${coverage.scannedCount} of ${coverage.drawingCount} drawing file(s). BOQ totals are for the whole project.`
+          : "");
+      const message = `${payload.message || "Blake finished."}${actorLabel}${
+        payload.message && coverage?.note && payload.message.includes(coverage.note) ? "" : coverageNote
+      }`;
       const pinCount = payload.pinCount || 0;
       const pipeRunCount = payload.pipeRunCount || 0;
       const found = pinCount + pipeRunCount;
@@ -812,8 +826,14 @@ export default function TakeoffStudioPage() {
         found
           ? `Done — ${pinCount} fixture pin(s) · ${pipeRunCount} CAD pipe line(s)${
               payload.visionUsed ? " · vision" : ""
+            }${
+              coverage
+                ? ` · ${coverage.scannedCount}/${coverage.drawingCount} drawing${coverage.drawingCount === 1 ? "" : "s"}`
+                : ""
             }.`
-          : "Done — nothing Blake could auto-measure yet.",
+          : coverage
+            ? `Done — nothing auto-measured on ${coverage.scannedCount}/${coverage.drawingCount} drawing(s) scanned.`
+            : "Done — nothing Blake could auto-measure yet.",
       );
       await new Promise((resolve) => window.setTimeout(resolve, 700));
       setError(null);
