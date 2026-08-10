@@ -3748,9 +3748,9 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
   },
   communications: {
     Outlook: {
-      summary: "Choose Outlook, Gmail, or iCloud for the signed-in employee. Type the Sends as address (iCloud is fine for testing).",
-      focus: ["Pick Outlook / Gmail / iCloud", "Editable Sends as address", "App password only"],
-      status: "Connect your mailbox",
+      summary: "Each person connects their own Outlook / Microsoft 365 mailbox. NeXa sends as you; customer replies land in your Outlook inbox (same idea as simPRO).",
+      focus: ["Enable SMTP AUTH for the mailbox in M365", "Create an Outlook app password", "Save mailbox → Test connection"],
+      status: "Connect your Outlook",
     },
     WhatsApp: {
       summary: "Connect the company WhatsApp Business number for job messages. Replies land on the job Timeline and are attributed to whoever is signed in.",
@@ -9465,6 +9465,14 @@ export default function CoreApp() {
     () => (selectedInvoice ? communicationRecords.filter((record) => record.recordType === "invoice" && record.recordId === selectedInvoice.id) : []),
     [communicationRecords, selectedInvoice],
   );
+
+  /** Personal Outlook mailbox preferred; company SMTP is the fallback. */
+  const liveEmailReady = Boolean(
+    employeeMailboxStatus?.lastTestMessageId || emailIntegrationStatus?.lastTestMessageId,
+  );
+  const liveEmailBlockedReason = liveEmailReady
+    ? ""
+    : "Connect your Outlook mailbox in Setup → Communications, Save, then Test connection.";
 
   const selectedQuoteCommunicationDraft = useMemo(
     () => (selectedQuote ? communicationDrafts[`quote:${selectedQuote.id}`] ?? blankCommunicationDraft : blankCommunicationDraft),
@@ -30610,7 +30618,7 @@ export default function CoreApp() {
       formatMoney: currency,
     });
 
-    if (to.includes("@") && emailIntegrationStatus?.lastTestMessageId) {
+    if (to.includes("@") && liveEmailReady) {
       setIsSendingLiveEmail(true);
       try {
         await sendThroughLiveOutbox({
@@ -30644,7 +30652,7 @@ export default function CoreApp() {
     } else if (!to.includes("@")) {
       showNotice(`${request.poNumber || "PO"} marked sent. Add a supplier email to email the ${template.name} PDF next time.`);
     } else {
-      showNotice(`${request.poNumber || "PO"} marked sent. Connect and test Outlook in Setup to email the form PDF.`);
+      showNotice(`${request.poNumber || "PO"} marked sent. Connect and test your Outlook mailbox in Setup → Communications to email the form PDF.`);
     }
 
     await patchPurchaseRequest(
@@ -37252,19 +37260,24 @@ export default function CoreApp() {
                             <div className="outlook-status-card">
                               <span>Outlook connection</span>
                               <strong>
-                                {emailIntegrationStatus?.lastTestMessageId
-                                  ? "Live outbox verified"
-                                  : emailIntegrationStatus?.lastError
-                                    ? "Outbox connection failed"
-                                    : emailIntegrationStatus?.configured
-                                      ? "Saved, send test required"
+                                {liveEmailReady
+                                  ? (employeeMailboxStatus?.lastTestMessageId
+                                    ? "Your Outlook is ready"
+                                    : "Company mailbox ready")
+                                  : (employeeMailboxStatus?.lastError || emailIntegrationStatus?.lastError)
+                                    ? "Mailbox connection failed"
+                                    : (employeeMailboxStatus?.configured || emailIntegrationStatus?.configured)
+                                      ? "Saved — test required"
                                       : "Not connected"}
                               </strong>
                               <p>
-                                {emailIntegrationStatus?.lastError
-                                  || (emailIntegrationStatus?.lastTestRecipient
-                                    ? `A real test message was sent to ${emailIntegrationStatus.lastTestRecipient}.`
-                                    : "Connect and test the email provider in Setup before sending customer documents.")}
+                                {employeeMailboxStatus?.lastError
+                                  || emailIntegrationStatus?.lastError
+                                  || (employeeMailboxStatus?.lastTestRecipient
+                                    ? `Test sent to ${employeeMailboxStatus.lastTestRecipient}. Replies go to your Outlook inbox.`
+                                    : (emailIntegrationStatus?.lastTestRecipient
+                                      ? `Test sent to ${emailIntegrationStatus.lastTestRecipient}.`
+                                      : liveEmailBlockedReason))}
                               </p>
                             </div>
                             <div className="setup-template-actions">
@@ -37331,7 +37344,8 @@ export default function CoreApp() {
                             <button
                               className="primary-button"
                               type="button"
-                              disabled={isSendingLiveEmail || !emailIntegrationStatus?.lastTestMessageId}
+                              disabled={isSendingLiveEmail || !liveEmailReady}
+                              title={liveEmailReady ? "Send via your connected Outlook mailbox" : liveEmailBlockedReason}
                               onClick={() => void sendSelectedQuoteEmail()}
                             >
                               <Mail size={15} />
@@ -43459,13 +43473,13 @@ export default function CoreApp() {
                                 isSendingInvoiceRemittance ||
                                 !(selectedInvoice.payments || []).length ||
                                 !access.canEditInvoice ||
-                                !emailIntegrationStatus?.lastTestMessageId
+                                !liveEmailReady
                               }
                               title={
                                 !(selectedInvoice.payments || []).length
                                   ? "Record a payment first"
-                                  : !emailIntegrationStatus?.lastTestMessageId
-                                    ? "Test email in Setup first — or download remittance PDF"
+                                  : !liveEmailReady
+                                    ? "Connect & test your Outlook mailbox in Setup → Communications — or download remittance PDF"
                                     : "Email remittance advice for the latest allocated payment"
                               }
                               onClick={() => void sendSelectedInvoiceRemittanceAdvice()}
@@ -43607,7 +43621,7 @@ export default function CoreApp() {
                             <button
                               className="primary-button"
                               type="button"
-                              disabled={isSendingLiveEmail || !emailIntegrationStatus?.lastTestMessageId}
+                              disabled={isSendingLiveEmail || !liveEmailReady}
                               onClick={() => void submitSelectedValuation()}
                             >
                               <FileText size={15} />
@@ -43656,12 +43670,12 @@ export default function CoreApp() {
                                 type="button"
                                 disabled={
                                   isSendingLiveEmail ||
-                                  !emailIntegrationStatus?.lastTestMessageId ||
+                                  !liveEmailReady ||
                                   invoiceOutstandingBalance(selectedInvoice) <= 0.009
                                 }
                                 title={
-                                  !emailIntegrationStatus?.lastTestMessageId
-                                    ? "Test email in Setup first — or download / record chase"
+                                  !liveEmailReady
+                                    ? "Connect & test your Outlook mailbox in Setup → Communications — or download / record chase"
                                     : "Email payment chase"
                                 }
                                 onClick={() => void sendSelectedInvoicePaymentChase()}
@@ -43672,7 +43686,7 @@ export default function CoreApp() {
                               <button
                                 className="primary-button"
                                 type="button"
-                                disabled={isSendingLiveEmail || !emailIntegrationStatus?.lastTestMessageId}
+                                disabled={isSendingLiveEmail || !liveEmailReady}
                                 onClick={() => void sendSelectedInvoiceEmail()}
                               >
                                 <Mail size={15} />
@@ -46372,7 +46386,10 @@ export default function CoreApp() {
                             </div>
                           </header>
                           <small>
-                            Choose iCloud for testing. Type your @icloud.com / @me.com address in Sends as, paste an Apple app-specific password (appleid.apple.com), then Save and Test. Your employee card email stays unchanged.
+                            Connect your own Outlook so NeXa can send quotes, jobs and invoices as you.
+                            Customer replies go to this Outlook inbox — NeXa is not your mail client.
+                            In Microsoft 365 Admin: enable SMTP AUTH for the mailbox, create an app password
+                            (or use an app password if your tenant still allows it), paste it below, then Save and Test.
                           </small>
                           <div className="setup-form-grid">
                             <label>
@@ -46456,8 +46473,10 @@ export default function CoreApp() {
                               <small>
                                 {employeeMailboxStatus?.lastError
                                   || (!employeeMailboxDraft.senderEmail.trim()
-                                    ? "Enter the From address above (iCloud is fine for testing)."
-                                    : "Save the app password, then send a test.")}
+                                    ? "Enter your work Outlook address in Sends as."
+                                    : liveEmailReady
+                                      ? "Mailbox proven — you can send from quotes, jobs and invoices."
+                                      : "Save the app password, then Test connection.")}
                               </small>
                             </article>
                             <article>
@@ -46467,8 +46486,8 @@ export default function CoreApp() {
                                 {employeeMailboxDraft.provider === "Gmail"
                                   ? "Uses smtp.gmail.com with an app password."
                                   : employeeMailboxDraft.provider === "iCloud"
-                                    ? "Uses smtp.mail.me.com with an Apple app-specific password. Put your iCloud address on the employee card first."
-                                    : "Uses smtp.office365.com with an Outlook app password."}
+                                    ? "Uses smtp.mail.me.com with an Apple app-specific password."
+                                    : "Uses smtp.office365.com. Reply-To is your Outlook address so customers reply into Outlook."}
                               </small>
                             </article>
                             <article>
@@ -46478,7 +46497,7 @@ export default function CoreApp() {
                                   ? employeeMailboxStatus.lastTestedAt.replace("T", " ").slice(0, 16)
                                   : "Not tested yet"}
                               </strong>
-                              <small>Test sends a real message to your employee card email.</small>
+                              <small>Test sends a real message to your Sends as address. Check Outlook after Test.</small>
                             </article>
                           </div>
                         </article>
@@ -47527,14 +47546,14 @@ export default function CoreApp() {
                             type="button"
                             disabled={
                               isSendingClientStatement ||
-                              !emailIntegrationStatus?.lastTestMessageId ||
+                              !liveEmailReady ||
                               !activeClientOutstandingInvoices.length
                             }
                             title={
                               !activeClientOutstandingInvoices.length
                                 ? "No outstanding invoices"
-                                : !emailIntegrationStatus?.lastTestMessageId
-                                  ? "Test email in Setup first — or download statement PDF"
+                                : !liveEmailReady
+                                  ? "Connect & test your Outlook mailbox in Setup → Communications — or download statement PDF"
                                   : "Email outstanding invoice statement"
                             }
                             onClick={() => void sendActiveClientStatement()}

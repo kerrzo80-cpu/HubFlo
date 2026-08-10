@@ -399,6 +399,7 @@ export async function sendViaResolvedMailbox(
     await transport.verify();
     const sent = await transport.sendMail({
       from: mailbox.fromHeader,
+      replyTo: mailbox.from,
       to: input.to.trim(),
       cc: input.cc?.trim() || undefined,
       subject: input.subject.trim(),

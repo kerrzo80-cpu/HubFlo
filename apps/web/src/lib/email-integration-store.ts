@@ -230,6 +230,7 @@ export async function sendEmailMessage(input: OutboundEmailInput) {
     await transport.verify();
     const sent = await transport.sendMail({
       from: emailIntegrationStore.senderEmail,
+      replyTo: emailIntegrationStore.senderEmail,
       to: input.to.trim(),
       cc: input.cc?.trim() || undefined,
       subject: input.subject.trim(),
