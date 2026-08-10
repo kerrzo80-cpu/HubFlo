@@ -32667,7 +32667,7 @@ export default function CoreApp() {
             <header>
               <div>
                 <span className={`buddy-mark mood-${buddyMood}`}>
-                  <BuddyCharacter mood={buddyMood} size="md" greet={nexaAssistantOpen} />
+                  <BuddyCharacter mood={buddyMood} size="md" />
                 </span>
                 <div>
                   <strong>Blake</strong>
@@ -36227,6 +36227,7 @@ export default function CoreApp() {
                                 ]);
                               }}
                             >
+                              <BuddyCharacter mood="guide" size="sm" interactive={false} />
                               Ask Blake ({selectedQuoteBuddyFindings.length + selectedQuoteOpenReviewQuestions.length})
                             </button>
                           ) : null}

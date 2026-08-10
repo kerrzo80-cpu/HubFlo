@@ -241,6 +241,17 @@
   box-shadow: 0 8px 18px rgba(22, 163, 74, 0.28);
 }
 
+.nexa-studio-ai .blake-character.size-sm,
+.nexa-studio-quick-actions .blake-character.size-sm,
+.nexa-studio-blake-card .blake-character.size-md {
+  flex: 0 0 auto;
+}
+
+.nexa-studio-ai .blake-character.size-sm,
+.nexa-studio-quick-actions .blake-character.size-sm {
+  width: 28px;
+}
+
 .nexa-studio-ai:disabled {
   opacity: 0.55;
   cursor: not-allowed;
@@ -759,6 +770,10 @@
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   color: var(--ink);
   font: inherit;
   font-size: 12px;

@@ -13,6 +13,7 @@ import {
 
 import { useBrand } from "@/components/BrandProvider";
 import { FileDropZone } from "@/components/FileDropZone";
+import { BuddyCharacter } from "@/lib/BuddyCharacter";
 import { resolveBrandLogoUrl } from "@/lib/branding";
 import { employeeHeaderName, roleHeaderName } from "@/lib/access";
 import type { TakeoffDocument, TakeoffProject } from "@/lib/takeoff-data";
@@ -1457,7 +1458,7 @@ export default function TakeoffStudioPage() {
           </span>
           {authName ? <span className="pill muted-pill">{authName}</span> : null}
           <button type="button" className="nexa-studio-ai" disabled={busy === "ai" || !selected} onClick={() => void runAiAssist()}>
-            {busy === "ai" ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
+            {busy === "ai" ? <Loader2 className="spin" size={16} /> : <BuddyCharacter mood="idle" size="sm" interactive={false} />}
             Ask Blake
           </button>
           <input ref={fileRef} type="file" accept="application/pdf,.pdf" multiple hidden onChange={(e) => void uploadDrawings(e)} />
@@ -1467,7 +1468,7 @@ export default function TakeoffStudioPage() {
       {blakeStep ? (
         <div className="nexa-studio-blake-overlay" role="status" aria-live="polite">
           <div className="nexa-studio-blake-card">
-            <Sparkles size={22} />
+            <BuddyCharacter mood="thinking" size="md" interactive={false} />
             <strong>Blake is working</strong>
             <p>{blakeStep}</p>
             <Loader2 className="spin" size={20} />
@@ -2117,7 +2118,15 @@ export default function TakeoffStudioPage() {
                     BOQ · {boqForPanel.length || 0}
                   </button>
                   <button type="button" disabled={busy === "ai"} onClick={() => void runAiAssist()}>
-                    {busy === "ai" ? "Blake…" : "Ask Blake"}
+                    {busy === "ai" ? (
+                      <>
+                        <Loader2 className="spin" size={14} /> Blake…
+                      </>
+                    ) : (
+                      <>
+                        <BuddyCharacter mood="idle" size="sm" interactive={false} /> Ask Blake
+                      </>
+                    )}
                   </button>
                   <button
                     type="button"

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { LayoutDashboard } from "lucide-react";
+import { BuddyCharacter } from "@/lib/BuddyCharacter";
 import {
   autoMarkExteriorWalls,
   calculateRoomHeatLoss,
@@ -1196,7 +1197,10 @@ export default function HeatDesignLabPage() {
                 />
                 <div className="hd-blake-route-panel" aria-label="Ask Blake heat design">
                   <header>
-                    <strong>Ask Blake</strong>
+                    <strong className="hd-blake-title">
+                      <BuddyCharacter mood={blakeBusy ? "thinking" : "idle"} size="sm" interactive={false} />
+                      Ask Blake
+                    </strong>
                     <span>
                       Live OpenAI proposes pipe sizes, valves, TRVs, drains, clips and plant bits from this design —
                       then Send to Takeoff for the BOQ. Rules only kick in if OpenAI is offline.
@@ -1220,6 +1224,7 @@ export default function HeatDesignLabPage() {
                       disabled={blakeBusy}
                       onClick={() => void askBlakeLive()}
                     >
+                      <BuddyCharacter mood={blakeBusy ? "thinking" : "idle"} size="sm" interactive={false} />
                       {blakeBusy ? "Blake thinking…" : "Ask Blake"}
                     </button>
                     <button
@@ -1713,7 +1718,10 @@ export default function HeatDesignLabPage() {
                 </div>
 
                 <div className="hd-job-link-panel">
-                  <strong>Ask Blake → Takeoff</strong>
+                  <strong className="hd-blake-title">
+                    <BuddyCharacter mood="guide" size="sm" interactive={false} />
+                    Ask Blake → Takeoff
+                  </strong>
                   <p>
                     Live Blake proposes sizes and the ancillaries kit from OpenAI. Send to Takeoff builds that BOQ;
                     kit push below still sends the full materials list into Core.
@@ -1735,6 +1743,7 @@ export default function HeatDesignLabPage() {
                         void askBlakeLive();
                       }}
                     >
+                      <BuddyCharacter mood={blakeBusy ? "thinking" : "idle"} size="sm" interactive={false} />
                       {blakeBusy ? "Blake thinking…" : "Ask Blake"}
                     </button>
                     <button

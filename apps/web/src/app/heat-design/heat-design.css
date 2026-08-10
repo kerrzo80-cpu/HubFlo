@@ -190,8 +190,11 @@
 
 .hd-btn {
   appearance: none;
+  align-items: center;
   border: 1px solid transparent;
   border-radius: 0.65rem;
+  display: inline-flex;
+  gap: 0.4rem;
   padding: 0.5rem 0.9rem;
   font: inherit;
   font-weight: 700;
@@ -2447,10 +2450,21 @@
   gap: 0.25rem;
 }
 
-.hd-blake-route-panel > header strong {
+.hd-blake-route-panel > header strong,
+.hd-blake-title {
+  align-items: center;
   color: var(--hd-accent-deep);
+  display: inline-flex;
   font-size: 1.02rem;
+  gap: 0.45rem;
   letter-spacing: -0.02em;
+}
+
+.hd-blake-title .blake-character.size-sm,
+.hd-blake-route-actions .blake-character.size-sm,
+.hd-btn .blake-character.size-sm {
+  width: 28px;
+  flex: 0 0 auto;
 }
 
 .hd-blake-route-panel > header span {

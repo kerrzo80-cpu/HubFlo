@@ -2,9 +2,7 @@
 
 export type BlakeMood = "idle" | "alert" | "thinking" | "good" | "guide";
 
-/**
- * Ask Blake pose sheet — transparent cut-outs (no studio background).
- */
+/** Transparent Blake cut-outs — same poses as Core. */
 const POSES: Record<BlakeMood, { src: string; label: string }> = {
   idle: { src: "/brand/blake-poses/blake-idle.webp", label: "Ask Blake ready" },
   alert: { src: "/brand/blake-poses/blake-alert.webp", label: "Blake spotted something" },
@@ -26,7 +24,6 @@ export function BlakeCharacter({
   return (
     <span className={`blake-character size-${size} ${className}`.trim()} title={pose.label} aria-hidden>
       <span className="blake-character-stage">
-        <span className="blake-ground-shadow" aria-hidden />
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img key={pose.src} src={pose.src} alt="" className="blake-pose" draggable={false} />
       </span>
