@@ -15143,35 +15143,43 @@ export default function CoreApp() {
     setNexaAssistantDraft("");
     setNexaAssistantBusy(true);
     try {
-      const response = await fetch("/api/nexa-assistant", {
-        method: "POST",
-        headers: { ...requestHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message,
-          history,
-          sourceRoute: typeof window !== "undefined" ? window.location.pathname : undefined,
-          sourcePage: homeView,
-          buddyContext: {
-            ...buddyMemoryPrompt(buddyMemory),
-            quoteWatch: selectedQuote
-              ? {
-                  ref: selectedQuote.ref,
-                  headline: selectedQuoteBuddySummary.headline,
-                  findings: selectedQuoteBuddyFindings.slice(0, 6).map((item) => ({
-                    severity: item.severity,
-                    title: item.title,
-                    detail: item.detail,
-                  })),
-                  reviewQuestions: selectedQuoteOpenReviewQuestions.slice(0, 6).map((item) => ({
-                    severity: item.severity,
-                    title: item.title,
-                    detail: item.detail,
-                  })),
-                }
-              : undefined,
-          },
-        }),
-      });
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 25_000);
+      let response: Response;
+      try {
+        response = await fetch("/api/nexa-assistant", {
+          method: "POST",
+          headers: { ...requestHeaders, "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            message,
+            history,
+            sourceRoute: typeof window !== "undefined" ? window.location.pathname : undefined,
+            sourcePage: homeView,
+            buddyContext: {
+              ...buddyMemoryPrompt(buddyMemory),
+              quoteWatch: selectedQuote
+                ? {
+                    ref: selectedQuote.ref,
+                    headline: selectedQuoteBuddySummary.headline,
+                    findings: selectedQuoteBuddyFindings.slice(0, 6).map((item) => ({
+                      severity: item.severity,
+                      title: item.title,
+                      detail: item.detail,
+                    })),
+                    reviewQuestions: selectedQuoteOpenReviewQuestions.slice(0, 6).map((item) => ({
+                      severity: item.severity,
+                      title: item.title,
+                      detail: item.detail,
+                    })),
+                  }
+                : undefined,
+            },
+          }),
+        });
+      } finally {
+        window.clearTimeout(timeout);
+      }
       const result = (await response.json()) as NexaAssistantApiResponse;
       setNexaAssistantMessages((current) => [
         ...current,
@@ -15183,13 +15191,16 @@ export default function CoreApp() {
           aiUsed: result.aiUsed,
         },
       ]);
-    } catch {
+    } catch (error) {
+      const timedOut = error instanceof DOMException && error.name === "AbortError";
       setNexaAssistantMessages((current) => [
         ...current,
         {
           id: `buddy-${crypto.randomUUID()}`,
           role: "assistant",
-          text: "I could not reach the live NeXa workspace. Nothing was changed.",
+          text: timedOut
+            ? "That took too long — nothing was saved. Try again, or keep the note shorter."
+            : "I could not reach the live NeXa workspace. Nothing was changed.",
         },
       ]);
     } finally {
@@ -15201,11 +15212,19 @@ export default function CoreApp() {
     if (nexaAssistantBusy) return;
     setNexaAssistantBusy(true);
     try {
-      const response = await fetch("/api/nexa-assistant", {
-        method: "POST",
-        headers: { ...requestHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmActionId: action.id }),
-      });
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 20_000);
+      let response: Response;
+      try {
+        response = await fetch("/api/nexa-assistant", {
+          method: "POST",
+          headers: { ...requestHeaders, "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({ confirmActionId: action.id }),
+        });
+      } finally {
+        window.clearTimeout(timeout);
+      }
       const result = (await response.json()) as NexaAssistantApiResponse;
       setNexaAssistantMessages((current) => [
         ...current.map((message) =>
@@ -15234,13 +15253,16 @@ export default function CoreApp() {
           showNotice("Live schedule updated by Blake.");
         }
       }
-    } catch {
+    } catch (error) {
+      const timedOut = error instanceof DOMException && error.name === "AbortError";
       setNexaAssistantMessages((current) => [
         ...current,
         {
           id: `buddy-${crypto.randomUUID()}`,
           role: "assistant",
-          text: "The live booking could not be saved. Nothing was changed.",
+          text: timedOut
+            ? "Confirm timed out — check again in a moment. Nothing may have been saved."
+            : "The live booking could not be saved. Nothing was changed.",
         },
       ]);
     } finally {

@@ -267,10 +267,10 @@ function looksLikeScheduling(message: string) {
 }
 
 function looksLikeFaultReport(message: string) {
+  // Keep this tight — broad matching was sucking normal chat into the fault AI path.
   return /\b(report (a )?(fault|bug|problem|issue)|add a fault|log a fault|suggest( an)? improvement|raise a (fault|bug|ticket)|faults? & improvements?)\b/i.test(
     message,
-  ) || /\b(on takeoff|in takeoff|on field|in core|when i|doesn't work|does not work|broken|bug|fault)\b/i.test(message)
-    && /\b(add|report|log|raise|create|file)\b/i.test(message);
+  );
 }
 
 function deterministicIntent(message: string, employees: Employee[], now = new Date()): AssistantIntent {
@@ -860,10 +860,24 @@ export async function handleNexaAssistantMessage(
   const hubState = getHubDetailState();
   const employees = (hubState.employees ?? []) as Employee[];
   const deterministic = deterministicIntent(message, employees, now);
-  const ai = await aiIntent(message, employees, now);
-  const intent = ai?.action === "report_fault" || ai?.action === "suggest_improvement" ? ai : deterministic;
 
-  if (intent.action === "report_fault" || intent.action === "suggest_improvement" || looksLikeFaultReport(message)) {
+  // Fault reports must stay light — do not stack OpenAI intent + classify calls
+  // (that double-hit was hanging Render and spinning the Core tab).
+  if (
+    deterministic.action === "report_fault"
+    || deterministic.action === "suggest_improvement"
+    || looksLikeFaultReport(message)
+  ) {
+    return handleFaultReportMessage(message, actor, {
+      sourceRoute: options.sourceRoute,
+      sourcePage: options.sourcePage,
+    });
+  }
+
+  const ai = await aiIntent(message, employees, now);
+  const intent = ai ?? deterministic;
+
+  if (intent.action === "report_fault" || intent.action === "suggest_improvement") {
     return handleFaultReportMessage(message, actor, {
       sourceRoute: options.sourceRoute,
       sourcePage: options.sourcePage,

@@ -67,39 +67,54 @@ function heuristicClassify(input: {
   };
 }
 
-async function callStructuredJson(system: string, user: string, schemaName: string, schema: Record<string, unknown>) {
+async function callStructuredJson(
+  system: string,
+  user: string,
+  schemaName: string,
+  schema: Record<string, unknown>,
+  timeoutMs = 10_000,
+) {
   const apiKey = resolveOpenAiApiKey();
   if (!apiKey) return null;
   const model =
     process.env.NEXA_ASSISTANT_OPENAI_MODEL?.trim() ||
     process.env.NEXA_TAKEOFF_OPENAI_MODEL?.trim() ||
     "gpt-4.1-mini";
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      input: [
-        { role: "system", content: [{ type: "input_text", text: system }] },
-        { role: "user", content: [{ type: "input_text", text: user }] },
-      ],
-      text: {
-        format: {
-          type: "json_schema",
-          name: schemaName,
-          strict: true,
-          schema,
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        input: [
+          { role: "system", content: [{ type: "input_text", text: system }] },
+          { role: "user", content: [{ type: "input_text", text: user }] },
+        ],
+        text: {
+          format: {
+            type: "json_schema",
+            name: schemaName,
+            strict: true,
+            schema,
+          },
         },
-      },
-    }),
-  });
-  if (!response.ok) return null;
-  const result = (await response.json()) as {
-    output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
-  };
-  const text = result.output?.flatMap((item) => item.content ?? []).find((item) => item.type === "output_text")?.text;
-  if (!text) return null;
-  return JSON.parse(text) as Record<string, unknown>;
+      }),
+    });
+    if (!response.ok) return null;
+    const result = (await response.json()) as {
+      output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+    };
+    const text = result.output?.flatMap((item) => item.content ?? []).find((item) => item.type === "output_text")?.text;
+    if (!text) return null;
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function classifyFaultReport(input: {
