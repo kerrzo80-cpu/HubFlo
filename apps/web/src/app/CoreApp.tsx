@@ -3748,9 +3748,9 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
   },
   communications: {
     Outlook: {
-      summary: "Each person connects their own Outlook / Microsoft 365 mailbox. NeXa sends as you; customer replies land in your Outlook inbox (same idea as simPRO).",
-      focus: ["Enable SMTP AUTH for the mailbox in M365", "Create an Outlook app password", "Save mailbox → Test connection"],
-      status: "Connect your Outlook",
+      summary: "Like simPRO: one company Microsoft 365 send mailbox for NeXa. Staff do not enter email passwords — Reply-To uses each person’s People card email so replies land in their Outlook.",
+      focus: ["One shared M365 send mailbox + app password", "Save → Test company connection", "People card email = who replies go to"],
+      status: "Connect company Outlook",
     },
     WhatsApp: {
       summary: "Connect the company WhatsApp Business number for job messages. Replies land on the job Timeline and are attributed to whoever is signed in.",
@@ -9466,13 +9466,13 @@ export default function CoreApp() {
     [communicationRecords, selectedInvoice],
   );
 
-  /** Personal Outlook mailbox preferred; company SMTP is the fallback. */
+  /** Company Outlook (simPRO-style) preferred; personal mailbox remains a fallback. */
   const liveEmailReady = Boolean(
-    employeeMailboxStatus?.lastTestMessageId || emailIntegrationStatus?.lastTestMessageId,
+    emailIntegrationStatus?.lastTestMessageId || employeeMailboxStatus?.lastTestMessageId,
   );
   const liveEmailBlockedReason = liveEmailReady
     ? ""
-    : "Connect your Outlook mailbox in Setup → Communications, Save, then Test connection.";
+    : "An admin must connect the company Outlook mailbox in Setup → Communications, Save, then Test.";
 
   const selectedQuoteCommunicationDraft = useMemo(
     () => (selectedQuote ? communicationDrafts[`quote:${selectedQuote.id}`] ?? blankCommunicationDraft : blankCommunicationDraft),
@@ -30652,7 +30652,7 @@ export default function CoreApp() {
     } else if (!to.includes("@")) {
       showNotice(`${request.poNumber || "PO"} marked sent. Add a supplier email to email the ${template.name} PDF next time.`);
     } else {
-      showNotice(`${request.poNumber || "PO"} marked sent. Connect and test your Outlook mailbox in Setup → Communications to email the form PDF.`);
+      showNotice(`${request.poNumber || "PO"} marked sent. Connect and test the company Outlook mailbox in Setup → Communications to email the form PDF.`);
     }
 
     await patchPurchaseRequest(
@@ -37261,22 +37261,22 @@ export default function CoreApp() {
                               <span>Outlook connection</span>
                               <strong>
                                 {liveEmailReady
-                                  ? (employeeMailboxStatus?.lastTestMessageId
-                                    ? "Your Outlook is ready"
-                                    : "Company mailbox ready")
-                                  : (employeeMailboxStatus?.lastError || emailIntegrationStatus?.lastError)
+                                  ? (emailIntegrationStatus?.lastTestMessageId
+                                    ? "Company Outlook ready"
+                                    : "Personal mailbox ready")
+                                  : (emailIntegrationStatus?.lastError || employeeMailboxStatus?.lastError)
                                     ? "Mailbox connection failed"
-                                    : (employeeMailboxStatus?.configured || emailIntegrationStatus?.configured)
+                                    : (emailIntegrationStatus?.configured || employeeMailboxStatus?.configured)
                                       ? "Saved — test required"
                                       : "Not connected"}
                               </strong>
                               <p>
-                                {employeeMailboxStatus?.lastError
-                                  || emailIntegrationStatus?.lastError
-                                  || (employeeMailboxStatus?.lastTestRecipient
-                                    ? `Test sent to ${employeeMailboxStatus.lastTestRecipient}. Replies go to your Outlook inbox.`
-                                    : (emailIntegrationStatus?.lastTestRecipient
-                                      ? `Test sent to ${emailIntegrationStatus.lastTestRecipient}.`
+                                {emailIntegrationStatus?.lastError
+                                  || employeeMailboxStatus?.lastError
+                                  || (emailIntegrationStatus?.lastTestMessageId
+                                    ? `Company send via ${emailIntegrationStatus.senderEmail}. Replies go to ${activeEmployee?.profile?.email?.trim() || "your People card email"}.`
+                                    : (employeeMailboxStatus?.lastTestRecipient
+                                      ? `Test sent to ${employeeMailboxStatus.lastTestRecipient}.`
                                       : liveEmailBlockedReason))}
                               </p>
                             </div>
@@ -37345,7 +37345,7 @@ export default function CoreApp() {
                               className="primary-button"
                               type="button"
                               disabled={isSendingLiveEmail || !liveEmailReady}
-                              title={liveEmailReady ? "Send via your connected Outlook mailbox" : liveEmailBlockedReason}
+                              title={liveEmailReady ? "Send via the company Outlook mailbox" : liveEmailBlockedReason}
                               onClick={() => void sendSelectedQuoteEmail()}
                             >
                               <Mail size={15} />
@@ -40755,7 +40755,7 @@ export default function CoreApp() {
                         <h3>Send or capture email & WhatsApp</h3>
                       </div>
                       <p className="muted-copy">
-                        Outbound email uses your connected mailbox when available (otherwise the company SMTP). WhatsApp sends from the company business number and is attributed to {activeEmployee?.name ?? "you"}.
+                        Outbound email uses the company Outlook mailbox (simPRO-style). Reply-To is {activeEmployee?.profile?.email?.trim() || "your People card email"} so replies land in Outlook. WhatsApp still uses the company business number and is attributed to {activeEmployee?.name ?? "you"}.
                       </p>
                       <div className="communication-capture-grid">
                         <label>
@@ -43479,7 +43479,7 @@ export default function CoreApp() {
                                 !(selectedInvoice.payments || []).length
                                   ? "Record a payment first"
                                   : !liveEmailReady
-                                    ? "Connect & test your Outlook mailbox in Setup → Communications — or download remittance PDF"
+                                    ? "Connect & test the company Outlook mailbox in Setup → Communications — or download remittance PDF"
                                     : "Email remittance advice for the latest allocated payment"
                               }
                               onClick={() => void sendSelectedInvoiceRemittanceAdvice()}
@@ -43675,7 +43675,7 @@ export default function CoreApp() {
                                 }
                                 title={
                                   !liveEmailReady
-                                    ? "Connect & test your Outlook mailbox in Setup → Communications — or download / record chase"
+                                    ? "Connect & test the company Outlook mailbox in Setup → Communications — or download / record chase"
                                     : "Email payment chase"
                                 }
                                 onClick={() => void sendSelectedInvoicePaymentChase()}
@@ -46350,9 +46350,11 @@ export default function CoreApp() {
                             Refresh status
                           </button>
                           <span className="setup-status-label">
-                            {employeeMailboxStatus?.configured
-                              ? `${employeeMailboxStatus.provider} · ${employeeMailboxStatus.senderEmail || activeEmployee?.profile?.email || "connected"}`
-                              : "Mailbox not connected"}
+                            {emailIntegrationStatus?.lastTestMessageId
+                              ? `Company Outlook ready · ${emailIntegrationStatus.senderEmail}`
+                              : emailIntegrationStatus?.configured
+                                ? `Company Outlook saved · test required · ${emailIntegrationStatus.senderEmail}`
+                                : "Company Outlook not connected"}
                             {" · "}
                             {whatsAppStatus?.configured ? "WhatsApp ready" : "WhatsApp needs setup"}
                           </span>
@@ -46363,64 +46365,55 @@ export default function CoreApp() {
                         <article className="setup-integration-card">
                           <header>
                             <div>
-                              <span>Your mailbox</span>
-                              <strong>{activeEmployee?.name ?? "Signed-in user"}</strong>
+                              <span>Company send mailbox</span>
+                              <strong>Like simPRO — one Outlook for NeXa</strong>
                             </div>
                             <div className="setup-sync-actions">
                               <button
                                 className="secondary-button"
                                 type="button"
-                                disabled={isTestingEmployeeMailbox || !employeeMailboxStatus?.configured}
-                                onClick={() => void testSignedInMailboxSettings()}
+                                disabled={isTestingEmailIntegration || !emailIntegrationStatus?.configured || !access.canCustomize}
+                                onClick={() => void testEmailIntegrationSettings()}
                               >
-                                {isTestingEmployeeMailbox ? "Testing..." : "Test connection"}
+                                {isTestingEmailIntegration ? "Testing..." : "Test connection"}
                               </button>
                               <button
                                 className="primary-button"
                                 type="button"
-                                disabled={isSavingEmployeeMailbox}
-                                onClick={() => void saveSignedInMailboxSettings()}
+                                disabled={isSavingEmailIntegration || !access.canCustomize}
+                                title={!access.canCustomize ? "Only admins can change the company mailbox" : undefined}
+                                onClick={() => void saveEmailIntegrationSettings()}
                               >
-                                {isSavingEmployeeMailbox ? "Saving..." : "Save mailbox"}
+                                {isSavingEmailIntegration ? "Saving..." : "Save mailbox"}
                               </button>
                             </div>
                           </header>
                           <small>
-                            Connect your own Outlook so NeXa can send quotes, jobs and invoices as you.
-                            Customer replies go to this Outlook inbox — NeXa is not your mail client.
-                            In Microsoft 365 Admin: enable SMTP AUTH for the mailbox, create an app password
-                            (or use an app password if your tenant still allows it), paste it below, then Save and Test.
+                            NeXa sends through <strong>one</strong> shared Microsoft 365 mailbox (for example nexa@ or admin@).
+                            Staff do <strong>not</strong> enter their own email passwords.
+                            When anyone sends a quote, job or invoice, Reply-To is their People card email so the customer reply lands in that person’s Outlook.
+                            In M365 Admin: enable SMTP AUTH for this shared mailbox, create an app password for it, paste below, Save and Test.
                           </small>
                           <div className="setup-form-grid">
                             <label>
                               Provider
                               <select
-                                value={employeeMailboxDraft.provider}
+                                value={emailIntegrationDraft.provider}
+                                disabled={!access.canCustomize}
                                 onChange={(event) => {
-                                  const provider = event.target.value as EmployeeMailboxDraft["provider"];
-                                  employeeMailboxDraftDirtyRef.current = true;
-                                  setEmployeeMailboxDraftDirty(true);
-                                  setEmployeeMailboxDraft((current) => {
-                                    const appleMail = /@(icloud|me|mac)\.com$/i.test(current.senderEmail.trim());
-                                    const nextEmail =
-                                      provider === "iCloud" && current.senderEmail && !appleMail
-                                        ? ""
-                                        : current.senderEmail;
-                                    return {
-                                      ...current,
-                                      provider,
-                                      senderEmail: nextEmail,
-                                      username: nextEmail,
-                                      smtpHost:
-                                        provider === "Gmail"
-                                          ? "smtp.gmail.com"
-                                          : provider === "iCloud"
-                                            ? "smtp.mail.me.com"
-                                            : "smtp.office365.com",
-                                      smtpPort: provider === "Gmail" ? "465" : "587",
-                                      secure: provider === "Gmail",
-                                    };
-                                  });
+                                  const provider = event.target.value as EmailIntegrationDraft["provider"];
+                                  setEmailIntegrationDraft((current) => ({
+                                    ...current,
+                                    provider,
+                                    smtpHost:
+                                      provider === "Gmail"
+                                        ? "smtp.gmail.com"
+                                        : provider === "iCloud"
+                                          ? "smtp.mail.me.com"
+                                          : "smtp.office365.com",
+                                    smtpPort: provider === "Gmail" ? "465" : "587",
+                                    secure: provider === "Gmail",
+                                  }));
                                 }}
                               >
                                 <option value="Outlook">Outlook / Microsoft 365</option>
@@ -46429,33 +46422,30 @@ export default function CoreApp() {
                               </select>
                             </label>
                             <label>
-                              Sends as
+                              Company send address
                               <input
                                 type="email"
-                                value={employeeMailboxDraft.senderEmail}
+                                disabled={!access.canCustomize}
+                                value={emailIntegrationDraft.senderEmail}
                                 onChange={(event) => {
-                                  employeeMailboxDraftDirtyRef.current = true;
-                                  setEmployeeMailboxDraftDirty(true);
-                                  setEmployeeMailboxDraft((current) => ({
+                                  const value = event.target.value;
+                                  setEmailIntegrationDraft((current) => ({
                                     ...current,
-                                    senderEmail: event.target.value,
-                                    username: event.target.value,
+                                    senderEmail: value,
+                                    username: value,
                                   }));
                                 }}
-                                placeholder={employeeMailboxDraft.provider === "iCloud" ? "name@icloud.com" : (activeEmployee?.profile?.email?.trim() || "you@company.com")}
+                                placeholder="nexa@yourcompany.com"
                               />
                             </label>
                             <label>
-                              App password
+                              App password (shared mailbox only)
                               <input
                                 type="password"
-                                value={employeeMailboxDraft.secret}
-                                onChange={(event) => {
-                                  employeeMailboxDraftDirtyRef.current = true;
-                                  setEmployeeMailboxDraftDirty(true);
-                                  setEmployeeMailboxDraft((current) => ({ ...current, secret: event.target.value }));
-                                }}
-                                placeholder={employeeMailboxStatus?.secretStored ? "Stored securely — paste only to change it" : "Paste app-specific password"}
+                                disabled={!access.canCustomize}
+                                value={emailIntegrationDraft.secret}
+                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, secret: event.target.value }))}
+                                placeholder={emailIntegrationStatus?.secretStored ? "Stored securely — paste only to change it" : "Paste app password for the shared mailbox"}
                                 autoComplete="new-password"
                               />
                             </label>
@@ -46464,40 +46454,36 @@ export default function CoreApp() {
                             <article>
                               <span>Status</span>
                               <strong>
-                                {employeeMailboxStatus?.lastTestMessageId
-                                  ? "Test email sent"
-                                  : employeeMailboxStatus?.configured
+                                {emailIntegrationStatus?.lastTestMessageId
+                                  ? "Test email sent — ready"
+                                  : emailIntegrationStatus?.configured
                                     ? "Saved, not proven"
                                     : "Not connected"}
                               </strong>
                               <small>
-                                {employeeMailboxStatus?.lastError
-                                  || (!employeeMailboxDraft.senderEmail.trim()
-                                    ? "Enter your work Outlook address in Sends as."
-                                    : liveEmailReady
-                                      ? "Mailbox proven — you can send from quotes, jobs and invoices."
-                                      : "Save the app password, then Test connection.")}
+                                {emailIntegrationStatus?.lastError
+                                  || (emailIntegrationStatus?.lastTestMessageId
+                                    ? "Everyone can send from quotes, jobs and invoices. Replies go to each sender’s People email."
+                                    : "Admin: save the shared mailbox app password, then Test connection.")}
                               </small>
                             </article>
                             <article>
-                              <span>Provider</span>
-                              <strong>{employeeMailboxDraft.provider}</strong>
+                              <span>Your reply address</span>
+                              <strong>{activeEmployee?.profile?.email?.trim() || "Missing on People card"}</strong>
                               <small>
-                                {employeeMailboxDraft.provider === "Gmail"
-                                  ? "Uses smtp.gmail.com with an app password."
-                                  : employeeMailboxDraft.provider === "iCloud"
-                                    ? "Uses smtp.mail.me.com with an Apple app-specific password."
-                                    : "Uses smtp.office365.com. Reply-To is your Outlook address so customers reply into Outlook."}
+                                {activeEmployee?.profile?.email?.trim()
+                                  ? "Customer replies to this Outlook inbox when you send from NeXa."
+                                  : "Add your work email on your People card so replies reach you."}
                               </small>
                             </article>
                             <article>
                               <span>Last test</span>
                               <strong>
-                                {employeeMailboxStatus?.lastTestedAt
-                                  ? employeeMailboxStatus.lastTestedAt.replace("T", " ").slice(0, 16)
+                                {emailIntegrationStatus?.lastTestedAt
+                                  ? emailIntegrationStatus.lastTestedAt.replace("T", " ").slice(0, 16)
                                   : "Not tested yet"}
                               </strong>
-                              <small>Test sends a real message to your Sends as address. Check Outlook after Test.</small>
+                              <small>Test sends a real message to the company send address.</small>
                             </article>
                           </div>
                         </article>
@@ -47553,7 +47539,7 @@ export default function CoreApp() {
                               !activeClientOutstandingInvoices.length
                                 ? "No outstanding invoices"
                                 : !liveEmailReady
-                                  ? "Connect & test your Outlook mailbox in Setup → Communications — or download statement PDF"
+                                  ? "Connect & test the company Outlook mailbox in Setup → Communications — or download statement PDF"
                                   : "Email outstanding invoice statement"
                             }
                             onClick={() => void sendActiveClientStatement()}

@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import nodemailer from "nodemailer";
 
+import { getHubDetailState } from "@/lib/hub-detail-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
 export type EmailProvider = "Outlook" | "Gmail" | "iCloud";
@@ -26,8 +27,13 @@ export type OutboundEmailInput = {
   cc?: string;
   subject: string;
   text: string;
-  /** Prefer this employee's connected mailbox; falls back to company SMTP. */
+  /**
+   * Logged-in employee. With company SMTP (simPRO-style), used for Reply-To / display name
+   * from their People card email — not for per-person mailbox passwords.
+   */
   employeeId?: string;
+  /** Optional override; otherwise uses the employee's People card email. */
+  replyTo?: string;
   attachments?: Array<{
     filename: string;
     content: Buffer;
@@ -179,10 +185,48 @@ export function clearEmailIntegrationError() {
   persist(emailIntegrationStore);
 }
 
+function companySmtpSecret() {
+  return decryptSecret(emailIntegrationStore.encryptedSecret);
+}
+
+function isCompanySmtpConfigured() {
+  return Boolean(
+    emailIntegrationStore.senderEmail.trim()
+    && emailIntegrationStore.username.trim()
+    && companySmtpSecret().trim(),
+  );
+}
+
+function resolveEmployeeReplyIdentity(employeeId?: string): { email: string; name: string } | null {
+  const id = employeeId?.trim();
+  if (!id) return null;
+  const employees = getHubDetailState().employees;
+  if (!Array.isArray(employees)) return null;
+  for (const raw of employees) {
+    if (!raw || typeof raw !== "object") continue;
+    const record = raw as { id?: unknown; name?: unknown; profile?: { email?: unknown } };
+    if (String(record.id || "").trim() !== id) continue;
+    const email = String(record.profile?.email || "").trim();
+    const name = String(record.name || "").trim();
+    if (!email.includes("@")) return null;
+    return { email, name };
+  }
+  return null;
+}
+
+function formatCompanyFromHeader(displayName: string | undefined, mailbox: string) {
+  const name = displayName?.trim();
+  if (!name) return mailbox;
+  const safe = name.replace(/[\r\n"<>]/g, "").trim();
+  return safe ? `"${safe}" <${mailbox}>` : mailbox;
+}
+
 function configuredTransport() {
-  const secret = decryptSecret(emailIntegrationStore.encryptedSecret);
+  const secret = companySmtpSecret();
   if (!emailIntegrationStore.senderEmail.trim() || !emailIntegrationStore.username.trim() || !secret.trim()) {
-    throw new Error("Add the sender email, username and app password before sending.");
+    throw new Error(
+      "Connect the company Outlook mailbox in Setup → Communications (one shared address + app password), then Test.",
+    );
   }
 
   return nodemailer.createTransport({
@@ -206,6 +250,50 @@ export async function sendEmailMessage(input: OutboundEmailInput) {
   }
 
   const employeeId = input.employeeId?.trim();
+  const identity = resolveEmployeeReplyIdentity(employeeId);
+
+  // simPRO-style: one company SMTP path for everyone. Personal mailboxes are fallback only.
+  if (isCompanySmtpConfigured()) {
+    const transport = configuredTransport();
+    const companyMailbox = emailIntegrationStore.senderEmail.trim();
+    const replyTo = (input.replyTo?.trim() || identity?.email || companyMailbox).trim();
+    const fromHeader = formatCompanyFromHeader(identity?.name, companyMailbox);
+    try {
+      await transport.verify();
+      const sent = await transport.sendMail({
+        from: fromHeader,
+        replyTo,
+        to: input.to.trim(),
+        cc: input.cc?.trim() || undefined,
+        subject: input.subject.trim(),
+        text: input.text,
+        attachments: input.attachments,
+      });
+
+      emailIntegrationStore.lastSentAt = new Date().toISOString();
+      emailIntegrationStore.lastSentMessageId = sent.messageId;
+      emailIntegrationStore.lastError = undefined;
+      persist(emailIntegrationStore);
+      return {
+        provider: emailIntegrationStore.provider,
+        from: companyMailbox,
+        replyTo,
+        source: "company" as const,
+        employeeId: employeeId || undefined,
+        messageId: sent.messageId,
+        accepted: sent.accepted.map(String),
+        rejected: sent.rejected.map(String),
+        sentAt: emailIntegrationStore.lastSentAt,
+      };
+    } catch (error) {
+      emailIntegrationStore.lastError = error instanceof Error ? error.message : "Email authentication or send failed.";
+      persist(emailIntegrationStore);
+      throw error;
+    } finally {
+      transport.close();
+    }
+  }
+
   if (employeeId) {
     const { resolveEmployeeMailboxTransport, sendViaResolvedMailbox } = await import("@/lib/employee-mailbox-store");
     try {
@@ -220,58 +308,28 @@ export async function sendEmailMessage(input: OutboundEmailInput) {
         });
       }
     } catch (error) {
-      // Surface decrypt / missing-password issues instead of silently falling back to company SMTP.
       throw error instanceof Error ? error : new Error("Unable to use the employee mailbox.");
     }
   }
 
-  const transport = configuredTransport();
-  try {
-    await transport.verify();
-    const sent = await transport.sendMail({
-      from: emailIntegrationStore.senderEmail,
-      replyTo: emailIntegrationStore.senderEmail,
-      to: input.to.trim(),
-      cc: input.cc?.trim() || undefined,
-      subject: input.subject.trim(),
-      text: input.text,
-      attachments: input.attachments,
-    });
-
-    emailIntegrationStore.lastSentAt = new Date().toISOString();
-    emailIntegrationStore.lastSentMessageId = sent.messageId;
-    emailIntegrationStore.lastError = undefined;
-    persist(emailIntegrationStore);
-    return {
-      provider: emailIntegrationStore.provider,
-      from: emailIntegrationStore.senderEmail,
-      source: "company" as const,
-      employeeId: employeeId || undefined,
-      messageId: sent.messageId,
-      accepted: sent.accepted.map(String),
-      rejected: sent.rejected.map(String),
-      sentAt: emailIntegrationStore.lastSentAt,
-    };
-  } catch (error) {
-    emailIntegrationStore.lastError = error instanceof Error ? error.message : "Email authentication or send failed.";
-    persist(emailIntegrationStore);
-    throw error;
-  } finally {
-    transport.close();
-  }
+  throw new Error(
+    "Connect the company Outlook mailbox in Setup → Communications (shared send address + app password), Save, then Test. Staff do not each need email passwords.",
+  );
 }
 
 export async function testEmailIntegrationConnection() {
   const result = await sendEmailMessage({
     to: emailIntegrationStore.senderEmail,
-    subject: "NeXa email connection test",
+    subject: "NeXa company mailbox connection test",
     text: [
-      "This test email was sent by NeXa.",
+      "This test email was sent by NeXa through the company Outlook / Microsoft 365 mailbox.",
       "",
       `Provider: ${emailIntegrationStore.provider}`,
+      `Company send address: ${emailIntegrationStore.senderEmail}`,
       `Sent: ${new Date().toISOString()}`,
       "",
-      "Receiving this message confirms that NeXa authenticated with your email provider and sent successfully.",
+      "Receiving this confirms outbound email is ready. Customer emails use this mailbox to send;",
+      "Reply-To is the logged-in person's People card email so replies land in their Outlook.",
     ].join("\n"),
   });
   emailIntegrationStore.lastTestedAt = result.sentAt;
