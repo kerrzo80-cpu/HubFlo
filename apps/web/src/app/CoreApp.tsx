@@ -30,6 +30,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  ClipboardList,
   Clock3,
   Download,
   FileText,
@@ -199,6 +200,10 @@ const SiteAssetsPanel = dynamic(
 const StockOpsPanel = dynamic(
   () => import("@/lib/OpsPanels").then((mod) => mod.StockOpsPanel),
   { ssr: false, loading: () => panelSkeleton("Loading stock…") },
+);
+const TendersPanel = dynamic(
+  () => import("@/lib/TendersPanel").then((mod) => mod.TendersPanel),
+  { ssr: false, loading: () => panelSkeleton("Loading tenders…") },
 );
 const SetupConfigPanel = dynamic(
   () => import("@/lib/SetupExtraPanels").then((mod) => mod.SetupConfigPanel),
@@ -801,6 +806,7 @@ type HomeView =
   | "purchase-order-record"
   | "stock"
   | "recurring"
+  | "tenders"
   | "reports"
   | "invoices"
   | "invoice-create"
@@ -2520,6 +2526,7 @@ const modules: ModuleItem[] = [
   { label: "Blake Trainer", icon: MessageCircle, href: "/train" },
   { label: "Leads", icon: Mail },
   { label: "Quotes", icon: FileText },
+  { label: "Tenders", icon: ClipboardList },
   { label: "Jobs", icon: Wrench },
   { label: "Schedules", icon: CalendarDays },
   { label: "Invoices", icon: PoundSterling },
@@ -12712,6 +12719,7 @@ export default function CoreApp() {
       if (module.label === "Jobs" && !access.showJobs) return false;
       if (module.label === "Schedules" && !access.showSchedule) return false;
       if (module.label === "Quotes" && !access.showQuotes) return false;
+      if (module.label === "Tenders") return access.showQuotes || access.showJobs || access.showFinance;
       if (module.label === "Invoices" && !access.showFinance) return false;
       if (module.label === "POs") {
         return access.canRequestPurchase || access.canApprovePurchase || access.showFinance;
@@ -19885,6 +19893,8 @@ export default function CoreApp() {
       returnToLeadsDirectory();
     } else if (label === "Quotes") {
       returnToQuotesDirectory();
+    } else if (label === "Tenders") {
+      setHomeView("tenders");
     } else if (label === "Jobs") {
       returnToJobsDirectory();
     } else if (label === "POs") {
@@ -32606,6 +32616,7 @@ export default function CoreApp() {
                 (module.label === "Dashboard" && homeView === "dashboard") ||
                 (module.label === "Leads" && ["leads", "lead-create", "lead-record"].includes(homeView)) ||
                 (module.label === "Quotes" && ["quotes", "quote-create", "quote-record", "quote-cost-centre-record"].includes(homeView)) ||
+                (module.label === "Tenders" && homeView === "tenders") ||
                 (module.label === "Jobs" && ["jobs", "job-create", "job-record", "cost-centre-record"].includes(homeView)) ||
                 (module.label === "Schedules" && homeView === "schedule") ||
                 (module.label === "Invoices" && ["invoices", "invoice-record", "invoice-create"].includes(homeView)) ||
@@ -32765,6 +32776,8 @@ export default function CoreApp() {
                   ? "Stock"
                 : homeView === "recurring"
                   ? "Recurring"
+                : homeView === "tenders"
+                  ? "Tenders"
                 : homeView === "invoices" || homeView === "invoice-create" || homeView === "invoice-record"
                   ? "Invoices"
                 : homeView === "xero"
@@ -32900,6 +32913,8 @@ export default function CoreApp() {
                       ? "Stock"
                     : homeView === "recurring"
                       ? "Recurring"
+                    : homeView === "tenders"
+                      ? "Tenders"
                     : homeView === "invoices"
                       ? "Invoices"
                     : homeView === "xero"
@@ -32962,6 +32977,8 @@ export default function CoreApp() {
                     ? "Stock & van stock"
                   : homeView === "recurring"
                     ? "Recurring plans"
+                  : homeView === "tenders"
+                    ? "Tender tracker"
                   : homeView === "invoices"
                     ? "Invoices"
                   : homeView === "xero"
@@ -33031,6 +33048,8 @@ export default function CoreApp() {
                     ? "Warehouse + Chris / Murray / Raymond / Ryan vans"
                   : homeView === "recurring"
                     ? "Service plans that generate the next job or invoice when due"
+                  : homeView === "tenders"
+                    ? "Track opportunities, price their BoQ and generate Form of Tender"
                   : homeView === "invoices"
                     ? `${filteredInvoices.length} invoices · ${invoiceStatusFilter}`
                   : homeView === "xero"
@@ -33171,7 +33190,7 @@ export default function CoreApp() {
                     <button className="primary-button" onClick={() => editPurchaseOrderFromRegister(selectedPurchaseOrder)}>Edit PO</button>
                   ) : null}
                 </>
-              ) : homeView === "stock" || homeView === "recurring" ? (
+              ) : homeView === "stock" || homeView === "recurring" || homeView === "tenders" ? (
                 <button className="secondary-button" onClick={returnToDashboard}>
                   Back to dashboard
                 </button>
@@ -35463,6 +35482,13 @@ export default function CoreApp() {
               onGenerateJob={generateRecurringJobFromPlan}
               onGenerateInvoice={generateRecurringInvoiceFromPlan}
               actor={activeEmployee?.name}
+            />
+          ) : homeView === "tenders" ? (
+            <TendersPanel
+              requestHeaders={requestHeaders}
+              onNotice={showNotice}
+              businessName={businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group Ltd"}
+              actorName={activeEmployee?.name ?? "NeXa user"}
             />
           ) : homeView === "addons" ? (
             <section className="addon-workspace">

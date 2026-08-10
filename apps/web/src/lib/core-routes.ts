@@ -13,6 +13,7 @@ export type CoreModulePath =
   | "/purchase-orders"
   | "/stock"
   | "/recurring"
+  | "/tenders"
   | "/reports"
   | "/setup"
   | "/xero"
@@ -43,6 +44,7 @@ export type CoreHomeView =
   | "purchase-order-record"
   | "stock"
   | "recurring"
+  | "tenders"
   | "reports"
   | "invoices"
   | "invoice-create"
@@ -62,6 +64,7 @@ const PATH_TO_HOME: Record<CoreModulePath, CoreHomeView> = {
   "/purchase-orders": "purchase-orders",
   "/stock": "stock",
   "/recurring": "recurring",
+  "/tenders": "tenders",
   "/reports": "reports",
   "/setup": "settings",
   "/xero": "xero",
@@ -102,6 +105,8 @@ export function modulePathForHomeView(view: string): CoreModulePath {
       return "/stock";
     case "recurring":
       return "/recurring";
+    case "tenders":
+      return "/tenders";
     case "reports":
       return "/reports";
     case "settings":

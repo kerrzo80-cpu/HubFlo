@@ -21,11 +21,13 @@ describe("core-routes", () => {
     assert.equal(modulePathForHomeView("clients"), "/people");
     assert.equal(modulePathForHomeView("directory-manager"), "/people");
     assert.equal(modulePathForHomeView("invoice-record"), "/invoices");
+    assert.equal(modulePathForHomeView("tenders"), "/tenders");
   });
 
   it("resolves module paths to directory home views", () => {
     assert.equal(homeViewForPath("/"), "dashboard");
     assert.equal(homeViewForPath("/jobs"), "jobs");
+    assert.equal(homeViewForPath("/tenders"), "tenders");
     assert.equal(homeViewForPath("/setup"), "settings");
     assert.equal(homeViewForPath("/people"), "employees");
     assert.equal(homeViewForPath("/field"), null);
