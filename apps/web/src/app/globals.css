@@ -4842,8 +4842,11 @@ button.module-link {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
   padding: 12px 18px 18px;
+  touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -11856,9 +11859,11 @@ h1 {
 
 .setup-page-shell {
   align-content: start;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
+  height: auto;
+  max-height: none;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .setup-layout {
@@ -11866,7 +11871,8 @@ h1 {
   display: grid;
   gap: 12px;
   grid-template-columns: minmax(230px, 280px) minmax(0, 1fr);
-  height: 100%;
+  height: auto;
+  max-height: none;
   min-width: 0;
   min-height: 0;
   overflow: visible;
@@ -12240,12 +12246,10 @@ h1 {
 .setup-category-content {
   display: grid;
   gap: 10px;
-  max-height: 100%;
+  max-height: none;
   min-height: 0;
   min-width: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
+  overflow: visible;
   padding-right: 4px;
   position: relative;
   touch-action: pan-y;
@@ -12254,8 +12258,8 @@ h1 {
 }
 
 /*
-  iPad / tablet (incl. landscape ~1024–1366): nested Setup scroll is unreliable in Safari.
-  Scroll the workspace itself so Customise forms / Personalising pages can move vertically.
+  Setup scrolls on the workspace itself (Mac + Windows + tablet).
+  Nested overflow panels were clipping content so the whole page could not move.
 */
 @media (max-width: 1366px) {
   .workspace.setup-workspace-host {
