@@ -8,9 +8,10 @@
   --blue-deep: #0879ab;
   --green: #1f8a5b;
   --ai: #16a34a;
-  min-height: 100vh;
+  /* Definite viewport box — children fill remaining height; rail scrolls internally. */
   height: 100dvh;
   max-height: 100dvh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--canvas);
@@ -414,12 +415,13 @@
 }
 
 .nexa-studio-body {
-  flex: 1 1 auto;
+  /* 0% basis forces shrink-into-viewport (auto basis sizes to content and breaks rail scroll). */
+  flex: 1 1 0%;
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
-  /* Keep the rail/main inside the remaining viewport so side panels can scroll. */
+  align-items: stretch;
   overflow: hidden;
 }
 
@@ -429,9 +431,10 @@
 }
 
 .nexa-studio-rail {
+  /* Stretch to the single body row — never size to content (that clips without a scrollbar). */
   min-height: 0;
-  max-height: 100%;
-  height: 100%;
+  min-width: 0;
+  align-self: stretch;
   overflow: hidden;
   background: var(--surface);
   border-right: 1px solid var(--line);
@@ -446,8 +449,41 @@
   flex: 0 0 auto;
 }
 
+.nexa-studio-rail-head {
+  flex: 0 0 auto;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 8px 8px 10px;
+  margin: -2px -2px 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfcfd;
+  box-shadow: 0 1px 0 rgba(16, 48, 64, 0.04);
+}
+
+.nexa-studio-rail-head header {
+  margin-bottom: 8px;
+}
+
+.nexa-studio-rail-head .nexa-studio-create {
+  margin-bottom: 0;
+}
+
+.nexa-studio-rail-active {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--blue-deep);
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .nexa-studio-rail-body {
-  flex: 1 1 auto;
+  flex: 1 1 0%;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
@@ -458,6 +494,10 @@
   -webkit-overflow-scrolling: touch;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
+}
+
+.nexa-studio-project-section {
+  padding-top: 4px;
 }
 
 .nexa-studio-rail-body::-webkit-scrollbar {
@@ -1591,6 +1631,7 @@
 .nexa-studio-main {
   min-width: 0;
   min-height: 0;
+  align-self: stretch;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2005,7 +2046,7 @@
   to { transform: rotate(360deg); }
 }
 
-/* Keep viewport locked so the drawing stage fills remaining height; rail scrolls internally. */
+/* Short laptop heights: keep the same constrained chain (body scroll is locked in globals). */
 @media (max-height: 920px) and (min-width: 961px) {
   .nexa-studio {
     height: 100dvh;
@@ -2014,15 +2055,14 @@
   }
 
   .nexa-studio-body {
+    flex: 1 1 0%;
     min-height: 0;
-    height: auto;
-    flex: 1 1 auto;
   }
 
   .nexa-studio-rail,
-  .nexa-studio-rail-body {
+  .nexa-studio-rail-body,
+  .nexa-studio-main {
     min-height: 0;
-    max-height: 100%;
   }
 }
 
@@ -2067,6 +2107,11 @@
     border-top: 1px solid var(--line);
     border-bottom: 0;
     padding: 8px 10px 16px;
+  }
+
+  .nexa-studio-rail-head {
+    position: sticky;
+    top: 0;
   }
 
   .nexa-studio-rail-toggle {

@@ -23689,17 +23689,20 @@ body:has([data-takeoff-mode="page"]) {
   -webkit-overflow-scrolling: touch;
 }
 
-/* Studio on short Mac/desktop viewports: allow the document to scroll past clipped chrome. */
-@media (max-height: 920px) {
+/*
+ * Studio owns a locked 100dvh viewport; the PROJECTS rail scrolls internally.
+ * Desktop-only: unlocking document scroll let the rail grow past the canvas and
+ * get clipped with no usable rail scrollbar on short laptop heights.
+ * Phones keep page scroll via the max-width:960 studio rules.
+ */
+@media (max-height: 920px) and (min-width: 961px) {
   html.nexa-takeoff-scroll:has(.nexa-studio),
   html.nexa-takeoff-scroll:has(.nexa-studio) body {
-    height: auto !important;
-    max-height: none !important;
-    min-height: 100% !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
-    overscroll-behavior-y: auto !important;
-    -webkit-overflow-scrolling: touch;
+    height: 100% !important;
+    max-height: 100% !important;
+    overflow: hidden !important;
+    overscroll-behavior: none;
+    touch-action: manipulation;
   }
 }
 

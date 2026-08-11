@@ -1700,11 +1700,11 @@ export default function TakeoffStudioPage() {
             <span>{railCollapsed ? "Projects & tools" : "Hide projects"}</span>
             <strong>{selected?.reference || "Projects"}</strong>
           </button>
-          <div className="nexa-studio-rail-body">
-          <section>
+          <div className="nexa-studio-rail-head">
             <header>
               <FolderOpen size={15} />
               <h2>Projects</h2>
+              {selected ? <strong className="nexa-studio-rail-active">{selected.reference}</strong> : null}
             </header>
             <div className="nexa-studio-create">
               <input
@@ -1717,6 +1717,9 @@ export default function TakeoffStudioPage() {
                 New
               </button>
             </div>
+          </div>
+          <div className="nexa-studio-rail-body">
+          <section className="nexa-studio-project-section">
             <div className="nexa-studio-project-list">
               {projects.map((project) => (
                 <div key={project.id} className={`nexa-studio-project-row${project.id === selectedId ? " on" : ""}`}>
