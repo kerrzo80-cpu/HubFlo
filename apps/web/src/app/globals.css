@@ -2487,16 +2487,18 @@ kbd {
   background: rgba(255, 255, 255, 0.24);
 }
 
+/* Chat panel host only — Blake entry lives in the blue left sidebar */
 .buddy-dock {
-  align-items: flex-end;
+  align-items: flex-start;
   bottom: 18px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  left: calc(216px + 16px);
   pointer-events: none;
   position: fixed;
-  right: 18px;
-  z-index: 80;
+  right: auto;
+  z-index: 1100;
 }
 
 .buddy-dock > * {
@@ -2535,19 +2537,50 @@ kbd {
   padding: 7px 12px;
 }
 
-.buddy-dock .buddy-launcher {
-  animation: buddy-dock-presence 0.45s ease both;
+.context-sidebar-blake {
+  flex-shrink: 0;
+  margin-top: auto;
+  padding: 10px 6px 4px;
 }
 
-@keyframes buddy-dock-presence {
-  from { opacity: 0; transform: translateY(8px) scale(0.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+.context-blake-launcher {
+  align-items: center;
+  gap: 4px;
+  justify-items: center;
+  width: 100%;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .buddy-dock .buddy-launcher {
-    animation: none;
-  }
+.context-blake-launcher .buddy-launcher-mascot.blake-character.size-md,
+.context-blake-launcher .buddy-launcher-mascot.blake-character {
+  width: 56px;
+}
+
+.context-blake-launcher .buddy-launcher-label {
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: none;
+  font-size: 11px;
+  padding: 6px 10px;
+}
+
+.context-blake-launcher:hover .buddy-launcher-label,
+.context-blake-launcher.active .buddy-launcher-label {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.context-blake-launcher .buddy-launcher-close {
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: none;
+  height: 40px;
+  width: 40px;
+}
+
+.context-blake-launcher .buddy-launcher-badge {
+  right: 8px;
+  top: 0;
+}
+
+.context-sidebar .support-panel {
+  margin-top: 8px;
 }
 
 .buddy-launcher.mood-alert .buddy-launcher-label {
@@ -2560,6 +2593,18 @@ kbd {
 
 .buddy-launcher.mood-good .buddy-launcher-label {
   background: #2f8f6b;
+}
+
+.context-blake-launcher.mood-alert .buddy-launcher-label {
+  background: rgba(196, 92, 38, 0.92);
+}
+
+.context-blake-launcher.mood-guide .buddy-launcher-label {
+  background: rgba(184, 137, 18, 0.92);
+}
+
+.context-blake-launcher.mood-good .buddy-launcher-label {
+  background: rgba(47, 143, 107, 0.92);
 }
 
 .buddy-launcher-close {
@@ -2716,6 +2761,10 @@ kbd {
 
 .buddy-launcher-mascot.blake-character.size-lg {
   width: 96px;
+}
+
+.buddy-launcher-mascot.blake-character.size-md {
+  width: 56px;
 }
 
 /* Legacy class kept for any leftover markup */
@@ -2993,12 +3042,17 @@ kbd {
 @media (max-width: 720px) {
   .buddy-dock {
     bottom: 14px;
+    left: 14px;
     right: 14px;
   }
 
   .buddy-panel {
     height: min(72vh, calc(100vh - 96px));
     width: min(400px, calc(100vw - 28px));
+  }
+
+  .context-sidebar-blake {
+    padding: 12px 4px 6px;
   }
 }
 

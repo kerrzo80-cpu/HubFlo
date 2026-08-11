@@ -33179,8 +33179,8 @@ export default function CoreApp() {
         </div>
       </header>
 
-      <div className="buddy-dock" aria-live="polite">
-        {nexaAssistantOpen ? (
+      {nexaAssistantOpen ? (
+        <div className="buddy-dock" aria-live="polite">
           <aside className="buddy-panel" aria-label="Blake assistant">
             <header>
               <div>
@@ -33403,32 +33403,8 @@ export default function CoreApp() {
               . Bookings and commercial changes only happen after you confirm.
             </small>
           </aside>
-        ) : null}
-        <button
-          className={nexaAssistantOpen ? `buddy-launcher active mood-${buddyMood}` : `buddy-launcher mood-${buddyMood}`}
-          aria-label={nexaAssistantOpen ? "Close Blake" : "Open Blake"}
-          title="Chat with Blake — report problems here too"
-          onClick={() => setNexaAssistantOpen((current) => !current)}
-        >
-          {nexaAssistantOpen ? (
-            <span className="buddy-launcher-close">
-              <X size={18} />
-            </span>
-          ) : (
-            <BuddyCharacter mood={buddyMood} size="lg" className="buddy-launcher-mascot" />
-          )}
-          <span className="buddy-launcher-label">Blake</span>
-          {!nexaAssistantOpen && buddyAlertCount > 0 ? (
-            <em className="buddy-launcher-badge" aria-hidden>
-              {buddyAlertCount > 9 ? "9+" : buddyAlertCount}
-            </em>
-          ) : !nexaAssistantOpen && buddyHasOpenChecks ? (
-            <em className="buddy-launcher-badge soft" aria-hidden>
-              ·
-            </em>
-          ) : null}
-        </button>
-      </div>
+        </div>
+      ) : null}
 
       <nav
         className="module-bar"
@@ -33705,6 +33681,45 @@ export default function CoreApp() {
             <HardHat size={17} />
             <span>Field</span>
           </a>
+
+          <div className="context-sidebar-blake">
+            <button
+              className={
+                nexaAssistantOpen
+                  ? `buddy-launcher context-blake-launcher active mood-${buddyMood}`
+                  : `buddy-launcher context-blake-launcher mood-${buddyMood}`
+              }
+              type="button"
+              aria-label={nexaAssistantOpen ? "Close Blake" : "Open Blake"}
+              title="Chat with Blake — report problems here too"
+              data-tooltip="Blake"
+              onClick={() => {
+                setNexaAssistantOpen((current) => {
+                  const next = !current;
+                  if (next) closeContextSidebarOnMobile();
+                  return next;
+                });
+              }}
+            >
+              {nexaAssistantOpen ? (
+                <span className="buddy-launcher-close">
+                  <X size={16} />
+                </span>
+              ) : (
+                <BuddyCharacter mood={buddyMood} size="md" className="buddy-launcher-mascot" />
+              )}
+              <span className="buddy-launcher-label">Ask Blake</span>
+              {!nexaAssistantOpen && buddyAlertCount > 0 ? (
+                <em className="buddy-launcher-badge" aria-hidden>
+                  {buddyAlertCount > 9 ? "9+" : buddyAlertCount}
+                </em>
+              ) : !nexaAssistantOpen && buddyHasOpenChecks ? (
+                <em className="buddy-launcher-badge soft" aria-hidden>
+                  ·
+                </em>
+              ) : null}
+            </button>
+          </div>
 
           <div className="support-panel">
             {/* Wide company wordmark — square CORE marks look cut-boxed on the blue rail. */}
