@@ -3,10 +3,9 @@ import { describe, it } from "node:test";
 
 import {
   buildIsoPreviewScene,
-  dropPlanPointsAlongRun,
-  dropUnitOffsetsAlongRun,
   projectIso,
 } from "@/lib/takeoff-studio-isometric";
+import { dropPlanPointsAlongRun, dropUnitOffsetsAlongRun } from "@/lib/takeoff-studio-pipe";
 import type { StudioState } from "@/lib/takeoff-studio";
 
 describe("takeoff-studio-isometric", () => {

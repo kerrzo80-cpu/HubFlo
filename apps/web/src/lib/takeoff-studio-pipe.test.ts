@@ -370,6 +370,13 @@ describe("studio rise / drop metres", () => {
       (geo) => geo.kind === "count" && geo.fittingKind === "90-elbow" && geo.linkedLinearId === "run-multi-drop",
     );
     assert.equal(elbows.length, 3);
+    // Spaced along the 100-unit run at 1/3, 2/3, end — not stacked at the end.
+    const xs = elbows
+      .map((geo) => (geo.kind === "count" ? geo.point.x : 0))
+      .sort((a, b) => a - b);
+    assert.ok(Math.abs(xs[0]! - 100 / 3) < 0.5);
+    assert.ok(Math.abs(xs[1]! - 200 / 3) < 0.5);
+    assert.ok(Math.abs(xs[2]! - 100) < 0.5);
 
     studio = updateLinearDrops(studio, "run-multi-drop", { dropCount: 2, dropHeightM: 2.4 });
     assert.equal(

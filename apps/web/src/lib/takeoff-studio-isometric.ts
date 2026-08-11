@@ -7,10 +7,9 @@ import {
   polylineLength,
   resolveLinearDrop,
   type StudioGeometry,
-  type StudioPoint,
   type StudioState,
 } from "@/lib/takeoff-studio";
-import { pointAtDistanceAlongRun } from "@/lib/takeoff-studio-pipe";
+import { dropUnitOffsetsAlongRun, pointAtDistanceAlongRun } from "@/lib/takeoff-studio-pipe";
 
 export type IsoVec3 = { x: number; y: number; z: number };
 export type IsoVec2 = { x: number; y: number };
@@ -51,18 +50,6 @@ function pathFromScreen(points: IsoVec2[]): string {
   return points
     .map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${point.y.toFixed(2)}`)
     .join(" ");
-}
-
-/** Evenly spaced positions along plan (units), excluding exact start/end when count allows. */
-export function dropUnitOffsetsAlongRun(planUnits: number, dropCount: number): number[] {
-  const count = Math.max(0, Math.floor(dropCount));
-  if (count <= 0 || planUnits <= 0) return [];
-  if (count === 1) return [planUnits];
-  const offsets: number[] = [];
-  for (let index = 1; index <= count; index += 1) {
-    offsets.push((planUnits * index) / count);
-  }
-  return offsets;
 }
 
 function routeLabel(linear: Extract<StudioGeometry, { kind: "linear" }>): string {
@@ -188,13 +175,4 @@ export function buildIsoPreviewScene(
     width,
     height,
   };
-}
-
-export function dropPlanPointsAlongRun(points: StudioPoint[], dropCount: number): StudioPoint[] {
-  const count = Math.max(0, Math.floor(dropCount));
-  if (count <= 0 || points.length < 2) return [];
-  const planUnits = polylineLength(points);
-  return dropUnitOffsetsAlongRun(planUnits, count)
-    .map((offset) => pointAtDistanceAlongRun(points, offset))
-    .filter((point): point is StudioPoint => Boolean(point));
 }
