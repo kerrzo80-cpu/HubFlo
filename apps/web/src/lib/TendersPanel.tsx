@@ -635,7 +635,12 @@ export function TendersPanel({
     if (!file || !selected) return;
     if (!confirmReplaceBoq(selected.boqLines.length)) return;
     const name = file.name.toLowerCase();
-    if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+    if (
+      name.endsWith(".xlsx") ||
+      name.endsWith(".xls") ||
+      name.endsWith(".pdf") ||
+      file.type === "application/pdf"
+    ) {
       await uploadImportFile("import-boq", file, { tenderId: selected.id });
       return;
     }
@@ -1335,9 +1340,9 @@ export function TendersPanel({
               </label>
               <div className="tenders-inline-add">
                 <FileDropZone
-                  accept=".xlsx,.xls,.csv,.tsv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
-                  label="Drop BoQ spreadsheet here or click to browse"
-                  hint=".xlsx / .xls (one tab per sheet) · .csv"
+                  accept=".xlsx,.xls,.csv,.tsv,.txt,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+                  label="Drop BoQ spreadsheet or PDF here or click to browse"
+                  hint=".xlsx / .xls · .pdf (text BoQ) · .csv"
                   disabled={saving}
                   onFiles={(files) => void onBoqFile(files[0] ?? null)}
                 />

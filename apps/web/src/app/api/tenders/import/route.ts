@@ -12,6 +12,7 @@ import {
   type TenderDocumentKind,
 } from "@/lib/tenders-data";
 import { isTenderDocumentKind } from "@/lib/tender-document-folders";
+import { workbookBoqSheetsFromPdfBuffer } from "@/lib/tender-boq-pdf";
 import {
   sheetRowsFromWorkbookBuffer,
   workbookBoqSheetsFromBuffer,
@@ -87,6 +88,12 @@ export async function POST(request: NextRequest) {
       if (name.endsWith(".csv") || name.endsWith(".tsv") || name.endsWith(".txt")) {
         // Quote-aware parse keeps multi-line wording intact.
         tender = importBoqIntoTender(tenderId, bytes.toString("utf8"));
+      } else if (name.endsWith(".pdf") || file.type === "application/pdf") {
+        // Text-based PDF → one sheet tab per page → same parse path as Excel.
+        tender = importBoqWorkbookIntoTender(
+          tenderId,
+          await workbookBoqSheetsFromPdfBuffer(bytes, file.name || "boq.pdf"),
+        );
       } else {
         // One BoQ sheet tab per Excel worksheet — full cell text, all pages.
         tender = importBoqWorkbookIntoTender(tenderId, workbookBoqSheetsFromBuffer(bytes));
