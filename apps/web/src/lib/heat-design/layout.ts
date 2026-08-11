@@ -1,6 +1,7 @@
 import { pickRadiatorForRoom } from "./calc";
 import { dist, polygonBounds, roomPolygon, roomWallExterior } from "./geometry";
 import { heatingSystemOptions, type HeatingSystemKind } from "./systems";
+import { buildUfhCircuitsOnLayout } from "./ufh-circuits";
 import type {
   FloorLevel,
   HeatDesignProject,
@@ -515,6 +516,10 @@ export function describeHeatingLayoutNotes(layout: HeatingSystemLayout | null | 
   } else if (layout.plants.length) {
     notes.push("No room polygons — primary / flow–return drawn plant-to-plant only.");
   }
+  const ufhLoops = (layout.pipes || []).filter((p) => /ufh loop/i.test(p.label)).length;
+  if (ufhLoops) {
+    notes.push(`${ufhLoops} UFH circuit${ufhLoops === 1 ? "" : "s"} drawn inside room polygons.`);
+  }
   const labels = (layout.pipes || [])
     .map((p) => p.label)
     .filter(Boolean)
@@ -778,7 +783,7 @@ export function seedHeatingLayout(
 
   emitters.forEach((emitter, index) => {
     if (emitter.kind === "ufh") {
-      // Short tails into the zone from the spine
+      // Short tails into the zone from the spine — replaced by real loops when UFH generate runs.
       const entry = { x: emitter.x, y: emitter.y + emitter.depthM / 2 - 0.15 };
       pipes.push(
         makePipe("flow", `UFH flow · ${emitter.label}`, spineRoute(hubPoint, entry, spineY, -0.08), floor),
@@ -809,7 +814,7 @@ export function seedHeatingLayout(
     );
   });
 
-  return {
+  const draft: HeatingSystemLayout = {
     systemOptionId,
     plants,
     pipes,
@@ -817,6 +822,13 @@ export function seedHeatingLayout(
     emitterMode,
     updatedAt: new Date().toISOString(),
   };
+
+  // UFH mode: replace rectangular zones + stub tails with serpentine circuits + manifold tails.
+  if (emitterMode === "ufh" && emitters.some((e) => e.kind === "ufh")) {
+    return buildUfhCircuitsOnLayout(project, draft, { pattern: "serpentine" }).layout;
+  }
+
+  return draft;
 }
 
 export function pipeStroke(

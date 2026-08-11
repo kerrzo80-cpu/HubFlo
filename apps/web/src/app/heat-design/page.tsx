@@ -6,6 +6,8 @@ import { LayoutDashboard } from "lucide-react";
 import { BuddyCharacter } from "@/lib/BuddyCharacter";
 import {
   autoMarkExteriorWalls,
+  applyPlanScaleCalibration,
+  buildUfhCircuitsOnLayout,
   calculateRoomHeatLoss,
   calculateSystemDesign,
   compareHeatingOptions,
@@ -25,6 +27,7 @@ import {
   seedHeatingLayout,
   suggestHeatPump,
   summariseHeatingFittings,
+  ufhWorkflowStatus,
   wattsLabel,
   buildEras,
   ceilingTypes,
@@ -45,7 +48,11 @@ import {
   type HeatingFittingsSummary,
   type HeatingPlantKind,
   type HeatingSystemLayout,
+  type PlanPoint,
   type PlanUnderlay,
+  type UfhDesignSummary,
+  type UfhPattern,
+  type UfhSpacingMm,
 } from "@/lib/heat-design";
 import { useBrand } from "@/components/BrandProvider";
 import { resolveBrandLogoUrl } from "@/lib/branding";
@@ -138,6 +145,7 @@ export default function HeatDesignLabPage() {
   const [budgetBusy, setBudgetBusy] = useState(false);
   const [underlayBusy, setUnderlayBusy] = useState(false);
   const [fittingsSummary, setFittingsSummary] = useState<HeatingFittingsSummary | null>(null);
+  const [ufhSummary, setUfhSummary] = useState<UfhDesignSummary | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkTarget, setLinkTarget] = useState<LinkTarget>("job");
   const [jobOptions, setJobOptions] = useState<Array<{ id: string; ref: string; customer: string; site: string }>>([]);
@@ -748,7 +756,97 @@ export default function HeatDesignLabPage() {
     // Keep rooms editable — Heating layout is optional when nudging plant / pipes.
     setLayoutMode(false);
     setNotice(
-      `Placed ${kind.replace(/_/g, " ")}. Add any other plant you need, then Route pipes or Ask Blake — Blake will not invent missing plant.`,
+      `Placed ${kind.replace(/_/g, " ")}. Add plant as needed, then Generate UFH (or Route pipes). Generation does not invent missing plant.`,
+    );
+  }
+
+  function applyPlanScale(from: PlanPoint, to: PlanPoint, knownMetres: number) {
+    if (!project?.planUnderlay) return;
+    try {
+      const result = applyPlanScaleCalibration(
+        project.planUnderlay,
+        from,
+        to,
+        knownMetres,
+        project.rooms,
+        project.heatingLayout ?? null,
+      );
+      const hadUfh = (result.layout?.pipes ?? []).some((pipe) => /ufh loop/i.test(pipe.label));
+      patchProject({
+        planUnderlay: result.underlay,
+        rooms: result.rooms,
+        heatingLayout: result.layout,
+      });
+      if (hadUfh && result.layout) {
+        // Geometry scaled — regenerate UFH so loop spacing stays correct in real metres.
+        const { layout, summary } = buildUfhCircuitsOnLayout(
+          {
+            ...project,
+            planUnderlay: result.underlay,
+            rooms: result.rooms,
+            heatingLayout: result.layout,
+            emitterMode: "ufh",
+          },
+          result.layout,
+          { pattern: "serpentine" },
+        );
+        patchProject({ heatingLayout: layout, emitterMode: "ufh" });
+        setUfhSummary(summary);
+        setFittingsSummary(summariseHeatingFittings(layout));
+      } else {
+        setUfhSummary(null);
+      }
+      setNotice(
+        `Scale applied · ${knownMetres} m reference (×${result.scaleFactor.toFixed(3)}). Room areas and pipe lengths now use real metres.`,
+      );
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Could not apply scale.");
+    }
+  }
+
+  function generateUfhCircuits(options: { pattern: UfhPattern; spacingMm?: UfhSpacingMm }) {
+    if (!project) return;
+    if (!project.rooms.length) {
+      setNotice("Draw heated rooms before generating UFH.");
+      return;
+    }
+    const systemOptionId = project.chosenSystemId || project.reportOptionIds?.[0] || "opt-gas";
+    const existingPlants = project.heatingLayout?.plants;
+    const base =
+      project.heatingLayout ??
+      seedHeatingLayout(
+        { ...project, chosenSystemId: systemOptionId, emitterMode: "ufh" },
+        systemOptionId,
+        "ufh",
+        { preservePlants: existingPlants, onlyUserPlants: true },
+      );
+    // Ensure plant network exists, then build real UFH circuits (seed alone may skip if no rooms at seed time).
+    const seeded = seedHeatingLayout(
+      { ...project, chosenSystemId: systemOptionId, emitterMode: "ufh", heatingLayout: base },
+      systemOptionId,
+      "ufh",
+      { preservePlants: base.plants },
+    );
+    const { layout, summary } = buildUfhCircuitsOnLayout(
+      { ...project, chosenSystemId: systemOptionId, emitterMode: "ufh", heatingLayout: seeded },
+      seeded,
+      {
+        pattern: options.pattern,
+        spacingOverrideMm: options.spacingMm,
+      },
+    );
+    patchProject({
+      chosenSystemId: systemOptionId,
+      emitterMode: "ufh",
+      heatingLayout: layout,
+    });
+    setUfhSummary(summary);
+    setFittingsSummary(summariseHeatingFittings(layout));
+    setLayoutMode(true);
+    setNotice(
+      summary.circuitCount
+        ? `Generated ${summary.circuitCount} UFH circuit${summary.circuitCount === 1 ? "" : "s"} · ${summary.ufhPipeM} m loop + ${summary.tailPipeM} m tails. Review kit, then Send to Takeoff.`
+        : "No UFH circuits generated — check room polygons and try again.",
     );
   }
 
@@ -756,7 +854,7 @@ export default function HeatDesignLabPage() {
     patchProject({ planUnderlay });
     setNotice(
       planUnderlay
-        ? "Drawing underlay added — fade it with the slider if walls are hard to see."
+        ? "Drawing underlay added — calibrate scale on a known dimension before trusting metre totals."
         : "Drawing underlay cleared.",
     );
   }
@@ -1283,17 +1381,16 @@ export default function HeatDesignLabPage() {
               <>
                 <h2>Floor plan</h2>
                 <p className="hd-lead">
-                  Optional: upload a PDF (first page) or PNG/JPG, or reuse a linked Takeoff drawing. Draw rooms, place
-                  plant yourself, then Route pipes or Ask Blake — routes stay on your plant only and build the defined
-                  kit / BOQ.
+                  Heating design (UFH v1): calibrate scale → draw rooms → place plant → Generate UFH circuits → kit /
+                  BoQ lengths. Geometric design + heat-loss estimate — not an MCS certificate.
                 </p>
                 <div className="hd-emitter-picker">
                   <strong>Emitters for this design</strong>
                   <div className="hd-emitter-choices" role="group" aria-label="Emitter type">
                     {(
                       [
+                        ["ufh", "Underfloor heating", "Serpentine / spiral circuits + manifold tails"],
                         ["radiators", "Radiators", "Sized radiator per room (model × mm)"],
-                        ["ufh", "Underfloor heating", "UFH zone in each room"],
                         ["mixed", "Mixed", "UFH in wet rooms, radiators elsewhere"],
                       ] as const
                     ).map(([id, label, hint]) => (
@@ -1346,9 +1443,16 @@ export default function HeatDesignLabPage() {
                           const emitterMode = project.emitterMode ?? "radiators";
                           const next = { ...project, chosenSystemId: systemOptionId, emitterMode };
                           const userPlants = project.heatingLayout?.plants?.filter((p) => p.placedByUser) ?? [];
-                          const layout = seedHeatingLayout(next, systemOptionId, emitterMode, {
+                          let layout = seedHeatingLayout(next, systemOptionId, emitterMode, {
                             preservePlants: project.heatingLayout?.plants,
                           });
+                          if (emitterMode === "ufh") {
+                            const built = buildUfhCircuitsOnLayout(next, layout, { pattern: "serpentine" });
+                            layout = built.layout;
+                            setUfhSummary(built.summary);
+                          } else {
+                            setUfhSummary(null);
+                          }
                           patchProject({
                             chosenSystemId: systemOptionId,
                             emitterMode,
@@ -1370,6 +1474,10 @@ export default function HeatDesignLabPage() {
                   onEmitterModeChange={changeEmitterMode}
                   planUnderlay={project.planUnderlay}
                   onPlanUnderlayChange={setPlanUnderlay}
+                  onApplyPlanScale={applyPlanScale}
+                  onGenerateUfh={generateUfhCircuits}
+                  ufhSummary={ufhSummary}
+                  workflowSteps={ufhWorkflowStatus(project).steps}
                   onUseTakeoffDrawing={() => void useLinkedTakeoffDrawing()}
                   takeoffDrawingBusy={underlayBusy}
                   linkedTakeoffRef={project.linkedTakeoffRef}
@@ -1378,16 +1486,15 @@ export default function HeatDesignLabPage() {
                     setNotice("Surveyed plan locked in — pick a system and design flow temperature next.");
                   }}
                 />
-                <div className="hd-blake-route-panel" aria-label="Ask Blake heat design">
+                <div className="hd-blake-route-panel" aria-label="Blake kit assist">
                   <header>
                     <strong className="hd-blake-title">
                       <BuddyCharacter mood={blakeBusy ? "thinking" : "idle"} size="sm" interactive={false} />
-                      Ask Blake
+                      Blake kit assist
                     </strong>
                     <span>
-                      Designs visible pipes around plant you placed (plant primaries + emitter branches when rooms
-                      exist), shows brief reasoning, then sizes a defined kit. Rule geometry always draws something if
-                      OpenAI is down. Not an MCS certificate.
+                      Optional: sizes defined kit / BoQ notes after Generate UFH has drawn circuits. Does not invent room
+                      loops — generation is rule-based. Not an MCS certificate.
                     </span>
                   </header>
                   <label className="hd-blake-ask-label">
@@ -1409,7 +1516,7 @@ export default function HeatDesignLabPage() {
                       onClick={() => void askBlakeLive()}
                     >
                       <BuddyCharacter mood={blakeBusy ? "thinking" : "idle"} size="sm" interactive={false} />
-                      {blakeBusy ? "Blake thinking…" : "Ask Blake"}
+                      {blakeBusy ? "Blake thinking…" : "Ask Blake (kit)"}
                     </button>
                     <button
                       type="button"
@@ -1424,7 +1531,7 @@ export default function HeatDesignLabPage() {
                       className="hd-btn hd-btn-ghost"
                       disabled={!project.heatingLayout?.pipes?.length || blakeBusy}
                       onClick={blakeSizeRoutes}
-                      title="Local rule tiers only — prefer Ask Blake"
+                      title="Local rule tiers only"
                     >
                       Size only (rules)
                     </button>
@@ -1579,8 +1686,8 @@ export default function HeatDesignLabPage() {
                         </div>
                       </div>
                       <p className="hd-defined-kit-note">
-                        Ask Blake refreshes ancillaries + budget prices. Send to Takeoff pushes this BOQ into the linked
-                        takeoff — not a full hydraulic calculation.
+                        Generate UFH first for loop + tail metres. Blake kit assist refreshes ancillaries / budget prices.
+                        Send to Takeoff pushes this BOQ — not a full hydraulic calculation.
                       </p>
                     </div>
                   ) : null}

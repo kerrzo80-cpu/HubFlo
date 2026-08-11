@@ -5,11 +5,13 @@ import {
   calculateRoomHeatLoss,
   ceilingTypes,
   dist,
+  draftScaleLengthM,
   edgeLengths,
   edgeParam,
   floorTypes,
   glazingTypes,
   insertVertexOnEdge,
+  isPlanScaleCalibrated,
   lShapePolygon,
   moveEmitter,
   movePipePoint,
@@ -39,6 +41,9 @@ import {
   type PlanOpening,
   type PlanPoint,
   type PlanUnderlay,
+  type UfhDesignSummary,
+  type UfhPattern,
+  type UfhSpacingMm,
 } from "@/lib/heat-design";
 
 type FloorPlanCanvasProps = {
@@ -68,6 +73,12 @@ type FloorPlanCanvasProps = {
   onFinishSurveyedPlan?: () => void;
   planUnderlay?: PlanUnderlay | null;
   onPlanUnderlayChange?: (underlay: PlanUnderlay | null) => void;
+  /** Apply two-point known-metre calibration (rescales underlay + geometry). */
+  onApplyPlanScale?: (from: PlanPoint, to: PlanPoint, knownMetres: number) => void;
+  /** Generate serpentine/spiral UFH circuits for heated rooms. */
+  onGenerateUfh?: (options: { pattern: UfhPattern; spacingMm?: UfhSpacingMm }) => void;
+  ufhSummary?: UfhDesignSummary | null;
+  workflowSteps?: Array<{ id: string; label: string; done: boolean; hint: string }>;
   /** Pull first PDF/image from the linked Takeoff project */
   onUseTakeoffDrawing?: () => void;
   takeoffDrawingBusy?: boolean;
@@ -176,6 +187,10 @@ export function FloorPlanCanvas({
   onFinishSurveyedPlan,
   planUnderlay = null,
   onPlanUnderlayChange,
+  onApplyPlanScale,
+  onGenerateUfh,
+  ufhSummary = null,
+  workflowSteps,
   onUseTakeoffDrawing,
   takeoffDrawingBusy = false,
   linkedTakeoffRef = null,
@@ -188,6 +203,11 @@ export function FloorPlanCanvas({
   const [placeTool, setPlaceTool] = useState<PlaceTool>(null);
   const [placeRoomType, setPlaceRoomType] = useState<string | null>(null);
   const [plantPlaceTool, setPlantPlaceTool] = useState<PlantPlaceTool>(null);
+  const [scaleMode, setScaleMode] = useState(false);
+  const [scaleDraft, setScaleDraft] = useState<PlanPoint[]>([]);
+  const [scaleMetres, setScaleMetres] = useState("5");
+  const [ufhPattern, setUfhPattern] = useState<UfhPattern>("serpentine");
+  const [ufhSpacingMm, setUfhSpacingMm] = useState<UfhSpacingMm | "auto">("auto");
   const [selectedOpeningId, setSelectedOpeningId] = useState<string | null>(null);
   const [selectedPlantId, setSelectedPlantId] = useState<string | null>(null);
   const [selectedPipeId, setSelectedPipeId] = useState<string | null>(null);
@@ -686,6 +706,93 @@ export function FloorPlanCanvas({
     <div className="hp-canvas-shell">
       <div className="hp-plan-workspace">
         <aside className="hp-palette" aria-label="Plan components">
+          <p className="hp-palette-label">Design steps</p>
+          {workflowSteps?.length ? (
+            <ol className="hp-ufh-steps" aria-label="UFH design checklist">
+              {workflowSteps.map((step, index) => (
+                <li key={step.id} className={step.done ? "is-done" : ""}>
+                  <span className="hp-ufh-step-index">{step.done ? "✓" : index + 1}</span>
+                  <span>
+                    <strong>{step.label}</strong>
+                    <small>{step.hint}</small>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ) : null}
+          <p className="hp-palette-label">Scale</p>
+          <div className="hp-palette-list hp-palette-row">
+            <button
+              type="button"
+              className={`hp-palette-item${scaleMode ? " is-on" : ""}`}
+              disabled={!planUnderlay || !onApplyPlanScale}
+              title={
+                planUnderlay
+                  ? "Click two ends of a known dimension on the underlay"
+                  : "Upload a PDF/JPG underlay first"
+              }
+              onClick={() => {
+                setPlaceTool(null);
+                setPlaceRoomType(null);
+                setPlantPlaceTool(null);
+                setScaleDraft([]);
+                setScaleMode((on) => !on);
+              }}
+            >
+              {isPlanScaleCalibrated(planUnderlay) ? "Recalibrate" : "Calibrate scale"}
+            </button>
+          </div>
+          {scaleMode && planUnderlay ? (
+            <div className="hp-scale-panel">
+              <p className="hp-palette-hint">
+                {scaleDraft.length < 2
+                  ? `Click point ${scaleDraft.length + 1} of 2 on a known dimension.`
+                  : `Segment ≈ ${draftScaleLengthM(scaleDraft[0], scaleDraft[1]).toFixed(2)} plan units.`}
+              </p>
+              <label className="hd-field">
+                Known length (m)
+                <input
+                  inputMode="decimal"
+                  value={scaleMetres}
+                  onChange={(event) => setScaleMetres(event.target.value)}
+                />
+              </label>
+              <div className="hp-palette-list hp-palette-row">
+                <button
+                  type="button"
+                  className="hd-btn hd-btn-primary"
+                  disabled={scaleDraft.length < 2 || !onApplyPlanScale}
+                  onClick={() => {
+                    const known = Number(scaleMetres);
+                    if (!(known > 0) || scaleDraft.length < 2 || !onApplyPlanScale) return;
+                    onApplyPlanScale(scaleDraft[0]!, scaleDraft[1]!, known);
+                    setScaleDraft([]);
+                    setScaleMode(false);
+                  }}
+                >
+                  Apply scale
+                </button>
+                <button
+                  type="button"
+                  className="hd-btn hd-btn-ghost"
+                  onClick={() => {
+                    setScaleDraft([]);
+                    setScaleMode(false);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="hp-palette-hint">
+              {planUnderlay
+                ? isPlanScaleCalibrated(planUnderlay)
+                  ? `Scale set · ${planUnderlay.scale?.knownMetres} m reference`
+                  : "Calibrate so room areas and pipe lengths are real metres."
+                : "No underlay — rooms use metre dimensions you draw."}
+            </p>
+          )}
           <p className="hp-palette-label">Rooms</p>
           <div className="hp-palette-list">
             {roomTypes.map((item) => (
@@ -762,9 +869,52 @@ export function FloorPlanCanvas({
             ))}
           </div>
           <p className="hp-palette-hint">
-            Draw rooms, then place boiler / cylinder / manifold where you want them. Route pipes keeps only your plant
-            and rebuilds emitters + pipe runs. Optional PDF / PNG / JPG under the plan.
+            Workflow: Scale → Rooms → Plant → Generate UFH → Kit. Generation uses deterministic spacing rules from room
+            heat loss (W/m²); Blake can assist kit notes only.
           </p>
+          {emitterMode === "ufh" && onGenerateUfh ? (
+            <div className="hp-ufh-generate">
+              <p className="hp-palette-label">UFH generate</p>
+              <label className="hd-field">
+                Pattern
+                <select
+                  value={ufhPattern}
+                  onChange={(event) => setUfhPattern(event.target.value as UfhPattern)}
+                >
+                  <option value="serpentine">Serpentine</option>
+                  <option value="spiral">Spiral</option>
+                </select>
+              </label>
+              <label className="hd-field">
+                Pipe centres
+                <select
+                  value={ufhSpacingMm}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setUfhSpacingMm(value === "auto" ? "auto" : (Number(value) as UfhSpacingMm));
+                  }}
+                >
+                  <option value="auto">Auto from W/m²</option>
+                  <option value="100">100 mm</option>
+                  <option value="150">150 mm</option>
+                  <option value="200">200 mm</option>
+                  <option value="300">300 mm</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                className="hd-btn hd-btn-primary"
+                onClick={() =>
+                  onGenerateUfh({
+                    pattern: ufhPattern,
+                    spacingMm: ufhSpacingMm === "auto" ? undefined : ufhSpacingMm,
+                  })
+                }
+              >
+                Generate UFH circuits
+              </button>
+            </div>
+          ) : null}
           {onPlanUnderlayChange ? (
             <>
               <p className="hp-palette-label">Drawing</p>
@@ -944,8 +1094,10 @@ export function FloorPlanCanvas({
           <strong>{layoutSystemLabel || "Heating layout"}</strong>
           <span>
             {plantPlaceTool
-              ? `Click the plan to place ${plantPlaceTool.replace("_", " ")}. Then Route pipes / Ask Blake for the network and kit.`
-              : "Drag plant, radiators / UFH and pipe bends. Flow red · return blue · refrigerant purple · primary teal. Use zoom if anything sits outside the first view."}
+              ? `Click the plan to place ${plantPlaceTool.replace("_", " ")}. Then Generate UFH (or Route pipes) for the network.`
+              : emitterMode === "ufh"
+                ? "UFH loops (amber) · tails to manifolds · primary plant F/R secondary. Drag plant if needed."
+                : "Drag plant, radiators / UFH and pipe bends. Flow red · return blue · refrigerant purple · primary teal."}
           </span>
           {selectedPlant ? <em>Selected: {selectedPlant.label}</em> : null}
           {selectedEmitter ? <em>Selected: {selectedEmitter.label}</em> : null}
@@ -962,6 +1114,14 @@ export function FloorPlanCanvas({
               Remove plant
             </button>
           ) : null}
+        </div>
+      ) : null}
+      {scaleMode ? (
+        <div className="hp-layout-banner is-scale">
+          <strong>Scale tool</strong>
+          <span>
+            Click two ends of a known wall or dimension on the underlay, enter the real length in metres, then Apply.
+          </span>
         </div>
       ) : null}
       <div className="hp-canvas-wrap" ref={wrapRef}
@@ -988,6 +1148,14 @@ export function FloorPlanCanvas({
           role="img"
           aria-label="Floor plan canvas"
           onPointerDown={(event) => {
+            if (scaleMode && onApplyPlanScale) {
+              event.preventDefault();
+              const point = clientToMetres(event.clientX, event.clientY);
+              setScaleDraft((current) => [...current, point].slice(0, 2));
+              setPlaceRoomType(null);
+              setPlantPlaceTool(null);
+              return;
+            }
             if (plantPlaceTool && onPlacePlant) {
               event.preventDefault();
               const point = clientToMetres(event.clientX, event.clientY);
@@ -1401,20 +1569,24 @@ export function FloorPlanCanvas({
 
           {showLayout
             ? floorPipes.map((pipe) => {
-                const style = pipeStroke(pipe.kind, pipe.diameterMm);
+                const isUfhLoop = /ufh loop/i.test(pipe.label);
+                const style = isUfhLoop
+                  ? { stroke: "#c2410c", width: 1.6, dash: undefined as string | undefined }
+                  : pipeStroke(pipe.kind, pipe.diameterMm);
                 const active = pipe.id === selectedPipeId;
                 const pointsAttr = pipe.points
                   .map((p) => `${px(p.x)},${py(p.y)}`)
                   .join(" ");
                 const mid = pipe.points[Math.floor(pipe.points.length / 2)];
+                const showHandles = layoutMode && !isUfhLoop && pipe.points.length <= 12;
                 return (
                   <g
                     key={pipe.id}
-                    className="hp-pipe-layer"
-                    style={{ pointerEvents: layoutMode ? "auto" : "none" }}
+                    className={`hp-pipe-layer${isUfhLoop ? " is-ufh-loop" : ""}`}
+                    style={{ pointerEvents: layoutMode && !isUfhLoop ? "auto" : "none" }}
                   >
                     {/* Halo so flow/return stay readable on busy PDF underlays */}
-                    {planUnderlay?.dataUrl ? (
+                    {planUnderlay?.dataUrl && !isUfhLoop ? (
                       <polyline
                         points={pointsAttr}
                         fill="none"
@@ -1430,14 +1602,14 @@ export function FloorPlanCanvas({
                       points={pointsAttr}
                       fill="none"
                       stroke={style.stroke}
-                      strokeWidth={active ? style.width + 2.5 : style.width + (planUnderlay ? 0.8 : 0)}
+                      strokeWidth={active ? style.width + 2.5 : style.width + (planUnderlay && !isUfhLoop ? 0.8 : 0)}
                       strokeDasharray={style.dash}
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      opacity={0.96}
-                      style={{ cursor: layoutMode ? "grab" : "default" }}
+                      opacity={isUfhLoop ? 0.88 : 0.96}
+                      style={{ cursor: layoutMode && !isUfhLoop ? "grab" : "default" }}
                       onPointerDown={(event) => {
-                        if (!layoutMode || !heatingLayout) return;
+                        if (!layoutMode || !heatingLayout || isUfhLoop) return;
                         event.preventDefault();
                         event.stopPropagation();
                         setSelectedPipeId(pipe.id);
@@ -1448,7 +1620,7 @@ export function FloorPlanCanvas({
                         setDrag({ mode: "pipe-move", pipeId: pipe.id, origin: pipe.points, grab });
                       }}
                     />
-                    {mid && pipe.diameterMm ? (
+                    {mid && pipe.diameterMm && !isUfhLoop ? (
                       <text
                         x={px(mid.x)}
                         y={py(mid.y) - 6}
@@ -1461,7 +1633,7 @@ export function FloorPlanCanvas({
                         {pipe.diameterMm}
                       </text>
                     ) : null}
-                    {layoutMode
+                    {showHandles
                       ? pipe.points.map((p, index) => (
                           <circle
                             key={`${pipe.id}-pt-${index}`}
@@ -1486,6 +1658,35 @@ export function FloorPlanCanvas({
                   </g>
                 );
               })
+            : null}
+
+          {scaleDraft.length
+            ? (
+              <g className="hp-scale-draft" style={{ pointerEvents: "none" }}>
+                {scaleDraft.length === 2 ? (
+                  <line
+                    x1={px(scaleDraft[0]!.x)}
+                    y1={py(scaleDraft[0]!.y)}
+                    x2={px(scaleDraft[1]!.x)}
+                    y2={py(scaleDraft[1]!.y)}
+                    stroke="#0f766e"
+                    strokeWidth={3}
+                    strokeDasharray="6 4"
+                  />
+                ) : null}
+                {scaleDraft.map((point, index) => (
+                  <circle
+                    key={`scale-pt-${index}`}
+                    cx={px(point.x)}
+                    cy={py(point.y)}
+                    r={7}
+                    fill="#0f766e"
+                    stroke="#fff"
+                    strokeWidth={2}
+                  />
+                ))}
+              </g>
+            )
             : null}
 
           {showLayout
@@ -1825,7 +2026,7 @@ export function FloorPlanCanvas({
         internal walls · place Window / Door / Roof light on a selected wall · drag corners to resize · tap openings to
         set size in the inspector.
         {" "}
-        <strong>Plant:</strong> place boiler / cylinder / manifold, then <em>Route pipes</em> or Ask Blake.
+        <strong>Plant:</strong> place boiler / cylinder / manifold, then <em>Generate UFH</em> (UFH mode) or Route pipes.
       </p>
       {layoutMode ? (
         <p className="hp-canvas-hint">
@@ -2121,6 +2322,33 @@ export function FloorPlanCanvas({
                   <strong>{summary.roomCount}</strong>
                 </div>
               </div>
+              {ufhSummary ? (
+                <div className="hp-ufh-summary">
+                  <p className="hp-palette-label">UFH design</p>
+                  <div className="hp-plan-totals-grid">
+                    <div>
+                      <span>Circuits</span>
+                      <strong>{ufhSummary.circuitCount}</strong>
+                    </div>
+                    <div>
+                      <span>UFH pipe</span>
+                      <strong>{ufhSummary.ufhPipeM} m</strong>
+                    </div>
+                    <div>
+                      <span>Tails</span>
+                      <strong>{ufhSummary.tailPipeM} m</strong>
+                    </div>
+                    <div>
+                      <span>Total pipe</span>
+                      <strong>{ufhSummary.totalPipeM} m</strong>
+                    </div>
+                  </div>
+                  <p className="hp-palette-hint">
+                    Suggest ~{ufhSummary.suggestedBoilerKw} kW heat source · {ufhSummary.suggestedCylinderL} L cylinder
+                    (guide). {ufhSummary.calibrated ? "Scale calibrated." : "Calibrate scale for trusted metres."}
+                  </p>
+                </div>
+              ) : null}
               {onFinishSurveyedPlan ? (
                 <button type="button" className="hd-btn hd-btn-primary hp-finish-survey" onClick={onFinishSurveyedPlan}>
                   Finish surveyed plan → System

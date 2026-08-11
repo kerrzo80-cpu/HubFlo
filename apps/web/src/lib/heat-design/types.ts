@@ -108,6 +108,18 @@ export type HeatingPlantItem = {
   placedByUser?: boolean;
 };
 
+/** Two-point known-distance calibration so plan metres match the drawing. */
+export type PlanScaleCalibration = {
+  calibrated: boolean;
+  knownMetres: number;
+  from: PlanPoint;
+  to: PlanPoint;
+  /** Plan distance before last apply (diagnostic). */
+  measuredPlanM?: number;
+  scaleFactor?: number;
+  calibratedAt?: string;
+};
+
 /** Optional scanned / PDF-export floor drawing under the editable rooms. */
 export type PlanUnderlay = {
   dataUrl: string;
@@ -117,6 +129,8 @@ export type PlanUnderlay = {
   heightM: number;
   originX: number;
   originY: number;
+  /** Set when the engineer calibrates a known length on the underlay. */
+  scale?: PlanScaleCalibration | null;
 };
 
 export type HeatingEmitterKind = "radiator" | "ufh";

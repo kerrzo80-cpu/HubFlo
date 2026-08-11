@@ -288,6 +288,15 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
   const systemKind = chosenSystem?.kind ?? "ashp";
 
   const emitterMode = project.emitterMode ?? project.heatingLayout?.emitterMode ?? "radiators";
+  const measuredPipeM = (project.heatingLayout?.pipes ?? []).reduce((sum, pipe) => {
+    let len = 0;
+    for (let i = 1; i < pipe.points.length; i += 1) {
+      const a = pipe.points[i - 1]!;
+      const b = pipe.points[i]!;
+      len += Math.hypot(b.x - a.x, b.y - a.y);
+    }
+    return sum + len;
+  }, 0);
   const baseKit = buildKitLines({
     systemKind,
     systemLabel: chosenSystem?.label,
@@ -299,7 +308,9 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
     floorAreaM2: totalFloorArea,
     exteriorWallAreaM2: totalExteriorWallArea,
     openingCount,
-    pipeRunM: Math.round(totalFloorArea * 1.15 + project.rooms.length * 4),
+    pipeRunM: Math.round(
+      measuredPipeM > 1 ? measuredPipeM : totalFloorArea * 1.15 + project.rooms.length * 4,
+    ),
     wallConstructionLabel: primaryWall ? `${primaryWall.label} (U=${primaryWall.uValue})` : undefined,
     radiatorLines,
     emitterMode,

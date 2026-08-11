@@ -613,13 +613,22 @@ export function buildKitLines(input: {
   const emitterMode = input.emitterMode ?? "radiators";
   if (emitterMode === "ufh") {
     const ufhArea = Math.max(8, Math.round(floorArea * 0.85));
+    const loopM = Math.max(0, Math.round(input.pipeRunM ?? 0));
     lines.push({
       id: "kit-ufh",
       category: "Emitters",
-      description: `Underfloor heating manifolds + loops (~${ufhArea} m²)`,
-      qty: ufhArea,
-      unitCost: 42,
-      unit: "m²",
+      description: `UFH pipe & staples (heated ~${ufhArea} m²)`,
+      qty: loopM > 0 ? loopM : ufhArea,
+      unitCost: loopM > 0 ? 2.4 : 42,
+      unit: loopM > 0 ? "m" : "m²",
+      required: true,
+    });
+    lines.push({
+      id: "kit-ufh-manifold",
+      category: "Emitters",
+      description: "UFH manifold + mixing / pumpset allowance",
+      qty: Math.max(1, Math.ceil(ufhArea / 80)),
+      unitCost: 420,
       required: true,
     });
   } else if (input.radiatorLines?.length) {
