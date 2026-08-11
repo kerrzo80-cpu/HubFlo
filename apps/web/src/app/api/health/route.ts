@@ -124,6 +124,7 @@ export async function GET() {
       uiOverviewGantt: "booking-labels-v2",
       uiTopBarModules: "recurring-reports-stock-xero-v1",
       jobPriceFlickerFix: "keep-simpro-job-total-v1",
+      aclDefaultDeny: "read-only-missing-role-v1",
       schedulerPeople: "employees-contractors-not-suppliers-v1",
       peopleDirectoryCrud: "manual-add-edit-v1",
       invoiceImportFolders: "sent-unpaid-overdue-v1",

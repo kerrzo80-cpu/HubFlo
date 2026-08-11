@@ -88,7 +88,7 @@ export function FaultsPanel({
   requestHeaders,
   onNotice,
   actorName = "NeXa user",
-  canTriage = true,
+  canTriage = false,
   sourceRoute,
   sourcePage,
 }: {

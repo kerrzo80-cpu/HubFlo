@@ -249,14 +249,18 @@ export function parsePermissionOverrides(value: string | null | undefined): Acce
   }
 }
 
+/** Used when role is missing — never escalate to Owner/Admin. */
+export const defaultDeniedRole: HubRole = "Read-only";
+
 export function getAccessProfile(
   role: HubRole | null | undefined,
   overrides: AccessOverride | null | undefined = null,
 ): AccessProfile {
+  const resolved = role && roleChoices.includes(role) ? role : defaultDeniedRole;
   if (!overrides) {
-    return roleAccess[role ?? "Owner/Admin"];
+    return roleAccess[resolved];
   }
-  return { ...roleAccess[role ?? "Owner/Admin"], ...overrides };
+  return { ...roleAccess[resolved], ...overrides };
 }
 
 export function parseRole(value: string | null | undefined): HubRole | null {

@@ -7,6 +7,8 @@ const pilotPin = process.env.NEXA_PILOT_PIN;
 const pilotUser = process.env.NEXA_PILOT_USER?.trim() || "nexa";
 const pilotSessionCookie = "nexa_pilot_session";
 const pilotSessionMaxAgeSeconds = 60 * 60 * 24 * 30;
+/** Shared office PIN gate has no per-user role — stamp Owner/Admin explicitly (never leave blank). */
+const pilotGateRole = "Owner/Admin";
 const publicPagePrefixes = ["/heat-design", "/client", "/nexa", "/early-access"];
 const publicAssetPrefixes = ["/app-icons/", "/brand/", "/api/manifest/"];
 const publicApiPrefixes = [
@@ -79,6 +81,17 @@ function expectedPilotSessionValue() {
   }
 }
 
+function withRoleHeaders(request: NextRequest, role: string, employeeId = "pilot") {
+  const requestHeaders = new Headers(request.headers);
+  // Overwrite spoofable client role headers with session-derived values.
+  requestHeaders.set(roleHeaderName, role);
+  requestHeaders.set(employeeHeaderName, employeeId);
+  if (!requestHeaders.has(permissionHeaderName)) {
+    requestHeaders.set(permissionHeaderName, "{}");
+  }
+  return NextResponse.next({ request: { headers: requestHeaders } });
+}
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -136,16 +149,19 @@ export function proxy(request: NextRequest) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
-  if (!pilotPin) return NextResponse.next();
+  // Open local / no pin: still stamp a role so APIs never inherit a blank/spoofed header as Owner.
+  if (!pilotPin) {
+    return withRoleHeaders(request, pilotGateRole);
+  }
 
   const expectedPilotSession = expectedPilotSessionValue();
   if (request.cookies.get(pilotSessionCookie)?.value === expectedPilotSession) {
-    return NextResponse.next();
+    return withRoleHeaders(request, pilotGateRole);
   }
 
   const credentials = parseBasicAuth(request.headers.get("authorization"));
   if (credentials?.username === pilotUser && credentials.password === pilotPin) {
-    const response = NextResponse.next();
+    const response = withRoleHeaders(request, pilotGateRole);
     response.cookies.set(pilotSessionCookie, expectedPilotSession, {
       httpOnly: true,
       maxAge: pilotSessionMaxAgeSeconds,
