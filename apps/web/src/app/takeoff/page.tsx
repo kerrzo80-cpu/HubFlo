@@ -174,7 +174,7 @@ export default function TakeoffStudioPage() {
   const [railAccordions, setRailAccordions] = useState({
     projects: true,
     link: false,
-    drawings: true,
+    drawings: false,
     draw: true,
     more: false,
   });
@@ -335,12 +335,12 @@ export default function TakeoffStudioPage() {
     setSaveState("saved");
     setReviewOpen(false);
     seededServicesRef.current = null;
-    // Collapse crowded Link + project list when mark-up starts; keep Drawings/Draw as open.
+    // Mark mode: only Draw as stays open above the fold — Link/Drawings/Projects collapse.
     setRailAccordions((prev) => ({
       ...prev,
       projects: !selectedId,
       link: false,
-      drawings: true,
+      drawings: false,
       draw: true,
       more: false,
     }));
@@ -1781,8 +1781,156 @@ export default function TakeoffStudioPage() {
             ) : null}
           </section>
 
+          {!boqOpen && selected ? (
+            <section className="nexa-studio-rail-draw-sticky" aria-label="Draw as">
+              <header className="nexa-studio-rail-draw-sticky-head">
+                <h2>Draw as</h2>
+                <span>{activeClass?.name || `${visibleClassifications.length} tools`}</span>
+              </header>
+              <div className="nexa-studio-rail-draw-sticky-body">
+                      {unscaledLinearCount > 0 ? (
+                        <p className="nexa-studio-boq-scale-warn">
+                          {unscaledLinearCount} run{unscaledLinearCount === 1 ? "" : "s"} need Set scale
+                          {unscaledLinearSummary.pageLabels.length
+                            ? ` — ${unscaledLinearSummary.pageLabels.join(", ")}`
+                            : ""}.
+                        </p>
+                      ) : null}
+                      <div className="nexa-studio-class-list">
+                        {visibleClassifications.map((cls) => {
+                          const qty = quantities.find((row) => row.classificationId === cls.id);
+                          const isActive = cls.id === studio.activeClassificationId;
+                          const activeSpecId = studio.activePipeSpecId || DEFAULT_STUDIO_PIPE_SPEC_ID;
+                          const activeSpec = STUDIO_PIPE_SPECS.find((spec) => spec.id === activeSpecId);
+                          return (
+                            <div
+                              key={cls.id}
+                              className={`nexa-studio-class-row${isActive ? " on" : ""}`}
+                            >
+                              <div className="nexa-studio-class-row-main">
+                                <label className="nexa-studio-class-colour" title="Pipe / mark colour">
+                                  <span style={{ background: cls.colour }} />
+                                  <input
+                                    type="color"
+                                    value={/^#[0-9a-fA-F]{6}$/.test(cls.colour) ? cls.colour : "#2878c8"}
+                                    aria-label={`Colour for ${cls.name}`}
+                                    onChange={(e) => {
+                                      void persistStudio(setClassificationColour(studio, cls.id, e.target.value));
+                                    }}
+                                  />
+                                </label>
+                                <button
+                                  type="button"
+                                  className="nexa-studio-class-pick"
+                                  aria-expanded={isActive && cls.kind === "linear" ? drawSizesOpen : undefined}
+                                  onClick={() => {
+                                    if (isActive && cls.kind === "linear") {
+                                      setDrawSizesOpen((open) => !open);
+                                      return;
+                                    }
+                                    void persistStudio({
+                                      ...studio,
+                                      activeClassificationId: cls.id,
+                                      tool: cls.kind,
+                                      activeLayerId: classificationLayer(cls),
+                                    });
+                                    setDrawSizesOpen(cls.kind === "linear");
+                                  }}
+                                >
+                                  <span>
+                                    <strong>{cls.name}</strong>
+                                    <small>
+                                      {cls.kind}
+                                      {cls.kind === "linear" && isActive && activeSpec
+                                        ? ` · ${activeSpec.label}`
+                                        : ""}
+                                      {" · "}
+                                      {qty?.pieces || 0} item{(qty?.pieces || 0) === 1 ? "" : "s"}
+                                    </small>
+                                  </span>
+                                  <em>
+                                    {qty && qty.quantity > 0 ? `${qty.quantity} ${qty.unit}` : "—"}
+                                  </em>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="nexa-studio-class-delete"
+                                  aria-label={`Delete ${cls.name}`}
+                                  title="Delete classification"
+                                  onClick={() => deleteClassification(cls.id)}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                              {isActive && cls.kind === "linear" ? (
+                                <div className={`nexa-studio-draw-sizes${drawSizesOpen ? " is-open" : ""}`}>
+                                  <button
+                                    type="button"
+                                    className="nexa-studio-draw-sizes-toggle"
+                                    aria-expanded={drawSizesOpen}
+                                    onClick={() => setDrawSizesOpen((open) => !open)}
+                                  >
+                                    <span className="nexa-studio-draw-sizes-label">Size</span>
+                                    <strong>{activeSpec?.label || "Pick"}</strong>
+                                    <ChevronDown size={14} aria-hidden />
+                                  </button>
+                                  {drawSizesOpen ? (
+                                    <div className="nexa-studio-draw-sizes-chips" role="group" aria-label={`Pipe size for ${cls.name}`}>
+                                      {STUDIO_PIPE_SPECS.map((spec) => {
+                                        const active = activeSpecId === spec.id;
+                                        return (
+                                          <button
+                                            key={spec.id}
+                                            type="button"
+                                            className={active ? "on" : undefined}
+                                            onClick={() => {
+                                              void persistStudio({ ...studio, activePipeSpecId: spec.id, tool: "linear" });
+                                              if (selected) {
+                                                recordTakeoffLearningClient({
+                                                  type: "pipe_spec_choice",
+                                                  projectId: selected.id,
+                                                  pipeSpecId: spec.id,
+                                                  trade: "plumbing",
+                                                });
+                                              }
+                                            }}
+                                            title={`${spec.diameter} ${spec.material}${spec.autoCouplings ? ` · couplings every ${spec.stockLengthM}m` : ""}${spec.autoElbows ? " · auto elbows" : ""}`}
+                                          >
+                                            {spec.label}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="nexa-studio-create class">
+                        <select value={newClassKind} onChange={(e) => setNewClassKind(e.target.value as StudioClassKind)}>
+                          <option value="linear">Linear</option>
+                          <option value="count">Count</option>
+                          <option value="area">Area</option>
+                        </select>
+                        <input
+                          type="color"
+                          value={newClassColour}
+                          onChange={(e) => setNewClassColour(e.target.value)}
+                          aria-label="New classification colour"
+                          title="Colour"
+                        />
+                        <input value={newClassName} onChange={(e) => setNewClassName(e.target.value)} placeholder="Name" />
+                        <button type="button" className="ghost" onClick={addClassification}>Add</button>
+                      </div>
+              </div>
+            </section>
+          ) : null}
+
           {selected ? (
             <div className="nexa-studio-rail-scroll">
+
               <section className={`nexa-studio-rail-acc${railAccordions.link ? " is-open" : ""}`}>
                 <button
                   type="button"
@@ -1790,7 +1938,7 @@ export default function TakeoffStudioPage() {
                   aria-expanded={railAccordions.link}
                   onClick={() => toggleRailAccordion("link")}
                 >
-                  <h2>Link</h2>
+                  <h2>Links</h2>
                   <span className="nexa-studio-rail-acc-meta">
                     {linkedTender || linkedQuote
                       ? [linkedTender?.name, linkedQuote?.ref].filter(Boolean).join(" · ")
@@ -1982,189 +2130,6 @@ export default function TakeoffStudioPage() {
                 </section>
               ) : null}
 
-              {!boqOpen ? (
-                <section className={`nexa-studio-rail-acc${railAccordions.draw ? " is-open" : ""}`}>
-                  <button
-                    type="button"
-                    className="nexa-studio-rail-acc-toggle"
-                    aria-expanded={railAccordions.draw}
-                    onClick={() => toggleRailAccordion("draw")}
-                  >
-                    <h2>Draw as</h2>
-                    <span className="nexa-studio-rail-acc-meta">
-                      {activeClass?.name || `${visibleClassifications.length} tools`}
-                    </span>
-                    <ChevronDown size={14} aria-hidden />
-                  </button>
-                  {railAccordions.draw ? (
-                    <div className="nexa-studio-rail-acc-body">
-                      <button
-                        type="button"
-                        className={`nexa-studio-primary nexa-studio-boq-open${boqOpen ? " on" : ""}`}
-                        onClick={() => {
-                          setReviewOpen(false);
-                          setBoqOpen(true);
-                        }}
-                      >
-                        BOQ · {boqForPanel.length || 0}
-                        {boqMaterialCost > 0 ? ` · £${boqMaterialCost.toFixed(0)}` : ""}
-                      </button>
-                      {unscaledLinearCount > 0 ? (
-                        <p className="nexa-studio-boq-scale-warn">
-                          {unscaledLinearCount} run{unscaledLinearCount === 1 ? "" : "s"} need Set scale
-                          {unscaledLinearSummary.pageLabels.length
-                            ? ` — ${unscaledLinearSummary.pageLabels.join(", ")}`
-                            : ""}.
-                        </p>
-                      ) : null}
-                      <div className="nexa-studio-class-list">
-                        {visibleClassifications.map((cls) => {
-                          const qty = quantities.find((row) => row.classificationId === cls.id);
-                          const isActive = cls.id === studio.activeClassificationId;
-                          const activeSpecId = studio.activePipeSpecId || DEFAULT_STUDIO_PIPE_SPEC_ID;
-                          const activeSpec = STUDIO_PIPE_SPECS.find((spec) => spec.id === activeSpecId);
-                          return (
-                            <div
-                              key={cls.id}
-                              className={`nexa-studio-class-row${isActive ? " on" : ""}`}
-                            >
-                              <div className="nexa-studio-class-row-main">
-                                <label className="nexa-studio-class-colour" title="Pipe / mark colour">
-                                  <span style={{ background: cls.colour }} />
-                                  <input
-                                    type="color"
-                                    value={/^#[0-9a-fA-F]{6}$/.test(cls.colour) ? cls.colour : "#2878c8"}
-                                    aria-label={`Colour for ${cls.name}`}
-                                    onChange={(e) => {
-                                      void persistStudio(setClassificationColour(studio, cls.id, e.target.value));
-                                    }}
-                                  />
-                                </label>
-                                <button
-                                  type="button"
-                                  className="nexa-studio-class-pick"
-                                  aria-expanded={isActive && cls.kind === "linear" ? drawSizesOpen : undefined}
-                                  onClick={() => {
-                                    if (isActive && cls.kind === "linear") {
-                                      setDrawSizesOpen((open) => !open);
-                                      return;
-                                    }
-                                    void persistStudio({
-                                      ...studio,
-                                      activeClassificationId: cls.id,
-                                      tool: cls.kind,
-                                      activeLayerId: classificationLayer(cls),
-                                    });
-                                    setDrawSizesOpen(cls.kind === "linear");
-                                  }}
-                                >
-                                  <span>
-                                    <strong>{cls.name}</strong>
-                                    <small>
-                                      {cls.kind}
-                                      {cls.kind === "linear" && isActive && activeSpec
-                                        ? ` · ${activeSpec.label}`
-                                        : ""}
-                                      {" · "}
-                                      {qty?.pieces || 0} item{(qty?.pieces || 0) === 1 ? "" : "s"}
-                                    </small>
-                                  </span>
-                                  <em>
-                                    {qty && qty.quantity > 0 ? `${qty.quantity} ${qty.unit}` : "—"}
-                                  </em>
-                                </button>
-                                <button
-                                  type="button"
-                                  className="nexa-studio-class-delete"
-                                  aria-label={`Delete ${cls.name}`}
-                                  title="Delete classification"
-                                  onClick={() => deleteClassification(cls.id)}
-                                >
-                                  ×
-                                </button>
-                              </div>
-                              {isActive && cls.kind === "linear" ? (
-                                <div className={`nexa-studio-draw-sizes${drawSizesOpen ? " is-open" : ""}`}>
-                                  <button
-                                    type="button"
-                                    className="nexa-studio-draw-sizes-toggle"
-                                    aria-expanded={drawSizesOpen}
-                                    onClick={() => setDrawSizesOpen((open) => !open)}
-                                  >
-                                    <span className="nexa-studio-draw-sizes-label">Size</span>
-                                    <strong>{activeSpec?.label || "Pick"}</strong>
-                                    <ChevronDown size={14} aria-hidden />
-                                  </button>
-                                  {drawSizesOpen ? (
-                                    <div className="nexa-studio-draw-sizes-chips" role="group" aria-label={`Pipe size for ${cls.name}`}>
-                                      {STUDIO_PIPE_SPECS.map((spec) => {
-                                        const active = activeSpecId === spec.id;
-                                        return (
-                                          <button
-                                            key={spec.id}
-                                            type="button"
-                                            className={active ? "on" : undefined}
-                                            onClick={() => {
-                                              void persistStudio({ ...studio, activePipeSpecId: spec.id, tool: "linear" });
-                                              if (selected) {
-                                                recordTakeoffLearningClient({
-                                                  type: "pipe_spec_choice",
-                                                  projectId: selected.id,
-                                                  pipeSpecId: spec.id,
-                                                  trade: "plumbing",
-                                                });
-                                              }
-                                            }}
-                                            title={`${spec.diameter} ${spec.material}${spec.autoCouplings ? ` · couplings every ${spec.stockLengthM}m` : ""}${spec.autoElbows ? " · auto elbows" : ""}`}
-                                          >
-                                            {spec.label}
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <div className="nexa-studio-create class">
-                        <select value={newClassKind} onChange={(e) => setNewClassKind(e.target.value as StudioClassKind)}>
-                          <option value="linear">Linear</option>
-                          <option value="count">Count</option>
-                          <option value="area">Area</option>
-                        </select>
-                        <input
-                          type="color"
-                          value={newClassColour}
-                          onChange={(e) => setNewClassColour(e.target.value)}
-                          aria-label="New classification colour"
-                          title="Colour"
-                        />
-                        <input value={newClassName} onChange={(e) => setNewClassName(e.target.value)} placeholder="Name" />
-                        <button type="button" className="ghost" onClick={addClassification}>Add</button>
-                      </div>
-                    </div>
-                  ) : null}
-                </section>
-              ) : (
-                <section className="nexa-studio-rail-acc is-open">
-                  <div className="nexa-studio-rail-acc-body">
-                    <button
-                      type="button"
-                      className={`nexa-studio-primary nexa-studio-boq-open on`}
-                      onClick={() => {
-                        setReviewOpen(false);
-                        setBoqOpen(true);
-                      }}
-                    >
-                      Full BOQ · {boqForPanel.length || 0}
-                    </button>
-                  </div>
-                </section>
-              )}
-
               <section className={`nexa-studio-rail-acc${railAccordions.more ? " is-open" : ""}`}>
                 <button
                   type="button"
@@ -2173,11 +2138,19 @@ export default function TakeoffStudioPage() {
                   onClick={() => toggleRailAccordion("more")}
                 >
                   <h2>More</h2>
-                  <span className="nexa-studio-rail-acc-meta">Rates · log</span>
+                  <span className="nexa-studio-rail-acc-meta">Propose · rates · log</span>
                   <ChevronDown size={14} aria-hidden />
                 </button>
                 {railAccordions.more ? (
                   <div className="nexa-studio-rail-acc-body">
+                    <button
+                      type="button"
+                      className={`ghost${proposeOpen ? " on" : ""}`}
+                      disabled={busy === "propose"}
+                      onClick={() => setProposeOpen((open) => !open)}
+                    >
+                      {proposeOpen ? "Hide propose" : "Propose plant / routes"}
+                    </button>
                     <section className="nexa-studio-rates-rail">
                       <header>
                         <h2>Rates &amp; assemblies</h2>
@@ -2422,42 +2395,6 @@ export default function TakeoffStudioPage() {
             </div>
           ) : selected ? (
             <>
-              {activeDoc ? (
-                <div className="nexa-studio-quick-actions" aria-label="Takeoff shortcuts">
-                  <button
-                    type="button"
-                    className={!hasScale ? "need" : undefined}
-                    onClick={() => runFlowAction("scale")}
-                  >
-                    {hasScale ? "Scale ✓" : "Set scale"}
-                  </button>
-                  <button type="button" onClick={() => runFlowAction("boq")}>
-                    BOQ · {boqForPanel.length || 0}
-                  </button>
-                  <button type="button" disabled={busy === "ai"} onClick={() => openBlakeAsk()}>
-                    {busy === "ai" ? (
-                      <>
-                        <Loader2 className="spin" size={14} /> Blake…
-                      </>
-                    ) : (
-                      <>
-                        <BuddyCharacter mood="idle" size="sm" interactive={false} /> Ask Blake
-                      </>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    className={proposeOpen ? "on" : undefined}
-                    disabled={busy === "propose"}
-                    onClick={() => setProposeOpen((open) => !open)}
-                  >
-                    Propose
-                  </button>
-                  <button type="button" disabled={busy === "push"} onClick={() => void pushToCore()}>
-                    {selected.linkedQuoteId ? "Push" : "New quote"}
-                  </button>
-                </div>
-              ) : null}
               {proposeOpen ? (
                 <div className="nexa-studio-propose-panel" aria-label="Blake route and equipment proposer">
                   <header>
