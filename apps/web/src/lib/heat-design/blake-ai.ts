@@ -1,6 +1,8 @@
 /**
- * Live OpenAI Blake for Heat Design — proposes kit, sizing guidance and clarifying questions.
- * Rule kit / sizing are the safety net when OpenAI is offline or returns unusable JSON.
+ * Live OpenAI Blake for Heat Design — designs visible pipe routes + kit.
+ * Rule seed (`ensureDesignLayout`) always draws a coherent network when plant
+ * and/or rooms exist; OpenAI adds trade reasoning, emitter choice, kit + notes.
+ * Never leave Ask Blake as “kit-only branding” over empty geometry.
  */
 
 import { budgetPriceKitWithBlake } from "@/lib/blake-budget-prices";
@@ -12,7 +14,7 @@ import {
   summariseHeatingFittings,
   type HeatingFittingsSummary,
 } from "./blake-route";
-import { seedHeatingLayout } from "./layout";
+import { describeHeatingLayoutNotes, ensureDesignLayout } from "./layout";
 import { heatingSystemOptions, type HeatingSystemKind } from "./systems";
 import type {
   HeatDesignProject,
@@ -144,6 +146,50 @@ function normaliseNotes(raw: unknown): string[] {
   return raw.map((row) => String(row || "").trim()).filter(Boolean).slice(0, 12);
 }
 
+function mergeUniqueNotes(...groups: Array<string[] | undefined>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const group of groups) {
+    for (const note of group || []) {
+      const key = note.trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(note.trim());
+    }
+  }
+  return out.slice(0, 14);
+}
+
+function resolveSystemId(project: HeatDesignProject, preferred?: string | null) {
+  if (preferred && heatingSystemOptions.some((item) => item.id === preferred)) return preferred;
+  return (
+    project.chosenSystemId
+    || project.heatingLayout?.systemOptionId
+    || project.reportOptionIds?.[0]
+    || "opt-ashp"
+  );
+}
+
+function wantsDesignPass(
+  project: HeatDesignProject,
+  options: { message?: string; regenerateLayout?: boolean },
+) {
+  const userMessage = String(options.message || "").trim();
+  if (/kit only|size only|no route|don't redesign|do not redesign/i.test(userMessage)) {
+    return false;
+  }
+  if (options.regenerateLayout === true) return true;
+  if (/redesign|re-?route|layout|place plant|design on plan|draw|route/i.test(userMessage)) {
+    return true;
+  }
+  const hasPlant = (project.heatingLayout?.plants?.length || 0) > 0;
+  const hasRooms = (project.rooms?.length || 0) > 0;
+  const emptyPipes = !(project.heatingLayout?.pipes?.length);
+  // Ask Blake's main job is design — always redesign when plant/rooms exist unless kit-only.
+  if (hasPlant || hasRooms) return true;
+  return emptyPipes;
+}
+
 function buildProjectContext(project: HeatDesignProject) {
   const system =
     heatingSystemOptions.find((item) => item.id === project.chosenSystemId) || null;
@@ -158,6 +204,8 @@ function buildProjectContext(project: HeatDesignProject) {
     width: room.width,
     height: room.height,
     floor: room.floorLevel,
+    planX: room.planX,
+    planY: room.planY,
     surveyedEmitters: (room.surveyedEmitters || []).map((e) => e.kind),
   }));
   return {
@@ -180,7 +228,15 @@ function buildProjectContext(project: HeatDesignProject) {
     rooms,
     layout: layout
       ? {
-          plants: layout.plants.map((p) => ({ id: p.id, kind: p.kind, label: p.label })),
+          plants: layout.plants.map((p) => ({
+            id: p.id,
+            kind: p.kind,
+            label: p.label,
+            x: Math.round(p.x * 100) / 100,
+            y: Math.round(p.y * 100) / 100,
+            floor: p.floorLevel,
+            placedByUser: Boolean(p.placedByUser),
+          })),
           emitters: layout.emitters.map((e) => ({
             id: e.id,
             kind: e.kind,
@@ -202,64 +258,113 @@ function buildProjectContext(project: HeatDesignProject) {
   };
 }
 
+function seedAndSize(
+  project: HeatDesignProject,
+  opts: { emitterMode?: HeatingEmitterMode; chosenSystemId?: string },
+): { layout?: HeatingSystemLayout; fittings?: HeatingFittingsSummary } {
+  const chosenSystemId = resolveSystemId(project, opts.chosenSystemId);
+  const emitterMode = opts.emitterMode || project.emitterMode || "radiators";
+  const seeded = ensureDesignLayout(
+    { ...project, chosenSystemId, emitterMode },
+    {
+      systemOptionId: chosenSystemId,
+      emitterMode,
+      preservePlants: project.heatingLayout?.plants,
+    },
+  );
+  if (!seeded?.pipes?.length && !seeded?.plants?.length) {
+    return { layout: seeded || undefined };
+  }
+  const sized = seeded.pipes.length ? applyBlakePipeSizing(seeded) : seeded;
+  return {
+    layout: sized,
+    fittings: sized.pipes.length ? summariseHeatingFittings(sized) : undefined,
+  };
+}
+
 function ruleFallback(
   project: HeatDesignProject,
-  opts: { connected: boolean; error?: string; summaryExtra?: string },
+  opts: {
+    connected: boolean;
+    error?: string;
+    summaryExtra?: string;
+    forceDesign?: boolean;
+    emitterMode?: HeatingEmitterMode;
+    chosenSystemId?: string;
+  },
 ): BlakeHeatProposal {
+  const chosenSystemId = resolveSystemId(project, opts.chosenSystemId);
   const systemKind =
-    (heatingSystemOptions.find((item) => item.id === project.chosenSystemId)?.kind as
+    (heatingSystemOptions.find((item) => item.id === chosenSystemId)?.kind as
       | HeatingSystemKind
       | undefined) || "ashp";
-  const layout = project.heatingLayout;
-  const emitterMode = project.emitterMode ?? layout?.emitterMode ?? "radiators";
-  const sized = layout?.pipes?.length ? applyBlakePipeSizing(layout) : layout;
-  const fittings = sized?.pipes?.length ? summariseHeatingFittings(sized) : undefined;
+  const emitterMode =
+    opts.emitterMode || project.emitterMode || project.heatingLayout?.emitterMode || "radiators";
+  const shouldDesign =
+    opts.forceDesign !== false
+    && (
+      (project.heatingLayout?.plants?.length || 0) > 0
+      || (project.rooms?.length || 0) > 0
+      || !(project.heatingLayout?.pipes?.length)
+    );
+
+  const designed = shouldDesign
+    ? seedAndSize(
+        { ...project, chosenSystemId, emitterMode },
+        { chosenSystemId, emitterMode },
+      )
+    : {
+        layout: project.heatingLayout?.pipes?.length
+          ? applyBlakePipeSizing(project.heatingLayout)
+          : project.heatingLayout || undefined,
+        fittings: undefined as HeatingFittingsSummary | undefined,
+      };
+
+  const layout = designed.layout;
+  const fittings =
+    designed.fittings
+    || (layout?.pipes?.length ? summariseHeatingFittings(layout) : undefined);
+
   const kitInput: BlakeKitInput = {
     systemKind,
     emitterMode,
-    layout: sized || layout,
+    layout,
     fittings,
     roomCount: project.rooms.length,
   };
   const kitLines = buildBlakeAncillariesKit(kitInput);
+  const geoNotes = describeHeatingLayoutNotes(layout);
+  const pipeCount = layout?.pipes?.length || 0;
   const summary =
-    opts.summaryExtra ||
-    (opts.connected
-      ? "OpenAI could not finish this pass — showing the rule kit so you can keep moving."
-      : "OpenAI is not connected — showing the rule kit. Set OPENAI_API_KEY on this service for live Blake.");
-
-  const needsLayout =
-    !layout?.pipes?.length
-    && ((project.rooms?.length || 0) > 0 || (layout?.plants?.length || 0) > 0);
-  let seeded: HeatingSystemLayout | undefined;
-  if (needsLayout && project.chosenSystemId) {
-    seeded = seedHeatingLayout(project, project.chosenSystemId, emitterMode, {
-      preservePlants: layout?.plants?.length ? layout.plants : project.heatingLayout?.plants,
-    });
-  }
-
-  const plantNote = seeded?.plants?.length
-    ? ` Plant on plan: ${seeded.plants.map((p) => p.label).join(", ")}.`
-    : layout?.plants?.some((p) => p.placedByUser)
-      ? " Engineer-placed plant kept — place missing pieces on plan if the kit still needs them."
-      : "";
+    opts.summaryExtra
+    || (pipeCount
+      ? `Rule design · ${pipeCount} pipe run${pipeCount === 1 ? "" : "s"} · ${kitLines.length} kit lines.`
+      : opts.connected
+        ? "OpenAI could not finish this pass — rule kit only (no plant/rooms to route)."
+        : "OpenAI is not connected — rule kit. Place plant or rooms for Blake to draw routes.");
 
   return {
     summary,
     narrative:
-      `Rule-based Blake draft: size mains 28 mm, branches 22 mm, tails 15 mm; include valves, TRVs, drains, clips and plant ancillaries from the layout.${plantNote}`,
-    applySizing: Boolean(sized?.pipes?.length || seeded?.pipes?.length),
-    regenerateLayout: Boolean(seeded),
+      pipeCount
+        ? `Blake (rules) drew plant-connected primaries and ${emitterMode} emitters where rooms exist, then sized 28/22/15 mm and itemised valves, TRVs, drains and clips. Geometric draft only — not MCS/hydraulics certificate.`
+        : "No layout could be drawn — place boiler / cylinder / manifold on plan (or draw rooms), then Ask Blake again.",
+    applySizing: Boolean(layout?.pipes?.length),
+    regenerateLayout: Boolean(layout && shouldDesign),
     emitterMode,
-    chosenSystemId: project.chosenSystemId,
-    layout: seeded,
+    chosenSystemId,
+    layout: shouldDesign ? layout : undefined,
     kitLines,
     clarifyingQuestions: [],
-    routeNotes: fittings?.notes || [
-      "Design on plan, then Ask Blake again once OpenAI is connected for trade reasoning.",
-    ],
+    routeNotes: mergeUniqueNotes(
+      geoNotes,
+      fittings?.notes,
+      opts.connected
+        ? undefined
+        : ["Set OPENAI_API_KEY on this service for live Blake trade reasoning."],
+    ),
     pipeSizes: [],
-    fittings: seeded ? summariseHeatingFittings(seeded) : fittings,
+    fittings,
     aiUsed: false,
     connected: opts.connected,
     error: opts.error,
@@ -279,6 +384,7 @@ async function withBudgetPrices(
       project.chosenSystemId,
       project.emitterMode,
       `${project.rooms.length} rooms`,
+      `${proposal.layout?.pipes?.length || project.heatingLayout?.pipes?.length || 0} pipes`,
     ]
       .filter(Boolean)
       .join(" · "),
@@ -320,13 +426,15 @@ export function applyBlakePipeSizeHints(
 }
 
 /**
- * Ask live OpenAI Blake to propose Heat Design kit + route guidance for this project.
- * Always returns a usable proposal (AI or rule fallback).
+ * Ask live OpenAI Blake to design routes (via rule geometry + AI reasoning) and kit.
+ * Always returns a usable proposal (AI or rule fallback). When plant/rooms exist,
+ * layout is regenerated so the plan is never left empty after Ask Blake.
  */
 export async function proposeHeatDesignWithBlake(
   project: HeatDesignProject,
   options: { message?: string; regenerateLayout?: boolean } = {},
 ): Promise<BlakeHeatProposal> {
+  const designPass = wantsDesignPass(project, options);
   const openAi = getTakeoffOpenAiConfig();
   if (!openAi.apiKey) {
     return withBudgetPrices(
@@ -334,35 +442,46 @@ export async function proposeHeatDesignWithBlake(
       ruleFallback(project, {
         connected: false,
         error: "OpenAI key missing on this live service.",
+        forceDesign: designPass,
       }),
     );
   }
 
-  const context = buildProjectContext(project);
+  // Seed geometry first so AI reasons over a real network, not empty plant icons.
+  const preSystemId = resolveSystemId(project);
+  const preEmitter = project.emitterMode || project.heatingLayout?.emitterMode || "radiators";
+  const draft = designPass
+    ? seedAndSize(
+        { ...project, chosenSystemId: preSystemId, emitterMode: preEmitter },
+        { chosenSystemId: preSystemId, emitterMode: preEmitter },
+      )
+    : { layout: project.heatingLayout || undefined, fittings: undefined };
+  const draftProject: HeatDesignProject = {
+    ...project,
+    chosenSystemId: preSystemId,
+    emitterMode: preEmitter,
+    heatingLayout: draft.layout || project.heatingLayout,
+  };
+
+  const context = buildProjectContext(draftProject);
   const userMessage = String(options.message || "").trim();
-  const wantsLayout =
-    options.regenerateLayout === true
-    || /redesign|re-?route|layout|place plant|design on plan/i.test(userMessage)
-    || !project.heatingLayout?.pipes?.length;
   const prompt = [
     "You are Blake — NeXa’s UK heating design co-pilot (Gas Safe trade mindset).",
-    "You are looking at a Heat Design project: rooms, chosen plant, emitters and pipe routes on plan.",
-    "CRITICAL: If the engineer has already placed plant (boiler, cylinder, manifold, outdoor unit), KEEP ONLY those plant pieces when regenerateLayout is true — rebuild emitters and pipe routes around them. Do NOT invent extra plant they did not place.",
-    "If plant is missing for a workable circuit, say so in clarifyingQuestions / routeNotes (e.g. place a cylinder) instead of silently adding it on plan.",
-    "Propose a practical install kit and pipe-sizing guidance.",
-    "Every kitLines item MUST include a UK trade BUDGET unitCost (ex VAT) — typical merchant ballpark for comparing to supplier quotes later. Never leave unitCost at 0 unless truly free.",
-    "Prefer concrete merchant lines (TRVs, lockshields, isolation valves, AAVs, clips, lagging, zone valves, G3 bits, ASHP flex kits, etc.).",
-    "NEVER collapse into ‘lot’, ‘allowance’ or ‘sundry’ — itemise.",
-    "If the layout has pipes, set applySizing true and optionally override individual pipe diameters via pipeSizes[{pipeId,diameterMm:15|22|28,reason}].",
+    "The engineer placed plant (and optionally rooms) on a Heat Design plan. A geometric draft network is already in context.layout — study plant x/y and rooms.",
+    "Your job: THINK about this install, then return trade reasoning + kit. Do NOT invent plant pieces they did not place.",
+    "Explain what you would connect (boiler↔cylinder↔manifolds, flow/return legs, emitter branches) in routeNotes and narrative.",
+    "Pick emitterMode (radiators|ufh|mixed) if rooms exist. Keep regenerateLayout true whenever plant or rooms are present so the UI redraws.",
+    "Propose a practical install kit with BUDGET unitCost (ex VAT) on every line — never leave 0 unless free. Itemise; no ‘lot’/‘sundry’.",
+    "If the layout has pipes, set applySizing true and optionally override diameters via pipeSizes[{pipeId,diameterMm:15|22|28,reason}].",
     "Default tiers when unsure: mains 28, branches 22, rad/UFH tails 15.",
-    "If plant is on plan (even without rooms) or rooms exist but pipes are missing — or the engineer asks to redesign — set regenerateLayout true and pick emitterMode (radiators|ufh|mixed) plus optional chosenSystemId (opt-ashp|opt-gas|opt-hybrid|opt-oil).",
-    "Return clarifyingQuestions when site facts would change materials or sizes (cylinder location, existing TRVs, floor type for UFH, etc.). Skip if clear.",
-    "Return JSON only with keys: summary, narrative, applySizing, regenerateLayout, emitterMode, chosenSystemId, kitLines, clarifyingQuestions, routeNotes, pipeSizes.",
+    "Return clarifyingQuestions when site facts would change materials (existing TRVs, floor type for UFH, cylinder location). Skip if clear.",
+    "Return JSON only with keys: summary, narrative, applySizing, regenerateLayout, emitterMode, chosenSystemId, kitLines, clarifyingQuestions, routeNotes, pipeSizes, assumptions.",
+    "assumptions: short string array of design assumptions you made.",
     "kitLines items: {id?, category, description, qty, unit, unitCost}.",
-    userMessage ? `Engineer note / question: ${userMessage}` : "Engineer wants Blake to propose the kit and size the routes.",
-    wantsLayout
-      ? "Prefer regenerateLayout when plant is placed or rooms exist but the pipe network is empty."
-      : "",
+    userMessage ? `Engineer note / question: ${userMessage}` : "Engineer wants Blake to design the heating layout on plan and propose the kit.",
+    designPass
+      ? "MUST set regenerateLayout true — engineer expects visible pipes after Ask Blake."
+      : "Kit/sizing pass only — do not insist on redesign.",
     JSON.stringify(context),
   ].join("\n");
 
@@ -381,7 +500,7 @@ export async function proposeHeatDesignWithBlake(
           {
             role: "system",
             content:
-              "Return strict JSON only. You are Blake proposing a heating design kit and pipe sizes for a UK plumber. Itemise materials. Ask clarifyingQuestions when unsure.",
+              "Return strict JSON only. You are Blake designing a UK heating layout: reason about plant connections and emitters, then kit. Be concrete. Ask clarifyingQuestions when unsure.",
           },
           { role: "user", content: prompt },
         ],
@@ -401,7 +520,8 @@ export async function proposeHeatDesignWithBlake(
         ruleFallback(project, {
           connected: true,
           error: shortDetail,
-          summaryExtra: `OpenAI is connected but Blake could not finish (${shortDetail}). Rule kit shown instead.`,
+          forceDesign: designPass,
+          summaryExtra: `OpenAI connected but Blake could not finish (${shortDetail}). Rule design + kit shown instead.`,
         }),
       );
     }
@@ -413,7 +533,8 @@ export async function proposeHeatDesignWithBlake(
         ruleFallback(project, {
           connected: true,
           error: "Empty OpenAI response",
-          summaryExtra: "OpenAI returned an empty proposal. Rule kit shown instead.",
+          forceDesign: designPass,
+          summaryExtra: "OpenAI returned empty — rule design + kit shown instead.",
         }),
       );
     }
@@ -427,46 +548,41 @@ export async function proposeHeatDesignWithBlake(
           ? "Blake budget (UK trade ballpark) — amend to supplier quote when uploaded"
           : undefined,
     }));
-    if (!kitLines.length) {
-      const fallback = await withBudgetPrices(
-        project,
-        ruleFallback(project, {
-          connected: true,
-          error: "No kit lines in OpenAI JSON",
-        }),
-      );
-      kitLines = fallback.kitLines;
-    }
 
     const emitterRaw = String(parsed.emitterMode || "");
     const emitterMode: HeatingEmitterMode | undefined =
       emitterRaw === "ufh" || emitterRaw === "mixed" || emitterRaw === "radiators"
         ? emitterRaw
         : undefined;
-    const systemRaw = String(parsed.chosenSystemId || "");
-    const chosenSystemId =
-      systemRaw === "opt-ashp" || systemRaw === "opt-gas" || systemRaw === "opt-hybrid" || systemRaw === "opt-oil"
-        ? systemRaw
-        : project.chosenSystemId;
+    const chosenSystemId = resolveSystemId(project, String(parsed.chosenSystemId || "") || null);
 
-    const regenerateLayout =
-      parsed.regenerateLayout === true
-      || (
-        wantsLayout
-        && !project.heatingLayout?.pipes?.length
-        && ((project.rooms?.length || 0) > 0 || (project.heatingLayout?.plants?.length || 0) > 0)
-      );
+    // Always redraw when this is a design pass — never trust AI to skip geometry.
+    const regenerateLayout = designPass || parsed.regenerateLayout === true;
 
     let layout: HeatingSystemLayout | undefined;
-    if (regenerateLayout && chosenSystemId) {
-      layout = seedHeatingLayout(
+    let fittings: HeatingFittingsSummary | undefined;
+    if (regenerateLayout) {
+      const redesigned = seedAndSize(
         { ...project, chosenSystemId, emitterMode: emitterMode || project.emitterMode },
-        chosenSystemId,
-        emitterMode || project.emitterMode || "radiators",
-        {
-          preservePlants: project.heatingLayout?.plants,
-        },
+        { chosenSystemId, emitterMode: emitterMode || project.emitterMode || "radiators" },
       );
+      layout = redesigned.layout;
+      fittings = redesigned.fittings;
+    } else {
+      layout = draft.layout || project.heatingLayout || undefined;
+    }
+
+    if (!kitLines.length) {
+      const fallbackKit = buildBlakeAncillariesKit({
+        systemKind:
+          (heatingSystemOptions.find((item) => item.id === chosenSystemId)?.kind as HeatingSystemKind)
+          || "ashp",
+        emitterMode: emitterMode || project.emitterMode || "radiators",
+        layout,
+        fittings,
+        roomCount: project.rooms.length,
+      });
+      kitLines = fallbackKit;
     }
 
     const workingLayout = layout || project.heatingLayout;
@@ -476,20 +592,26 @@ export async function proposeHeatDesignWithBlake(
         ? false
         : Boolean(workingLayout?.pipes?.length) || pipeSizes.length > 0 || regenerateLayout;
 
-    let fittings: HeatingFittingsSummary | undefined;
     if (applySizing && workingLayout?.pipes?.length) {
       const sized = applyBlakePipeSizeHints(workingLayout, pipeSizes);
       layout = sized;
       fittings = summariseHeatingFittings(sized);
     }
 
+    const geoNotes = describeHeatingLayoutNotes(layout);
+    const aiNotes = normaliseNotes(parsed.routeNotes);
+    const assumptions = normaliseNotes(parsed.assumptions);
+    const pipeCount = layout?.pipes?.length || 0;
+
     return withBudgetPrices(project, {
       summary:
-        String(parsed.summary || "").trim() ||
-        `Blake proposes ${kitLines.length} kit line${kitLines.length === 1 ? "" : "s"} for this design.`,
+        String(parsed.summary || "").trim()
+        || (pipeCount
+          ? `Blake designed ${pipeCount} pipe runs and ${kitLines.length} kit lines.`
+          : `Blake proposes ${kitLines.length} kit line${kitLines.length === 1 ? "" : "s"}.`),
       narrative:
-        String(parsed.narrative || parsed.reasoning || "").trim() ||
-        "Blake sized the network and itemised valves, emitter packs and plant bits for Takeoff / Core.",
+        String(parsed.narrative || parsed.reasoning || "").trim()
+        || "Blake reasoned about plant connections, drew the geometric network, sized pipes and itemised the kit.",
       applySizing,
       regenerateLayout,
       emitterMode,
@@ -497,7 +619,12 @@ export async function proposeHeatDesignWithBlake(
       layout,
       kitLines,
       clarifyingQuestions: normaliseQuestions(parsed.clarifyingQuestions),
-      routeNotes: normaliseNotes(parsed.routeNotes),
+      routeNotes: mergeUniqueNotes(
+        aiNotes,
+        assumptions.map((row) => (row.startsWith("Assumption") ? row : `Assumption: ${row}`)),
+        geoNotes,
+        fittings?.notes,
+      ),
       pipeSizes,
       fittings,
       aiUsed: true,
@@ -511,7 +638,8 @@ export async function proposeHeatDesignWithBlake(
       ruleFallback(project, {
         connected: true,
         error: err instanceof Error ? err.message : "OpenAI request failed",
-        summaryExtra: "Blake hit a network error talking to OpenAI. Rule kit shown instead.",
+        forceDesign: designPass,
+        summaryExtra: "Blake hit a network error talking to OpenAI. Rule design + kit shown instead.",
       }),
     );
   }

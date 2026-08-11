@@ -8,6 +8,7 @@ import {
 import {
   summariseHeatingFittings,
   type HeatDesignBlakeProposal,
+  type HeatDesignProject,
 } from "@/lib/heat-design";
 import { getHeatDesignProject, saveHeatDesignProject } from "@/lib/heat-design-store";
 import { parseJsonRequestBody } from "@/lib/http";
@@ -18,11 +19,32 @@ export const runtime = "nodejs";
 
 type Body = {
   projectId?: string;
+  /** Client snapshot — Ask Blake must not race the debounced autosave. */
+  project?: HeatDesignProject;
   message?: string;
   regenerateLayout?: boolean;
   /** Persist proposal + apply sizing onto the project (default true). */
   apply?: boolean;
 };
+
+function mergeClientSnapshot(
+  stored: HeatDesignProject,
+  client: HeatDesignProject | undefined,
+): HeatDesignProject {
+  if (!client || client.id !== stored.id) return stored;
+  return {
+    ...stored,
+    ...client,
+    id: stored.id,
+    // Prefer client geometry — plant/rooms/pipes the engineer just placed.
+    rooms: Array.isArray(client.rooms) ? client.rooms : stored.rooms,
+    heatingLayout: client.heatingLayout ?? stored.heatingLayout,
+    planUnderlay: client.planUnderlay ?? stored.planUnderlay,
+    chosenSystemId: client.chosenSystemId || stored.chosenSystemId,
+    emitterMode: client.emitterMode || stored.emitterMode,
+    updatedAt: new Date().toISOString(),
+  };
+}
 
 export async function POST(request: Request) {
   const access = getAccessProfileFromHeaders(request.headers);
@@ -34,20 +56,22 @@ export async function POST(request: Request) {
   }
 
   const body = (await parseJsonRequestBody<Body>(request)) || {};
-  const projectId = body.projectId?.trim();
+  const projectId = body.projectId?.trim() || body.project?.id?.trim();
   if (!projectId) {
     return NextResponse.json({ error: "projectId is required" }, { status: 400 });
   }
 
-  const project = getHeatDesignProject(projectId);
-  if (!project) {
+  const stored = getHeatDesignProject(projectId);
+  if (!stored) {
     return NextResponse.json({ error: "Heat Design project not found" }, { status: 404 });
   }
 
+  const project = mergeClientSnapshot(stored, body.project);
   const { actor } = surveyRequestContext(request);
   const proposal = await proposeHeatDesignWithBlake(project, {
     message: body.message,
-    regenerateLayout: body.regenerateLayout,
+    // Default: design on plan. Client may omit; plant/rooms still force redesign in blake-ai.
+    regenerateLayout: body.regenerateLayout !== false,
   });
 
   const apply = body.apply !== false;
@@ -90,8 +114,8 @@ export async function POST(request: Request) {
         recordType: "heat_design_project",
         recordId: project.id,
         summary: proposal.aiUsed
-          ? `Blake AI proposed kit (${proposal.kitLines.length} lines)${proposal.model ? ` · ${proposal.model}` : ""}`
-          : `Blake rule fallback kit (${proposal.kitLines.length} lines)`,
+          ? `Blake AI designed layout + kit (${proposal.layout?.pipes?.length || 0} pipes, ${proposal.kitLines.length} lines)${proposal.model ? ` · ${proposal.model}` : ""}`
+          : `Blake rule design + kit (${proposal.layout?.pipes?.length || 0} pipes, ${proposal.kitLines.length} lines)`,
         source: "heat-design",
         importance: "high",
       });
@@ -115,6 +139,7 @@ export async function POST(request: Request) {
     routeNotes: proposal.routeNotes,
     pipeSizes: proposal.pipeSizes,
     fittings,
+    pipeCount: proposal.layout?.pipes?.length || nextProject.heatingLayout?.pipes?.length || 0,
     project: nextProject,
   });
 }

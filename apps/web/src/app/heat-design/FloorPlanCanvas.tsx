@@ -1413,15 +1413,28 @@ export function FloorPlanCanvas({
                     className="hp-pipe-layer"
                     style={{ pointerEvents: layoutMode ? "auto" : "none" }}
                   >
+                    {/* Halo so flow/return stay readable on busy PDF underlays */}
+                    {planUnderlay?.dataUrl ? (
+                      <polyline
+                        points={pointsAttr}
+                        fill="none"
+                        stroke="#fff"
+                        strokeWidth={(active ? style.width + 2 : style.width) + 3.5}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        opacity={0.85}
+                        style={{ pointerEvents: "none" }}
+                      />
+                    ) : null}
                     <polyline
                       points={pointsAttr}
                       fill="none"
                       stroke={style.stroke}
-                      strokeWidth={active ? style.width + 2 : style.width}
+                      strokeWidth={active ? style.width + 2.5 : style.width + (planUnderlay ? 0.8 : 0)}
                       strokeDasharray={style.dash}
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      opacity={0.92}
+                      opacity={0.96}
                       style={{ cursor: layoutMode ? "grab" : "default" }}
                       onPointerDown={(event) => {
                         if (!layoutMode || !heatingLayout) return;

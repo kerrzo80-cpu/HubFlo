@@ -869,20 +869,60 @@ export default function HeatDesignLabPage() {
     }
   }
 
+  async function flushProjectToServer(snapshot: HeatDesignProject) {
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const generation = ++saveGenerationRef.current;
+    try {
+      const res = await fetch(`/api/heat-design/projects/${encodeURIComponent(snapshot.id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(snapshot),
+      });
+      if (!res.ok) return;
+      if (generation !== saveGenerationRef.current) return;
+      setSaveStatus((current) => (current === "offline" ? current : "saved"));
+    } catch {
+      /* Ask Blake still sends the client snapshot — save race is non-fatal */
+    }
+  }
+
   async function askBlakeLive() {
     if (!project?.id) return;
-    if (!project.chosenSystemId && !project.heatingLayout?.pipes?.length && !project.heatingLayout?.plants?.length) {
+    if (
+      !project.chosenSystemId
+      && !project.heatingLayout?.pipes?.length
+      && !project.heatingLayout?.plants?.length
+      && !project.rooms?.length
+    ) {
       setNotice("Pick a system, place plant, or design on plan first, then Ask Blake.");
       return;
     }
     setBlakeBusy(true);
+    const snapshot: HeatDesignProject = {
+      ...project,
+      // Ensure a system id so server seed can run even if engineer only placed plant.
+      chosenSystemId:
+        project.chosenSystemId
+        || project.heatingLayout?.systemOptionId
+        || project.reportOptionIds?.[0]
+        || "opt-ashp",
+      updatedAt: new Date().toISOString(),
+    };
     try {
+      // Flush + send snapshot so Ask Blake never designs against a stale server project
+      // (autosave is debounced — plant placed moments ago would otherwise be missing).
+      await flushProjectToServer(snapshot);
       const res = await fetch("/api/heat-design/blake-propose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          projectId: project.id,
+          projectId: snapshot.id,
+          project: snapshot,
           message: blakeMessage.trim() || undefined,
+          regenerateLayout: true,
           apply: true,
         }),
       });
@@ -895,6 +935,8 @@ export default function HeatDesignLabPage() {
         narrative?: string;
         fittings?: HeatingFittingsSummary;
         project?: HeatDesignProject;
+        pipeCount?: number;
+        routeNotes?: string[];
         clarifyingQuestions?: Array<{ key: string; question: string; why: string }>;
       };
       if (!res.ok || !body.ok) {
@@ -903,18 +945,25 @@ export default function HeatDesignLabPage() {
       if (body.project) {
         patchProject({
           blakeProposal: body.project.blakeProposal,
-          heatingLayout: body.project.heatingLayout ?? project.heatingLayout,
+          heatingLayout: body.project.heatingLayout ?? snapshot.heatingLayout,
+          chosenSystemId: body.project.chosenSystemId || snapshot.chosenSystemId,
+          emitterMode: body.project.emitterMode || snapshot.emitterMode,
         });
       }
       if (body.fittings) setFittingsSummary(body.fittings);
       setLayoutMode(true);
+      setTab("plan");
       const qCount = body.clarifyingQuestions?.length || 0;
+      const pipes =
+        body.pipeCount
+        ?? body.project?.heatingLayout?.pipes?.length
+        ?? 0;
       setNotice(
         body.aiUsed
-          ? `Blake (live AI)${qCount ? ` · ${qCount} question${qCount === 1 ? "" : "s"}` : ""} — ${body.summary || "proposal ready."}`
+          ? `Blake (live AI) · ${pipes} pipe run${pipes === 1 ? "" : "s"}${qCount ? ` · ${qCount} question${qCount === 1 ? "" : "s"}` : ""} — ${body.summary || "design ready."}`
           : body.connected
-            ? `Blake fell back to rules — ${body.summary || "OpenAI could not finish."}`
-            : `OpenAI not connected — rule kit applied. Set OPENAI_API_KEY on Render for live Blake.`,
+            ? `Blake rule design · ${pipes} pipes — ${body.summary || "OpenAI could not finish; geometry still drawn."}`
+            : `OpenAI not connected — rule design drew ${pipes} pipe run${pipes === 1 ? "" : "s"}. Set OPENAI_API_KEY on Render for live Blake.`,
       );
       setBlakeMessage("");
     } catch (err) {
@@ -1336,8 +1385,9 @@ export default function HeatDesignLabPage() {
                       Ask Blake
                     </strong>
                     <span>
-                      Routes only around plant you placed. Proposes pipe sizes and a defined materials kit — Send to
-                      Takeoff for the BOQ. Rules only if OpenAI is offline.
+                      Designs visible pipes around plant you placed (plant primaries + emitter branches when rooms
+                      exist), shows brief reasoning, then sizes a defined kit. Rule geometry always draws something if
+                      OpenAI is down. Not an MCS certificate.
                     </span>
                   </header>
                   <label className="hd-blake-ask-label">

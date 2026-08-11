@@ -496,6 +496,63 @@ function reusePreservedPlants(preserved: HeatingPlantItem[], floor: FloorLevel):
   });
 }
 
+/** Human-readable notes of what the seeded network actually connected — for Blake UI. */
+export function describeHeatingLayoutNotes(layout: HeatingSystemLayout | null | undefined): string[] {
+  if (!layout) return [];
+  const notes: string[] = [];
+  const plantLabels = layout.plants.map((p) => p.label || p.kind.replace(/_/g, " "));
+  if (plantLabels.length) {
+    notes.push(`Plant on plan: ${plantLabels.join(", ")}.`);
+  }
+  const emitters = layout.emitters ?? [];
+  if (emitters.length) {
+    const rads = emitters.filter((e) => e.kind === "radiator").length;
+    const ufh = emitters.filter((e) => e.kind === "ufh").length;
+    const bits: string[] = [];
+    if (rads) bits.push(`${rads} radiator${rads === 1 ? "" : "s"}`);
+    if (ufh) bits.push(`${ufh} UFH zone${ufh === 1 ? "" : "s"}`);
+    notes.push(`Emitters: ${bits.join(" + ") || `${emitters.length} emitters`}.`);
+  } else if (layout.plants.length) {
+    notes.push("No room polygons — primary / flow–return drawn plant-to-plant only.");
+  }
+  const labels = (layout.pipes || [])
+    .map((p) => p.label)
+    .filter(Boolean)
+    .slice(0, 10);
+  if (labels.length) {
+    notes.push(`Routes: ${labels.join("; ")}.`);
+  } else {
+    notes.push("No pipe runs were generated — place boiler / cylinder / manifold (or draw rooms), then ask again.");
+  }
+  notes.push("Geometric draft only — not an MCS / full hydraulic certificate.");
+  return notes;
+}
+
+/**
+ * Always draw a usable heating network when plant and/or rooms exist.
+ * Preserves engineer plant; invents full plant kit only when nothing was placed.
+ */
+export function ensureDesignLayout(
+  project: HeatDesignProject,
+  options: SeedHeatingLayoutOptions & {
+    systemOptionId?: string;
+    emitterMode?: HeatingEmitterMode;
+  } = {},
+): HeatingSystemLayout | null {
+  const systemOptionId =
+    options.systemOptionId || project.chosenSystemId || project.heatingLayout?.systemOptionId || "";
+  if (!systemOptionId) return null;
+  const hasPlant = (options.preservePlants?.length || project.heatingLayout?.plants?.length || 0) > 0;
+  const hasRooms = (project.rooms?.length || 0) > 0;
+  if (!hasPlant && !hasRooms) return null;
+  const emitterMode =
+    options.emitterMode || project.emitterMode || project.heatingLayout?.emitterMode || "radiators";
+  return seedHeatingLayout(project, systemOptionId, emitterMode, {
+    preservePlants: options.preservePlants ?? project.heatingLayout?.plants,
+    onlyUserPlants: options.onlyUserPlants,
+  });
+}
+
 /** Primary / fuel pipes that connect placed plant pieces (works with or without rooms). */
 function appendPlantNetworkPipes(
   pipes: HeatingPipeRun[],
@@ -504,7 +561,7 @@ function appendPlantNetworkPipes(
   floor: FloorLevel,
   plantRoom: HeatDesignRoom | undefined,
 ): void {
-  const cylinder = plants.find((p) => p.kind === "cylinder");
+  const cylinder = plants.find((p) => p.kind === "cylinder" || p.kind === "buffer");
   const manifolds = plants.filter((p) => p.kind === "manifold");
   const boiler = plants.find((p) => p.kind === "boiler" || p.kind === "electric_boiler");
   const ou = plants.find((p) => p.kind === "outdoor_unit" || p.kind === "oil_tank" || p.kind === "lpg_tank");
@@ -567,18 +624,18 @@ function appendPlantNetworkPipes(
           floor,
         ),
       );
-      // Visible F&R companions so plant-only plans still show a heating pair.
+      // Visible F&R companions (offset enough to read next to primary on PDF underlays).
       pipes.push(
         makePipe(
           "flow",
           `Flow · manifold${suffix}`,
-          manhattanRoute({ x: from.x - 0.06, y: from.y }, { x: to.x - 0.06, y: to.y }, true),
+          manhattanRoute({ x: from.x - 0.12, y: from.y - 0.08 }, { x: to.x - 0.12, y: to.y - 0.08 }, true),
           floor,
         ),
         makePipe(
           "return",
           `Return · manifold${suffix}`,
-          manhattanRoute({ x: to.x + 0.06, y: to.y }, { x: from.x + 0.06, y: from.y }, false),
+          manhattanRoute({ x: to.x + 0.12, y: to.y + 0.08 }, { x: from.x + 0.12, y: from.y + 0.08 }, false),
           floor,
         ),
       );

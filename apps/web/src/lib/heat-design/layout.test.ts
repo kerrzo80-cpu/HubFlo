@@ -3,6 +3,8 @@ import { describe, it } from "node:test";
 
 import { makeBlankProject } from "./catalogue";
 import {
+  describeHeatingLayoutNotes,
+  ensureDesignLayout,
   placePlantOnLayout,
   plantRole,
   seedHeatingLayout,
@@ -41,53 +43,57 @@ describe("placePlantOnLayout", () => {
   });
 });
 
+function loungeUtilityRooms() {
+  return [
+    {
+      id: "room-1",
+      name: "Utility",
+      roomType: "Utility",
+      length: "3.2",
+      width: "2.4",
+      height: "2.4",
+      exteriorWalls: 2,
+      exteriorFlags: [true, true, false, false],
+      wallType: "cavity",
+      glazingType: "dg",
+      windowArea: "1.2",
+      floorType: "solid",
+      ceilingType: "joist",
+      meanWaterTemperature: "45",
+      preferredRange: "k2",
+      planX: 0,
+      planY: 0,
+      floorLevel: "ground" as const,
+      openings: [],
+    },
+    {
+      id: "room-2",
+      name: "Lounge",
+      roomType: "Living room",
+      length: "4.5",
+      width: "3.8",
+      height: "2.4",
+      exteriorWalls: 2,
+      exteriorFlags: [true, false, true, false],
+      wallType: "cavity",
+      glazingType: "dg",
+      windowArea: "2.4",
+      floorType: "solid",
+      ceilingType: "joist",
+      meanWaterTemperature: "45",
+      preferredRange: "k2",
+      planX: 3.5,
+      planY: 0,
+      floorLevel: "ground" as const,
+      openings: [],
+    },
+  ];
+}
+
 describe("seedHeatingLayout preservePlants", () => {
   it("keeps engineer plant positions when routing pipes", () => {
     const project = makeBlankProject();
-    project.rooms = [
-      {
-        id: "room-1",
-        name: "Utility",
-        roomType: "Utility",
-        length: "3.2",
-        width: "2.4",
-        height: "2.4",
-        exteriorWalls: 2,
-        exteriorFlags: [true, true, false, false],
-        wallType: "cavity",
-        glazingType: "dg",
-        windowArea: "1.2",
-        floorType: "solid",
-        ceilingType: "joist",
-        meanWaterTemperature: "45",
-        preferredRange: "k2",
-        planX: 0,
-        planY: 0,
-        floorLevel: "ground",
-        openings: [],
-      },
-      {
-        id: "room-2",
-        name: "Lounge",
-        roomType: "Living room",
-        length: "4.5",
-        width: "3.8",
-        height: "2.4",
-        exteriorWalls: 2,
-        exteriorFlags: [true, false, true, false],
-        wallType: "cavity",
-        glazingType: "dg",
-        windowArea: "2.4",
-        floorType: "solid",
-        ceilingType: "joist",
-        meanWaterTemperature: "45",
-        preferredRange: "k2",
-        planX: 3.5,
-        planY: 0,
-        floorLevel: "ground",
-        openings: [],
-      },
-    ];
+    project.rooms = loungeUtilityRooms();
     project.chosenSystemId = "opt-gas";
     project.emitterMode = "radiators";
 
@@ -117,50 +123,7 @@ describe("seedHeatingLayout preservePlants", () => {
 
   it("does not invent plant the engineer never placed", () => {
     const project = makeBlankProject();
-    project.rooms = [
-      {
-        id: "room-1",
-        name: "Utility",
-        roomType: "Utility",
-        length: "3.2",
-        width: "2.4",
-        height: "2.4",
-        exteriorWalls: 2,
-        exteriorFlags: [true, true, false, false],
-        wallType: "cavity",
-        glazingType: "dg",
-        windowArea: "1.2",
-        floorType: "solid",
-        ceilingType: "joist",
-        meanWaterTemperature: "45",
-        preferredRange: "k2",
-        planX: 0,
-        planY: 0,
-        floorLevel: "ground",
-        openings: [],
-      },
-      {
-        id: "room-2",
-        name: "Lounge",
-        roomType: "Living room",
-        length: "4.5",
-        width: "3.8",
-        height: "2.4",
-        exteriorWalls: 2,
-        exteriorFlags: [true, false, true, false],
-        wallType: "cavity",
-        glazingType: "dg",
-        windowArea: "2.4",
-        floorType: "solid",
-        ceilingType: "joist",
-        meanWaterTemperature: "45",
-        preferredRange: "k2",
-        planX: 3.5,
-        planY: 0,
-        floorLevel: "ground",
-        openings: [],
-      },
-    ];
+    project.rooms = loungeUtilityRooms();
     project.chosenSystemId = "opt-gas";
     project.emitterMode = "radiators";
 
@@ -209,5 +172,42 @@ describe("seedHeatingLayout preservePlants", () => {
       "draws flow/return companions to manifolds",
     );
     assert.equal(routed.emitters.length, 0);
+  });
+});
+
+describe("ensureDesignLayout + describeHeatingLayoutNotes", () => {
+  it("plant-only ensureDesignLayout yields non-empty plant-linked pipes", () => {
+    const project = makeBlankProject();
+    project.chosenSystemId = "opt-gas";
+    project.rooms = [];
+    let layout = placePlantOnLayout(null, "boiler", 1, 1, "ground", { systemOptionId: "opt-gas" });
+    layout = placePlantOnLayout(layout, "cylinder", 2, 1, "ground");
+    layout = placePlantOnLayout(layout, "manifold", 3, 1.2, "ground");
+    project.heatingLayout = layout;
+
+    const designed = ensureDesignLayout(project);
+    assert.ok(designed);
+    assert.ok(designed!.pipes.length > 0);
+    const notes = describeHeatingLayoutNotes(designed);
+    assert.ok(notes.some((n) => /plant on plan/i.test(n)));
+    assert.ok(notes.some((n) => /routes:/i.test(n)));
+  });
+
+  it("rooms + plant yield emitter branch pipes", () => {
+    const project = makeBlankProject();
+    project.rooms = loungeUtilityRooms();
+    project.chosenSystemId = "opt-gas";
+    project.emitterMode = "radiators";
+    let layout = placePlantOnLayout(null, "boiler", 1, 1, "ground", { systemOptionId: "opt-gas" });
+    layout = placePlantOnLayout(layout, "manifold", 2, 1, "ground");
+    project.heatingLayout = layout;
+
+    const designed = ensureDesignLayout(project);
+    assert.ok(designed);
+    assert.ok(designed!.emitters.length > 0);
+    assert.ok(
+      designed!.pipes.some((p) => /flow →/i.test(p.label) || /return ←/i.test(p.label)),
+      "emitter F&R branches present",
+    );
   });
 });
