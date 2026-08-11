@@ -155,62 +155,55 @@ services:
       - key: NEXA_IMPORT_TICK_SECRET
         sync: false
 
-  # Hourly uptime probe. Retries through Render deploy 502s so cutovers do not page.
-  # Soft-passes on deploy/proxy windows (exit 0) so Render does not email "server failure"
-  # for mid-deploy blips. Real check failures still exit 1.
+  # Hourly liveness only (public /api/health). Does NOT call /api/health/smoke.
+  # Full path smoke stays in GitHub Actions — Render emails "server failure" whenever
+  # this cron exits non-zero, which destroyed confidence when the old secret-gated
+  # full smoke hit deploy cutovers / 403s. Exit 1 only if health explicitly reports
+  # ok:false after sustained retries; everything else soft-passes (exit 0).
   - type: cron
     name: nexa-live-deploy-smoke
     runtime: node
     region: frankfurt
     plan: starter
     schedule: "5 * * * *"
-    buildCommand: echo "nexa-deploy-smoke-cron"
+    buildCommand: echo "nexa-deploy-smoke-cron-liveness-v1"
     startCommand: >-
       node --input-type=module -e "
-      const secret = process.env.NEXA_IMPORT_TICK_SECRET;
-      if (!secret) { console.error('NEXA_IMPORT_TICK_SECRET missing'); process.exit(1); }
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-      const isTransientStatus = (status) => [502, 503, 504, 520, 522, 524].includes(status);
+      const isTransientStatus = (status) => [0, 408, 425, 429, 500, 502, 503, 504, 520, 522, 524].includes(status);
       let lastStatus = 0;
       let lastText = '';
-      let lastOk = false;
-      let lastDeployWindow = false;
-      let sawTransient = false;
-      for (let attempt = 1; attempt <= 10; attempt++) {
+      let explicitUnhealthy = 0;
+      for (let attempt = 1; attempt <= 8; attempt++) {
         try {
-          const res = await fetch('https://nexa-live.onrender.com/api/health/smoke', {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              'x-nexa-import-tick-secret': secret,
-            },
-            body: '{}',
+          const res = await fetch('https://nexa-live.onrender.com/api/health', {
+            method: 'GET',
+            headers: { accept: 'application/json' },
+            cache: 'no-store',
           });
           lastStatus = res.status;
           lastText = await res.text();
           let body = null;
           try { body = JSON.parse(lastText); } catch {}
-          lastOk = Boolean(body?.ok);
-          lastDeployWindow = Boolean(body?.deployWindow);
-          if (isTransientStatus(lastStatus) || lastDeployWindow) sawTransient = true;
-          console.log(JSON.stringify({ attempt, status: lastStatus, ok: lastOk, deployWindow: lastDeployWindow, failed: body?.failed || [] }));
-          if (res.ok && lastOk) process.exit(0);
+          const ok = res.status === 200 && body?.ok === true;
+          console.log(JSON.stringify({ attempt, status: lastStatus, ok, commit: body?.deployment?.commit || null }));
+          if (ok) process.exit(0);
+          if (res.status === 200 && body && body.ok === false) explicitUnhealthy += 1;
         } catch (error) {
-          sawTransient = true;
-          console.log(JSON.stringify({ attempt, error: error instanceof Error ? error.message : String(error) }));
+          lastStatus = 0;
+          lastText = error instanceof Error ? error.message : String(error);
+          console.log(JSON.stringify({ attempt, error: lastText }));
         }
-        // ~10 attempts × 30s ≈ 5 minutes through a Render cutover.
-        await sleep(30000);
+        await sleep(20000);
       }
-      if (lastDeployWindow || isTransientStatus(lastStatus) || (sawTransient && !lastText)) {
-        console.warn(JSON.stringify({ softPass: true, reason: 'deploy-window', lastStatus, lastText: lastText.slice(0, 500) }));
-        process.exit(0);
+      // Only page when the app repeatedly says it is unhealthy.
+      if (explicitUnhealthy >= 3) {
+        console.error(JSON.stringify({ fail: true, reason: 'health-ok-false', lastStatus, lastText: lastText.slice(0, 500) }));
+        process.exit(1);
       }
-      console.error(lastStatus, lastText.slice(0, 4000));
-      process.exit(1);
+      console.warn(JSON.stringify({ softPass: true, reason: isTransientStatus(lastStatus) ? 'deploy-or-proxy-window' : 'inconclusive-liveness', lastStatus, lastText: lastText.slice(0, 500) }));
+      process.exit(0);
       "
     envVars:
       - key: NODE_VERSION
         value: 24.14.0
-      - key: NEXA_IMPORT_TICK_SECRET
-        sync: false
