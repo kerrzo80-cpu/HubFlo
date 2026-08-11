@@ -21,6 +21,7 @@ import {
   placeSurveyedRadiatorOnWall,
   plantFill,
   polygonBounds,
+  readPlanUnderlayFile,
   removePlantFromLayout,
   roomPolygon,
   roomTypes,
@@ -67,6 +68,10 @@ type FloorPlanCanvasProps = {
   onFinishSurveyedPlan?: () => void;
   planUnderlay?: PlanUnderlay | null;
   onPlanUnderlayChange?: (underlay: PlanUnderlay | null) => void;
+  /** Pull first PDF/image from the linked Takeoff project */
+  onUseTakeoffDrawing?: () => void;
+  takeoffDrawingBusy?: boolean;
+  linkedTakeoffRef?: string | null;
 };
 
 const BASE_SCALE = 90;
@@ -171,6 +176,9 @@ export function FloorPlanCanvas({
   onFinishSurveyedPlan,
   planUnderlay = null,
   onPlanUnderlayChange,
+  onUseTakeoffDrawing,
+  takeoffDrawingBusy = false,
+  linkedTakeoffRef = null,
 }: FloorPlanCanvasProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const underlayInputRef = useRef<HTMLInputElement | null>(null);
@@ -750,8 +758,8 @@ export function FloorPlanCanvas({
             ))}
           </div>
           <p className="hp-palette-hint">
-            Draw rooms, then place boiler / cylinder / manifold where you want them. Route pipes keeps your plant and
-            rebuilds emitters + pipe runs. Optional PNG/JPG drawing under the plan.
+            Draw rooms, then place boiler / cylinder / manifold where you want them. Route pipes keeps only your plant
+            and rebuilds emitters + pipe runs. Optional PDF / PNG / JPG under the plan.
           </p>
           {onPlanUnderlayChange ? (
             <>
@@ -761,10 +769,25 @@ export function FloorPlanCanvas({
                   type="button"
                   className="hp-palette-item"
                   onClick={() => underlayInputRef.current?.click()}
-                  title="Upload a photo or plan export (PNG / JPG). Full PDF takeoff stays in Takeoff."
+                  title="Upload a PDF (first page) or plan photo (PNG / JPG / WebP)"
                 >
-                  {planUnderlay ? "Replace drawing" : "Upload drawing"}
+                  {planUnderlay ? "Replace drawing" : "Upload PDF / photo"}
                 </button>
+                {onUseTakeoffDrawing ? (
+                  <button
+                    type="button"
+                    className="hp-palette-item"
+                    disabled={takeoffDrawingBusy}
+                    onClick={() => onUseTakeoffDrawing()}
+                    title={
+                      linkedTakeoffRef
+                        ? `Use first drawing from linked Takeoff ${linkedTakeoffRef}`
+                        : "Send to Takeoff first, or link a takeoff, then reuse its PDF here"
+                    }
+                  >
+                    {takeoffDrawingBusy ? "Loading…" : linkedTakeoffRef ? "Use Takeoff PDF" : "Open Takeoff…"}
+                  </button>
+                ) : null}
                 {planUnderlay ? (
                   <button type="button" className="hp-palette-item" onClick={() => onPlanUnderlayChange(null)}>
                     Clear drawing
@@ -791,7 +814,7 @@ export function FloorPlanCanvas({
               <input
                 ref={underlayInputRef}
                 type="file"
-                accept="image/png,image/jpeg,image/webp"
+                accept="application/pdf,.pdf,image/png,image/jpeg,image/webp"
                 hidden
                 onChange={(event) => {
                   const file = event.target.files?.[0];
@@ -1773,7 +1796,7 @@ export function FloorPlanCanvas({
       {layoutMode ? (
         <p className="hp-canvas-hint">
           Layout mode — room walls are locked. Drag plant or pipe vertices. <em>Route pipes</em> rebuilds emitters and
-          runs from your plant positions.
+          runs from your placed plant only (no surprise auto plant).
         </p>
       ) : null}
       {plantPlaceTool ? (
@@ -2075,63 +2098,4 @@ export function FloorPlanCanvas({
       </div>
     </div>
   );
-}
-
-async function readPlanUnderlayFile(
-  file: File,
-  rooms: HeatDesignRoom[],
-): Promise<PlanUnderlay | null> {
-  const dataUrl = await new Promise<string | null>((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const raw = typeof reader.result === "string" ? reader.result : "";
-      if (!raw.startsWith("data:image/")) {
-        resolve(null);
-        return;
-      }
-      const img = new Image();
-      img.onload = () => {
-        const maxEdge = 1600;
-        const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
-        const width = Math.max(1, Math.round(img.width * scale));
-        const height = Math.max(1, Math.round(img.height * scale));
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          resolve(raw);
-          return;
-        }
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.72));
-      };
-      img.onerror = () => resolve(null);
-      img.src = raw;
-    };
-    reader.onerror = () => resolve(null);
-    reader.readAsDataURL(file);
-  });
-  if (!dataUrl) return null;
-
-  const box =
-    rooms.length > 0
-      ? polygonBounds(rooms.flatMap((room) => roomPolygon(room)))
-      : { minX: 0, minY: 0, width: 12, height: 9 };
-  const widthM = Math.max(6, box.width + 2);
-  const aspect = await new Promise<number>((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve(img.width / Math.max(1, img.height));
-    img.onerror = () => resolve(4 / 3);
-    img.src = dataUrl;
-  });
-  const heightM = widthM / Math.max(0.4, aspect);
-  return {
-    dataUrl,
-    opacity: 0.42,
-    widthM,
-    heightM,
-    originX: Math.max(0, box.minX - 1),
-    originY: Math.max(0, box.minY - 1),
-  };
 }

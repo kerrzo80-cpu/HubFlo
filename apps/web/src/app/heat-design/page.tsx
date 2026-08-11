@@ -36,6 +36,7 @@ import {
   placePlantOnLayout,
   propertyTypes,
   radiatorRanges,
+  readPlanUnderlayBlob,
   roomTypes,
   wallTypes,
   type HeatDesignProject,
@@ -135,6 +136,7 @@ export default function HeatDesignLabPage() {
   const [blakeBusy, setBlakeBusy] = useState(false);
   const [blakeMessage, setBlakeMessage] = useState("");
   const [budgetBusy, setBudgetBusy] = useState(false);
+  const [underlayBusy, setUnderlayBusy] = useState(false);
   const [fittingsSummary, setFittingsSummary] = useState<HeatingFittingsSummary | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkTarget, setLinkTarget] = useState<LinkTarget>("job");
@@ -714,6 +716,7 @@ export default function HeatDesignLabPage() {
   function regenerateLayout(mode?: HeatingEmitterMode) {
     if (!project?.chosenSystemId) return;
     const emitterMode = mode ?? project.emitterMode ?? project.heatingLayout?.emitterMode ?? "radiators";
+    const userPlants = project.heatingLayout?.plants?.filter((p) => p.placedByUser) ?? [];
     const layout = seedHeatingLayout(project, project.chosenSystemId, emitterMode, {
       preservePlants: project.heatingLayout?.plants,
     });
@@ -721,8 +724,8 @@ export default function HeatDesignLabPage() {
     setFittingsSummary(summariseHeatingFittings(layout));
     setLayoutMode(true);
     setNotice(
-      project.heatingLayout?.plants?.length
-        ? "Routed pipes + emitters from your plant positions."
+      userPlants.length
+        ? `Routed pipes + emitters around your ${userPlants.length} placed plant piece${userPlants.length === 1 ? "" : "s"} — nothing else added on plan.`
         : "Designed heating layout with the selected emitter type.",
     );
   }
@@ -741,13 +744,74 @@ export default function HeatDesignLabPage() {
     });
     setLayoutMode(true);
     setNotice(
-      `Placed ${kind.replace(/_/g, " ")}. Add the rest of the plant, then Route pipes or Ask Blake for the network + kit.`,
+      `Placed ${kind.replace(/_/g, " ")}. Add any other plant you need, then Route pipes or Ask Blake — Blake will not invent missing plant.`,
     );
   }
 
   function setPlanUnderlay(planUnderlay: PlanUnderlay | null) {
     patchProject({ planUnderlay });
-    setNotice(planUnderlay ? "Drawing underlay added — fade it with the slider if walls are hard to see." : "Drawing underlay cleared.");
+    setNotice(
+      planUnderlay
+        ? "Drawing underlay added — fade it with the slider if walls are hard to see."
+        : "Drawing underlay cleared.",
+    );
+  }
+
+  async function useLinkedTakeoffDrawing() {
+    if (!project) return;
+    if (!project.linkedTakeoffId) {
+      setNotice("Link or Send to Takeoff first, then Use Takeoff PDF under the plan.");
+      return;
+    }
+    setUnderlayBusy(true);
+    try {
+      const res = await fetch(`/api/takeoff-projects/${encodeURIComponent(project.linkedTakeoffId)}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        documents?: Array<{
+          id: string;
+          kind: string;
+          fileName: string;
+          mimeType?: string;
+        }>;
+        reference?: string;
+      };
+      if (!res.ok) throw new Error(body.error || `Takeoff load failed (${res.status})`);
+      const drawings = (body.documents || []).filter(
+        (doc) =>
+          doc.kind === "Drawing"
+          || doc.kind === "Marked-up drawing"
+          || /\.pdf$/i.test(doc.fileName)
+          || /^image\//i.test(doc.mimeType || ""),
+      );
+      const doc = drawings[0];
+      if (!doc) {
+        setNotice(
+          `No drawing on Takeoff ${body.reference || project.linkedTakeoffRef || ""} — upload a PDF there, then try again.`,
+        );
+        return;
+      }
+      const fileRes = await fetch(
+        `/api/takeoff-projects/${encodeURIComponent(project.linkedTakeoffId)}/documents/${encodeURIComponent(doc.id)}/file`,
+        { credentials: "include", cache: "no-store" },
+      );
+      if (!fileRes.ok) throw new Error(`Could not download Takeoff drawing (${fileRes.status})`);
+      const blob = await fileRes.blob();
+      const underlay = await readPlanUnderlayBlob(blob, doc.fileName, project.rooms);
+      if (!underlay) {
+        setNotice(`Could not rasterise ${doc.fileName} — try Upload PDF / photo instead.`);
+        return;
+      }
+      setPlanUnderlay(underlay);
+      setNotice(`Underlay from Takeoff · ${doc.fileName} (first page).`);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Could not load Takeoff drawing.");
+    } finally {
+      setUnderlayBusy(false);
+    }
   }
 
   function blakeSizeRoutes() {
@@ -1166,8 +1230,9 @@ export default function HeatDesignLabPage() {
               <>
                 <h2>Floor plan</h2>
                 <p className="hd-lead">
-                  Optional: upload a PNG/JPG drawing. Draw rooms, place boiler / cylinder / manifold yourself, then Route
-                  pipes or Ask Blake for the network and kit / BOQ.
+                  Optional: upload a PDF (first page) or PNG/JPG, or reuse a linked Takeoff drawing. Draw rooms, place
+                  plant yourself, then Route pipes or Ask Blake — routes stay on your plant only and build the defined
+                  kit / BOQ.
                 </p>
                 <div className="hd-emitter-picker">
                   <strong>Emitters for this design</strong>
@@ -1227,6 +1292,7 @@ export default function HeatDesignLabPage() {
                             project.chosenSystemId || project.reportOptionIds?.[0] || "opt-ashp";
                           const emitterMode = project.emitterMode ?? "radiators";
                           const next = { ...project, chosenSystemId: systemOptionId, emitterMode };
+                          const userPlants = project.heatingLayout?.plants?.filter((p) => p.placedByUser) ?? [];
                           const layout = seedHeatingLayout(next, systemOptionId, emitterMode, {
                             preservePlants: project.heatingLayout?.plants,
                           });
@@ -1238,8 +1304,8 @@ export default function HeatDesignLabPage() {
                           setFittingsSummary(summariseHeatingFittings(layout));
                           setLayoutMode(true);
                           setNotice(
-                            project.heatingLayout?.plants?.length
-                              ? "Routed pipes + emitters from your plant positions."
+                            userPlants.length
+                              ? `Routed pipes + emitters around your ${userPlants.length} placed plant piece${userPlants.length === 1 ? "" : "s"} — nothing else added on plan.`
                               : "Designed heating layout for the selected system.",
                           );
                         }
@@ -1251,6 +1317,9 @@ export default function HeatDesignLabPage() {
                   onEmitterModeChange={changeEmitterMode}
                   planUnderlay={project.planUnderlay}
                   onPlanUnderlayChange={setPlanUnderlay}
+                  onUseTakeoffDrawing={() => void useLinkedTakeoffDrawing()}
+                  takeoffDrawingBusy={underlayBusy}
+                  linkedTakeoffRef={project.linkedTakeoffRef}
                   onFinishSurveyedPlan={() => {
                     setTab("system");
                     setNotice("Surveyed plan locked in — pick a system and design flow temperature next.");
@@ -1263,8 +1332,8 @@ export default function HeatDesignLabPage() {
                       Ask Blake
                     </strong>
                     <span>
-                      Keeps your plant positions when he needs to route. Proposes pipe sizes, valves, TRVs and
-                      ancillaries — then Send to Takeoff for the BOQ. Rules only if OpenAI is offline.
+                      Routes only around plant you placed. Proposes pipe sizes and a defined materials kit — Send to
+                      Takeoff for the BOQ. Rules only if OpenAI is offline.
                     </span>
                   </header>
                   <label className="hd-blake-ask-label">
@@ -1392,6 +1461,74 @@ export default function HeatDesignLabPage() {
                         </li>
                       ))}
                     </ul>
+                  ) : null}
+                  {design.kit.length ? (
+                    <div className="hd-defined-kit" aria-label="Defined kit">
+                      <div className="hd-defined-kit-head">
+                        <strong>Defined kit</strong>
+                        <span>
+                          {design.kit.length} lines · {money(design.kitTotal)} ex VAT
+                          {project.blakeProposal?.kitLines?.length
+                            ? " · plant + Blake ancillaries (budget until Firm)"
+                            : " · catalogue + rule ancillaries"}
+                        </span>
+                      </div>
+                      <div className="hd-kit-table hd-kit-table-compact">
+                        <div className="hd-kit-row hd-kit-head">
+                          <span>Item</span>
+                          <span>Qty</span>
+                          <span>Cost</span>
+                        </div>
+                        {design.kit.slice(0, 14).map((line) => {
+                          const state = derivePricingState(line);
+                          return (
+                            <div key={line.id} className="hd-kit-row">
+                              <span>
+                                <strong>
+                                  {line.description}
+                                  <span
+                                    className={`hd-price-chip ${chipClassForPricingState(state)}`}
+                                    title={line.pricingNote || PRICING_STATE_HINT[state]}
+                                  >
+                                    {PRICING_STATE_LABEL[state]}
+                                  </span>
+                                </strong>
+                                <small>{line.category}</small>
+                              </span>
+                              <span>
+                                {line.qty}
+                                {line.unit ? ` ${line.unit}` : ""}
+                              </span>
+                              <span>
+                                {state === "rfq" && !(line.unitCost > 0) ? "RFQ" : money(line.qty * line.unitCost)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                        {design.kit.length > 14 ? (
+                          <div className="hd-kit-row">
+                            <span>
+                              <small>+{design.kit.length - 14} more on the Kit tab</small>
+                            </span>
+                            <span />
+                            <span>
+                              <button type="button" className="hd-btn hd-btn-ghost" onClick={() => setTab("kit")}>
+                                Full kit
+                              </button>
+                            </span>
+                          </div>
+                        ) : null}
+                        <div className="hd-kit-row hd-kit-total">
+                          <span>Kit total (materials ex VAT — provisional until Firm)</span>
+                          <span />
+                          <span>{money(design.kitTotal)}</span>
+                        </div>
+                      </div>
+                      <p className="hd-defined-kit-note">
+                        Ask Blake refreshes ancillaries + budget prices. Send to Takeoff pushes this BOQ into the linked
+                        takeoff — not a full hydraulic calculation.
+                      </p>
+                    </div>
                   ) : null}
                 </div>
               </>

@@ -236,10 +236,16 @@ function ruleFallback(
     });
   }
 
+  const plantNote = seeded?.plants?.length
+    ? ` Plant on plan: ${seeded.plants.map((p) => p.label).join(", ")}.`
+    : layout?.plants?.some((p) => p.placedByUser)
+      ? " Engineer-placed plant kept — place missing pieces on plan if the kit still needs them."
+      : "";
+
   return {
     summary,
     narrative:
-      "Rule-based Blake draft: size mains 28 mm, branches 22 mm, tails 15 mm; include valves, TRVs, drains, clips and plant ancillaries from the layout.",
+      `Rule-based Blake draft: size mains 28 mm, branches 22 mm, tails 15 mm; include valves, TRVs, drains, clips and plant ancillaries from the layout.${plantNote}`,
     applySizing: Boolean(sized?.pipes?.length || seeded?.pipes?.length),
     regenerateLayout: Boolean(seeded),
     emitterMode,
@@ -339,7 +345,8 @@ export async function proposeHeatDesignWithBlake(
   const prompt = [
     "You are Blake — NeXa’s UK heating design co-pilot (Gas Safe trade mindset).",
     "You are looking at a Heat Design project: rooms, chosen plant, emitters and pipe routes on plan.",
-    "If the engineer has already placed plant (boiler, cylinder, manifold, outdoor unit), KEEP those coordinates when regenerateLayout is true — only rebuild emitters and pipe routes around them.",
+    "CRITICAL: If the engineer has already placed plant (boiler, cylinder, manifold, outdoor unit), KEEP ONLY those plant pieces when regenerateLayout is true — rebuild emitters and pipe routes around them. Do NOT invent extra plant they did not place.",
+    "If plant is missing for a workable circuit, say so in clarifyingQuestions / routeNotes (e.g. place a cylinder) instead of silently adding it on plan.",
     "Propose a practical install kit and pipe-sizing guidance.",
     "Every kitLines item MUST include a UK trade BUDGET unitCost (ex VAT) — typical merchant ballpark for comparing to supplier quotes later. Never leave unitCost at 0 unless truly free.",
     "Prefer concrete merchant lines (TRVs, lockshields, isolation valves, AAVs, clips, lagging, zone valves, G3 bits, ASHP flex kits, etc.).",

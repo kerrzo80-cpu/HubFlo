@@ -2640,6 +2640,40 @@
   padding-left: 0.15rem;
 }
 
+.hd-defined-kit {
+  margin-top: 0.85rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.hd-defined-kit-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.45rem 0.75rem;
+}
+
+.hd-defined-kit-head strong {
+  font-size: 0.95rem;
+}
+
+.hd-defined-kit-head span {
+  color: var(--hd-muted);
+  font-size: 0.82rem;
+}
+
+.hd-defined-kit-note {
+  margin: 0;
+  color: var(--hd-muted);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.hd-kit-table-compact .hd-kit-row {
+  padding: 0.55rem 0.75rem;
+  font-size: 0.86rem;
+}
+
 @keyframes hd-panel-in {
   from {
     opacity: 0;

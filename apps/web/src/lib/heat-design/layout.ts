@@ -266,6 +266,12 @@ export function removePlantFromLayout(layout: HeatingSystemLayout, plantId: stri
 export type SeedHeatingLayoutOptions = {
   /** Engineer plant positions to keep while redrawing emitters + pipe routes. */
   preservePlants?: HeatingPlantItem[] | null;
+  /**
+   * When true, never invent boiler / cylinder / manifold / OU the engineer did not place.
+   * Defaults to true whenever any preserved plant is `placedByUser`.
+   * Pass false to force a full auto plant kit (e.g. Design on plan from a blank).
+   */
+  onlyUserPlants?: boolean;
 };
 
 export type HeatingPipeSizeTier = {
@@ -467,9 +473,26 @@ function serviceSpineY(rooms: HeatDesignRoom[], plantRoom: HeatDesignRoom): numb
   return Math.min(plantBox.maxY - 0.35, maxY - 0.25);
 }
 
+function reusePreservedPlants(preserved: HeatingPlantItem[], floor: FloorLevel): HeatingPlantItem[] {
+  const onFloor = preserved.filter((plant) => (plant.floorLevel ?? "ground") === floor);
+  const pool = onFloor.length ? onFloor : preserved;
+  return pool.map((plant) => {
+    const size = plantSizes(plant.kind);
+    return {
+      ...plant,
+      floorLevel: plant.floorLevel ?? floor,
+      widthM: plant.widthM ?? size.widthM,
+      depthM: plant.depthM ?? size.depthM,
+    };
+  });
+}
+
 /**
  * Seed a designed heating layout: spaced plant, outdoor unit kept on-canvas,
  * radiators / UFH in each room, and tidy spine pipe routes.
+ *
+ * When engineer-placed plant is present, routes only around those pieces —
+ * Blake / Route pipes must not surprise-add a cylinder or OU the user never placed.
  */
 export function seedHeatingLayout(
   project: HeatDesignProject,
@@ -483,11 +506,14 @@ export function seedHeatingLayout(
   const plants: HeatingPlantItem[] = [];
   const pipes: HeatingPipeRun[] = [];
   const preserved = options.preservePlants ?? [];
+  const onlyUserPlants =
+    options.onlyUserPlants === true
+    || (options.onlyUserPlants !== false && preserved.some((plant) => plant.placedByUser));
 
   if (!plantRoom) {
     return {
       systemOptionId,
-      plants: preserved.filter((plant) => (plant.floorLevel ?? "ground") === floor),
+      plants: reusePreservedPlants(preserved, floor),
       pipes,
       emitters: [],
       emitterMode,
@@ -503,53 +529,57 @@ export function seedHeatingLayout(
     plantRoom,
   );
 
-  const indoorKinds: Array<{ kind: HeatingPlantKind; label: string }> = [];
-  if (kind === "ashp") {
-    indoorKinds.push(
-      { kind: "cylinder", label: `${project.cylinderLitres || 210}L cylinder` },
-      { kind: "manifold", label: "Heating manifold" },
-    );
-  } else if (kind === "hybrid") {
-    indoorKinds.push(
-      { kind: "boiler", label: "Gas boiler (peak)" },
-      { kind: "cylinder", label: `${project.cylinderLitres || 210}L cylinder` },
-      { kind: "manifold", label: "Heating manifold" },
-    );
-  } else if (kind === "gas" || kind === "electric") {
-    indoorKinds.push(
-      {
-        kind: kind === "electric" ? "electric_boiler" : "boiler",
-        label: kind === "electric" ? "Electric boiler" : "Gas boiler",
-      },
-      { kind: "cylinder", label: `${project.cylinderLitres || 210}L cylinder` },
-      { kind: "manifold", label: "Heating manifold" },
-    );
+  if (onlyUserPlants && preserved.length) {
+    plants.push(...reusePreservedPlants(preserved, floor));
   } else {
-    indoorKinds.push(
-      { kind: "boiler", label: kind === "oil" ? "Oil boiler" : "LPG boiler" },
-      { kind: "cylinder", label: `${project.cylinderLitres || 210}L cylinder` },
-      { kind: "manifold", label: "Heating manifold" },
-    );
-  }
+    const indoorKinds: Array<{ kind: HeatingPlantKind; label: string }> = [];
+    if (kind === "ashp") {
+      indoorKinds.push(
+        { kind: "cylinder", label: `${project.cylinderLitres || 210}L cylinder` },
+        { kind: "manifold", label: "Heating manifold" },
+      );
+    } else if (kind === "hybrid") {
+      indoorKinds.push(
+        { kind: "boiler", label: "Gas boiler (peak)" },
+        { kind: "cylinder", label: `${project.cylinderLitres || 210}L cylinder` },
+        { kind: "manifold", label: "Heating manifold" },
+      );
+    } else if (kind === "gas" || kind === "electric") {
+      indoorKinds.push(
+        {
+          kind: kind === "electric" ? "electric_boiler" : "boiler",
+          label: kind === "electric" ? "Electric boiler" : "Gas boiler",
+        },
+        { kind: "cylinder", label: `${project.cylinderLitres || 210}L cylinder` },
+        { kind: "manifold", label: "Heating manifold" },
+      );
+    } else {
+      indoorKinds.push(
+        { kind: "boiler", label: kind === "oil" ? "Oil boiler" : "LPG boiler" },
+        { kind: "cylinder", label: `${project.cylinderLitres || 210}L cylinder` },
+        { kind: "manifold", label: "Heating manifold" },
+      );
+    }
 
-  const slots = plantBaySlots(plantRoom, indoorKinds.length);
-  indoorKinds.forEach((item, index) => {
-    const slot = slots[index] ?? roomCentroid(plantRoom);
-    plants.push(reuseOrMakePlant(preserved, item.kind, item.label, slot, floor));
-  });
+    const slots = plantBaySlots(plantRoom, indoorKinds.length);
+    indoorKinds.forEach((item, index) => {
+      const slot = slots[index] ?? roomCentroid(plantRoom);
+      plants.push(reuseOrMakePlant(preserved, item.kind, item.label, slot, floor));
+    });
 
-  if (kind === "ashp" || kind === "hybrid") {
-    plants.push(reuseOrMakePlant(preserved, "outdoor_unit", "Outdoor unit", outdoor, floor));
-  } else if (kind === "oil" || kind === "lpg") {
-    plants.push(
-      reuseOrMakePlant(
-        preserved,
-        kind === "oil" ? "oil_tank" : "lpg_tank",
-        kind === "oil" ? "Oil tank" : "LPG tank",
-        outdoor,
-        floor,
-      ),
-    );
+    if (kind === "ashp" || kind === "hybrid") {
+      plants.push(reuseOrMakePlant(preserved, "outdoor_unit", "Outdoor unit", outdoor, floor));
+    } else if (kind === "oil" || kind === "lpg") {
+      plants.push(
+        reuseOrMakePlant(
+          preserved,
+          kind === "oil" ? "oil_tank" : "lpg_tank",
+          kind === "oil" ? "Oil tank" : "LPG tank",
+          outdoor,
+          floor,
+        ),
+      );
+    }
   }
 
   const cylinder = plants.find((p) => p.kind === "cylinder");
