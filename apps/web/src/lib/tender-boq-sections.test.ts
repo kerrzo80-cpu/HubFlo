@@ -2,14 +2,16 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  filterBoqLinesBySheet,
   filterSelectedMeasuredLineIds,
   groupBoqLinesBySection,
+  listBoqSheetTabs,
   unpricedMeasuredLineIds,
 } from "./tender-boq-sections";
 import type { TenderBoqLine } from "./tenders-types";
 
 const sampleLines: TenderBoqLine[] = [
-  { id: "h1", kind: "header", description: "SANITARY", section: "SANITARY" },
+  { id: "h1", kind: "header", description: "SANITARY", section: "SANITARY", sheet: "Page 1" },
   {
     id: "l1",
     kind: "measured",
@@ -20,6 +22,7 @@ const sampleLines: TenderBoqLine[] = [
     rate: null,
     value: null,
     section: "SANITARY",
+    sheet: "Page 1",
   },
   {
     id: "l2",
@@ -31,6 +34,7 @@ const sampleLines: TenderBoqLine[] = [
     rate: null,
     value: null,
     section: "SANITARY",
+    sheet: "Page 1",
   },
   {
     id: "l3",
@@ -43,8 +47,9 @@ const sampleLines: TenderBoqLine[] = [
     value: 120,
     pricingSource: "manual",
     section: "SANITARY",
+    sheet: "Page 1",
   },
-  { id: "h2", kind: "header", description: "Heating", section: "Heating" },
+  { id: "h2", kind: "header", description: "Heating", section: "Heating", sheet: "Page 2" },
   {
     id: "l4",
     kind: "measured",
@@ -55,6 +60,7 @@ const sampleLines: TenderBoqLine[] = [
     rate: null,
     value: null,
     section: "Heating",
+    sheet: "Page 2",
   },
 ];
 
@@ -68,5 +74,20 @@ describe("tender-boq-sections", () => {
     assert.deepEqual(groups[1]?.measuredIds, ["l4"]);
     assert.deepEqual(filterSelectedMeasuredLineIds(sampleLines, ["l4", "missing"]), ["l4"]);
     assert.deepEqual(unpricedMeasuredLineIds(sampleLines), ["l1", "l2", "l4"]);
+  });
+
+  it("lists workbook sheet tabs and filters lines per tab", () => {
+    const tabs = listBoqSheetTabs(sampleLines);
+    assert.deepEqual(
+      tabs.map((tab) => ({ key: tab.key, measuredIds: tab.measuredIds })),
+      [
+        { key: "Page 1", measuredIds: ["l1", "l2", "l3"] },
+        { key: "Page 2", measuredIds: ["l4"] },
+      ],
+    );
+    assert.deepEqual(
+      filterBoqLinesBySheet(sampleLines, "Page 2").map((line) => line.id),
+      ["h2", "l4"],
+    );
   });
 });

@@ -4,7 +4,8 @@ import { getAccessProfileFromHeaders } from "@/lib/access";
 import {
   addTenderDocument,
   getTender,
-  importBoqRowsIntoTender,
+  importBoqIntoTender,
+  importBoqWorkbookIntoTender,
   importTrackerRows,
   listTenders,
   resolveTenderDocumentFolderKind,
@@ -12,8 +13,8 @@ import {
 } from "@/lib/tenders-data";
 import { isTenderDocumentKind } from "@/lib/tender-document-folders";
 import {
-  allSheetRowsFromWorkbookBuffer,
   sheetRowsFromWorkbookBuffer,
+  workbookBoqSheetsFromBuffer,
 } from "@/lib/tenders-xlsx";
 import { saveUploadedRecordDocument } from "@/lib/record-documents";
 
@@ -82,16 +83,14 @@ export async function POST(request: NextRequest) {
     if (action === "import-boq") {
       const tenderId = String(formData.get("tenderId") || "").trim();
       if (!tenderId) return NextResponse.json({ error: "tenderId required" }, { status: 400 });
-      let rows: string[][] = [];
+      let tender;
       if (name.endsWith(".csv") || name.endsWith(".tsv") || name.endsWith(".txt")) {
-        const text = bytes.toString("utf8");
-        const delimiter = name.endsWith(".tsv") || text.includes("\t") ? "\t" : ",";
-        rows = text.split(/\r?\n/).map((line) => line.split(delimiter));
+        // Quote-aware parse keeps multi-line wording intact.
+        tender = importBoqIntoTender(tenderId, bytes.toString("utf8"));
       } else {
-        // Client BoQs commonly split bill “pages” across worksheets — ingest all sheets.
-        rows = allSheetRowsFromWorkbookBuffer(bytes);
+        // One BoQ sheet tab per Excel worksheet — full cell text, all pages.
+        tender = importBoqWorkbookIntoTender(tenderId, workbookBoqSheetsFromBuffer(bytes));
       }
-      const tender = importBoqRowsIntoTender(tenderId, rows);
       return NextResponse.json({ tender, tenders: listTenders() });
     }
 

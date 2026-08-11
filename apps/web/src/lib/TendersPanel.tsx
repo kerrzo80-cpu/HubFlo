@@ -24,8 +24,11 @@ import {
   type TenderDocumentFolder,
 } from "@/lib/tender-document-folders";
 import {
+  filterBoqLinesBySheet,
   filterSelectedMeasuredLineIds,
   groupBoqLinesBySection,
+  isBoqSheetEchoHeader,
+  listBoqSheetTabs,
 } from "@/lib/tender-boq-sections";
 import {
   TENDER_AREAS,
@@ -152,6 +155,7 @@ export function TendersPanel({
   const [blakeBudgetStatus, setBlakeBudgetStatus] = useState<string | null>(null);
   const blakeBudgetAbortRef = useRef<AbortController | null>(null);
   const [boqBlakeLineIds, setBoqBlakeLineIds] = useState<string[]>([]);
+  const [boqSheetTab, setBoqSheetTab] = useState<string | null>(null);
   const [uploadTarget, setUploadTarget] = useState<DocTargetValue>("kind:drawing");
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderParent, setNewFolderParent] = useState<DocTargetValue>("kind:drawing");
@@ -163,9 +167,26 @@ export function TendersPanel({
 
   const documentFolders = selected?.documentFolders || [];
   const folderOptions = useMemo(() => listFolderOptions(documentFolders), [documentFolders]);
-  const boqSections = useMemo(
-    () => groupBoqLinesBySection(selected?.boqLines || []),
+  const boqSheetTabs = useMemo(
+    () => listBoqSheetTabs(selected?.boqLines || []),
     [selected?.boqLines],
+  );
+  const activeBoqSheet = useMemo(() => {
+    if (!boqSheetTabs.length) return null;
+    if (boqSheetTab && boqSheetTabs.some((tab) => tab.key === boqSheetTab)) return boqSheetTab;
+    return boqSheetTabs[0]?.key || null;
+  }, [boqSheetTab, boqSheetTabs]);
+  const boqVisibleLines = useMemo(
+    () => filterBoqLinesBySheet(selected?.boqLines || [], activeBoqSheet),
+    [activeBoqSheet, selected?.boqLines],
+  );
+  const boqSections = useMemo(
+    () => groupBoqLinesBySection(boqVisibleLines),
+    [boqVisibleLines],
+  );
+  const activeSheetMeasuredIds = useMemo(
+    () => boqSheetTabs.find((tab) => tab.key === activeBoqSheet)?.measuredIds || [],
+    [activeBoqSheet, boqSheetTabs],
   );
   const boqBlakeSelectedCount = useMemo(
     () => filterSelectedMeasuredLineIds(selected?.boqLines || [], boqBlakeLineIds).length,
@@ -174,7 +195,18 @@ export function TendersPanel({
 
   useEffect(() => {
     setBoqBlakeLineIds([]);
+    setBoqSheetTab(null);
   }, [selectedId]);
+
+  useEffect(() => {
+    if (!boqSheetTabs.length) {
+      setBoqSheetTab(null);
+      return;
+    }
+    setBoqSheetTab((current) =>
+      current && boqSheetTabs.some((tab) => tab.key === current) ? current : boqSheetTabs[0]!.key,
+    );
+  }, [boqSheetTabs]);
 
   useEffect(() => {
     if (!selected) return;
@@ -1203,7 +1235,7 @@ export function TendersPanel({
                 <span className="permission-heading">Client BoQ</span>
                 <h3>{selected.boqTitle || "Import their spreadsheet structure"}</h3>
                 <p>
-                  Price on their refs (e.g. 8/1/A). Keep every issued line — leave Rate blank if not priced so they can see it was not priced (do not put £0 / NIL).
+                  Price on their refs (e.g. 8/1/A). Excel sheets appear as workbook tabs below. Full bill wording is kept — leave Rate blank if not priced so they can see it was not priced (do not put £0 / NIL).
                 </p>
                 <p className="tenders-boq-blake-note">
                   Tick measured lines (or a whole sheet/section header) then run Blake. Only ticked lines are budget-priced — use that to price Heating / Electrical packs separately. Library first, then UK trade ballpark for gaps. Guide rates only; unsure lines stay blank.
@@ -1293,7 +1325,7 @@ export function TendersPanel({
 
             <div className="tenders-boq-import">
               <label>
-                Import Excel / CSV / paste (columns: Ref, Description, Quantity, Units, Rate, Value)
+                Import Excel / CSV / paste (Ref + Description/Spec columns; all Excel sheets become tabs)
                 <textarea
                   rows={5}
                   value={boqImportText}
@@ -1305,7 +1337,7 @@ export function TendersPanel({
                 <FileDropZone
                   accept=".xlsx,.xls,.csv,.tsv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
                   label="Drop BoQ spreadsheet here or click to browse"
-                  hint=".xlsx / .xls (all sheets) · .csv"
+                  hint=".xlsx / .xls (one tab per sheet) · .csv"
                   disabled={saving}
                   onFiles={(files) => void onBoqFile(files[0] ?? null)}
                 />
@@ -1316,139 +1348,202 @@ export function TendersPanel({
               </div>
             </div>
 
-            <div className="tenders-boq-table-wrap">
-              <table className="tenders-boq-table">
-                <thead>
-                  <tr>
-                    <th className="tenders-boq-check-col" scope="col">
-                      <span className="sr-only">Select for Blake</span>
-                    </th>
-                    <th>Ref</th>
-                    <th>Description</th>
-                    <th>Qty</th>
-                    <th>Unit</th>
-                    <th>Rate</th>
-                    <th>Value</th>
-                    <th>Note</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selected.boqLines.length ? (
-                    selected.boqLines.map((line) => {
-                      if (line.kind === "header") {
-                        const section = boqSections.find((group) => group.headerId === line.id);
-                        const measuredIds = section?.measuredIds || [];
-                        const selectedInSection = measuredIds.filter((id) => boqBlakeLineIds.includes(id)).length;
-                        const allSelected = measuredIds.length > 0 && selectedInSection === measuredIds.length;
-                        const someSelected = selectedInSection > 0 && !allSelected;
+            <div className="tenders-boq-spreadsheet">
+              {boqSheetTabs.length ? (
+                <div className="tenders-boq-sheet-tabs" role="tablist" aria-label="BoQ workbook sheets">
+                  {boqSheetTabs.map((sheetTab) => {
+                    const selectedInSheet = sheetTab.measuredIds.filter((id) =>
+                      boqBlakeLineIds.includes(id),
+                    ).length;
+                    return (
+                      <button
+                        key={sheetTab.key}
+                        type="button"
+                        role="tab"
+                        aria-selected={activeBoqSheet === sheetTab.key}
+                        className={activeBoqSheet === sheetTab.key ? "active" : ""}
+                        onClick={() => setBoqSheetTab(sheetTab.key)}
+                      >
+                        <span>{sheetTab.label}</span>
+                        <em>
+                          {sheetTab.measuredIds.length}
+                          {selectedInSheet ? ` · ${selectedInSheet}` : ""}
+                        </em>
+                      </button>
+                    );
+                  })}
+                  {activeSheetMeasuredIds.length ? (
+                    <label className="tenders-boq-sheet-select-all">
+                      <input
+                        type="checkbox"
+                        checked={
+                          activeSheetMeasuredIds.length > 0 &&
+                          activeSheetMeasuredIds.every((id) => boqBlakeLineIds.includes(id))
+                        }
+                        ref={(el) => {
+                          if (!el) return;
+                          const selectedInSheet = activeSheetMeasuredIds.filter((id) =>
+                            boqBlakeLineIds.includes(id),
+                          ).length;
+                          el.indeterminate =
+                            selectedInSheet > 0 && selectedInSheet < activeSheetMeasuredIds.length;
+                        }}
+                        aria-label="Select all measured lines on this sheet for Blake"
+                        disabled={blakeBudgetBusy}
+                        onChange={(event) =>
+                          toggleBoqBlakeSection(activeSheetMeasuredIds, event.target.checked)
+                        }
+                      />
+                      Select sheet
+                    </label>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="tenders-boq-table-wrap">
+                <table className="tenders-boq-table tenders-boq-sheet-grid">
+                  <thead>
+                    <tr>
+                      <th className="tenders-boq-check-col" scope="col">
+                        <span className="sr-only">Select for Blake</span>
+                      </th>
+                      <th className="tenders-boq-ref-col">Ref</th>
+                      <th className="tenders-boq-desc-col">Description</th>
+                      <th className="tenders-boq-qty-col">Qty</th>
+                      <th className="tenders-boq-unit-col">Unit</th>
+                      <th className="tenders-boq-rate-col">Rate</th>
+                      <th className="tenders-boq-amount-col">Amount</th>
+                      <th className="tenders-boq-check-status-col">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {boqVisibleLines.length ? (
+                      boqVisibleLines.map((line) => {
+                        if (line.kind === "header") {
+                          if (boqSheetTabs.length > 1 && isBoqSheetEchoHeader(line)) return null;
+                          const section = boqSections.find((group) => group.headerId === line.id);
+                          const measuredIds = section?.measuredIds || [];
+                          const selectedInSection = measuredIds.filter((id) =>
+                            boqBlakeLineIds.includes(id),
+                          ).length;
+                          const allSelected =
+                            measuredIds.length > 0 && selectedInSection === measuredIds.length;
+                          const someSelected = selectedInSection > 0 && !allSelected;
+                          return (
+                            <tr key={line.id} className="tenders-boq-header-row">
+                              <td className="tenders-boq-check-col">
+                                {measuredIds.length ? (
+                                  <input
+                                    type="checkbox"
+                                    checked={allSelected}
+                                    ref={(el) => {
+                                      if (el) el.indeterminate = someSelected;
+                                    }}
+                                    aria-label={`Select all measured lines in ${line.description || "section"}`}
+                                    disabled={blakeBudgetBusy}
+                                    onChange={(event) =>
+                                      toggleBoqBlakeSection(measuredIds, event.target.checked)
+                                    }
+                                  />
+                                ) : null}
+                              </td>
+                              <td colSpan={7}>
+                                <span className="tenders-boq-section-label">
+                                  {line.section || line.description}
+                                  {measuredIds.length ? (
+                                    <em>
+                                      {" "}
+                                      · {measuredIds.length} item{measuredIds.length === 1 ? "" : "s"}
+                                      {selectedInSection ? ` · ${selectedInSection} selected` : ""}
+                                    </em>
+                                  ) : null}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        }
+                        const priced =
+                          (typeof line.rate === "number" && Number.isFinite(line.rate)) ||
+                          (typeof line.value === "number" && Number.isFinite(line.value));
+                        const statusClass = !priced
+                          ? "unpriced"
+                          : line.pricingSource === "blake-budget"
+                            ? "budget"
+                            : line.pricingSource === "rate-library"
+                              ? "guide"
+                              : "priced";
+                        const statusLabel = !priced
+                          ? "Unpriced"
+                          : line.pricingSource === "blake-budget"
+                            ? "Budget"
+                            : line.pricingSource === "rate-library"
+                              ? "Guide"
+                              : "Priced";
+                        const checked = boqBlakeLineIds.includes(line.id);
                         return (
-                          <tr key={line.id} className="tenders-boq-header-row">
+                          <tr
+                            key={line.id}
+                            className={`${priced ? "" : "unpriced"}${checked ? " tenders-boq-selected" : ""}`}
+                          >
                             <td className="tenders-boq-check-col">
-                              {measuredIds.length ? (
-                                <input
-                                  type="checkbox"
-                                  checked={allSelected}
-                                  ref={(el) => {
-                                    if (el) el.indeterminate = someSelected;
-                                  }}
-                                  aria-label={`Select all measured lines in ${line.description || "section"}`}
-                                  disabled={blakeBudgetBusy}
-                                  onChange={(event) => toggleBoqBlakeSection(measuredIds, event.target.checked)}
-                                />
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                aria-label={`Select ${line.ref || line.description} for Blake`}
+                                disabled={blakeBudgetBusy || line.kind !== "measured"}
+                                onChange={(event) => toggleBoqBlakeLine(line.id, event.target.checked)}
+                              />
+                            </td>
+                            <td className="tenders-boq-ref-col">{line.ref || "—"}</td>
+                            <td className="tenders-boq-desc-col">
+                              <div className="tenders-boq-desc-text">{line.description}</div>
+                              {line.note ? (
+                                <div className="tenders-boq-desc-note" title={line.note}>
+                                  {line.note}
+                                </div>
                               ) : null}
                             </td>
-                            <td colSpan={8}>
-                              <span className="tenders-boq-section-label">
-                                {line.section || line.description}
-                                {measuredIds.length ? (
-                                  <em>
-                                    {" "}
-                                    · {measuredIds.length} item{measuredIds.length === 1 ? "" : "s"}
-                                    {selectedInSection ? ` · ${selectedInSection} selected` : ""}
-                                  </em>
-                                ) : null}
-                              </span>
+                            <td className="tenders-boq-qty-col">{line.quantity ?? ""}</td>
+                            <td className="tenders-boq-unit-col">{line.unit || ""}</td>
+                            <td className="tenders-boq-rate-col">
+                              <input
+                                type="number"
+                                step="0.01"
+                                key={`${line.id}-${line.rate ?? "blank"}-${line.pricingSource || ""}`}
+                                defaultValue={line.rate ?? ""}
+                                placeholder=""
+                                aria-label={priced ? "Rate" : "Unpriced — leave blank"}
+                                onBlur={(event) => {
+                                  const raw = event.target.value.trim();
+                                  const rate = raw === "" ? null : Number(raw);
+                                  void patchBoqLine(line.id, {
+                                    rate,
+                                    value: rate === null ? null : undefined,
+                                  });
+                                }}
+                              />
+                            </td>
+                            <td className="tenders-boq-amount-col">
+                              {priced ? money(line.value) : ""}
+                            </td>
+                            <td className="tenders-boq-check-status-col">
+                              <span className={`tenders-line-status ${statusClass}`}>{statusLabel}</span>
                             </td>
                           </tr>
                         );
-                      }
-                      const priced =
-                        (typeof line.rate === "number" && Number.isFinite(line.rate)) ||
-                        (typeof line.value === "number" && Number.isFinite(line.value));
-                      const statusClass = !priced
-                        ? "unpriced"
-                        : line.pricingSource === "blake-budget"
-                          ? "budget"
-                          : line.pricingSource === "rate-library"
-                            ? "guide"
-                            : "priced";
-                      const statusLabel = !priced
-                        ? "Unpriced"
-                        : line.pricingSource === "blake-budget"
-                          ? "Budget"
-                          : line.pricingSource === "rate-library"
-                            ? "Guide"
-                            : "Priced";
-                      const checked = boqBlakeLineIds.includes(line.id);
-                      return (
-                        <tr key={line.id} className={`${priced ? "" : "unpriced"}${checked ? " tenders-boq-selected" : ""}`}>
-                          <td className="tenders-boq-check-col">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              aria-label={`Select ${line.ref || line.description} for Blake`}
-                              disabled={blakeBudgetBusy || line.kind !== "measured"}
-                              onChange={(event) => toggleBoqBlakeLine(line.id, event.target.checked)}
-                            />
-                          </td>
-                          <td>{line.ref || "—"}</td>
-                          <td>
-                            {line.description}
-                            {line.section ? (
-                              <span className="tenders-boq-line-section" title={line.section}>
-                                {line.section}
-                              </span>
-                            ) : null}
-                          </td>
-                          <td>{line.quantity ?? ""}</td>
-                          <td>{line.unit || ""}</td>
-                          <td>
-                            <input
-                              type="number"
-                              step="0.01"
-                              key={`${line.id}-${line.rate ?? "blank"}-${line.pricingSource || ""}`}
-                              defaultValue={line.rate ?? ""}
-                              placeholder=""
-                              aria-label={priced ? "Rate" : "Unpriced — leave blank"}
-                              onBlur={(event) => {
-                                const raw = event.target.value.trim();
-                                const rate = raw === "" ? null : Number(raw);
-                                void patchBoqLine(line.id, { rate, value: rate === null ? null : undefined });
-                              }}
-                            />
-                          </td>
-                          <td>{priced ? money(line.value) : ""}</td>
-                          <td>
-                            <input
-                              key={`${line.id}-note-${line.note || ""}`}
-                              defaultValue={line.note || ""}
-                              onBlur={(event) => void patchBoqLine(line.id, { note: event.target.value })}
-                            />
-                          </td>
-                          <td>
-                            <span className={`tenders-line-status ${statusClass}`}>{statusLabel}</span>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan={9}>No BoQ lines yet — import their issued Excel/CSV bill.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={8}>
+                          {selected.boqLines.length
+                            ? "No lines on this sheet."
+                            : "No BoQ lines yet — import their issued Excel/CSV bill."}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         ) : null}

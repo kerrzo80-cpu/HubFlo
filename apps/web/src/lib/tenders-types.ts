@@ -84,7 +84,12 @@ export type TenderBoqLine = {
   /** blake-budget / rate-library = guide; manual = office/typed. */
   pricingSource?: TenderBoqPricingSource;
   /**
-   * Sheet / tab / bill section this line belongs to (multi-sheet import or header group).
+   * Excel worksheet name (workbook tab). Drives the BoQ sheet tab bar.
+   * Distinct from `section`, which is a bill heading inside a sheet.
+   */
+  sheet?: string;
+  /**
+   * Bill section / heading inside a sheet (or legacy single-page section label).
    * Header rows usually repeat the section title here too.
    */
   section?: string;

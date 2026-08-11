@@ -13,6 +13,13 @@ export type BoqSectionGroup = {
   measuredIds: string[];
 };
 
+export type BoqSheetTab = {
+  /** Worksheet name key. */
+  key: string;
+  label: string;
+  measuredIds: string[];
+};
+
 export function isBoqLinePriced(line: TenderBoqLine): boolean {
   const hasRate = typeof line.rate === "number" && Number.isFinite(line.rate);
   const hasValue = typeof line.value === "number" && Number.isFinite(line.value);
@@ -34,6 +41,41 @@ export function resolveBoqLineSection(lines: TenderBoqLine[], index: number): st
     if (prior?.section?.trim()) return prior.section.trim();
   }
   return "";
+}
+
+/** Excel workbook-style tabs from stamped `sheet` values (import order preserved). */
+export function listBoqSheetTabs(lines: TenderBoqLine[]): BoqSheetTab[] {
+  const tabs: BoqSheetTab[] = [];
+  const byKey = new Map<string, BoqSheetTab>();
+  for (const line of lines) {
+    const key = line.sheet?.trim();
+    if (!key) continue;
+    let tab = byKey.get(key);
+    if (!tab) {
+      tab = { key, label: key, measuredIds: [] };
+      byKey.set(key, tab);
+      tabs.push(tab);
+    }
+    if (line.kind === "measured") tab.measuredIds.push(line.id);
+  }
+  return tabs;
+}
+
+/** Lines belonging to one workbook sheet tab (or all lines when no sheet filter). */
+export function filterBoqLinesBySheet(lines: TenderBoqLine[], sheetKey: string | null): TenderBoqLine[] {
+  if (!sheetKey) return lines;
+  return lines.filter((line) => (line.sheet || "").trim() === sheetKey);
+}
+
+/**
+ * True when this header only echoes the workbook sheet name (redundant under sheet tabs).
+ */
+export function isBoqSheetEchoHeader(line: TenderBoqLine): boolean {
+  if (line.kind !== "header") return false;
+  const sheet = (line.sheet || "").trim();
+  if (!sheet) return false;
+  const label = (line.section || line.description || "").trim();
+  return label === sheet;
 }
 
 /** Group BoQ lines into sheet/section blocks for select-all and header display. */

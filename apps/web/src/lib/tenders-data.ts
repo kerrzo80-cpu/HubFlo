@@ -3,7 +3,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { loadServerStore, writeServerStore, getServerStoreDirectory } from "@/lib/server-store";
-import { rowsToDelimitedText } from "@/lib/tenders-xlsx";
+import {
+  BOQ_SHEET_MARKER,
+  type WorkbookSheetRows,
+} from "@/lib/tenders-xlsx";
 import { createJob } from "@/lib/workflow-data";
 import { createTakeoffProject, getTakeoffProject, updateTakeoffProject } from "@/lib/takeoff-data";
 import { deleteRecordDocumentByFileUrl, readRecordDocumentFile } from "@/lib/record-documents";
@@ -356,73 +359,297 @@ function parseNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/** Parse CSV/TSV BoQ text with columns Ref, Description, Quantity, Units, Rate, Value [, Note]. */
-export function parseBoqDelimitedText(raw: string, title?: string): { title: string; lines: TenderBoqLine[] } {
-  const text = raw.replace(/^\uFEFF/, "").trim();
-  if (!text) return { title: title || "", lines: [] };
-  const linesRaw = text.split(/\r?\n/).filter((line) => line.trim().length);
-  const delimiter = linesRaw[0]?.includes("\t") ? "\t" : ",";
+type BoqColumnMap = {
+  ref: number;
+  description: number[];
+  quantity: number;
+  unit: number;
+  rate: number;
+  value: number;
+  note: number;
+};
 
-  const splitRow = (row: string) => {
-    if (delimiter === "\t") return row.split("\t").map((cell) => cell.trim());
-    const cells: string[] = [];
-    let current = "";
-    let inQuotes = false;
-    for (let i = 0; i < row.length; i += 1) {
-      const ch = row[i]!;
-      if (ch === '"') {
-        if (inQuotes && row[i + 1] === '"') {
-          current += '"';
-          i += 1;
-        } else inQuotes = !inQuotes;
-        continue;
-      }
-      if (ch === "," && !inQuotes) {
-        cells.push(current.trim());
-        current = "";
-        continue;
-      }
-      current += ch;
-    }
-    cells.push(current.trim());
-    return cells;
+function normalizeHeaderLabel(value: string) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[_./]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function headerMatches(label: string, candidates: string[], mode: "exact" | "includes" = "includes") {
+  return candidates.some((candidate) => {
+    if (label === candidate) return true;
+    if (mode === "exact") return false;
+    // Prefer multi-word / longer aliases so "item" does not steal "item description".
+    if (candidate.length >= 4 && label.includes(candidate)) return true;
+    return false;
+  });
+}
+
+function looksLikeUnit(value: string) {
+  return /^(nr|no|nos|item|items|m2|m²|m3|m³|m|mm|lm|lin|lin m|lin\.?m|sum|lot|wk|hr|hrs|kg|t|tonne|set|pair|each|ea)$/i.test(
+    String(value || "").trim(),
+  );
+}
+
+function defaultBoqColumnMap(width: number): BoqColumnMap {
+  return {
+    ref: 0,
+    description: width > 1 ? [1] : [0],
+    quantity: Math.min(2, Math.max(0, width - 1)),
+    unit: Math.min(3, Math.max(0, width - 1)),
+    rate: Math.min(4, Math.max(0, width - 1)),
+    value: Math.min(5, Math.max(0, width - 1)),
+    note: width > 6 ? 6 : -1,
   };
+}
 
-  let start = 0;
-  let resolvedTitle = title || "";
-  const first = splitRow(linesRaw[0] || "");
-  if (first.length === 1 || (first[0] && !/^ref$/i.test(first[0]) && !first[1])) {
-    resolvedTitle = first[0] || resolvedTitle;
-    start = 1;
+function mapBoqColumnsFromHeader(header: string[]): BoqColumnMap | null {
+  const labels = header.map(normalizeHeaderLabel);
+  const ref = labels.findIndex((label) =>
+    headerMatches(
+      label,
+      ["item ref", "item no", "item number", "bill ref", "item code", "ref", "code", "item"],
+      "exact",
+    ),
+  );
+  const descCandidates: number[] = [];
+  labels.forEach((label, index) => {
+    if (
+      headerMatches(label, [
+        "additional description",
+        "full description",
+        "item description",
+        "work description",
+        "long description",
+        "description",
+        "particulars",
+        "specification",
+        "details",
+        "detail",
+        "spec",
+        "desc",
+        "works",
+      ])
+    ) {
+      descCandidates.push(index);
+    }
+  });
+  if (ref < 0 && !descCandidates.length) return null;
+
+  const quantity = labels.findIndex((label) => headerMatches(label, ["quantity", "qty"]));
+  const unit = labels.findIndex((label) => headerMatches(label, ["units", "unit", "uom"]));
+  const rate = labels.findIndex((label) => headerMatches(label, ["unit rate", "rate", "price"]));
+  const value = labels.findIndex((label) =>
+    headerMatches(label, ["amount", "value", "extended", "total", "sum"]),
+  );
+  const note = labels.findIndex((label) =>
+    headerMatches(label, ["remarks", "remark", "notes", "note", "comments", "comment"]),
+  );
+
+  const qtyIdx = quantity >= 0 ? quantity : labels.length;
+  const refIdx = ref >= 0 ? ref : 0;
+  for (let i = refIdx + 1; i < qtyIdx; i += 1) {
+    if (descCandidates.includes(i)) continue;
+    if (i === unit || i === rate || i === value || i === note) continue;
+    const label = labels[i] || "";
+    if (!label) {
+      descCandidates.push(i);
+      continue;
+    }
+    if (headerMatches(label, ["quantity", "qty", "units", "unit", "rate", "value", "amount", "total"])) continue;
+    if (!headerMatches(label, ["page", "line", "row", "status"])) descCandidates.push(i);
   }
-  const header = splitRow(linesRaw[start] || "");
-  if (header[0] && /^ref$/i.test(header[0])) start += 1;
+
+  const uniqueDesc = [...new Set(descCandidates.length ? descCandidates : [refIdx === 0 ? 1 : refIdx])].sort(
+    (a, b) => a - b,
+  );
+
+  return {
+    ref: ref >= 0 ? ref : 0,
+    description: uniqueDesc.filter((index) => index >= 0 && index < header.length),
+    quantity: quantity >= 0 ? quantity : Math.min(2, header.length - 1),
+    unit: unit >= 0 ? unit : Math.min(3, header.length - 1),
+    rate: rate >= 0 ? rate : Math.min(4, header.length - 1),
+    value: value >= 0 ? value : Math.min(5, header.length - 1),
+    note: note >= 0 ? note : header.length > 6 ? 6 : -1,
+  };
+}
+
+function findBoqHeaderRowIndex(rows: string[][]) {
+  const limit = Math.min(rows.length, 40);
+  for (let i = 0; i < limit; i += 1) {
+    if (mapBoqColumnsFromHeader(rows[i] || [])) return i;
+  }
+  return -1;
+}
+
+function inferDescriptionColumns(rows: string[][], dataStart: number, width: number, refIndex: number) {
+  const sample = rows.slice(dataStart, Math.min(rows.length, dataStart + 40));
+  let qtyIndex = -1;
+  for (let col = refIndex + 1; col < width; col += 1) {
+    let numeric = 0;
+    let unitish = 0;
+    let textish = 0;
+    for (const row of sample) {
+      const cell = String(row[col] || "").trim();
+      if (!cell) continue;
+      if (parseNumber(cell) !== null) numeric += 1;
+      else if (looksLikeUnit(cell)) unitish += 1;
+      else if (/[a-zA-Z]/.test(cell)) textish += 1;
+    }
+    if (numeric >= Math.max(2, Math.floor(sample.length * 0.25)) && textish <= numeric) {
+      qtyIndex = col;
+      break;
+    }
+    if (unitish >= 2 && col > refIndex + 1) {
+      qtyIndex = col - 1;
+      break;
+    }
+  }
+  if (qtyIndex < 0) qtyIndex = Math.min(refIndex + 2, width);
+  const description: number[] = [];
+  for (let col = refIndex + 1; col < qtyIndex; col += 1) description.push(col);
+  if (!description.length && width > refIndex + 1) description.push(refIndex + 1);
+  return {
+    description,
+    quantity: qtyIndex,
+    unit: Math.min(qtyIndex + 1, width - 1),
+    rate: Math.min(qtyIndex + 2, width - 1),
+    value: Math.min(qtyIndex + 3, width - 1),
+    note: Math.min(qtyIndex + 4, width - 1),
+  };
+}
+
+function mergeDescriptionCells(cols: string[], indices: number[]) {
+  const parts: string[] = [];
+  for (const index of indices) {
+    const text = String(cols[index] ?? "").replace(/^\s+|\s+$/g, "");
+    if (!text) continue;
+    if (parts.some((part) => part === text)) continue;
+    parts.push(text);
+  }
+  return parts.join("\n");
+}
+
+function cellAt(cols: string[], index: number) {
+  if (index < 0) return "";
+  return String(cols[index] ?? "").replace(/^\s+|\s+$/g, "");
+}
+
+function isColumnHeaderRow(cols: string[], map: BoqColumnMap) {
+  const ref = cellAt(cols, map.ref);
+  const description = mergeDescriptionCells(cols, map.description);
+  return (
+    (/^ref$/i.test(ref) || /^item$/i.test(ref) || /^item ref$/i.test(ref)) &&
+    /description|particulars|specification|spec/i.test(description || cellAt(cols, map.description[0] ?? -1))
+  );
+}
+
+/**
+ * Parse a BoQ cell matrix (preferred path for Excel — keeps multi-line cells and extra wording columns).
+ */
+export function parseBoqFromRows(
+  rows: string[][],
+  title?: string,
+  options?: { sheet?: string },
+): { title: string; lines: TenderBoqLine[] } {
+  const matrix = (rows || [])
+    .map((row) => (Array.isArray(row) ? row.map((cell) => String(cell ?? "")) : []))
+    .filter((row) => row.some((cell) => String(cell || "").trim()));
+  if (!matrix.length) return { title: title || "", lines: [] };
+
+  let resolvedTitle = title || "";
+  let dataStart = 0;
+  const headerIndex = findBoqHeaderRowIndex(matrix);
+
+  if (headerIndex > 0) {
+    const maybeTitle = matrix[0] || [];
+    if (
+      maybeTitle.length <= 2 &&
+      !mapBoqColumnsFromHeader(maybeTitle) &&
+      String(maybeTitle[0] || "").trim() &&
+      String(maybeTitle[0] || "").trim() !== BOQ_SHEET_MARKER
+    ) {
+      resolvedTitle = String(maybeTitle[0] || "").trim() || resolvedTitle;
+    }
+  } else if (headerIndex < 0) {
+    const first = matrix[0] || [];
+    if (
+      first.length === 1 ||
+      (first[0] && !/^ref$/i.test(String(first[0])) && !String(first[1] || "").trim())
+    ) {
+      if (String(first[0] || "").trim() !== BOQ_SHEET_MARKER) {
+        resolvedTitle = String(first[0] || "").trim() || resolvedTitle;
+        dataStart = 1;
+      }
+    }
+  }
+
+  let map: BoqColumnMap = defaultBoqColumnMap(Math.max(...matrix.map((row) => row.length), 1));
+  if (headerIndex >= 0) {
+    map = mapBoqColumnsFromHeader(matrix[headerIndex] || []) || map;
+    dataStart = headerIndex + 1;
+  } else {
+    const width = Math.max(...matrix.slice(dataStart).map((row) => row.length), 1);
+    const inferred = inferDescriptionColumns(matrix, dataStart, width, 0);
+    map = {
+      ref: 0,
+      description: inferred.description,
+      quantity: inferred.quantity,
+      unit: inferred.unit,
+      rate: inferred.rate,
+      value: inferred.value,
+      note: inferred.note,
+    };
+  }
 
   const lines: TenderBoqLine[] = [];
+  let currentSheet = options?.sheet?.trim() || "";
   let currentSection = "";
-  for (let i = start; i < linesRaw.length; i += 1) {
-    const cols = splitRow(linesRaw[i] || "");
-    const ref = cols[0] || "";
-    const description = cols[1] || cols[0] || "";
-    if (!description && !ref) continue;
-    if (/^total$/i.test(ref) || /^total$/i.test(description)) continue;
-    // Skip leftover column-header rows between sheets (Ref / Description / …).
-    if (/^ref$/i.test(ref) && /description/i.test(description || "")) continue;
 
-    const quantity = parseNumber(cols[2]);
-    const unit = cols[3] || "";
-    const rate = parseNumber(cols[4]);
-    const value = parseNumber(cols[5]);
-    const note = cols[6] || "";
+  for (let i = dataStart; i < matrix.length; i += 1) {
+    const cols = matrix[i] || [];
+    const marker = cellAt(cols, 0);
+    if (marker === BOQ_SHEET_MARKER) {
+      const sheetName = cellAt(cols, 1) || cellAt(cols, map.description[0] ?? 1);
+      if (!sheetName) continue;
+      currentSheet = sheetName;
+      currentSection = "";
+      lines.push({
+        id: uid("boq"),
+        kind: "header",
+        description: sheetName,
+        sheet: sheetName,
+        section: sheetName,
+      });
+      continue;
+    }
+
+    if (isColumnHeaderRow(cols, map)) continue;
+
+    const ref = cellAt(cols, map.ref);
+    const description = mergeDescriptionCells(cols, map.description) || ref;
+    const quantity = parseNumber(cellAt(cols, map.quantity));
+    const unit = cellAt(cols, map.unit);
+    const rate = parseNumber(cellAt(cols, map.rate));
+    const value = parseNumber(cellAt(cols, map.value));
+    const note = cellAt(cols, map.note);
+
+    if (!description && !ref) continue;
+    if (/^total$/i.test(ref) || /^total$/i.test(description.split("\n")[0] || "")) continue;
 
     if (!ref && quantity === null && rate === null && value === null) {
       const headerText = (description || ref).trim();
+      if (!headerText) continue;
       currentSection = headerText;
       lines.push({
         id: uid("boq"),
         kind: "header",
         description: headerText,
-        section: headerText || undefined,
+        sheet: currentSheet || undefined,
+        section: headerText,
       });
       continue;
     }
@@ -437,19 +664,87 @@ export function parseBoqDelimitedText(raw: string, title?: string): { title: str
       rate,
       value: value ?? (rate !== null && quantity !== null ? roundMoney(rate * quantity) : null),
       note: note || undefined,
-      section: currentSection || undefined,
+      sheet: currentSheet || undefined,
+      section: currentSection || currentSheet || undefined,
     });
   }
 
   return { title: resolvedTitle, lines };
 }
 
-export function parseBoqFromRows(rows: string[][], title?: string) {
-  return parseBoqDelimitedText(rowsToDelimitedText(rows), title);
+/** Split CSV/TSV respecting quoted newlines so multi-line wording stays one cell. */
+export function splitDelimitedBoqText(raw: string): string[][] {
+  const text = raw.replace(/^\uFEFF/, "");
+  if (!text.trim()) return [];
+  const delimiter = text.includes("\t") ? "\t" : ",";
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]!;
+    if (ch === '"') {
+      if (inQuotes && text[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (!inQuotes && ch === delimiter) {
+      row.push(current.replace(/^\s+|\s+$/g, ""));
+      current = "";
+      continue;
+    }
+    if (!inQuotes && (ch === "\n" || ch === "\r")) {
+      if (ch === "\r" && text[i + 1] === "\n") i += 1;
+      row.push(current.replace(/^\s+|\s+$/g, ""));
+      if (row.some((cell) => cell.trim())) rows.push(row);
+      row = [];
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  row.push(current.replace(/^\s+|\s+$/g, ""));
+  if (row.some((cell) => cell.trim())) rows.push(row);
+  return rows;
 }
 
-export function importBoqIntoTender(id: string, raw: string, title?: string) {
-  const parsed = parseBoqDelimitedText(raw, title);
+/** Parse CSV/TSV BoQ text — quote-aware so multi-line cells are not truncated. */
+export function parseBoqDelimitedText(raw: string, title?: string): { title: string; lines: TenderBoqLine[] } {
+  return parseBoqFromRows(splitDelimitedBoqText(raw), title);
+}
+
+/** Parse each Excel worksheet as its own sheet tab (stamps `sheet` on every line). */
+export function parseBoqFromWorkbookSheets(
+  sheets: WorkbookSheetRows[],
+  title?: string,
+): { title: string; lines: TenderBoqLine[] } {
+  const usable = (sheets || []).filter((sheet) =>
+    sheet.rows?.some((row) => row.some((cell) => String(cell || "").trim())),
+  );
+  if (!usable.length) return { title: title || "", lines: [] };
+
+  let resolvedTitle = title || "";
+  const lines: TenderBoqLine[] = [];
+  for (const sheet of usable) {
+    const parsed = parseBoqFromRows(sheet.rows, resolvedTitle || undefined, { sheet: sheet.name });
+    if (!resolvedTitle && parsed.title) resolvedTitle = parsed.title;
+    for (const line of parsed.lines) {
+      lines.push({
+        ...line,
+        sheet: sheet.name,
+        section: line.kind === "header" ? line.section || line.description : line.section || sheet.name,
+      });
+    }
+  }
+  return { title: resolvedTitle, lines };
+}
+
+function applyBoqImport(id: string, parsed: { title: string; lines: TenderBoqLine[] }) {
   const existing = getTender(id);
   if (!existing) throw new Error("Tender not found.");
   const boqTotal = computeBoqTotal(parsed.lines);
@@ -462,8 +757,16 @@ export function importBoqIntoTender(id: string, raw: string, title?: string) {
   });
 }
 
+export function importBoqIntoTender(id: string, raw: string, title?: string) {
+  return applyBoqImport(id, parseBoqDelimitedText(raw, title));
+}
+
 export function importBoqRowsIntoTender(id: string, rows: string[][], title?: string) {
-  return importBoqIntoTender(id, rowsToDelimitedText(rows), title);
+  return applyBoqImport(id, parseBoqFromRows(rows, title));
+}
+
+export function importBoqWorkbookIntoTender(id: string, sheets: WorkbookSheetRows[], title?: string) {
+  return applyBoqImport(id, parseBoqFromWorkbookSheets(sheets, title));
 }
 
 /** Wipe imported BoQ lines so the office can start a fresh import. Does not touch document uploads. */
