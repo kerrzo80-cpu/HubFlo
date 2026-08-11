@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -147,11 +147,24 @@ export function TendersPanel({
   const [blakeBudgetBusy, setBlakeBudgetBusy] = useState(false);
   const [blakeBudgetStatus, setBlakeBudgetStatus] = useState<string | null>(null);
   const blakeBudgetAbortRef = useRef<AbortController | null>(null);
+  const [uploadTarget, setUploadTarget] = useState<DocTargetValue>("kind:drawing");
+  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderParent, setNewFolderParent] = useState<DocTargetValue>("kind:drawing");
 
   const selected = useMemo(
     () => tenders.find((tender) => tender.id === selectedId) ?? null,
     [selectedId, tenders],
   );
+
+  const documentFolders = selected?.documentFolders || [];
+  const folderOptions = useMemo(() => listFolderOptions(documentFolders), [documentFolders]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const valid = new Set(folderOptions.map((option) => option.value));
+    if (!valid.has(uploadTarget)) setUploadTarget("kind:drawing");
+    if (!valid.has(newFolderParent)) setNewFolderParent("kind:drawing");
+  }, [folderOptions, newFolderParent, selected, uploadTarget]);
 
   const clientSuggestions = useMemo(() => {
     const query = (selected?.client || "").trim().toLowerCase();
@@ -328,6 +341,55 @@ export function TendersPanel({
     } catch (error) {
       await loadTenders();
       onNotice(error instanceof Error ? error.message : "Unable to remove document");
+    }
+  }
+
+  async function createDocumentFolder() {
+    if (!selected) return;
+    const name = newFolderName.trim();
+    if (!name) {
+      onNotice("Enter a folder name first.");
+      return;
+    }
+    const parent = decodeDocTarget(newFolderParent);
+    try {
+      await postAction({
+        action: "create-document-folder",
+        id: selected.id,
+        folderName: name,
+        parentId: parent.folderId || parent.kind || null,
+      });
+      setNewFolderName("");
+      onNotice(`Folder “${name}” created.`);
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to create folder");
+    }
+  }
+
+  async function deleteDocumentFolder(folderId: string, folderName: string) {
+    if (!selected) return;
+    if (!window.confirm(`Remove folder “${folderName}”? Files move up to the parent folder.`)) return;
+    try {
+      await postAction({ action: "delete-document-folder", id: selected.id, folderId });
+      onNotice(`Removed folder ${folderName}.`);
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to remove folder");
+    }
+  }
+
+  async function moveDocument(documentId: string, targetValue: string) {
+    if (!selected) return;
+    const target = decodeDocTarget(targetValue);
+    try {
+      await postAction({
+        action: "move-document",
+        id: selected.id,
+        documentId,
+        kind: target.kind,
+        folderId: target.folderId ?? null,
+      });
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to move document");
     }
   }
 
@@ -1263,14 +1325,52 @@ export function TendersPanel({
 
         {tab === "documents" ? (
           <div className="tenders-docs">
-            <p>Upload the issued pack, priced return, drawings, specs and supplier quotes against this tender.</p>
+            <p>
+              Upload drawings, BoQ files and specs into built-in types or office folders (for example Drawings → Architect).
+            </p>
+            <div className="tenders-doc-folder-create">
+              <label>
+                New folder
+                <input
+                  value={newFolderName}
+                  onChange={(event) => setNewFolderName(event.target.value)}
+                  placeholder="e.g. Architect"
+                  maxLength={80}
+                />
+              </label>
+              <label>
+                Under
+                <select
+                  value={newFolderParent}
+                  onChange={(event) => setNewFolderParent(event.target.value as DocTargetValue)}
+                >
+                  {folderOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={saving || !newFolderName.trim()}
+                onClick={() => void createDocumentFolder()}
+              >
+                <FolderPlus size={15} />
+                Add folder
+              </button>
+            </div>
             <div className="tenders-doc-upload">
               <label>
-                Document type
-                <select id="tender-doc-kind" defaultValue="drawing">
-                  {DOC_KINDS.map((item) => (
-                    <option key={item.kind} value={item.kind}>
-                      {item.label}
+                Upload into
+                <select
+                  value={uploadTarget}
+                  onChange={(event) => setUploadTarget(event.target.value as DocTargetValue)}
+                >
+                  {folderOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
                     </option>
                   ))}
                 </select>
@@ -1284,12 +1384,16 @@ export function TendersPanel({
                   hint="PDF, drawings, Excel, Word, images"
                   disabled={saving}
                   onFiles={async (files) => {
-                    const kindSelect = document.getElementById("tender-doc-kind") as HTMLSelectElement | null;
-                    const kind = (kindSelect?.value || "other") as TenderDocumentKind;
+                    const target = decodeDocTarget(uploadTarget);
+                    const kind =
+                      target.folderId
+                        ? resolveTenderDocumentFolderKind(documentFolders, target.folderId)
+                        : target.kind || "other";
                     for (const file of files) {
                       await uploadImportFile("upload-document", file, {
                         tenderId: selected.id,
                         kind,
+                        ...(target.folderId ? { folderId: target.folderId } : {}),
                       });
                     }
                   }}
@@ -1298,45 +1402,106 @@ export function TendersPanel({
             </div>
             <ul className="tenders-doc-list">
               {DOC_KINDS.map(({ kind, label }) => {
-                const matched = (selected.documents || []).filter((doc) => doc.kind === kind);
+                const rootDocs = (selected.documents || []).filter(
+                  (doc) => doc.kind === kind && !doc.folderId,
+                );
+                const childFolders = foldersUnderParent(documentFolders, kind);
+                const orphanCustom = kind === "other"
+                  ? foldersUnderParent(documentFolders, null)
+                  : [];
+
+                const renderDocs = (docs: TenderDocument[]) =>
+                  docs.length ? (
+                    <ul className="tenders-doc-file-list">
+                      {docs.map((doc) => (
+                        <li key={doc.id} className="tenders-doc-file-row">
+                          <div className="tenders-doc-file-meta">
+                            {doc.url ? (
+                              <a href={doc.url} target="_blank" rel="noreferrer">
+                                {doc.name}
+                              </a>
+                            ) : (
+                              <span>{doc.name}</span>
+                            )}
+                            {doc.note ? <small>{doc.note}</small> : null}
+                          </div>
+                          <label className="tenders-doc-move">
+                            <span className="sr-only">Move {doc.name}</span>
+                            <select
+                              aria-label={`Move ${doc.name}`}
+                              value={encodeDocTarget(doc.kind, doc.folderId)}
+                              disabled={saving}
+                              onChange={(event) => void moveDocument(doc.id, event.target.value)}
+                            >
+                              {folderOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <button
+                            type="button"
+                            className="secondary-button tenders-doc-delete"
+                            disabled={saving}
+                            aria-label={`Remove ${doc.name}`}
+                            title="Remove document"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              void deleteDocument(doc.id, doc.name);
+                            }}
+                          >
+                            <Trash2 size={14} />
+                            Remove
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null;
+
+                const renderFolder = (folder: TenderDocumentFolder, depth = 0): ReactNode => {
+                  const folderDocs = (selected.documents || []).filter((doc) => doc.folderId === folder.id);
+                  const nested = foldersUnderParent(documentFolders, folder.id);
+                  return (
+                    <li key={folder.id} className="tenders-doc-folder" style={{ marginLeft: depth ? 12 : 0 }}>
+                      <div className="tenders-doc-folder-head">
+                        <strong>{folder.name}</strong>
+                        <button
+                          type="button"
+                          className="secondary-button tenders-doc-delete"
+                          disabled={saving}
+                          title="Remove folder"
+                          aria-label={`Remove folder ${folder.name}`}
+                          onClick={() => void deleteDocumentFolder(folder.id, folder.name)}
+                        >
+                          <Trash2 size={14} />
+                          Remove folder
+                        </button>
+                      </div>
+                      {renderDocs(folderDocs)}
+                      {nested.length ? (
+                        <ul className="tenders-doc-subfolders">{nested.map((child) => renderFolder(child, depth + 1))}</ul>
+                      ) : null}
+                      {!folderDocs.length && !nested.length ? (
+                        <span className="tenders-doc-empty">Empty folder</span>
+                      ) : null}
+                    </li>
+                  );
+                };
+
                 return (
                   <li key={kind} className="tenders-doc-kind">
                     <strong>{label}</strong>
-                    {matched.length ? (
-                      <ul className="tenders-doc-file-list">
-                        {matched.map((doc) => (
-                          <li key={doc.id} className="tenders-doc-file-row">
-                            <div className="tenders-doc-file-meta">
-                              {doc.url ? (
-                                <a href={doc.url} target="_blank" rel="noreferrer">
-                                  {doc.name}
-                                </a>
-                              ) : (
-                                <span>{doc.name}</span>
-                              )}
-                              {doc.note ? <small>{doc.note}</small> : null}
-                            </div>
-                            <button
-                              type="button"
-                              className="secondary-button tenders-doc-delete"
-                              disabled={saving}
-                              aria-label={`Remove ${doc.name}`}
-                              title="Remove document"
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                void deleteDocument(doc.id, doc.name);
-                              }}
-                            >
-                              <Trash2 size={14} />
-                              Remove
-                            </button>
-                          </li>
-                        ))}
+                    {renderDocs(rootDocs)}
+                    {childFolders.length || orphanCustom.length ? (
+                      <ul className="tenders-doc-subfolders">
+                        {[...childFolders, ...orphanCustom].map((folder) => renderFolder(folder))}
                       </ul>
-                    ) : (
+                    ) : null}
+                    {!rootDocs.length && !childFolders.length && !orphanCustom.length ? (
                       <span className="tenders-doc-empty">Not attached yet</span>
-                    )}
+                    ) : null}
                   </li>
                 );
               })}

@@ -40350,12 +40350,73 @@ button.nexa-kpi-card,
   margin: 12px 0;
 }
 
+.tenders-doc-folder-create {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(160px, 220px) auto;
+  gap: 12px;
+  align-items: end;
+  margin: 4px 0 8px;
+}
+
+.tenders-doc-folder-create label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--subtle);
+}
+
+.tenders-doc-folder-create input,
+.tenders-doc-folder-create select,
+.tenders-doc-upload select,
+.tenders-doc-move select {
+  min-height: 36px;
+  border: 1px solid #d7e0e8;
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: #fff;
+}
+
 .tenders-doc-upload label {
   display: grid;
   gap: 6px;
   font-size: 12px;
   font-weight: 600;
   color: var(--subtle);
+}
+
+.tenders-doc-subfolders {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.tenders-doc-folder {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #e8eef3;
+}
+
+.tenders-doc-folder-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tenders-doc-move {
+  flex: 0 1 180px;
+  min-width: 140px;
+}
+
+.tenders-doc-move select {
+  width: 100%;
+  font-size: 12px;
 }
 
 .tenders-boq-table input[type="number"],
