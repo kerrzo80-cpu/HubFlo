@@ -231,7 +231,9 @@ function ruleFallback(
   const needsLayout = !layout?.pipes?.length && (project.rooms?.length || 0) > 0;
   let seeded: HeatingSystemLayout | undefined;
   if (needsLayout && project.chosenSystemId) {
-    seeded = seedHeatingLayout(project, project.chosenSystemId, emitterMode);
+    seeded = seedHeatingLayout(project, project.chosenSystemId, emitterMode, {
+      preservePlants: layout?.plants?.length ? layout.plants : project.heatingLayout?.plants,
+    });
   }
 
   return {
@@ -337,6 +339,7 @@ export async function proposeHeatDesignWithBlake(
   const prompt = [
     "You are Blake — NeXa’s UK heating design co-pilot (Gas Safe trade mindset).",
     "You are looking at a Heat Design project: rooms, chosen plant, emitters and pipe routes on plan.",
+    "If the engineer has already placed plant (boiler, cylinder, manifold, outdoor unit), KEEP those coordinates when regenerateLayout is true — only rebuild emitters and pipe routes around them.",
     "Propose a practical install kit and pipe-sizing guidance.",
     "Every kitLines item MUST include a UK trade BUDGET unitCost (ex VAT) — typical merchant ballpark for comparing to supplier quotes later. Never leave unitCost at 0 unless truly free.",
     "Prefer concrete merchant lines (TRVs, lockshields, isolation valves, AAVs, clips, lagging, zone valves, G3 bits, ASHP flex kits, etc.).",
@@ -445,6 +448,9 @@ export async function proposeHeatDesignWithBlake(
         { ...project, chosenSystemId, emitterMode: emitterMode || project.emitterMode },
         chosenSystemId,
         emitterMode || project.emitterMode || "radiators",
+        {
+          preservePlants: project.heatingLayout?.plants,
+        },
       );
     }
 

@@ -104,6 +104,19 @@ export type HeatingPlantItem = {
   floorLevel: FloorLevel;
   widthM?: number;
   depthM?: number;
+  /** Engineer-placed (or dragged into final spot) — keep when Blake re-routes pipes. */
+  placedByUser?: boolean;
+};
+
+/** Optional scanned / PDF-export floor drawing under the editable rooms. */
+export type PlanUnderlay = {
+  dataUrl: string;
+  opacity: number;
+  /** Image extent on the metre plan grid */
+  widthM: number;
+  heightM: number;
+  originX: number;
+  originY: number;
 };
 
 export type HeatingEmitterKind = "radiator" | "ufh";
@@ -191,6 +204,8 @@ export type HeatDesignProject = {
   heatingLayout?: HeatingSystemLayout | null;
   /** Preferred emitters when designing on plan */
   emitterMode: HeatingEmitterMode;
+  /** Optional drawing underlay (photo / export) behind the room polygons */
+  planUnderlay?: PlanUnderlay | null;
   /** Linked Core job (materials pushed into Heating design cost centre) */
   linkedJobId?: string;
   linkedJobRef?: string;

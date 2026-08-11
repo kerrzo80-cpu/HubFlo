@@ -165,6 +165,7 @@ function makePlant(
   point: PlanPoint,
   floorLevel: FloorLevel,
   size?: { widthM: number; depthM: number },
+  placedByUser?: boolean,
 ): HeatingPlantItem {
   return {
     id: uid(`plant-${kind}`),
@@ -175,8 +176,97 @@ function makePlant(
     floorLevel,
     widthM: size?.widthM,
     depthM: size?.depthM,
+    placedByUser: placedByUser || undefined,
   };
 }
+
+/** Group related plant kinds so “one boiler” / “one cylinder” stays unique on plan. */
+export function plantRole(kind: HeatingPlantKind): string {
+  if (kind === "boiler" || kind === "electric_boiler") return "boiler";
+  if (kind === "cylinder" || kind === "buffer") return "cylinder";
+  if (kind === "manifold") return "manifold";
+  if (kind === "outdoor_unit") return "outdoor_unit";
+  if (kind === "oil_tank" || kind === "lpg_tank") return "fuel_tank";
+  return kind;
+}
+
+export function defaultPlantLabel(kind: HeatingPlantKind, cylinderLitres = 210): string {
+  switch (kind) {
+    case "boiler":
+      return "Gas boiler";
+    case "electric_boiler":
+      return "Electric boiler";
+    case "outdoor_unit":
+      return "Outdoor unit";
+    case "cylinder":
+      return `${cylinderLitres || 210}L cylinder`;
+    case "buffer":
+      return "Buffer / volumiser";
+    case "manifold":
+      return "Heating manifold";
+    case "oil_tank":
+      return "Oil tank";
+    case "lpg_tank":
+      return "LPG tank";
+    default:
+      return "Plant";
+  }
+}
+
+export function plantFootprint(kind: HeatingPlantKind) {
+  return plantSizes(kind);
+}
+
+/**
+ * Drop / click-place plant. Replaces any existing plant in the same role so the plan stays sane.
+ * Does not redraw pipes — call seedHeatingLayout with preservePlants after the engineer is happy.
+ */
+export function placePlantOnLayout(
+  layout: HeatingSystemLayout | null | undefined,
+  kind: HeatingPlantKind,
+  x: number,
+  y: number,
+  floorLevel: FloorLevel,
+  options: {
+    label?: string;
+    systemOptionId?: string;
+    emitterMode?: HeatingEmitterMode;
+    cylinderLitres?: number;
+  } = {},
+): HeatingSystemLayout {
+  const size = plantSizes(kind);
+  const plant = makePlant(
+    kind,
+    options.label || defaultPlantLabel(kind, options.cylinderLitres),
+    { x, y },
+    floorLevel,
+    size,
+    true,
+  );
+  const role = plantRole(kind);
+  const previous = (layout?.plants ?? []).filter((row) => plantRole(row.kind) !== role);
+  return {
+    systemOptionId: layout?.systemOptionId || options.systemOptionId || "opt-ashp",
+    plants: [...previous, plant],
+    pipes: layout?.pipes ?? [],
+    emitters: layout?.emitters ?? [],
+    emitterMode: layout?.emitterMode ?? options.emitterMode ?? "radiators",
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function removePlantFromLayout(layout: HeatingSystemLayout, plantId: string): HeatingSystemLayout {
+  return {
+    ...layout,
+    plants: layout.plants.filter((plant) => plant.id !== plantId),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export type SeedHeatingLayoutOptions = {
+  /** Engineer plant positions to keep while redrawing emitters + pipe routes. */
+  preservePlants?: HeatingPlantItem[] | null;
+};
 
 export type HeatingPipeSizeTier = {
   diameterMm: 15 | 22 | 28;
@@ -232,6 +322,40 @@ function plantSizes(kind: HeatingPlantKind) {
   if (kind === "oil_tank" || kind === "lpg_tank") return { widthM: 1.2, depthM: 0.7 };
   if (kind === "manifold") return { widthM: 0.5, depthM: 0.18 };
   return { widthM: 0.48, depthM: 0.32 };
+}
+
+function pickPreservedPlant(
+  preserved: HeatingPlantItem[],
+  kind: HeatingPlantKind,
+  floor: FloorLevel,
+): HeatingPlantItem | null {
+  const role = plantRole(kind);
+  const onFloor = preserved.filter((plant) => (plant.floorLevel ?? "ground") === floor);
+  const pool = onFloor.length ? onFloor : preserved;
+  return pool.find((plant) => plantRole(plant.kind) === role) ?? null;
+}
+
+function reuseOrMakePlant(
+  preserved: HeatingPlantItem[],
+  kind: HeatingPlantKind,
+  label: string,
+  slot: PlanPoint,
+  floor: FloorLevel,
+): HeatingPlantItem {
+  const existing = pickPreservedPlant(preserved, kind, floor);
+  if (!existing) return makePlant(kind, label, slot, floor, plantSizes(kind));
+  const size = plantSizes(kind);
+  return {
+    ...existing,
+    kind,
+    label: existing.placedByUser && existing.label ? existing.label : label,
+    x: existing.x,
+    y: existing.y,
+    floorLevel: floor,
+    widthM: existing.widthM ?? size.widthM,
+    depthM: existing.depthM ?? size.depthM,
+    placedByUser: existing.placedByUser,
+  };
 }
 
 function kindForOption(optionId: string): HeatingSystemKind {
@@ -351,17 +475,19 @@ export function seedHeatingLayout(
   project: HeatDesignProject,
   systemOptionId: string,
   emitterMode: HeatingEmitterMode = project.emitterMode ?? "radiators",
+  options: SeedHeatingLayoutOptions = {},
 ): HeatingSystemLayout {
   const kind = kindForOption(systemOptionId);
   const floor: FloorLevel = project.activeFloor ?? "ground";
   const plantRoom = pickPlantRoom(project.rooms, floor) ?? project.rooms[0];
   const plants: HeatingPlantItem[] = [];
   const pipes: HeatingPipeRun[] = [];
+  const preserved = options.preservePlants ?? [];
 
   if (!plantRoom) {
     return {
       systemOptionId,
-      plants,
+      plants: preserved.filter((plant) => (plant.floorLevel ?? "ground") === floor),
       pipes,
       emitters: [],
       emitterMode,
@@ -409,19 +535,19 @@ export function seedHeatingLayout(
   const slots = plantBaySlots(plantRoom, indoorKinds.length);
   indoorKinds.forEach((item, index) => {
     const slot = slots[index] ?? roomCentroid(plantRoom);
-    plants.push(makePlant(item.kind, item.label, slot, floor, plantSizes(item.kind)));
+    plants.push(reuseOrMakePlant(preserved, item.kind, item.label, slot, floor));
   });
 
   if (kind === "ashp" || kind === "hybrid") {
-    plants.push(makePlant("outdoor_unit", "Outdoor unit", outdoor, floor, plantSizes("outdoor_unit")));
+    plants.push(reuseOrMakePlant(preserved, "outdoor_unit", "Outdoor unit", outdoor, floor));
   } else if (kind === "oil" || kind === "lpg") {
     plants.push(
-      makePlant(
+      reuseOrMakePlant(
+        preserved,
         kind === "oil" ? "oil_tank" : "lpg_tank",
         kind === "oil" ? "Oil tank" : "LPG tank",
         outdoor,
         floor,
-        plantSizes(kind === "oil" ? "oil_tank" : "lpg_tank"),
       ),
     );
   }
@@ -578,7 +704,9 @@ export function plantFill(kind: HeatingPlantKind): string {
 export function movePlant(layout: HeatingSystemLayout, plantId: string, x: number, y: number): HeatingSystemLayout {
   return {
     ...layout,
-    plants: layout.plants.map((plant) => (plant.id === plantId ? { ...plant, x, y } : plant)),
+    plants: layout.plants.map((plant) =>
+      plant.id === plantId ? { ...plant, x, y, placedByUser: true } : plant,
+    ),
     updatedAt: new Date().toISOString(),
   };
 }

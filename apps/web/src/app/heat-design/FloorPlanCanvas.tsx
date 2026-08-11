@@ -21,6 +21,7 @@ import {
   placeSurveyedRadiatorOnWall,
   plantFill,
   polygonBounds,
+  removePlantFromLayout,
   roomPolygon,
   roomTypes,
   roomWallExterior,
@@ -32,9 +33,11 @@ import {
   type FloorLevel,
   type HeatDesignRoom,
   type HeatingEmitterMode,
+  type HeatingPlantKind,
   type HeatingSystemLayout,
   type PlanOpening,
   type PlanPoint,
+  type PlanUnderlay,
 } from "@/lib/heat-design";
 
 type FloorPlanCanvasProps = {
@@ -56,10 +59,14 @@ type FloorPlanCanvasProps = {
   onLayoutModeChange?: (on: boolean) => void;
   onPatchLayout?: (layout: HeatingSystemLayout) => void;
   onRegenerateLayout?: () => void;
+  /** Place boiler / cylinder / manifold / outdoor unit by clicking the plan */
+  onPlacePlant?: (kind: HeatingPlantKind, x: number, y: number) => void;
   layoutSystemLabel?: string;
   emitterMode?: HeatingEmitterMode;
   onEmitterModeChange?: (mode: HeatingEmitterMode) => void;
   onFinishSurveyedPlan?: () => void;
+  planUnderlay?: PlanUnderlay | null;
+  onPlanUnderlayChange?: (underlay: PlanUnderlay | null) => void;
 };
 
 const BASE_SCALE = 90;
@@ -67,6 +74,14 @@ const PAD = 56;
 const SNAP_M = 0.15;
 
 type PlaceTool = "window" | "door" | "rooflight" | "radiator" | null;
+type PlantPlaceTool = HeatingPlantKind | null;
+
+const PLANT_PLACE_OPTIONS: Array<{ kind: HeatingPlantKind; label: string }> = [
+  { kind: "boiler", label: "Boiler" },
+  { kind: "cylinder", label: "Cylinder" },
+  { kind: "manifold", label: "Manifold" },
+  { kind: "outdoor_unit", label: "Outdoor unit" },
+];
 
 type DragState =
   | { mode: "move"; roomId: string; origin: PlanPoint[]; grab: PlanPoint }
@@ -149,17 +164,22 @@ export function FloorPlanCanvas({
   onLayoutModeChange,
   onPatchLayout,
   onRegenerateLayout,
+  onPlacePlant,
   layoutSystemLabel,
   emitterMode = "mixed",
   onEmitterModeChange,
   onFinishSurveyedPlan,
+  planUnderlay = null,
+  onPlanUnderlayChange,
 }: FloorPlanCanvasProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const underlayInputRef = useRef<HTMLInputElement | null>(null);
   const [drag, setDrag] = useState<DragState>(null);
   const [guides, setGuides] = useState<{ x: number[]; y: number[] }>({ x: [], y: [] });
   const [selectedEdge, setSelectedEdge] = useState<number | null>(null);
   const [placeTool, setPlaceTool] = useState<PlaceTool>(null);
   const [placeRoomType, setPlaceRoomType] = useState<string | null>(null);
+  const [plantPlaceTool, setPlantPlaceTool] = useState<PlantPlaceTool>(null);
   const [selectedOpeningId, setSelectedOpeningId] = useState<string | null>(null);
   const [selectedPlantId, setSelectedPlantId] = useState<string | null>(null);
   const [selectedPipeId, setSelectedPipeId] = useState<string | null>(null);
@@ -242,6 +262,12 @@ export function FloorPlanCanvas({
         maxY = Math.max(maxY, p.y + 0.4);
       }
     }
+    if (planUnderlay?.dataUrl) {
+      minX = Math.min(minX, planUnderlay.originX);
+      minY = Math.min(minY, planUnderlay.originY);
+      maxX = Math.max(maxX, planUnderlay.originX + planUnderlay.widthM);
+      maxY = Math.max(maxY, planUnderlay.originY + planUnderlay.heightM);
+    }
     const originX = minX - 0.35;
     const originY = minY - 0.35;
     const metresW = maxX - originX + 0.5;
@@ -254,7 +280,7 @@ export function FloorPlanCanvas({
       originX,
       originY,
     };
-  }, [floorRooms, floorPlants, floorPipes, floorEmitters, scale]);
+  }, [floorRooms, floorPlants, floorPipes, floorEmitters, scale, planUnderlay]);
 
   function px(x: number) {
     return PAD + (x - bounds.originX) * scale;
@@ -669,6 +695,7 @@ export function FloorPlanCanvas({
                 }}
                 onClick={() => {
                   setPlaceTool(null);
+                  setPlantPlaceTool(null);
                   setPlaceRoomType((current) => (current === item.id ? null : item.id));
                 }}
                 title={`${item.id} · ${item.targetTemp}°C · ${item.airChanges} ACH — drag onto plan or click then draw`}
@@ -694,6 +721,7 @@ export function FloorPlanCanvas({
                 disabled={!selected || layoutMode}
                 onClick={() => {
                   setPlaceRoomType(null);
+                  setPlantPlaceTool(null);
                   setPlaceTool((current) => (current === id ? null : id));
                 }}
               >
@@ -701,10 +729,82 @@ export function FloorPlanCanvas({
               </button>
             ))}
           </div>
+          <p className="hp-palette-label">Plant</p>
+          <div className="hp-palette-list hp-palette-row">
+            {PLANT_PLACE_OPTIONS.map((item) => (
+              <button
+                key={item.kind}
+                type="button"
+                className={`hp-palette-item${plantPlaceTool === item.kind ? " is-on" : ""}`}
+                disabled={!onPlacePlant}
+                onClick={() => {
+                  setPlaceTool(null);
+                  setPlaceRoomType(null);
+                  setPlantPlaceTool((current) => (current === item.kind ? null : item.kind));
+                  if (onLayoutModeChange && !layoutMode) onLayoutModeChange(true);
+                }}
+                title={`Place ${item.label} — click the plan`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
           <p className="hp-palette-hint">
-            Pick a room type and drag it onto the plan, or click then drag to draw. Snap rooms together — shared walls go
-          internal. Drop windows, doors and radiators onto walls.
+            Draw rooms, then place boiler / cylinder / manifold where you want them. Route pipes keeps your plant and
+            rebuilds emitters + pipe runs. Optional PNG/JPG drawing under the plan.
           </p>
+          {onPlanUnderlayChange ? (
+            <>
+              <p className="hp-palette-label">Drawing</p>
+              <div className="hp-palette-list hp-palette-row">
+                <button
+                  type="button"
+                  className="hp-palette-item"
+                  onClick={() => underlayInputRef.current?.click()}
+                  title="Upload a photo or plan export (PNG / JPG). Full PDF takeoff stays in Takeoff."
+                >
+                  {planUnderlay ? "Replace drawing" : "Upload drawing"}
+                </button>
+                {planUnderlay ? (
+                  <button type="button" className="hp-palette-item" onClick={() => onPlanUnderlayChange(null)}>
+                    Clear drawing
+                  </button>
+                ) : null}
+              </div>
+              {planUnderlay ? (
+                <label className="hp-palette-hint" style={{ display: "block" }}>
+                  Drawing fade{" "}
+                  <input
+                    type="range"
+                    min={15}
+                    max={85}
+                    value={Math.round((planUnderlay.opacity ?? 0.45) * 100)}
+                    onChange={(event) =>
+                      onPlanUnderlayChange({
+                        ...planUnderlay,
+                        opacity: Number(event.target.value) / 100,
+                      })
+                    }
+                  />
+                </label>
+              ) : null}
+              <input
+                ref={underlayInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (!file || !onPlanUnderlayChange) return;
+                  void (async () => {
+                    const underlay = await readPlanUnderlayFile(file, floorRooms);
+                    if (underlay) onPlanUnderlayChange(underlay);
+                  })();
+                }}
+              />
+            </>
+          ) : null}
         </aside>
 
         <div className="hp-plan-main">
@@ -732,8 +832,13 @@ export function FloorPlanCanvas({
             </button>
           ) : null}
           {heatingLayout && onRegenerateLayout ? (
-            <button type="button" className="hd-btn hd-btn-ghost" onClick={onRegenerateLayout}>
-              Re-seed layout
+            <button
+              type="button"
+              className="hd-btn hd-btn-ghost"
+              onClick={onRegenerateLayout}
+              title="Keeps your plant positions; redraws radiators/UFH and pipe routes"
+            >
+              Route pipes
             </button>
           ) : null}
           <div className="hp-zoom-controls" aria-label="Zoom">
@@ -801,12 +906,25 @@ export function FloorPlanCanvas({
         <div className="hp-layout-banner">
           <strong>{layoutSystemLabel || "Heating layout"}</strong>
           <span>
-            Designed layout — drag plant, radiators / UFH and pipe bends. Flow red · return blue · refrigerant purple ·
-            primary blue. Use zoom if anything sits outside the first view.
+            {plantPlaceTool
+              ? `Click the plan to place ${plantPlaceTool.replace("_", " ")}. Then Route pipes / Ask Blake for the network and kit.`
+              : "Drag plant, radiators / UFH and pipe bends. Flow red · return blue · refrigerant purple · primary teal. Use zoom if anything sits outside the first view."}
           </span>
           {selectedPlant ? <em>Selected: {selectedPlant.label}</em> : null}
           {selectedEmitter ? <em>Selected: {selectedEmitter.label}</em> : null}
           {selectedPipe ? <em>Selected pipe: {selectedPipe.label}</em> : null}
+          {selectedPlant && onPatchLayout && heatingLayout ? (
+            <button
+              type="button"
+              className="hd-btn hd-btn-danger"
+              onClick={() => {
+                onPatchLayout(removePlantFromLayout(heatingLayout, selectedPlant.id));
+                setSelectedPlantId(null);
+              }}
+            >
+              Remove plant
+            </button>
+          ) : null}
         </div>
       ) : null}
       <div className="hp-canvas-wrap" ref={wrapRef}
@@ -832,6 +950,13 @@ export function FloorPlanCanvas({
           role="img"
           aria-label="Floor plan canvas"
           onPointerDown={(event) => {
+            if (plantPlaceTool && onPlacePlant) {
+              event.preventDefault();
+              const point = clientToMetres(event.clientX, event.clientY);
+              onPlacePlant(plantPlaceTool, Math.max(0, point.x), Math.max(0, point.y));
+              setPlantPlaceTool(null);
+              return;
+            }
             if (placeRoomType && onPlaceRoom && !layoutMode) {
               event.preventDefault();
               const point = clientToMetres(event.clientX, event.clientY);
@@ -844,6 +969,18 @@ export function FloorPlanCanvas({
           }}
         >
           <rect x={0} y={0} width={bounds.width} height={bounds.height} fill="#7a7a7a" />
+          {planUnderlay?.dataUrl ? (
+            <image
+              href={planUnderlay.dataUrl}
+              x={px(planUnderlay.originX)}
+              y={py(planUnderlay.originY)}
+              width={planUnderlay.widthM * scale}
+              height={planUnderlay.heightM * scale}
+              opacity={planUnderlay.opacity ?? 0.45}
+              preserveAspectRatio="none"
+              style={{ pointerEvents: "none" }}
+            />
+          ) : null}
           {Array.from({ length: Math.ceil(bounds.metresX - bounds.originX) + 2 }, (_, m) => {
             const gx = bounds.originX + m;
             return (
@@ -1630,17 +1767,18 @@ export function FloorPlanCanvas({
         <strong>Floor plan:</strong> pick a room from the palette → click the canvas to place · snap rooms together for
         internal walls · place Window / Door / Roof light on a selected wall · drag corners to resize · tap openings to
         set size in the inspector.
-        {heatingLayout ? (
-          <>
-            {" "}
-            <strong>Heating layout:</strong> turn on <em>Heating layout</em>, then drag plant boxes and pipe bends.
-          </>
-        ) : null}
+        {" "}
+        <strong>Plant:</strong> place boiler / cylinder / manifold, then <em>Route pipes</em> or Ask Blake.
       </p>
       {layoutMode ? (
         <p className="hp-canvas-hint">
-          Layout mode — room walls are locked. Drag plant equipment or pipe vertices. Use <em>Re-seed layout</em> to
-          regenerate from the chosen system.
+          Layout mode — room walls are locked. Drag plant or pipe vertices. <em>Route pipes</em> rebuilds emitters and
+          runs from your plant positions.
+        </p>
+      ) : null}
+      {plantPlaceTool ? (
+        <p className="hp-canvas-hint">
+          Place <strong>{plantPlaceTool.replace(/_/g, " ")}</strong> — click the plan.
         </p>
       ) : null}
       {placeRoomType ? (
@@ -1937,4 +2075,63 @@ export function FloorPlanCanvas({
       </div>
     </div>
   );
+}
+
+async function readPlanUnderlayFile(
+  file: File,
+  rooms: HeatDesignRoom[],
+): Promise<PlanUnderlay | null> {
+  const dataUrl = await new Promise<string | null>((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const raw = typeof reader.result === "string" ? reader.result : "";
+      if (!raw.startsWith("data:image/")) {
+        resolve(null);
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        const maxEdge = 1600;
+        const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+        const width = Math.max(1, Math.round(img.width * scale));
+        const height = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(raw);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.72));
+      };
+      img.onerror = () => resolve(null);
+      img.src = raw;
+    };
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file);
+  });
+  if (!dataUrl) return null;
+
+  const box =
+    rooms.length > 0
+      ? polygonBounds(rooms.flatMap((room) => roomPolygon(room)))
+      : { minX: 0, minY: 0, width: 12, height: 9 };
+  const widthM = Math.max(6, box.width + 2);
+  const aspect = await new Promise<number>((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img.width / Math.max(1, img.height));
+    img.onerror = () => resolve(4 / 3);
+    img.src = dataUrl;
+  });
+  const heightM = widthM / Math.max(0.4, aspect);
+  return {
+    dataUrl,
+    opacity: 0.42,
+    widthM,
+    heightM,
+    originX: Math.max(0, box.minX - 1),
+    originY: Math.max(0, box.minY - 1),
+  };
 }

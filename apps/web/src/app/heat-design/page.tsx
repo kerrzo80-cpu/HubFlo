@@ -33,6 +33,7 @@ import {
   floorTypes,
   flowTempOptionsForSystem,
   glazingTypes,
+  placePlantOnLayout,
   propertyTypes,
   radiatorRanges,
   roomTypes,
@@ -41,7 +42,9 @@ import {
   type HeatDesignRoom,
   type HeatingEmitterMode,
   type HeatingFittingsSummary,
+  type HeatingPlantKind,
   type HeatingSystemLayout,
+  type PlanUnderlay,
 } from "@/lib/heat-design";
 import { useBrand } from "@/components/BrandProvider";
 import { resolveBrandLogoUrl } from "@/lib/branding";
@@ -565,7 +568,9 @@ export default function HeatDesignLabPage() {
           ? defaultFlowTempForSystem("ashp")
           : flowTemperature;
     const nextProject = { ...project, chosenSystemId: optionId, emitterMode, flowTemperature: nextFlow };
-    const layout = seedHeatingLayout(nextProject, optionId, emitterMode);
+    const layout = seedHeatingLayout(nextProject, optionId, emitterMode, {
+      preservePlants: project.heatingLayout?.plants,
+    });
     patchProject({
       chosenSystemId: optionId,
       emitterMode,
@@ -577,7 +582,7 @@ export default function HeatDesignLabPage() {
     setLayoutMode(false);
     setTab("plan");
     setNotice(
-      `Designed ${option?.label ?? "system"} at ${nextFlow}°C flow with ${emitterMode === "ufh" ? "underfloor heating" : emitterMode === "mixed" ? "mixed radiators / UFH" : "radiators"}. Walls stay editable — turn on Heating layout to move plant and pipes. Use Blake size routes, then Send to Takeoff.`,
+      `Designed ${option?.label ?? "system"} at ${nextFlow}°C flow with ${emitterMode === "ufh" ? "underfloor heating" : emitterMode === "mixed" ? "mixed radiators / UFH" : "radiators"}${project.heatingLayout?.plants?.length ? " — kept your plant positions" : ""}. Turn on Heating layout to nudge plant/pipes. Ask Blake for kit + sizing, then Send to Takeoff.`,
     );
   }
 
@@ -709,11 +714,40 @@ export default function HeatDesignLabPage() {
   function regenerateLayout(mode?: HeatingEmitterMode) {
     if (!project?.chosenSystemId) return;
     const emitterMode = mode ?? project.emitterMode ?? project.heatingLayout?.emitterMode ?? "radiators";
-    const layout = seedHeatingLayout(project, project.chosenSystemId, emitterMode);
+    const layout = seedHeatingLayout(project, project.chosenSystemId, emitterMode, {
+      preservePlants: project.heatingLayout?.plants,
+    });
     patchProject({ emitterMode, heatingLayout: layout });
     setFittingsSummary(summariseHeatingFittings(layout));
     setLayoutMode(true);
-    setNotice("Re-designed heating layout with the selected emitter type.");
+    setNotice(
+      project.heatingLayout?.plants?.length
+        ? "Routed pipes + emitters from your plant positions."
+        : "Designed heating layout with the selected emitter type.",
+    );
+  }
+
+  function placePlant(kind: HeatingPlantKind, x: number, y: number) {
+    if (!project) return;
+    const systemOptionId = project.chosenSystemId || project.reportOptionIds?.[0] || "opt-ashp";
+    const layout = placePlantOnLayout(project.heatingLayout, kind, x, y, project.activeFloor ?? "ground", {
+      systemOptionId,
+      emitterMode: project.emitterMode ?? "radiators",
+      cylinderLitres: project.cylinderLitres,
+    });
+    patchProject({
+      chosenSystemId: project.chosenSystemId || systemOptionId,
+      heatingLayout: layout,
+    });
+    setLayoutMode(true);
+    setNotice(
+      `Placed ${kind.replace(/_/g, " ")}. Add the rest of the plant, then Route pipes or Ask Blake for the network + kit.`,
+    );
+  }
+
+  function setPlanUnderlay(planUnderlay: PlanUnderlay | null) {
+    patchProject({ planUnderlay });
+    setNotice(planUnderlay ? "Drawing underlay added — fade it with the slider if walls are hard to see." : "Drawing underlay cleared.");
   }
 
   function blakeSizeRoutes() {
@@ -1132,8 +1166,8 @@ export default function HeatDesignLabPage() {
               <>
                 <h2>Floor plan</h2>
                 <p className="hd-lead">
-                  Draw the rooms, then choose radiators or underfloor heating below before designing a system on the
-                  plan.
+                  Optional: upload a PNG/JPG drawing. Draw rooms, place boiler / cylinder / manifold yourself, then Route
+                  pipes or Ask Blake for the network and kit / BOQ.
                 </p>
                 <div className="hd-emitter-picker">
                   <strong>Emitters for this design</strong>
@@ -1186,10 +1220,37 @@ export default function HeatDesignLabPage() {
                   layoutMode={layoutMode}
                   onLayoutModeChange={setLayoutMode}
                   onPatchLayout={patchLayout}
-                  onRegenerateLayout={project.chosenSystemId ? () => regenerateLayout() : undefined}
+                  onRegenerateLayout={
+                    project.heatingLayout || project.chosenSystemId
+                      ? () => {
+                          const systemOptionId =
+                            project.chosenSystemId || project.reportOptionIds?.[0] || "opt-ashp";
+                          const emitterMode = project.emitterMode ?? "radiators";
+                          const next = { ...project, chosenSystemId: systemOptionId, emitterMode };
+                          const layout = seedHeatingLayout(next, systemOptionId, emitterMode, {
+                            preservePlants: project.heatingLayout?.plants,
+                          });
+                          patchProject({
+                            chosenSystemId: systemOptionId,
+                            emitterMode,
+                            heatingLayout: layout,
+                          });
+                          setFittingsSummary(summariseHeatingFittings(layout));
+                          setLayoutMode(true);
+                          setNotice(
+                            project.heatingLayout?.plants?.length
+                              ? "Routed pipes + emitters from your plant positions."
+                              : "Designed heating layout for the selected system.",
+                          );
+                        }
+                      : undefined
+                  }
+                  onPlacePlant={placePlant}
                   layoutSystemLabel={chosenOption?.label}
                   emitterMode={project.emitterMode ?? "radiators"}
                   onEmitterModeChange={changeEmitterMode}
+                  planUnderlay={project.planUnderlay}
+                  onPlanUnderlayChange={setPlanUnderlay}
                   onFinishSurveyedPlan={() => {
                     setTab("system");
                     setNotice("Surveyed plan locked in — pick a system and design flow temperature next.");
@@ -1202,8 +1263,8 @@ export default function HeatDesignLabPage() {
                       Ask Blake
                     </strong>
                     <span>
-                      Live OpenAI proposes pipe sizes, valves, TRVs, drains, clips and plant bits from this design —
-                      then Send to Takeoff for the BOQ. Rules only kick in if OpenAI is offline.
+                      Keeps your plant positions when he needs to route. Proposes pipe sizes, valves, TRVs and
+                      ancillaries — then Send to Takeoff for the BOQ. Rules only if OpenAI is offline.
                     </span>
                   </header>
                   <label className="hd-blake-ask-label">
