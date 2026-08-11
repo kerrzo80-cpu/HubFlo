@@ -170,6 +170,14 @@ export default function TakeoffStudioPage() {
   const [logOpen, setLogOpen] = useState(false);
   const [drawSizesOpen, setDrawSizesOpen] = useState(false);
   const [newLayerName, setNewLayerName] = useState("");
+  /** Accordion: Projects | Link | Drawings | Draw as | More — collapse Link + project list when a project is open. */
+  const [railAccordions, setRailAccordions] = useState({
+    projects: true,
+    link: false,
+    drawings: true,
+    draw: true,
+    more: false,
+  });
   const saveTimer = useRef<number | null>(null);
   const historyRef = useRef<StudioState[]>([]);
   const futureRef = useRef<StudioState[]>([]);
@@ -327,7 +335,20 @@ export default function TakeoffStudioPage() {
     setSaveState("saved");
     setReviewOpen(false);
     seededServicesRef.current = null;
+    // Collapse crowded Link + project list when mark-up starts; keep Drawings/Draw as open.
+    setRailAccordions((prev) => ({
+      ...prev,
+      projects: !selectedId,
+      link: false,
+      drawings: true,
+      draw: true,
+      more: false,
+    }));
   }, [selectedId]);
+
+  const toggleRailAccordion = useCallback((key: keyof typeof railAccordions) => {
+    setRailAccordions((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
 
   useEffect(() => {
     void refreshTakeoffAudit(selectedId);
@@ -1668,25 +1689,28 @@ export default function TakeoffStudioPage() {
         </div>
       ) : null}
 
-      {(notice || error) ? (
-        <div className={`nexa-studio-banner ${error ? "error" : "ok"}`}>{error || notice}</div>
-      ) : null}
+      {/* Banners overlay canvas — never steal body height from the absolute rail. */}
+      <div className="nexa-studio-banner-stack" aria-live="polite">
+        {(notice || error) ? (
+          <div className={`nexa-studio-banner ${error ? "error" : "ok"}`}>{error || notice}</div>
+        ) : null}
 
-      {selected && activeDoc && !studio.scales.some((row) => row.documentId === activeDoc.id && row.page === (studio.activePage || 1)) ? (
-        <div className="nexa-studio-banner warn">
-          Set scale before measuring — 1:N chip or Scale tool → two points → metres.
-        </div>
-      ) : null}
+        {selected && activeDoc && !studio.scales.some((row) => row.documentId === activeDoc.id && row.page === (studio.activePage || 1)) ? (
+          <div className="nexa-studio-banner warn">
+            Set scale before measuring — 1:N chip or Scale tool → two points → metres.
+          </div>
+        ) : null}
 
-      {selected && hasPendingAiReview ? (
-        <div className="nexa-studio-banner warn nexa-studio-ai-review-banner">
-          <span>
-            Blake: {aiReviewPinCount || blakePinCount} fixture pin{(aiReviewPinCount || blakePinCount) === 1 ? "" : "s"} to confirm
-            {blakePipeRunCount > 0 ? ` · ${blakePipeRunCount} pipe run(s) in BOQ` : ""}.
-          </span>
-          <button type="button" onClick={() => setReviewOpen(true)}>Review pins</button>
-        </div>
-      ) : null}
+        {selected && hasPendingAiReview ? (
+          <div className="nexa-studio-banner warn nexa-studio-ai-review-banner">
+            <span>
+              Blake: {aiReviewPinCount || blakePinCount} fixture pin{(aiReviewPinCount || blakePinCount) === 1 ? "" : "s"} to confirm
+              {blakePipeRunCount > 0 ? ` · ${blakePipeRunCount} pipe run(s) in BOQ` : ""}.
+            </span>
+            <button type="button" onClick={() => setReviewOpen(true)}>Review pins</button>
+          </div>
+        ) : null}
+      </div>
 
       <div className={`nexa-studio-body${railCollapsed ? " rail-collapsed" : ""}`}>
         <aside className={`nexa-studio-rail${railCollapsed ? " is-collapsed" : ""}`}>
@@ -1700,543 +1724,591 @@ export default function TakeoffStudioPage() {
             <span>{railCollapsed ? "Projects & tools" : "Hide projects"}</span>
             <strong>{selected?.reference || "Projects"}</strong>
           </button>
-          <div className="nexa-studio-rail-head">
-            <header>
-              <FolderOpen size={15} />
+
+          <section className={`nexa-studio-rail-acc${railAccordions.projects ? " is-open" : ""}`}>
+            <button
+              type="button"
+              className="nexa-studio-rail-acc-toggle"
+              aria-expanded={railAccordions.projects}
+              onClick={() => toggleRailAccordion("projects")}
+            >
+              <FolderOpen size={14} aria-hidden />
               <h2>Projects</h2>
               {selected ? <strong className="nexa-studio-rail-active">{selected.reference}</strong> : null}
-            </header>
-            <div className="nexa-studio-create">
-              <input
-                value={draftName}
-                onChange={(e) => setDraftName(e.target.value)}
-                placeholder="New project name"
-              />
-              <button type="button" className="nexa-studio-primary" disabled={busy === "create"} onClick={() => void createProject()}>
-                {busy === "create" ? <Loader2 className="spin" size={14} /> : <Plus size={14} />}
-                New
-              </button>
-            </div>
-          </div>
-          <div className="nexa-studio-rail-body">
-          <section className="nexa-studio-project-section">
-            <div className="nexa-studio-project-list">
-              {projects.map((project) => (
-                <div key={project.id} className={`nexa-studio-project-row${project.id === selectedId ? " on" : ""}`}>
-                  <button
-                    type="button"
-                    className="nexa-studio-project-pick"
-                    onClick={() => {
-                      setSelectedId(project.id);
-                      setBoqOpen(false);
-                    }}
-                  >
-                    <strong>{project.reference}</strong>
-                    <span>{project.name}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="nexa-studio-project-delete"
-                    aria-label={`Delete ${project.reference}`}
-                    title="Delete project"
-                    disabled={busy === `delete-${project.id}`}
-                    onClick={() => void deleteProject(project.id, project.reference)}
-                  >
-                    {busy === `delete-${project.id}` ? <Loader2 className="spin" size={13} /> : <Trash2 size={13} />}
-                  </button>
-                </div>
-              ))}
-            </div>
-            <p className="muted nexa-studio-hint">Projects stay until you delete them — finishing a takeoff does not remove them.</p>
-          </section>
-
-          {selected ? (
-            <>
-              <section className="nexa-studio-core-link">
-                <header>
-                  <h2>Link tender</h2>
-                </header>
-                <label>
-                  Tender
-                  <select
-                    value={selected.sourceTenderId || ""}
-                    onChange={(e) => {
-                      const sourceTenderId = e.target.value || undefined;
-                      void persistStudio(studio, { sourceTenderId });
-                    }}
-                  >
-                    <option value="">Select Core tender</option>
-                    {tenders.map((tender) => (
-                      <option key={tender.id} value={tender.id}>
-                        {tender.externalId ? `${tender.externalId} · ` : ""}
-                        {tender.name} · {tender.client}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {linkedTender ? (
-                  <a className="ghost link" href={`/?view=tenders`}>
-                    Open tenders in Core
-                    <ExternalLink size={13} />
-                  </a>
-                ) : (
-                  <p className="muted">Optional — pick the opportunity this takeoff belongs to.</p>
-                )}
-              </section>
-
-              <section className="nexa-studio-core-link">
-                <header>
-                  <h2>Link quote</h2>
-                </header>
-                <label>
-                  Quote
-                  <select
-                    value={selected.linkedQuoteId || ""}
-                    onChange={(e) => {
-                      const linkedQuoteId = e.target.value || undefined;
-                      void persistStudio(studio, { linkedQuoteId });
-                    }}
-                  >
-                    <option value="">Select Core quote</option>
-                    {quotes.map((quote) => (
-                      <option key={quote.id} value={quote.id}>
-                        {quote.ref} · {quote.customer}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {linkedQuote ? (
-                  <a className="ghost link" href={`/?quote=${encodeURIComponent(linkedQuote.id)}`}>
-                    Open {linkedQuote.ref} in Core
-                    <ExternalLink size={13} />
-                  </a>
-                ) : null}
-                <div className="nexa-studio-push-actions">
-                  <button
-                    type="button"
-                    className="nexa-studio-primary"
-                    disabled={busy === "push"}
-                    onClick={() => void pushToCore()}
-                  >
-                    {busy === "push" ? <Loader2 className="spin" size={14} /> : null}
-                    {selected.linkedQuoteId ? "Push BOQ + drawings" : "Push to new quote"}
-                  </button>
-                  {selected.linkedQuoteId ? (
-                    <button
-                      type="button"
-                      className="ghost"
-                      disabled={busy === "push"}
-                      onClick={() => void pushToCore({ createNew: true })}
-                    >
-                      New quote instead
-                    </button>
-                  ) : null}
-                </div>
-              </section>
-
-              {!boqOpen ? (
-                <section>
-                  <header>
-                    <h2>Drawings</h2>
-                  </header>
-                  <FileDropZone
-                    accept="application/pdf,.pdf"
-                    multiple
-                    disabled={busy === "upload" || !selected}
-                    label={busy === "upload" ? "Uploading…" : "Drop PDF plans here or click"}
-                    hint="PDF drawing sets"
-                    onFiles={(files) => void uploadDrawingFiles(files)}
-                    className="nexa-studio-drawing-drop"
+              <ChevronDown size={14} aria-hidden />
+            </button>
+            {railAccordions.projects ? (
+              <div className="nexa-studio-rail-acc-body">
+                <div className="nexa-studio-create">
+                  <input
+                    value={draftName}
+                    onChange={(e) => setDraftName(e.target.value)}
+                    placeholder="New project name"
                   />
-                  <div className="nexa-studio-doc-list">
-                    {drawingDocs.length ? drawingDocs.map((doc: TakeoffDocument) => (
-                      <button
-                        key={doc.id}
-                        type="button"
-                        className={doc.id === activeDoc?.id ? "on" : undefined}
-                        onClick={() => void persistStudio({ ...studio, activeDocumentId: doc.id, activePage: 1 })}
-                      >
-                        {doc.fileName}
-                      </button>
-                    )) : <p className="muted">Upload a PDF plan set.</p>}
-                  </div>
-                </section>
-              ) : null}
-
-              <section>
-                <header>
-                  <h2>Layers</h2>
-                </header>
-                <div className="nexa-studio-layer-list" role="tablist" aria-label="Service layers">
-                  {studioLayers.map((layer) => (
-                    <div key={layer.id} className={`nexa-studio-layer-row${activeLayerId === layer.id ? " on" : ""}`}>
+                  <button type="button" className="nexa-studio-primary" disabled={busy === "create"} onClick={() => void createProject()}>
+                    {busy === "create" ? <Loader2 className="spin" size={14} /> : <Plus size={14} />}
+                    New
+                  </button>
+                </div>
+                <div className="nexa-studio-project-list">
+                  {projects.map((project) => (
+                    <div key={project.id} className={`nexa-studio-project-row${project.id === selectedId ? " on" : ""}`}>
                       <button
                         type="button"
-                        role="tab"
-                        aria-selected={activeLayerId === layer.id}
-                        className={activeLayerId === layer.id ? "on" : undefined}
-                        onClick={() => void persistStudio(setStudioActiveLayer(studio, layer.id))}
+                        className="nexa-studio-project-pick"
+                        onClick={() => {
+                          setSelectedId(project.id);
+                          setBoqOpen(false);
+                        }}
                       >
-                        {layer.label}
+                        <strong>{project.reference}</strong>
+                        <span>{project.name}</span>
                       </button>
-                      {layer.id !== "all" && (studio.customLayers || []).some((row) => row.id === layer.id) ? (
-                        <button
-                          type="button"
-                          className="nexa-studio-layer-delete"
-                          aria-label={`Remove ${layer.label}`}
-                          title="Remove custom layer"
-                          onClick={() => void persistStudio(removeCustomStudioLayer(studio, String(layer.id)))}
-                        >
-                          ×
-                        </button>
-                      ) : null}
+                      <button
+                        type="button"
+                        className="nexa-studio-project-delete"
+                        aria-label={`Delete ${project.reference}`}
+                        title="Delete project"
+                        disabled={busy === `delete-${project.id}`}
+                        onClick={() => void deleteProject(project.id, project.reference)}
+                      >
+                        {busy === `delete-${project.id}` ? <Loader2 className="spin" size={13} /> : <Trash2 size={13} />}
+                      </button>
                     </div>
                   ))}
                 </div>
-                <div className="nexa-studio-create class">
-                  <input
-                    value={newLayerName}
-                    onChange={(e) => setNewLayerName(e.target.value)}
-                    placeholder="New layer (e.g. Ventilation)"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") addCustomLayer();
-                    }}
-                  />
-                  <button type="button" className="ghost" onClick={addCustomLayer}>
-                    <Plus size={14} />
-                    Add
-                  </button>
-                </div>
-                {!boqOpen ? (
-                  <div className="nexa-studio-layer-actions">
-                    <button
-                      type="button"
-                      className="ghost"
-                      disabled={busy === "save-layer" || !activeDoc}
-                      onClick={() => {
-                        setBusy("save-layer");
-                        void saveStudioLayerDrawing(activeLayerId)
-                          .finally(() => setBusy(null));
-                      }}
-                    >
-                      {busy === "save-layer" ? <Loader2 className="spin" size={14} /> : null}
-                      Save this layer
-                    </button>
-                    <button
-                      type="button"
-                      className="nexa-studio-primary"
-                      disabled={busy === "save-layers" || !activeDoc}
-                      onClick={() => {
-                        setBusy("save-layers");
-                        void saveAllStudioLayerDrawings()
-                          .finally(() => setBusy(null));
-                      }}
-                    >
-                      {busy === "save-layers" ? <Loader2 className="spin" size={14} /> : null}
-                      Save all layers to quote
-                    </button>
-                  </div>
-                ) : null}
-              </section>
+              </div>
+            ) : null}
+          </section>
 
-              <section className="nexa-studio-boq-rail">
-                <header>
-                  <h2>Bill of quantities</h2>
-                </header>
+          {selected ? (
+            <div className="nexa-studio-rail-scroll">
+              <section className={`nexa-studio-rail-acc${railAccordions.link ? " is-open" : ""}`}>
                 <button
                   type="button"
-                  className={`nexa-studio-primary nexa-studio-boq-open${boqOpen ? " on" : ""}`}
-                  onClick={() => {
-                    setReviewOpen(false);
-                    setBoqOpen(true);
-                  }}
+                  className="nexa-studio-rail-acc-toggle"
+                  aria-expanded={railAccordions.link}
+                  onClick={() => toggleRailAccordion("link")}
                 >
-                  Open full BOQ · {boqForPanel.length || 0} lines
-                  {boqMaterialCost > 0 ? ` · £${boqMaterialCost.toFixed(0)}` : ""}
+                  <h2>Link</h2>
+                  <span className="nexa-studio-rail-acc-meta">
+                    {linkedTender || linkedQuote
+                      ? [linkedTender?.name, linkedQuote?.ref].filter(Boolean).join(" · ")
+                      : "Tender / quote"}
+                  </span>
+                  <ChevronDown size={14} aria-hidden />
                 </button>
-                {unscaledLinearCount > 0 ? (
-                  <p className="nexa-studio-boq-scale-warn">
-                    {unscaledLinearCount} run{unscaledLinearCount === 1 ? "" : "s"} need Set scale
-                    {unscaledLinearSummary.pageLabels.length
-                      ? ` — ${unscaledLinearSummary.pageLabels.join(", ")}`
-                      : ""}.
-                  </p>
-                ) : null}
-              </section>
-
-              {!boqOpen ? (
-                <section>
-                  <header>
-                    <h2>Draw as</h2>
-                  </header>
-                  <div className="nexa-studio-class-list">
-                    {visibleClassifications.map((cls) => {
-                      const qty = quantities.find((row) => row.classificationId === cls.id);
-                      const isActive = cls.id === studio.activeClassificationId;
-                      const activeSpecId = studio.activePipeSpecId || DEFAULT_STUDIO_PIPE_SPEC_ID;
-                      const activeSpec = STUDIO_PIPE_SPECS.find((spec) => spec.id === activeSpecId);
-                      return (
-                        <div
-                          key={cls.id}
-                          className={`nexa-studio-class-row${isActive ? " on" : ""}`}
-                        >
-                          <div className="nexa-studio-class-row-main">
-                            <label className="nexa-studio-class-colour" title="Pipe / mark colour">
-                              <span style={{ background: cls.colour }} />
-                              <input
-                                type="color"
-                                value={/^#[0-9a-fA-F]{6}$/.test(cls.colour) ? cls.colour : "#2878c8"}
-                                aria-label={`Colour for ${cls.name}`}
-                                onChange={(e) => {
-                                  void persistStudio(setClassificationColour(studio, cls.id, e.target.value));
-                                }}
-                              />
-                            </label>
-                            <button
-                              type="button"
-                              className="nexa-studio-class-pick"
-                              aria-expanded={isActive && cls.kind === "linear" ? drawSizesOpen : undefined}
-                              onClick={() => {
-                                if (isActive && cls.kind === "linear") {
-                                  setDrawSizesOpen((open) => !open);
-                                  return;
-                                }
-                                void persistStudio({
-                                  ...studio,
-                                  activeClassificationId: cls.id,
-                                  tool: cls.kind,
-                                  activeLayerId: classificationLayer(cls),
-                                });
-                                setDrawSizesOpen(cls.kind === "linear");
-                              }}
-                            >
-                              <span>
-                                <strong>{cls.name}</strong>
-                                <small>
-                                  {cls.kind}
-                                  {cls.kind === "linear" && isActive && activeSpec
-                                    ? ` · ${activeSpec.label}`
-                                    : ""}
-                                  {" · "}
-                                  {qty?.pieces || 0} item{(qty?.pieces || 0) === 1 ? "" : "s"}
-                                </small>
-                              </span>
-                              <em>
-                                {qty && qty.quantity > 0 ? `${qty.quantity} ${qty.unit}` : "—"}
-                              </em>
-                            </button>
-                            <button
-                              type="button"
-                              className="nexa-studio-class-delete"
-                              aria-label={`Delete ${cls.name}`}
-                              title="Delete classification"
-                              onClick={() => deleteClassification(cls.id)}
-                            >
-                              ×
-                            </button>
-                          </div>
-                          {isActive && cls.kind === "linear" ? (
-                            <div className={`nexa-studio-draw-sizes${drawSizesOpen ? " is-open" : ""}`}>
-                              <button
-                                type="button"
-                                className="nexa-studio-draw-sizes-toggle"
-                                aria-expanded={drawSizesOpen}
-                                onClick={() => setDrawSizesOpen((open) => !open)}
-                              >
-                                <span className="nexa-studio-draw-sizes-label">Size</span>
-                                <strong>{activeSpec?.label || "Pick"}</strong>
-                                <ChevronDown size={14} aria-hidden />
-                              </button>
-                              {drawSizesOpen ? (
-                                <div className="nexa-studio-draw-sizes-chips" role="group" aria-label={`Pipe size for ${cls.name}`}>
-                                  {STUDIO_PIPE_SPECS.map((spec) => {
-                                    const active = activeSpecId === spec.id;
-                                    return (
-                                      <button
-                                        key={spec.id}
-                                        type="button"
-                                        className={active ? "on" : undefined}
-                                        onClick={() => {
-                                          void persistStudio({ ...studio, activePipeSpecId: spec.id, tool: "linear" });
-                                          if (selected) {
-                                            recordTakeoffLearningClient({
-                                              type: "pipe_spec_choice",
-                                              projectId: selected.id,
-                                              pipeSpecId: spec.id,
-                                              trade: "plumbing",
-                                            });
-                                          }
-                                        }}
-                                        title={`${spec.diameter} ${spec.material}${spec.autoCouplings ? ` · couplings every ${spec.stockLengthM}m` : ""}${spec.autoElbows ? " · auto elbows" : ""}`}
-                                      >
-                                        {spec.label}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              ) : null}
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="nexa-studio-create class">
-                    <select value={newClassKind} onChange={(e) => setNewClassKind(e.target.value as StudioClassKind)}>
-                      <option value="linear">Linear</option>
-                      <option value="count">Count</option>
-                      <option value="area">Area</option>
-                    </select>
-                    <input
-                      type="color"
-                      value={newClassColour}
-                      onChange={(e) => setNewClassColour(e.target.value)}
-                      aria-label="New classification colour"
-                      title="Colour"
-                    />
-                    <input value={newClassName} onChange={(e) => setNewClassName(e.target.value)} placeholder="Name" />
-                    <button type="button" className="ghost" onClick={addClassification}>Add</button>
-                  </div>
-                </section>
-              ) : null}
-
-              <section className="nexa-studio-rates-rail">
-                <header>
-                  <h2>Rates &amp; assemblies</h2>
-                  <button type="button" className="ghost" onClick={() => setRatesOpen((open) => !open)}>
-                    {ratesOpen ? "Hide" : "Edit"}
-                  </button>
-                </header>
-                <p className="muted nexa-studio-hint">
-                  Edit £ rates for pipe/fittings/fixtures. Assembly kits (WC / WHB / rad) add ancillaries on Push.
-                </p>
-                {ratesOpen && rateLibrary ? (
-                  <div className="nexa-studio-rates-editor">
-                    <strong className="nexa-studio-rates-heading">Unit rates</strong>
-                    <ul className="nexa-studio-rates-list">
-                      {rateLibrary.rates.map((row) => (
-                        <li key={row.id}>
-                          <span>
-                            {row.label}
-                            <small>{row.unit}</small>
-                          </span>
-                          <label>
-                            £
-                            <input
-                              inputMode="decimal"
-                              value={String(row.unitCost)}
-                              onChange={(e) => patchRateCost(row.id, Number(e.target.value))}
-                              aria-label={`${row.label} unit cost`}
-                            />
-                          </label>
-                        </li>
-                      ))}
-                    </ul>
-                    <strong className="nexa-studio-rates-heading">Assemblies on Push</strong>
-                    <ul className="nexa-studio-assembly-list">
-                      {rateLibrary.assemblies.map((kit) => (
-                        <li key={kit.id}>
-                          <label>
-                            <input
-                              type="checkbox"
-                              checked={kit.enabled}
-                              onChange={(e) => patchAssemblyEnabled(kit.id, e.target.checked)}
-                            />
-                            <span>
-                              {kit.label}
-                              <small>{kit.lines.length} ancillaries</small>
-                            </span>
-                          </label>
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="nexa-studio-rates-actions">
+                {railAccordions.link ? (
+                  <div className="nexa-studio-rail-acc-body nexa-studio-core-link">
+                    <label>
+                      Tender
+                      <select
+                        value={selected.sourceTenderId || ""}
+                        onChange={(e) => {
+                          const sourceTenderId = e.target.value || undefined;
+                          void persistStudio(studio, { sourceTenderId });
+                        }}
+                      >
+                        <option value="">Select Core tender</option>
+                        {tenders.map((tender) => (
+                          <option key={tender.id} value={tender.id}>
+                            {tender.externalId ? `${tender.externalId} · ` : ""}
+                            {tender.name} · {tender.client}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {linkedTender ? (
+                      <a className="ghost link" href={`/?view=tenders`}>
+                        Open tenders in Core
+                        <ExternalLink size={13} />
+                      </a>
+                    ) : null}
+                    <label>
+                      Quote
+                      <select
+                        value={selected.linkedQuoteId || ""}
+                        onChange={(e) => {
+                          const linkedQuoteId = e.target.value || undefined;
+                          void persistStudio(studio, { linkedQuoteId });
+                        }}
+                      >
+                        <option value="">Select Core quote</option>
+                        {quotes.map((quote) => (
+                          <option key={quote.id} value={quote.id}>
+                            {quote.ref} · {quote.customer}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {linkedQuote ? (
+                      <a className="ghost link" href={`/?quote=${encodeURIComponent(linkedQuote.id)}`}>
+                        Open {linkedQuote.ref} in Core
+                        <ExternalLink size={13} />
+                      </a>
+                    ) : null}
+                    <div className="nexa-studio-push-actions">
                       <button
                         type="button"
                         className="nexa-studio-primary"
-                        disabled={ratesBusy}
-                        onClick={() => rateLibrary && void saveRateLibrary(rateLibrary)}
+                        disabled={busy === "push"}
+                        onClick={() => void pushToCore()}
                       >
-                        {ratesBusy ? <Loader2 className="spin" size={14} /> : null}
-                        Save rates
+                        {busy === "push" ? <Loader2 className="spin" size={14} /> : null}
+                        {selected.linkedQuoteId ? "Push BOQ + drawings" : "Push to new quote"}
                       </button>
-                      <button
-                        type="button"
-                        className="ghost"
-                        disabled={ratesBusy}
-                        onClick={() => {
-                          void (async () => {
-                            setRatesBusy(true);
-                            try {
-                              const response = await apiFetch("/api/takeoff-rates", {
-                                method: "PUT",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ reset: true }),
-                              });
-                              const body = (await response.json().catch(() => ({}))) as {
-                                library?: TakeoffRateLibrary;
-                                error?: string;
-                              };
-                              if (!response.ok || !body.library) throw new Error(body.error || "Reset failed");
-                              setRateLibrary(body.library);
-                              show("Rates reset to defaults.", 6000);
-                            } catch (err) {
-                              setError(err instanceof Error ? err.message : "Reset failed");
-                            } finally {
-                              setRatesBusy(false);
-                            }
-                          })();
-                        }}
-                      >
-                        Reset defaults
-                      </button>
+                      {selected.linkedQuoteId ? (
+                        <button
+                          type="button"
+                          className="ghost"
+                          disabled={busy === "push"}
+                          onClick={() => void pushToCore({ createNew: true })}
+                        >
+                          New quote instead
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 ) : null}
               </section>
 
-              <section className="nexa-studio-audit-rail" aria-label="Takeoff log">
-                <header>
-                  <h2>Log</h2>
-                  <button type="button" className="ghost" onClick={() => setLogOpen((open) => !open)}>
-                    {logOpen ? "Hide" : "Show"}
+              {!boqOpen ? (
+                <section className={`nexa-studio-rail-acc${railAccordions.drawings ? " is-open" : ""}`}>
+                  <button
+                    type="button"
+                    className="nexa-studio-rail-acc-toggle"
+                    aria-expanded={railAccordions.drawings}
+                    onClick={() => toggleRailAccordion("drawings")}
+                  >
+                    <h2>Drawings</h2>
+                    <span className="nexa-studio-rail-acc-meta">
+                      {activeDoc?.fileName || `${drawingDocs.length} PDF`}
+                    </span>
+                    <ChevronDown size={14} aria-hidden />
                   </button>
-                </header>
-                {logOpen ? (
-                  <>
-                    <p className="muted nexa-studio-hint">
-                      Blake runs, AI confirm/reject, and rate library saves for this takeoff.
-                    </p>
+                  {railAccordions.drawings ? (
+                    <div className="nexa-studio-rail-acc-body">
+                      <FileDropZone
+                        accept="application/pdf,.pdf"
+                        multiple
+                        disabled={busy === "upload" || !selected}
+                        label={busy === "upload" ? "Uploading…" : "Drop PDF or click"}
+                        hint="PDF drawing sets"
+                        onFiles={(files) => void uploadDrawingFiles(files)}
+                        className="nexa-studio-drawing-drop"
+                      />
+                      <div className="nexa-studio-doc-list">
+                        {drawingDocs.length ? drawingDocs.map((doc: TakeoffDocument) => (
+                          <button
+                            key={doc.id}
+                            type="button"
+                            className={doc.id === activeDoc?.id ? "on" : undefined}
+                            onClick={() => void persistStudio({ ...studio, activeDocumentId: doc.id, activePage: 1 })}
+                          >
+                            {doc.fileName}
+                          </button>
+                        )) : <p className="muted">Upload a PDF plan set.</p>}
+                      </div>
+                      <div className="nexa-studio-layer-list nexa-studio-layer-list-compact" role="tablist" aria-label="Service layers">
+                        {studioLayers.map((layer) => (
+                          <div key={layer.id} className={`nexa-studio-layer-row${activeLayerId === layer.id ? " on" : ""}`}>
+                            <button
+                              type="button"
+                              role="tab"
+                              aria-selected={activeLayerId === layer.id}
+                              className={activeLayerId === layer.id ? "on" : undefined}
+                              onClick={() => void persistStudio(setStudioActiveLayer(studio, layer.id))}
+                            >
+                              {layer.label}
+                            </button>
+                            {layer.id !== "all" && (studio.customLayers || []).some((row) => row.id === layer.id) ? (
+                              <button
+                                type="button"
+                                className="nexa-studio-layer-delete"
+                                aria-label={`Remove ${layer.label}`}
+                                title="Remove custom layer"
+                                onClick={() => void persistStudio(removeCustomStudioLayer(studio, String(layer.id)))}
+                              >
+                                ×
+                              </button>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="nexa-studio-create class">
+                        <input
+                          value={newLayerName}
+                          onChange={(e) => setNewLayerName(e.target.value)}
+                          placeholder="New layer"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") addCustomLayer();
+                          }}
+                        />
+                        <button type="button" className="ghost" onClick={addCustomLayer}>
+                          <Plus size={14} />
+                          Add
+                        </button>
+                      </div>
+                      <div className="nexa-studio-layer-actions">
+                        <button
+                          type="button"
+                          className="ghost"
+                          disabled={busy === "save-layer" || !activeDoc}
+                          onClick={() => {
+                            setBusy("save-layer");
+                            void saveStudioLayerDrawing(activeLayerId)
+                              .finally(() => setBusy(null));
+                          }}
+                        >
+                          {busy === "save-layer" ? <Loader2 className="spin" size={14} /> : null}
+                          Save layer
+                        </button>
+                        <button
+                          type="button"
+                          className="nexa-studio-primary"
+                          disabled={busy === "save-layers" || !activeDoc}
+                          onClick={() => {
+                            setBusy("save-layers");
+                            void saveAllStudioLayerDrawings()
+                              .finally(() => setBusy(null));
+                          }}
+                        >
+                          {busy === "save-layers" ? <Loader2 className="spin" size={14} /> : null}
+                          Save all
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
+
+              {!boqOpen ? (
+                <section className={`nexa-studio-rail-acc${railAccordions.draw ? " is-open" : ""}`}>
+                  <button
+                    type="button"
+                    className="nexa-studio-rail-acc-toggle"
+                    aria-expanded={railAccordions.draw}
+                    onClick={() => toggleRailAccordion("draw")}
+                  >
+                    <h2>Draw as</h2>
+                    <span className="nexa-studio-rail-acc-meta">
+                      {activeClass?.name || `${visibleClassifications.length} tools`}
+                    </span>
+                    <ChevronDown size={14} aria-hidden />
+                  </button>
+                  {railAccordions.draw ? (
+                    <div className="nexa-studio-rail-acc-body">
+                      <button
+                        type="button"
+                        className={`nexa-studio-primary nexa-studio-boq-open${boqOpen ? " on" : ""}`}
+                        onClick={() => {
+                          setReviewOpen(false);
+                          setBoqOpen(true);
+                        }}
+                      >
+                        BOQ · {boqForPanel.length || 0}
+                        {boqMaterialCost > 0 ? ` · £${boqMaterialCost.toFixed(0)}` : ""}
+                      </button>
+                      {unscaledLinearCount > 0 ? (
+                        <p className="nexa-studio-boq-scale-warn">
+                          {unscaledLinearCount} run{unscaledLinearCount === 1 ? "" : "s"} need Set scale
+                          {unscaledLinearSummary.pageLabels.length
+                            ? ` — ${unscaledLinearSummary.pageLabels.join(", ")}`
+                            : ""}.
+                        </p>
+                      ) : null}
+                      <div className="nexa-studio-class-list">
+                        {visibleClassifications.map((cls) => {
+                          const qty = quantities.find((row) => row.classificationId === cls.id);
+                          const isActive = cls.id === studio.activeClassificationId;
+                          const activeSpecId = studio.activePipeSpecId || DEFAULT_STUDIO_PIPE_SPEC_ID;
+                          const activeSpec = STUDIO_PIPE_SPECS.find((spec) => spec.id === activeSpecId);
+                          return (
+                            <div
+                              key={cls.id}
+                              className={`nexa-studio-class-row${isActive ? " on" : ""}`}
+                            >
+                              <div className="nexa-studio-class-row-main">
+                                <label className="nexa-studio-class-colour" title="Pipe / mark colour">
+                                  <span style={{ background: cls.colour }} />
+                                  <input
+                                    type="color"
+                                    value={/^#[0-9a-fA-F]{6}$/.test(cls.colour) ? cls.colour : "#2878c8"}
+                                    aria-label={`Colour for ${cls.name}`}
+                                    onChange={(e) => {
+                                      void persistStudio(setClassificationColour(studio, cls.id, e.target.value));
+                                    }}
+                                  />
+                                </label>
+                                <button
+                                  type="button"
+                                  className="nexa-studio-class-pick"
+                                  aria-expanded={isActive && cls.kind === "linear" ? drawSizesOpen : undefined}
+                                  onClick={() => {
+                                    if (isActive && cls.kind === "linear") {
+                                      setDrawSizesOpen((open) => !open);
+                                      return;
+                                    }
+                                    void persistStudio({
+                                      ...studio,
+                                      activeClassificationId: cls.id,
+                                      tool: cls.kind,
+                                      activeLayerId: classificationLayer(cls),
+                                    });
+                                    setDrawSizesOpen(cls.kind === "linear");
+                                  }}
+                                >
+                                  <span>
+                                    <strong>{cls.name}</strong>
+                                    <small>
+                                      {cls.kind}
+                                      {cls.kind === "linear" && isActive && activeSpec
+                                        ? ` · ${activeSpec.label}`
+                                        : ""}
+                                      {" · "}
+                                      {qty?.pieces || 0} item{(qty?.pieces || 0) === 1 ? "" : "s"}
+                                    </small>
+                                  </span>
+                                  <em>
+                                    {qty && qty.quantity > 0 ? `${qty.quantity} ${qty.unit}` : "—"}
+                                  </em>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="nexa-studio-class-delete"
+                                  aria-label={`Delete ${cls.name}`}
+                                  title="Delete classification"
+                                  onClick={() => deleteClassification(cls.id)}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                              {isActive && cls.kind === "linear" ? (
+                                <div className={`nexa-studio-draw-sizes${drawSizesOpen ? " is-open" : ""}`}>
+                                  <button
+                                    type="button"
+                                    className="nexa-studio-draw-sizes-toggle"
+                                    aria-expanded={drawSizesOpen}
+                                    onClick={() => setDrawSizesOpen((open) => !open)}
+                                  >
+                                    <span className="nexa-studio-draw-sizes-label">Size</span>
+                                    <strong>{activeSpec?.label || "Pick"}</strong>
+                                    <ChevronDown size={14} aria-hidden />
+                                  </button>
+                                  {drawSizesOpen ? (
+                                    <div className="nexa-studio-draw-sizes-chips" role="group" aria-label={`Pipe size for ${cls.name}`}>
+                                      {STUDIO_PIPE_SPECS.map((spec) => {
+                                        const active = activeSpecId === spec.id;
+                                        return (
+                                          <button
+                                            key={spec.id}
+                                            type="button"
+                                            className={active ? "on" : undefined}
+                                            onClick={() => {
+                                              void persistStudio({ ...studio, activePipeSpecId: spec.id, tool: "linear" });
+                                              if (selected) {
+                                                recordTakeoffLearningClient({
+                                                  type: "pipe_spec_choice",
+                                                  projectId: selected.id,
+                                                  pipeSpecId: spec.id,
+                                                  trade: "plumbing",
+                                                });
+                                              }
+                                            }}
+                                            title={`${spec.diameter} ${spec.material}${spec.autoCouplings ? ` · couplings every ${spec.stockLengthM}m` : ""}${spec.autoElbows ? " · auto elbows" : ""}`}
+                                          >
+                                            {spec.label}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="nexa-studio-create class">
+                        <select value={newClassKind} onChange={(e) => setNewClassKind(e.target.value as StudioClassKind)}>
+                          <option value="linear">Linear</option>
+                          <option value="count">Count</option>
+                          <option value="area">Area</option>
+                        </select>
+                        <input
+                          type="color"
+                          value={newClassColour}
+                          onChange={(e) => setNewClassColour(e.target.value)}
+                          aria-label="New classification colour"
+                          title="Colour"
+                        />
+                        <input value={newClassName} onChange={(e) => setNewClassName(e.target.value)} placeholder="Name" />
+                        <button type="button" className="ghost" onClick={addClassification}>Add</button>
+                      </div>
+                    </div>
+                  ) : null}
+                </section>
+              ) : (
+                <section className="nexa-studio-rail-acc is-open">
+                  <div className="nexa-studio-rail-acc-body">
                     <button
                       type="button"
-                      className="ghost"
-                      onClick={() => void refreshTakeoffAudit(selectedId)}
-                      title="Refresh takeoff audit"
+                      className={`nexa-studio-primary nexa-studio-boq-open on`}
+                      onClick={() => {
+                        setReviewOpen(false);
+                        setBoqOpen(true);
+                      }}
                     >
-                      Refresh
+                      Full BOQ · {boqForPanel.length || 0}
                     </button>
-                    {takeoffAudit.length ? (
-                      <ul className="nexa-studio-audit-list">
-                        {takeoffAudit.map((event) => (
-                          <li key={event.id}>
-                            <strong>{event.summary}</strong>
-                            <span>
-                              {event.actor} · {formatAuditWhen(event.createdAt)}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="muted">No takeoff log yet — Ask Blake or save rates to start the trail.</p>
-                    )}
-                  </>
-                ) : (
-                  <p className="muted nexa-studio-hint">Hidden by default so mark-up stays clear.</p>
-                )}
+                  </div>
+                </section>
+              )}
+
+              <section className={`nexa-studio-rail-acc${railAccordions.more ? " is-open" : ""}`}>
+                <button
+                  type="button"
+                  className="nexa-studio-rail-acc-toggle"
+                  aria-expanded={railAccordions.more}
+                  onClick={() => toggleRailAccordion("more")}
+                >
+                  <h2>More</h2>
+                  <span className="nexa-studio-rail-acc-meta">Rates · log</span>
+                  <ChevronDown size={14} aria-hidden />
+                </button>
+                {railAccordions.more ? (
+                  <div className="nexa-studio-rail-acc-body">
+                    <section className="nexa-studio-rates-rail">
+                      <header>
+                        <h2>Rates &amp; assemblies</h2>
+                        <button type="button" className="ghost" onClick={() => setRatesOpen((open) => !open)}>
+                          {ratesOpen ? "Hide" : "Edit"}
+                        </button>
+                      </header>
+                      {ratesOpen && rateLibrary ? (
+                        <div className="nexa-studio-rates-editor">
+                          <strong className="nexa-studio-rates-heading">Unit rates</strong>
+                          <ul className="nexa-studio-rates-list">
+                            {rateLibrary.rates.map((row) => (
+                              <li key={row.id}>
+                                <span>
+                                  {row.label}
+                                  <small>{row.unit}</small>
+                                </span>
+                                <label>
+                                  £
+                                  <input
+                                    inputMode="decimal"
+                                    value={String(row.unitCost)}
+                                    onChange={(e) => patchRateCost(row.id, Number(e.target.value))}
+                                    aria-label={`${row.label} unit cost`}
+                                  />
+                                </label>
+                              </li>
+                            ))}
+                          </ul>
+                          <strong className="nexa-studio-rates-heading">Assemblies on Push</strong>
+                          <ul className="nexa-studio-assembly-list">
+                            {rateLibrary.assemblies.map((kit) => (
+                              <li key={kit.id}>
+                                <label>
+                                  <input
+                                    type="checkbox"
+                                    checked={kit.enabled}
+                                    onChange={(e) => patchAssemblyEnabled(kit.id, e.target.checked)}
+                                  />
+                                  <span>
+                                    {kit.label}
+                                    <small>{kit.lines.length} ancillaries</small>
+                                  </span>
+                                </label>
+                              </li>
+                            ))}
+                          </ul>
+                          <div className="nexa-studio-rates-actions">
+                            <button
+                              type="button"
+                              className="nexa-studio-primary"
+                              disabled={ratesBusy}
+                              onClick={() => rateLibrary && void saveRateLibrary(rateLibrary)}
+                            >
+                              {ratesBusy ? <Loader2 className="spin" size={14} /> : null}
+                              Save rates
+                            </button>
+                            <button
+                              type="button"
+                              className="ghost"
+                              disabled={ratesBusy}
+                              onClick={() => {
+                                void (async () => {
+                                  setRatesBusy(true);
+                                  try {
+                                    const response = await apiFetch("/api/takeoff-rates", {
+                                      method: "PUT",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ reset: true }),
+                                    });
+                                    const body = (await response.json().catch(() => ({}))) as {
+                                      library?: TakeoffRateLibrary;
+                                      error?: string;
+                                    };
+                                    if (!response.ok || !body.library) throw new Error(body.error || "Reset failed");
+                                    setRateLibrary(body.library);
+                                    show("Rates reset to defaults.", 6000);
+                                  } catch (err) {
+                                    setError(err instanceof Error ? err.message : "Reset failed");
+                                  } finally {
+                                    setRatesBusy(false);
+                                  }
+                                })();
+                              }}
+                            >
+                              Reset defaults
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </section>
+
+                    <section className="nexa-studio-audit-rail" aria-label="Takeoff log">
+                      <header>
+                        <h2>Log</h2>
+                        <button type="button" className="ghost" onClick={() => setLogOpen((open) => !open)}>
+                          {logOpen ? "Hide" : "Show"}
+                        </button>
+                      </header>
+                      {logOpen ? (
+                        <>
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() => void refreshTakeoffAudit(selectedId)}
+                            title="Refresh takeoff audit"
+                          >
+                            Refresh
+                          </button>
+                          {takeoffAudit.length ? (
+                            <ul className="nexa-studio-audit-list">
+                              {takeoffAudit.map((event) => (
+                                <li key={event.id}>
+                                  <strong>{event.summary}</strong>
+                                  <span>
+                                    {event.actor} · {formatAuditWhen(event.createdAt)}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="muted">No takeoff log yet.</p>
+                          )}
+                        </>
+                      ) : null}
+                    </section>
+                  </div>
+                ) : null}
               </section>
-            </>
+            </div>
           ) : null}
-          </div>
         </aside>
 
         <main className="nexa-studio-main">
