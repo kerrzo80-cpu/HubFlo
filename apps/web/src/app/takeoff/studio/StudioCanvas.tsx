@@ -15,8 +15,8 @@ import { cacheTakeoffPdfBytes } from "@/lib/takeoff-pdf-browser";
 import {
   classificationLayer,
   polygonArea,
-  polylineLength,
   detectScaleRatioHints,
+  linearMeasuredMetres,
   metresPerUnitFromRatio,
   parseScaleRatioLabel,
   scaleForPage,
@@ -35,6 +35,7 @@ import {
   previewFittingsForDraft,
   removeLinearAndFittings,
   updateLinearPointsWithFittings,
+  updateLinearRiseDropM,
 } from "@/lib/takeoff-studio-pipe";
 import { recordTakeoffLearningClient } from "@/lib/takeoff-learning-client";
 
@@ -895,6 +896,14 @@ export default function StudioCanvas({
   const selectedAiLinear = Boolean(
     selectedGeo?.kind === "linear" && isAiStudioGeometry(selectedGeo),
   );
+  const selectedLinear = selectedGeo?.kind === "linear" ? selectedGeo : null;
+  const selectedLinearMetres = selectedLinear
+    ? linearMeasuredMetres(
+      selectedLinear.points,
+      scaleForPage(studio, selectedLinear.documentId, selectedLinear.page)?.metresPerUnit || 0,
+      selectedLinear.riseDropM,
+    )
+    : null;
 
   function handleUndo() {
     if (draftPoints.length) {
@@ -923,8 +932,8 @@ export default function StudioCanvas({
     },
     select: {
       label: "Edit",
-      title: "Select pins and pipe vertices. Drag vertices to trim AI/vision runs.",
-      hint: "Tap a pin or pipe vertex. Drag vertices to trim/extend a run — fittings refresh. Accept AI clears the dashed AI mark.",
+      title: "Select pins and pipe vertices. Drag vertices to trim AI/vision runs. Set rise/drop on selected Length runs.",
+      hint: "Tap a pin or pipe. Drag vertices to trim/extend — fittings refresh. On a Length run, set Rise / drop (m) in the bar below for ceiling→wall metres.",
     },
     count: {
       label: "Count",
@@ -1141,6 +1150,40 @@ export default function StudioCanvas({
             ? `${pageScale.label || "set"}`
             : "not set yet — use Set scale"}
         </span>
+        {selectedLinear ? (
+          <form
+            className="nexa-studio-scale-form nexa-studio-rise-form"
+            onSubmit={(event) => event.preventDefault()}
+          >
+            <label title="Extra vertical metres for a ceiling run into a wall drop (or rise). Added to plan length in the BOQ.">
+              Rise / drop (m)
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.1"
+                min="0"
+                value={selectedLinear.riseDropM ?? 0}
+                onChange={(event) => {
+                  const next = Number(event.target.value);
+                  onChange(updateLinearRiseDropM(
+                    studio,
+                    selectedLinear.id,
+                    Number.isFinite(next) ? next : 0,
+                  ));
+                }}
+              />
+            </label>
+            <span className="nexa-studio-rise-metres">
+              Run ≈{" "}
+              <strong>
+                {(selectedLinearMetres ?? 0).toFixed(2)} m
+              </strong>
+              {(selectedLinear.riseDropM || 0) > 0
+                ? ` (incl. ${Number(selectedLinear.riseDropM).toFixed(1)} m drop)`
+                : ""}
+            </span>
+          </form>
+        ) : null}
         {scaleHints.length && !pageScale ? (
           <div className="nexa-studio-scale-hints" role="group" aria-label="Scale found on drawing">
             <span>Found on sheet:</span>

@@ -33,10 +33,10 @@ import {
   fillMissingPageScalesFromDocument,
   importPipeRunsIntoStudio,
   importSkillCountsIntoStudio,
+  linearMeasuredMetres,
   mergeStudioScales,
   metresPerUnitFromRatio,
   parseScaleRatioLabel,
-  polylineLength,
   scaleForPage,
   studioHasAiPipeRuns,
   type StudioPageScale,
@@ -410,7 +410,7 @@ function pipeMetresFromStudio(
     if (geo.kind !== "linear" || geo.classificationId !== classId) continue;
     const scale = scaleForPage(studio, geo.documentId, geo.page);
     const mpu = scale?.metresPerUnit || 0;
-    metres += polylineLength(geo.points) * mpu;
+    metres += linearMeasuredMetres(geo.points, mpu, geo.riseDropM);
     pieces += 1;
   }
   return { metres: Math.round(metres * 100) / 100, pieces };

@@ -1650,6 +1650,21 @@
   min-height: 36px;
 }
 
+.nexa-studio-rise-form {
+  margin-left: auto;
+}
+
+.nexa-studio-rise-metres {
+  align-self: end;
+  padding-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.nexa-studio-rise-metres strong {
+  color: var(--ink);
+}
+
 .nexa-studio-empty,
 .nexa-studio-empty-main,
 .nexa-studio-gate {

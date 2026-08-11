@@ -111,6 +111,11 @@ export type StudioGeometry =
       diameter?: string;
       stockLengthM?: number;
       pipeSpecId?: string;
+      /**
+       * Vertical extra metres (ceiling→wall drop / rise) — not drawn in 2D.
+       * BoQ pipe m = plan length × scale + riseDropM (clamped ≥ 0).
+       */
+      riseDropM?: number;
     }
   | {
       id: string;
@@ -305,6 +310,25 @@ export function polylineLength(points: StudioPoint[]): number {
     total += Math.hypot(b.x - a.x, b.y - a.y);
   }
   return total;
+}
+
+/** Clamp vertical extra metres — never negative. */
+export function clampRiseDropM(value?: number | null): number {
+  if (value == null || !Number.isFinite(value)) return 0;
+  return Math.max(0, value);
+}
+
+/**
+ * Measured pipe metres for a Length run: plan polyline × scale + rise/drop.
+ * Rise/drop alone still counts when scale is missing (absolute metres).
+ */
+export function linearMeasuredMetres(
+  points: StudioPoint[],
+  metresPerUnit: number,
+  riseDropM?: number | null,
+): number {
+  const planM = metresPerUnit > 0 ? polylineLength(points) * metresPerUnit : 0;
+  return Math.max(0, planM + clampRiseDropM(riseDropM));
 }
 
 /** Shoelace area in page units². */
@@ -669,7 +693,7 @@ export function summariseStudioQuantities(studio: StudioState): StudioQuantityRo
       if (geo.kind === "count") {
         quantity += 1;
       } else if (geo.kind === "linear") {
-        quantity += polylineLength(geo.points) * mpu;
+        quantity += linearMeasuredMetres(geo.points, mpu, geo.riseDropM);
       } else if (geo.kind === "area" && geo.closed) {
         quantity += polygonArea(geo.points) * mpu * mpu;
       }

@@ -2,8 +2,8 @@
 
 import {
   classificationLayer,
+  linearMeasuredMetres,
   listStudioLayers,
-  polylineLength,
   polygonArea,
   scaleForPage,
   type StudioGeometry,
@@ -124,7 +124,7 @@ function buildLegend(
     current.count += 1;
     const scale = scaleForPage(studio, geo.documentId, geo.page);
     const mpu = scale?.metresPerUnit || 0;
-    if (geo.kind === "linear" && mpu) current.lengthM += polylineLength(geo.points) * mpu;
+    if (geo.kind === "linear") current.lengthM += linearMeasuredMetres(geo.points, mpu, geo.riseDropM);
     if (geo.kind === "area" && geo.closed && mpu) current.lengthM += polygonArea(geo.points) * mpu * mpu;
     byClass.set(cls.id, current);
   }

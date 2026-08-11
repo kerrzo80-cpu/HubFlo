@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { createDefaultStudioState, isAiStudioGeometry } from "./takeoff-studio";
+import {
+  clampRiseDropM,
+  createDefaultStudioState,
+  isAiStudioGeometry,
+  linearMeasuredMetres,
+} from "./takeoff-studio";
 import {
   appendLinearWithAutoFittings,
   couplingPointsAlongRun,
@@ -12,6 +17,7 @@ import {
   summariseStudioBoq,
   summariseStudioPipeBoq,
   updateLinearPointsWithFittings,
+  updateLinearRiseDropM,
 } from "./takeoff-studio-pipe";
 
 describe("studio pipe auto fittings", () => {
@@ -180,5 +186,119 @@ describe("studio pipe auto fittings", () => {
       (geo) => geo.kind === "count" && geo.fittingKind === "90-elbow" && geo.linkedLinearId === "ai-run-1",
     );
     assert.equal(elbows.length, 2);
+  });
+});
+
+describe("studio rise / drop metres", () => {
+  it("clamps rise/drop and adds vertical to plan metres", () => {
+    assert.equal(clampRiseDropM(-2), 0);
+    assert.equal(clampRiseDropM(undefined), 0);
+    // 100 units × 0.1 m/u = 10 m plan + 2.4 m drop
+    assert.equal(
+      linearMeasuredMetres([{ x: 0, y: 0 }, { x: 100, y: 0 }], 0.1, 2.4),
+      12.4,
+    );
+    assert.equal(
+      linearMeasuredMetres([{ x: 0, y: 0 }, { x: 100, y: 0 }], 0.1, -1),
+      10,
+    );
+    // Rise alone still counts when scale is missing
+    assert.equal(
+      linearMeasuredMetres([{ x: 0, y: 0 }, { x: 100, y: 0 }], 0, 2.4),
+      2.4,
+    );
+  });
+
+  it("includes rise/drop in BOQ metres and description note", () => {
+    let studio = createDefaultStudioState();
+    studio = {
+      ...studio,
+      scales: [{ documentId: "doc-1", page: 1, metresPerUnit: 0.1 }],
+    };
+    studio = appendLinearWithAutoFittings(studio, {
+      id: "run-drop",
+      classificationId: "cls-ai-P-PIPE-C",
+      kind: "linear",
+      documentId: "doc-1",
+      page: 1,
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+      ],
+      material: "Copper",
+      diameter: "22mm",
+      stockLengthM: 3,
+      pipeSpecId: "cu-22",
+      riseDropM: 2.4,
+    });
+    const pipeRows = summariseStudioPipeBoq(studio).filter((row) => row.unit === "m");
+    assert.equal(pipeRows.length, 1);
+    assert.equal(pipeRows[0]?.quantity, 12.4);
+    assert.match(pipeRows[0]?.description || "", /incl\. 2\.4 m drop/);
+
+    const elbows = studio.geometries.filter(
+      (geo) => geo.kind === "count" && geo.fittingKind === "90-elbow" && geo.linkedLinearId === "run-drop",
+    );
+    assert.equal(elbows.length, 1); // ceiling→wall elbow only (straight plan run)
+    assert.ok(elbows[0]?.id?.endsWith("-elbow-rise"));
+  });
+
+  it("persists rise/drop updates and regenerates the rise elbow", () => {
+    let studio = createDefaultStudioState();
+    studio = {
+      ...studio,
+      scales: [{ documentId: "doc-1", page: 1, metresPerUnit: 0.1 }],
+    };
+    studio = appendLinearWithAutoFittings(studio, {
+      id: "run-edit",
+      classificationId: "cls-ai-P-PIPE-H",
+      kind: "linear",
+      documentId: "doc-1",
+      page: 1,
+      points: [
+        { x: 0, y: 0 },
+        { x: 50, y: 0 },
+      ],
+      material: "Copper",
+      diameter: "15mm",
+      stockLengthM: 3,
+      pipeSpecId: "cu-15",
+    });
+    assert.equal(
+      summariseStudioPipeBoq(studio).find((row) => row.unit === "m")?.quantity,
+      5,
+    );
+
+    studio = updateLinearRiseDropM(studio, "run-edit", 3);
+    const linear = studio.geometries.find((geo) => geo.id === "run-edit");
+    assert.ok(linear && linear.kind === "linear");
+    assert.equal(linear.riseDropM, 3);
+    const pipe = summariseStudioPipeBoq(studio).find((row) => row.unit === "m");
+    assert.equal(pipe?.quantity, 8);
+    assert.match(pipe?.description || "", /incl\. 3 m drop/);
+    assert.ok(
+      studio.geometries.some(
+        (geo) => geo.kind === "count" && geo.id === "run-edit-elbow-rise",
+      ),
+    );
+
+    studio = updateLinearRiseDropM(studio, "run-edit", 0);
+    assert.equal(
+      studio.geometries.find((geo) => geo.id === "run-edit" && geo.kind === "linear")?.riseDropM,
+      0,
+    );
+    assert.equal(
+      studio.geometries.some((geo) => geo.kind === "count" && geo.id === "run-edit-elbow-rise"),
+      false,
+    );
+  });
+
+  it("counts extra couplings for rise metres past stock length", () => {
+    // 2 m plan + 4 m drop = 6 m → ceil((6-0.001)/3)-1 = 1 coupling
+    const points = [{ x: 0, y: 0 }, { x: 20, y: 0 }];
+    const without = couplingPointsAlongRun(points, 0.1, 3, 0);
+    const withRise = couplingPointsAlongRun(points, 0.1, 3, 4);
+    assert.equal(without.length, 0);
+    assert.equal(withRise.length, 1);
   });
 });
