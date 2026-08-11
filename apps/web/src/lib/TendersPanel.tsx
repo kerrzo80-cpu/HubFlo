@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Search,
   Send,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 
@@ -95,6 +96,7 @@ export function TendersPanel({
   const [boqImportText, setBoqImportText] = useState("");
   const [qualificationDraft, setQualificationDraft] = useState("");
   const [clientSuggestionsOpen, setClientSuggestionsOpen] = useState(false);
+  const [blakeBudgetBusy, setBlakeBudgetBusy] = useState(false);
 
   const selected = useMemo(
     () => tenders.find((tender) => tender.id === selectedId) ?? null,
@@ -425,14 +427,66 @@ export function TendersPanel({
   async function patchBoqLine(lineId: string, linePatch: Partial<TenderBoqLine>) {
     if (!selected) return;
     try {
+      const nextPatch =
+        linePatch.rate !== undefined && linePatch.pricingSource === undefined
+          ? { ...linePatch, pricingSource: linePatch.rate === null ? undefined : ("manual" as const) }
+          : linePatch;
       await postAction({
         action: "update-boq-line",
         id: selected.id,
         lineId,
-        linePatch,
+        linePatch: nextPatch,
       });
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "Unable to update BoQ line");
+    }
+  }
+
+  async function runBlakeBudgetPrices(forceRefresh = false) {
+    if (!selected) return;
+    const measured = selected.boqLines.filter((line) => line.kind === "measured").length;
+    if (!measured) {
+      onNotice("Import a BoQ first — Blake needs measured lines to price.");
+      return;
+    }
+    setBlakeBudgetBusy(true);
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/tenders/${encodeURIComponent(selected.id)}/budget-prices`, {
+        method: "POST",
+        headers: {
+          ...requestHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ forceRefresh, actor: actorName }),
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        tender?: Tender;
+        tenders?: Tender[];
+        aiUsed?: boolean;
+        libraryFilled?: number;
+        blakeFilled?: number;
+        leftBlank?: number;
+        budgetTotal?: number;
+        pricedCount?: number;
+      };
+      if (!response.ok) throw new Error(payload.error || "Blake budget pricing failed");
+      if (Array.isArray(payload.tenders)) setTenders(payload.tenders);
+      else if (payload.tender) {
+        setTenders((prev) => prev.map((row) => (row.id === payload.tender!.id ? payload.tender! : row)));
+      }
+      const blank = payload.leftBlank ?? 0;
+      onNotice(
+        payload.aiUsed
+          ? `Blake budget prices applied · ${payload.blakeFilled ?? 0} Blake · ${payload.libraryFilled ?? 0} library · ${blank} left blank · ${money(payload.budgetTotal)}. Guide rates only — amend before FoT.`
+          : `Guide rates applied · ${payload.libraryFilled ?? 0} from library · ${blank} left blank · ${money(payload.budgetTotal)}. OpenAI offline or skipped — blanks stay unpriced.`,
+      );
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to run Blake budget prices");
+    } finally {
+      setBlakeBudgetBusy(false);
+      setSaving(false);
     }
   }
 
@@ -848,6 +902,29 @@ export function TendersPanel({
                 <p>
                   Price on their refs (e.g. 8/1/A). Keep every issued line — leave Rate blank if not priced so they can see it was not priced (do not put £0 / NIL).
                 </p>
+                <p className="tenders-boq-blake-note">
+                  Blake budget prices fill blanks from the NeXa rate library first, then UK trade ballpark for gaps. Values are budget guides — not firm quotes. Unsure lines stay blank.
+                </p>
+                <div className="tenders-boq-blake-actions">
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={saving || blakeBudgetBusy || !selected.boqLines.some((line) => line.kind === "measured")}
+                    onClick={() => void runBlakeBudgetPrices(false)}
+                  >
+                    <Sparkles size={15} />
+                    {blakeBudgetBusy ? "Blake pricing…" : "Blake budget prices"}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={saving || blakeBudgetBusy || !selected.boqLines.some((line) => line.kind === "measured")}
+                    onClick={() => void runBlakeBudgetPrices(true)}
+                    title="Re-run Blake/library on previous budget or guide rates (manual rates kept)"
+                  >
+                    Refresh budget guides
+                  </button>
+                </div>
               </div>
               <div className="tenders-metric-row">
                 <article>
@@ -919,6 +996,20 @@ export function TendersPanel({
                       const priced =
                         (typeof line.rate === "number" && Number.isFinite(line.rate)) ||
                         (typeof line.value === "number" && Number.isFinite(line.value));
+                      const statusClass = !priced
+                        ? "unpriced"
+                        : line.pricingSource === "blake-budget"
+                          ? "budget"
+                          : line.pricingSource === "rate-library"
+                            ? "guide"
+                            : "priced";
+                      const statusLabel = !priced
+                        ? "Unpriced"
+                        : line.pricingSource === "blake-budget"
+                          ? "Budget"
+                          : line.pricingSource === "rate-library"
+                            ? "Guide"
+                            : "Priced";
                       return (
                         <tr key={line.id} className={priced ? "" : "unpriced"}>
                           <td>{line.ref || "—"}</td>
@@ -929,6 +1020,7 @@ export function TendersPanel({
                             <input
                               type="number"
                               step="0.01"
+                              key={`${line.id}-${line.rate ?? "blank"}-${line.pricingSource || ""}`}
                               defaultValue={line.rate ?? ""}
                               placeholder=""
                               aria-label={priced ? "Rate" : "Unpriced — leave blank"}
@@ -942,14 +1034,13 @@ export function TendersPanel({
                           <td>{priced ? money(line.value) : ""}</td>
                           <td>
                             <input
+                              key={`${line.id}-note-${line.note || ""}`}
                               defaultValue={line.note || ""}
                               onBlur={(event) => void patchBoqLine(line.id, { note: event.target.value })}
                             />
                           </td>
                           <td>
-                            <span className={`tenders-line-status ${priced ? "priced" : "unpriced"}`}>
-                              {priced ? "Priced" : "Unpriced"}
-                            </span>
+                            <span className={`tenders-line-status ${statusClass}`}>{statusLabel}</span>
                           </td>
                         </tr>
                       );

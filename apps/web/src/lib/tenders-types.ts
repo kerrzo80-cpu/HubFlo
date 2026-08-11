@@ -53,6 +53,9 @@ export type TenderDocument = {
 
 export type TenderBoqLineKind = "header" | "measured" | "note";
 
+/** Where a BoQ unit rate came from — budget/guide are planning figures, not firm quotes. */
+export type TenderBoqPricingSource = "blake-budget" | "rate-library" | "manual";
+
 export type TenderBoqLine = {
   id: string;
   kind: TenderBoqLineKind;
@@ -63,6 +66,8 @@ export type TenderBoqLine = {
   rate?: number | null;
   value?: number | null;
   note?: string;
+  /** blake-budget / rate-library = guide; manual = office/typed. */
+  pricingSource?: TenderBoqPricingSource;
   /** @deprecated Unpriced lines stay on the BoQ with blank rates — do not use. */
   excluded?: boolean;
 };

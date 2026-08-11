@@ -568,12 +568,18 @@ export function updateBoqLine(tenderId: string, lineId: string, patch: Partial<T
       if (patch.rate === null) {
         next.rate = null;
         if (patch.value === undefined) next.value = null;
+        if (patch.pricingSource === undefined) next.pricingSource = undefined;
       } else if (
         typeof next.rate === "number" &&
         typeof next.quantity === "number" &&
         (patch.rate !== undefined || patch.quantity !== undefined)
       ) {
         next.value = roundMoney(next.rate * next.quantity);
+        if (patch.rate !== undefined && patch.pricingSource === undefined) {
+          next.pricingSource = "manual";
+        }
+      } else if (patch.rate !== undefined && patch.pricingSource === undefined) {
+        next.pricingSource = "manual";
       }
     }
     return next;
@@ -583,6 +589,33 @@ export function updateBoqLine(tenderId: string, lineId: string, patch: Partial<T
     boqLines,
     bidValue: boqTotal,
   });
+}
+
+/** Apply Blake budget / rate-library guide rates onto blank (or refreshable) BoQ lines. */
+export async function applyBlakeBudgetPricesToTender(
+  tenderId: string,
+  options: { forceRefresh?: boolean } = {},
+) {
+  const existing = getTender(tenderId);
+  if (!existing) throw new Error("Tender not found.");
+  if (!existing.boqLines.some((line) => line.kind === "measured")) {
+    throw new Error("Import a BoQ first — no measured lines to price.");
+  }
+
+  const { budgetPriceTenderBoqWithBlake } = await import("@/lib/tender-boq-blake-prices");
+  const priced = await budgetPriceTenderBoqWithBlake(existing.boqLines, {
+    forceRefresh: options.forceRefresh,
+    context: `${existing.name} · ${existing.client} · ${existing.category} · ${existing.area}`,
+  });
+
+  const boqTotal = computeBoqTotal(priced.lines);
+  const tender = updateTender(tenderId, {
+    boqLines: priced.lines,
+    bidValue: boqTotal,
+    tenderSum: existing.tenderSum && existing.tenderSum > 0 ? existing.tenderSum : boqTotal,
+  });
+
+  return { tender, priced };
 }
 
 export function addTenderDocument(

@@ -40246,9 +40246,33 @@ button.nexa-kpi-card,
   color: #176b45;
 }
 
+.tenders-line-status.budget {
+  background: #eef2ff;
+  color: #3730a3;
+}
+
+.tenders-line-status.guide {
+  background: #ecfeff;
+  color: #0e7490;
+}
+
 .tenders-line-status.unpriced {
   background: #fff4ee;
   color: #9a3412;
+}
+
+.tenders-boq-blake-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--subtle);
+  max-width: 52rem;
+}
+
+.tenders-boq-blake-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .tenders-file-button {
