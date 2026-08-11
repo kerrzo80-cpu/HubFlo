@@ -29,6 +29,16 @@ describe("placePlantOnLayout", () => {
     assert.ok(layout.plants.some((p) => plantRole(p.kind) === "boiler"));
     assert.ok(layout.plants.some((p) => plantRole(p.kind) === "cylinder"));
   });
+
+  it("allows two manifolds without replacing the first", () => {
+    let layout = placePlantOnLayout(null, "manifold", 1, 1, "ground", {
+      systemOptionId: "opt-gas",
+    });
+    layout = placePlantOnLayout(layout, "manifold", 3, 2, "ground");
+    assert.equal(layout.plants.filter((p) => p.kind === "manifold").length, 2);
+    assert.equal(layout.plants[0]?.x, 1);
+    assert.equal(layout.plants[1]?.x, 3);
+  });
 });
 
 describe("seedHeatingLayout preservePlants", () => {
@@ -167,5 +177,37 @@ describe("seedHeatingLayout preservePlants", () => {
     assert.equal(routed.plants[0]?.placedByUser, true);
     assert.ok(routed.pipes.length > 0, "still routes emitters from the placed boiler hub");
     assert.ok(routed.emitters.length > 0);
+  });
+
+  it("routes boiler + cylinder + two manifolds with no rooms", () => {
+    const project = makeBlankProject();
+    project.chosenSystemId = "opt-gas";
+    project.rooms = [];
+
+    let layout = placePlantOnLayout(null, "boiler", 1, 1, "ground", { systemOptionId: "opt-gas" });
+    layout = placePlantOnLayout(layout, "cylinder", 2, 1, "ground");
+    layout = placePlantOnLayout(layout, "manifold", 3, 1, "ground");
+    layout = placePlantOnLayout(layout, "manifold", 4, 2, "ground");
+
+    const routed = seedHeatingLayout(project, "opt-gas", "radiators", {
+      preservePlants: layout.plants,
+    });
+
+    assert.equal(routed.plants.length, 4);
+    assert.equal(routed.plants.filter((p) => p.kind === "manifold").length, 2);
+    assert.ok(routed.pipes.length > 0, "plant-only plans still get visible pipe runs");
+    assert.ok(
+      routed.pipes.some((p) => /boiler → cylinder/i.test(p.label)),
+      "links boiler to cylinder",
+    );
+    assert.ok(
+      routed.pipes.filter((p) => /cylinder → manifold/i.test(p.label)).length >= 2,
+      "links cylinder to both manifolds",
+    );
+    assert.ok(
+      routed.pipes.some((p) => p.kind === "flow") && routed.pipes.some((p) => p.kind === "return"),
+      "draws flow/return companions to manifolds",
+    );
+    assert.equal(routed.emitters.length, 0);
   });
 });

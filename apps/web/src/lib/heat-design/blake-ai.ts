@@ -228,7 +228,9 @@ function ruleFallback(
       ? "OpenAI could not finish this pass — showing the rule kit so you can keep moving."
       : "OpenAI is not connected — showing the rule kit. Set OPENAI_API_KEY on this service for live Blake.");
 
-  const needsLayout = !layout?.pipes?.length && (project.rooms?.length || 0) > 0;
+  const needsLayout =
+    !layout?.pipes?.length
+    && ((project.rooms?.length || 0) > 0 || (layout?.plants?.length || 0) > 0);
   let seeded: HeatingSystemLayout | undefined;
   if (needsLayout && project.chosenSystemId) {
     seeded = seedHeatingLayout(project, project.chosenSystemId, emitterMode, {
@@ -353,12 +355,14 @@ export async function proposeHeatDesignWithBlake(
     "NEVER collapse into ‘lot’, ‘allowance’ or ‘sundry’ — itemise.",
     "If the layout has pipes, set applySizing true and optionally override individual pipe diameters via pipeSizes[{pipeId,diameterMm:15|22|28,reason}].",
     "Default tiers when unsure: mains 28, branches 22, rad/UFH tails 15.",
-    "If rooms exist but plant/pipes are missing — or the engineer asks to redesign — set regenerateLayout true and pick emitterMode (radiators|ufh|mixed) plus optional chosenSystemId (opt-ashp|opt-gas|opt-hybrid|opt-oil).",
+    "If plant is on plan (even without rooms) or rooms exist but pipes are missing — or the engineer asks to redesign — set regenerateLayout true and pick emitterMode (radiators|ufh|mixed) plus optional chosenSystemId (opt-ashp|opt-gas|opt-hybrid|opt-oil).",
     "Return clarifyingQuestions when site facts would change materials or sizes (cylinder location, existing TRVs, floor type for UFH, etc.). Skip if clear.",
     "Return JSON only with keys: summary, narrative, applySizing, regenerateLayout, emitterMode, chosenSystemId, kitLines, clarifyingQuestions, routeNotes, pipeSizes.",
     "kitLines items: {id?, category, description, qty, unit, unitCost}.",
     userMessage ? `Engineer note / question: ${userMessage}` : "Engineer wants Blake to propose the kit and size the routes.",
-    wantsLayout ? "Prefer regenerateLayout when the plan has rooms but no useful pipe network yet." : "",
+    wantsLayout
+      ? "Prefer regenerateLayout when plant is placed or rooms exist but the pipe network is empty."
+      : "",
     JSON.stringify(context),
   ].join("\n");
 
@@ -447,7 +451,11 @@ export async function proposeHeatDesignWithBlake(
 
     const regenerateLayout =
       parsed.regenerateLayout === true
-      || (wantsLayout && !project.heatingLayout?.pipes?.length && (project.rooms?.length || 0) > 0);
+      || (
+        wantsLayout
+        && !project.heatingLayout?.pipes?.length
+        && ((project.rooms?.length || 0) > 0 || (project.heatingLayout?.plants?.length || 0) > 0)
+      );
 
     let layout: HeatingSystemLayout | undefined;
     if (regenerateLayout && chosenSystemId) {

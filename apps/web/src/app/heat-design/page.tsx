@@ -463,6 +463,7 @@ export default function HeatDesignLabPage() {
       };
     });
     if (nextId) setSelectedRoomId(nextId);
+    setLayoutMode(false);
     setTab("plan");
   }
 
@@ -487,6 +488,7 @@ export default function HeatDesignLabPage() {
       };
     });
     if (nextId) setSelectedRoomId(nextId);
+    setLayoutMode(false);
   }
 
   function removeRoom(roomId: string) {
@@ -498,6 +500,7 @@ export default function HeatDesignLabPage() {
       return { ...current, rooms, updatedAt: new Date().toISOString() };
     });
     setSelectedRoomId(nextSelected);
+    setLayoutMode(false);
   }
 
   async function startBlankPlan() {
@@ -742,7 +745,8 @@ export default function HeatDesignLabPage() {
       chosenSystemId: project.chosenSystemId || systemOptionId,
       heatingLayout: layout,
     });
-    setLayoutMode(true);
+    // Keep rooms editable — Heating layout is optional when nudging plant / pipes.
+    setLayoutMode(false);
     setNotice(
       `Placed ${kind.replace(/_/g, " ")}. Add any other plant you need, then Route pipes or Ask Blake — Blake will not invent missing plant.`,
     );
@@ -867,8 +871,8 @@ export default function HeatDesignLabPage() {
 
   async function askBlakeLive() {
     if (!project?.id) return;
-    if (!project.chosenSystemId && !project.heatingLayout?.pipes?.length) {
-      setNotice("Pick a system or design on plan first, then Ask Blake.");
+    if (!project.chosenSystemId && !project.heatingLayout?.pipes?.length && !project.heatingLayout?.plants?.length) {
+      setNotice("Pick a system, place plant, or design on plan first, then Ask Blake.");
       return;
     }
     setBlakeBusy(true);

@@ -218,7 +218,8 @@ export function plantFootprint(kind: HeatingPlantKind) {
 }
 
 /**
- * Drop / click-place plant. Replaces any existing plant in the same role so the plan stays sane.
+ * Drop / click-place plant. Replaces any existing plant in the same role so the plan stays sane,
+ * except manifolds — engineers often place two (UFH + rads / upstairs + downstairs).
  * Does not redraw pipes — call seedHeatingLayout with preservePlants after the engineer is happy.
  */
 export function placePlantOnLayout(
@@ -235,16 +236,24 @@ export function placePlantOnLayout(
   } = {},
 ): HeatingSystemLayout {
   const size = plantSizes(kind);
+  const role = plantRole(kind);
+  const manifoldIndex =
+    role === "manifold" ? (layout?.plants ?? []).filter((row) => plantRole(row.kind) === "manifold").length + 1 : 0;
   const plant = makePlant(
     kind,
-    options.label || defaultPlantLabel(kind, options.cylinderLitres),
+    options.label ||
+      (manifoldIndex > 1
+        ? `Heating manifold ${manifoldIndex}`
+        : defaultPlantLabel(kind, options.cylinderLitres)),
     { x, y },
     floorLevel,
     size,
     true,
   );
-  const role = plantRole(kind);
-  const previous = (layout?.plants ?? []).filter((row) => plantRole(row.kind) !== role);
+  const previous =
+    role === "manifold"
+      ? [...(layout?.plants ?? [])]
+      : (layout?.plants ?? []).filter((row) => plantRole(row.kind) !== role);
   return {
     systemOptionId: layout?.systemOptionId || options.systemOptionId || "opt-ashp",
     plants: [...previous, plant],
@@ -487,12 +496,117 @@ function reusePreservedPlants(preserved: HeatingPlantItem[], floor: FloorLevel):
   });
 }
 
+/** Primary / fuel pipes that connect placed plant pieces (works with or without rooms). */
+function appendPlantNetworkPipes(
+  pipes: HeatingPipeRun[],
+  plants: HeatingPlantItem[],
+  kind: HeatingSystemKind,
+  floor: FloorLevel,
+  plantRoom: HeatDesignRoom | undefined,
+): void {
+  const cylinder = plants.find((p) => p.kind === "cylinder");
+  const manifolds = plants.filter((p) => p.kind === "manifold");
+  const boiler = plants.find((p) => p.kind === "boiler" || p.kind === "electric_boiler");
+  const ou = plants.find((p) => p.kind === "outdoor_unit" || p.kind === "oil_tank" || p.kind === "lpg_tank");
+  const source = cylinder ?? boiler;
+
+  if (ou && cylinder && (kind === "ashp" || kind === "hybrid")) {
+    // Keep refrigerant on a short L: OU → wall line → cylinder
+    const entry = { x: cylinder.x, y: ou.y };
+    pipes.push(
+      makePipe(
+        "refrigerant",
+        "Refrigerant / primary",
+        [
+          { x: ou.x, y: ou.y },
+          entry,
+          { x: cylinder.x, y: cylinder.y },
+        ],
+        floor,
+      ),
+    );
+  }
+  if (ou && boiler && (kind === "oil" || kind === "lpg")) {
+    pipes.push(
+      makePipe(
+        kind === "oil" ? "oil" : "gas",
+        kind === "oil" ? "Oil feed" : "LPG supply",
+        manhattanRoute({ x: ou.x, y: ou.y }, { x: boiler.x, y: boiler.y }, true),
+        floor,
+      ),
+    );
+  }
+  if (kind === "gas" && boiler) {
+    const meter = plantRoom
+      ? outdoorAnchor(plantRoom, 0.5)
+      : { x: boiler.x - 0.9, y: boiler.y + 0.65 };
+    pipes.push(makePipe("gas", "Gas supply", manhattanRoute(meter, { x: boiler.x, y: boiler.y }, true), floor));
+  }
+  if (boiler && cylinder) {
+    pipes.push(
+      makePipe(
+        "primary",
+        "Boiler → cylinder",
+        manhattanRoute({ x: boiler.x, y: boiler.y }, { x: cylinder.x, y: cylinder.y }, false),
+        floor,
+      ),
+    );
+  }
+
+  if (source && manifolds.length) {
+    const fromLabel = cylinder ? "Cylinder" : "Boiler";
+    manifolds.forEach((manifold, index) => {
+      const suffix = manifolds.length > 1 ? ` ${index + 1}` : "";
+      const from = { x: source.x, y: source.y };
+      const to = { x: manifold.x, y: manifold.y };
+      pipes.push(
+        makePipe(
+          "primary",
+          `${fromLabel} → manifold${suffix}`,
+          manhattanRoute(from, to, true),
+          floor,
+        ),
+      );
+      // Visible F&R companions so plant-only plans still show a heating pair.
+      pipes.push(
+        makePipe(
+          "flow",
+          `Flow · manifold${suffix}`,
+          manhattanRoute({ x: from.x - 0.06, y: from.y }, { x: to.x - 0.06, y: to.y }, true),
+          floor,
+        ),
+        makePipe(
+          "return",
+          `Return · manifold${suffix}`,
+          manhattanRoute({ x: to.x + 0.06, y: to.y }, { x: from.x + 0.06, y: from.y }, false),
+          floor,
+        ),
+      );
+    });
+  } else if (boiler && !cylinder && !manifolds.length) {
+    // Lone boiler: small primary stub so Route pipes never looks empty.
+    pipes.push(
+      makePipe(
+        "primary",
+        "Boiler primary stub",
+        [
+          { x: boiler.x, y: boiler.y },
+          { x: boiler.x + 0.45, y: boiler.y },
+          { x: boiler.x + 0.45, y: boiler.y + 0.35 },
+        ],
+        floor,
+      ),
+    );
+  }
+}
+
 /**
  * Seed a designed heating layout: spaced plant, outdoor unit kept on-canvas,
  * radiators / UFH in each room, and tidy spine pipe routes.
  *
  * When engineer-placed plant is present, routes only around those pieces —
  * Blake / Route pipes must not surprise-add a cylinder or OU the user never placed.
+ * Plant-to-plant mains still draw when rooms are missing (PDF underlay / plant-first).
  */
 export function seedHeatingLayout(
   project: HeatDesignProject,
@@ -510,10 +624,25 @@ export function seedHeatingLayout(
     options.onlyUserPlants === true
     || (options.onlyUserPlants !== false && preserved.some((plant) => plant.placedByUser));
 
-  if (!plantRoom) {
+  // No rooms and no plant to preserve — nothing to route.
+  if (!plantRoom && !preserved.length) {
     return {
       systemOptionId,
-      plants: reusePreservedPlants(preserved, floor),
+      plants: [],
+      pipes,
+      emitters: [],
+      emitterMode,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  // Plant-first / PDF underlay: keep engineer plant and draw mains even without room polygons.
+  if (!plantRoom) {
+    plants.push(...reusePreservedPlants(preserved, floor));
+    appendPlantNetworkPipes(pipes, plants, kind, floor, undefined);
+    return {
+      systemOptionId,
+      plants,
       pipes,
       emitters: [],
       emitterMode,
@@ -582,63 +711,12 @@ export function seedHeatingLayout(
     }
   }
 
-  const cylinder = plants.find((p) => p.kind === "cylinder");
-  const manifold = plants.find((p) => p.kind === "manifold");
-  const boiler = plants.find((p) => p.kind === "boiler" || p.kind === "electric_boiler");
-  const ou = plants.find((p) => p.kind === "outdoor_unit" || p.kind === "oil_tank" || p.kind === "lpg_tank");
+  appendPlantNetworkPipes(pipes, plants, kind, floor, plantRoom);
 
-  if (ou && cylinder && (kind === "ashp" || kind === "hybrid")) {
-    // Keep refrigerant on a short L: OU → wall line → cylinder
-    const entry = { x: cylinder.x, y: ou.y };
-    pipes.push(
-      makePipe(
-        "refrigerant",
-        "Refrigerant / primary",
-        [
-          { x: ou.x, y: ou.y },
-          entry,
-          { x: cylinder.x, y: cylinder.y },
-        ],
-        floor,
-      ),
-    );
-  }
-  if (ou && boiler && (kind === "oil" || kind === "lpg")) {
-    pipes.push(
-      makePipe(
-        kind === "oil" ? "oil" : "gas",
-        kind === "oil" ? "Oil feed" : "LPG supply",
-        manhattanRoute({ x: ou.x, y: ou.y }, { x: boiler.x, y: boiler.y }, true),
-        floor,
-      ),
-    );
-  }
-  if (kind === "gas" && boiler) {
-    const meter = outdoorAnchor(plantRoom, 0.5);
-    pipes.push(makePipe("gas", "Gas supply", manhattanRoute(meter, { x: boiler.x, y: boiler.y }, true), floor));
-  }
-  if (boiler && cylinder) {
-    pipes.push(
-      makePipe(
-        "primary",
-        "Boiler → cylinder",
-        manhattanRoute({ x: boiler.x, y: boiler.y }, { x: cylinder.x, y: cylinder.y }, false),
-        floor,
-      ),
-    );
-  }
-  if (cylinder && manifold) {
-    pipes.push(
-      makePipe(
-        "primary",
-        "Cylinder → manifold",
-        manhattanRoute({ x: cylinder.x, y: cylinder.y }, { x: manifold.x, y: manifold.y }, true),
-        floor,
-      ),
-    );
-  }
-
-  const hub = manifold ?? boiler ?? cylinder;
+  const hub =
+    plants.find((p) => p.kind === "manifold")
+    ?? plants.find((p) => p.kind === "boiler" || p.kind === "electric_boiler")
+    ?? plants.find((p) => p.kind === "cylinder");
   const hubPoint = hub ? { x: hub.x, y: hub.y } : roomCentroid(plantRoom);
 
   emitters.forEach((emitter, index) => {

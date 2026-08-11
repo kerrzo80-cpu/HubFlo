@@ -693,17 +693,20 @@ export function FloorPlanCanvas({
                 key={item.id}
                 type="button"
                 className={`hp-palette-item${placeRoomType === item.id ? " is-on" : ""}`}
-                disabled={layoutMode}
-                draggable={!layoutMode}
+                draggable
                 onDragStart={(event) => {
                   event.dataTransfer.setData("text/hd-room", item.id);
                   event.dataTransfer.effectAllowed = "copy";
                   setPlaceTool(null);
+                  setPlantPlaceTool(null);
+                  // Leave heating-layout lock so rooms can be drawn / moved.
+                  if (onLayoutModeChange && layoutMode) onLayoutModeChange(false);
                   setPlaceRoomType(item.id);
                 }}
                 onClick={() => {
                   setPlaceTool(null);
                   setPlantPlaceTool(null);
+                  if (onLayoutModeChange && layoutMode) onLayoutModeChange(false);
                   setPlaceRoomType((current) => (current === item.id ? null : item.id));
                 }}
                 title={`${item.id} · ${item.targetTemp}°C · ${item.airChanges} ACH — drag onto plan or click then draw`}
@@ -726,10 +729,11 @@ export function FloorPlanCanvas({
                 key={id}
                 type="button"
                 className={`hp-palette-item${placeTool === id ? " is-on" : ""}`}
-                disabled={!selected || layoutMode}
+                disabled={!selected}
                 onClick={() => {
                   setPlaceRoomType(null);
                   setPlantPlaceTool(null);
+                  if (onLayoutModeChange && layoutMode) onLayoutModeChange(false);
                   setPlaceTool((current) => (current === id ? null : id));
                 }}
               >
@@ -748,8 +752,8 @@ export function FloorPlanCanvas({
                 onClick={() => {
                   setPlaceTool(null);
                   setPlaceRoomType(null);
+                  // Plant click-place must not sticky-lock rooms (layout mode stays optional).
                   setPlantPlaceTool((current) => (current === item.kind ? null : item.kind));
-                  if (onLayoutModeChange && !layoutMode) onLayoutModeChange(true);
                 }}
                 title={`Place ${item.label} — click the plan`}
               >
@@ -881,17 +885,22 @@ export function FloorPlanCanvas({
           <button
             type="button"
             className="hd-btn hd-btn-ghost"
-            disabled={!selected || layoutMode}
-            onClick={() => selected && makeLShape(selected)}
+            disabled={!selected}
+            onClick={() => {
+              if (!selected) return;
+              if (onLayoutModeChange && layoutMode) onLayoutModeChange(false);
+              makeLShape(selected);
+            }}
           >
             L-shape
           </button>
           <button
             type="button"
             className="hd-btn hd-btn-ghost"
-            disabled={!selected || layoutMode}
+            disabled={!selected}
             onClick={() => {
               if (!selected) return;
+              if (onLayoutModeChange && layoutMode) onLayoutModeChange(false);
               const polygon = roomPolygon(selected);
               const exterior = roomWallExterior(selected, polygon.length);
               const edge = selectedEdge ?? exterior.findIndex(Boolean);
@@ -903,19 +912,24 @@ export function FloorPlanCanvas({
           <button
             type="button"
             className="hd-btn hd-btn-danger"
-            disabled={!selected || !selectedOpeningId || layoutMode}
+            disabled={!selected || !selectedOpeningId}
             title={selectedOpeningId ? "Remove the selected window or door" : "Select a window or door mark first"}
-            onClick={() => selected && deleteSelectedOpening(selected)}
+            onClick={() => {
+              if (!selected) return;
+              if (onLayoutModeChange && layoutMode) onLayoutModeChange(false);
+              deleteSelectedOpening(selected);
+            }}
           >
             Remove opening
           </button>
           <button
             type="button"
             className="hd-btn hd-btn-danger"
-            disabled={!selected || layoutMode}
+            disabled={!selected}
             title="Remove the selected room"
             onClick={() => {
               if (!selected) return;
+              if (onLayoutModeChange && layoutMode) onLayoutModeChange(false);
               setSelectedOpeningId(null);
               setSelectedEdge(null);
               onDeleteRoom(selected.id);
@@ -952,13 +966,14 @@ export function FloorPlanCanvas({
       ) : null}
       <div className="hp-canvas-wrap" ref={wrapRef}
         onDragOver={(event) => {
-          if (!layoutMode && event.dataTransfer.types.includes("text/hd-room")) event.preventDefault();
+          if (event.dataTransfer.types.includes("text/hd-room")) event.preventDefault();
         }}
         onDrop={(event) => {
-          if (layoutMode || !onPlaceRoom) return;
+          if (!onPlaceRoom) return;
           const roomType = event.dataTransfer.getData("text/hd-room");
           if (!roomType) return;
           event.preventDefault();
+          if (onLayoutModeChange && layoutMode) onLayoutModeChange(false);
           const point = clientToMetres(event.clientX, event.clientY);
           onPlaceRoom(roomType, Math.max(0, point.x - 1.75), Math.max(0, point.y - 1.6), 3.5, 3.2);
           setPlaceRoomType(null);
@@ -980,8 +995,10 @@ export function FloorPlanCanvas({
               setPlantPlaceTool(null);
               return;
             }
-            if (placeRoomType && onPlaceRoom && !layoutMode) {
+            // Drawing / moving rooms must work even if Heating layout was left on.
+            if (placeRoomType && onPlaceRoom) {
               event.preventDefault();
+              if (onLayoutModeChange && layoutMode) onLayoutModeChange(false);
               const point = clientToMetres(event.clientX, event.clientY);
               setDrag({ mode: "draw-room", roomType: placeRoomType, start: point, current: point });
               return;
@@ -1106,21 +1123,26 @@ export function FloorPlanCanvas({
                   points={pointsAttr}
                   fill={isSelected ? "#eef6fb" : "#f7f7f5"}
                   stroke="none"
-                  style={{ cursor: layoutMode ? "default" : placeRoomType ? "crosshair" : "grab" }}
+                  style={{ cursor: plantPlaceTool ? "crosshair" : placeRoomType ? "crosshair" : "grab" }}
                   onPointerDown={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
                     // Drawing a new room must work even when the drag starts over an existing room.
-                    if (placeRoomType && onPlaceRoom && !layoutMode) {
+                    if (placeRoomType && onPlaceRoom) {
+                      if (onLayoutModeChange && layoutMode) onLayoutModeChange(false);
                       const point = clientToMetres(event.clientX, event.clientY);
                       setDrag({ mode: "draw-room", roomType: placeRoomType, start: point, current: point });
                       return;
+                    }
+                    // Selecting a room exits sticky heating-layout lock so move/delete work again.
+                    if (layoutMode && !plantPlaceTool && onLayoutModeChange) {
+                      onLayoutModeChange(false);
                     }
                     onSelectRoom(room.id);
                     setSelectedEdge(null);
                     setSelectedPlantId(null);
                     setSelectedPipeId(null);
-                    if (layoutMode) return;
+                    if (plantPlaceTool) return;
                     const grab = clientToMetres(event.clientX, event.clientY);
                     setDrag({ mode: "move", roomId: room.id, origin: polygon, grab });
                   }}
@@ -1140,22 +1162,20 @@ export function FloorPlanCanvas({
                       strokeWidth={exterior[i] ? (isSelected ? 11 : 9) : isSelected && selectedEdge === i ? 5 : 3}
                       strokeLinecap="square"
                       style={{
-                        cursor: placeRoomType
-                          ? "crosshair"
-                          : placeTool
-                            ? "crosshair"
-                            : layoutMode
-                              ? "pointer"
-                              : "ew-resize",
-                        pointerEvents: placeRoomType && !layoutMode ? "none" : "auto",
+                        cursor: placeRoomType || placeTool || plantPlaceTool ? "crosshair" : "ew-resize",
+                        pointerEvents: placeRoomType ? "none" : "auto",
                       }}
                       onPointerDown={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
-                        if (placeRoomType && onPlaceRoom && !layoutMode) {
+                        if (placeRoomType && onPlaceRoom) {
+                          if (onLayoutModeChange && layoutMode) onLayoutModeChange(false);
                           const point = clientToMetres(event.clientX, event.clientY);
                           setDrag({ mode: "draw-room", roomType: placeRoomType, start: point, current: point });
                           return;
+                        }
+                        if (layoutMode && !plantPlaceTool && onLayoutModeChange) {
+                          onLayoutModeChange(false);
                         }
                         onSelectRoom(room.id);
                         setSelectedEdge(i);
@@ -1168,7 +1188,7 @@ export function FloorPlanCanvas({
                           toggleEdgeExterior(room, i);
                           return;
                         }
-                        if (!layoutMode) {
+                        if (!plantPlaceTool) {
                           setDrag({ mode: "edge", roomId: room.id, edgeIndex: i, origin: polygon });
                         }
                       }}
@@ -1302,7 +1322,7 @@ export function FloorPlanCanvas({
                   );
                 })}
 
-                {isSelected && !layoutMode
+                {isSelected && !plantPlaceTool
                   ? polygon.map((p, i) => {
                       const q = polygon[(i + 1) % polygon.length]!;
                       const mid = { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 };
@@ -1331,6 +1351,7 @@ export function FloorPlanCanvas({
                             onPointerDown={(event) => {
                               event.preventDefault();
                               event.stopPropagation();
+                              if (onLayoutModeChange && layoutMode) onLayoutModeChange(false);
                               // Insert vertex then start dragging it
                               const next = insertVertexOnEdge(polygon, i, 0.5);
                               const wallExterior = roomWallExterior(room, polygon.length);
@@ -1795,8 +1816,8 @@ export function FloorPlanCanvas({
       </p>
       {layoutMode ? (
         <p className="hp-canvas-hint">
-          Layout mode — room walls are locked. Drag plant or pipe vertices. <em>Route pipes</em> rebuilds emitters and
-          runs from your placed plant only (no surprise auto plant).
+          Heating layout — drag plant or pipe vertices. Click a room (or pick a room type) to leave layout mode and
+          move / remove rooms again. <em>Route pipes</em> rebuilds emitters and runs from your placed plant only.
         </p>
       ) : null}
       {plantPlaceTool ? (
