@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   isBoqLinePriced,
   mergeKitPricesOntoBoqLines,
+  normalizeBoqDescriptionForLookup,
   normalizeBoqUnitForLookup,
   shouldRefreshBoqLine,
   summariseTenderBoqBlake,
@@ -11,6 +12,11 @@ import {
 } from "./tender-boq-blake-prices";
 import type { KitLine } from "./heat-design/types";
 import type { TenderBoqLine } from "./tenders-types";
+import {
+  expandTradeSynonymsForLookup,
+  lookupLibraryRate,
+  stripDescriptionNoiseForLookup,
+} from "./takeoff-rate-core";
 
 const sampleLines: TenderBoqLine[] = [
   { id: "h1", kind: "header", description: "SANITARY" },
@@ -52,7 +58,37 @@ describe("tender-boq-blake-prices mapping", () => {
     assert.equal(normalizeBoqUnitForLookup("ITEM"), "nr");
     assert.equal(normalizeBoqUnitForLookup("ite"), "nr");
     assert.equal(normalizeBoqUnitForLookup("lm"), "m");
+    assert.equal(normalizeBoqUnitForLookup("lin.m"), "m");
+    assert.equal(normalizeBoqUnitForLookup("mtr"), "m");
+    assert.equal(normalizeBoqUnitForLookup("sqm"), "m2");
     assert.equal(normalizeBoqUnitForLookup("m"), "m");
+  });
+
+  it("strips bill refs and qty noise from descriptions", () => {
+    assert.equal(normalizeBoqDescriptionForLookup("TRV", "8/1/A"), "TRV");
+    assert.equal(
+      stripDescriptionNoiseForLookup("8/1/A — Thermostatic radiator valve (12nr)"),
+      "Thermostatic radiator valve",
+    );
+    assert.match(
+      expandTradeSynonymsForLookup("Wash hand basin as described"),
+      /basin/i,
+    );
+    assert.match(
+      expandTradeSynonymsForLookup("Doc M toilet pack"),
+      /WC|toilet/i,
+    );
+  });
+
+  it("matches library rates through noisy BoQ wording", () => {
+    assert.ok(lookupLibraryRate("8/1/A — Thermostatic radiator valve qty 12", "nr") > 0);
+    assert.ok(lookupLibraryRate("Wash hand basin", "nr") > 0);
+    assert.ok(lookupLibraryRate("110mm UG foul drain", "m") > 0);
+    assert.ok(lookupLibraryRate("2.5mm T&E twin and earth", "m") > 0);
+    assert.ok(lookupLibraryRate("Extract fan", "nr") > 0);
+    assert.ok(lookupLibraryRate("Pipe lagging", "m") > 0);
+    assert.ok(lookupLibraryRate("Fire collar", "nr") > 0);
+    assert.equal(lookupLibraryRate("Mystery widget XYZ-99", "nr"), 0);
   });
 
   it("only refreshes blanks (or prior budget/guide when forced)", () => {
@@ -72,7 +108,23 @@ describe("tender-boq-blake-prices mapping", () => {
     assert.ok(kit);
     assert.equal(kit!.unitCost, 0);
     assert.equal(kit!.unit, "nr");
-    assert.match(kit!.description, /8\/1\/A/);
+    assert.equal(kit!.description, "TRV");
+    assert.doesNotMatch(kit!.description, /8\/1\/A/);
+
+    const noisy: TenderBoqLine = {
+      id: "n1",
+      kind: "measured",
+      ref: "3/2/A",
+      description: "3/2/A — Double socket outlet (4nr)",
+      quantity: 4,
+      unit: "nr",
+      rate: null,
+      value: null,
+    };
+    const cleaned = tenderBoqLineToKitLine(noisy, false);
+    assert.ok(cleaned);
+    assert.match(cleaned!.description, /Double socket/i);
+    assert.doesNotMatch(cleaned!.description, /\(4nr\)/);
 
     const locked = tenderBoqLineToKitLine(sampleLines[3]!, false);
     assert.equal(locked?.unitCost, 120);

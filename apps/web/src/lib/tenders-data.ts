@@ -594,7 +594,18 @@ export function updateBoqLine(tenderId: string, lineId: string, patch: Partial<T
 /** Apply Blake budget / rate-library guide rates onto blank (or refreshable) BoQ lines. */
 export async function applyBlakeBudgetPricesToTender(
   tenderId: string,
-  options: { forceRefresh?: boolean } = {},
+  options: {
+    forceRefresh?: boolean;
+    onProgress?: (progress: {
+      stage: "library" | "blake" | "done";
+      message: string;
+      chunkIndex?: number;
+      chunkTotal?: number;
+      pricedSoFar?: number;
+      openSoFar?: number;
+    }) => void;
+    signal?: AbortSignal;
+  } = {},
 ) {
   const existing = getTender(tenderId);
   if (!existing) throw new Error("Tender not found.");
@@ -606,6 +617,8 @@ export async function applyBlakeBudgetPricesToTender(
   const priced = await budgetPriceTenderBoqWithBlake(existing.boqLines, {
     forceRefresh: options.forceRefresh,
     context: `${existing.name} · ${existing.client} · ${existing.category} · ${existing.area}`,
+    onProgress: options.onProgress,
+    signal: options.signal,
   });
 
   const boqTotal = computeBoqTotal(priced.lines);

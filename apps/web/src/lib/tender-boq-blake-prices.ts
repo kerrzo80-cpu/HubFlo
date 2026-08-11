@@ -3,8 +3,12 @@
  * Reuses blake-budget-prices (rate library first, OpenAI gaps) — maps onto issued BoQ rates.
  */
 
-import { budgetPriceKitWithBlake } from "@/lib/blake-budget-prices";
+import {
+  budgetPriceKitWithBlake,
+  type BlakeBudgetProgress,
+} from "@/lib/blake-budget-prices";
 import type { KitLine } from "@/lib/heat-design/types";
+import { stripDescriptionNoiseForLookup } from "@/lib/takeoff-rate-core";
 import {
   computeBoqTotal,
   type TenderBoqLine,
@@ -28,15 +32,36 @@ export type TenderBoqBlakeResult = {
   budgetTotal: number;
 };
 
+export type { BlakeBudgetProgress };
+
+/** Normalise BoQ unit strings for rate-library / soft-guide lookup. */
 export function normalizeBoqUnitForLookup(unit?: string): string {
-  const raw = (unit || "nr").trim().toLowerCase();
+  const raw = (unit || "nr").trim().toLowerCase().replace(/\./g, "");
   if (!raw) return "nr";
-  if (["item", "ite", "sum", "ls", "lump", "no", "nos", "each", "ea", "nr"].includes(raw)) {
+  if (
+    ["item", "ite", "sum", "ls", "lump", "lumpsum", "no", "nos", "each", "ea", "nr", "n", "1"].includes(raw)
+  ) {
     return "nr";
   }
-  if (["lm", "lin.m", "lin m", "linm", "mtr", "metre", "meter"].includes(raw)) return "m";
-  if (raw === "m2" || raw === "sqm" || raw === "m²") return "m2";
+  if (["lm", "linm", "lin m", "mtr", "metre", "meter", "linmetre", "linmeter", "m"].includes(raw)) {
+    return "m";
+  }
+  if (raw === "m2" || raw === "sqm" || raw === "m²" || raw === "sq m" || raw === "squaremetre") {
+    return "m2";
+  }
+  if (raw === "m3" || raw === "cum" || raw === "m³") return "m3";
+  if (raw === "run" || raw === "rnm") return "m";
   return raw;
+}
+
+/** Strip bill refs / qty noise from a BoQ description for pricing lookups. */
+export function normalizeBoqDescriptionForLookup(description: string, ref?: string): string {
+  let text = (description || "").trim();
+  if (ref) {
+    const escaped = ref.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    text = text.replace(new RegExp(`^${escaped}\\s*[—:\\-–]?\\s*`, "i"), "");
+  }
+  return stripDescriptionNoiseForLookup(text);
 }
 
 export function isBoqLinePriced(line: TenderBoqLine): boolean {
@@ -78,10 +103,16 @@ export function tenderBoqLineToKitLine(line: TenderBoqLine, forceRefresh: boolea
       : "manual"
     : undefined;
 
+  const cleanDescription =
+    normalizeBoqDescriptionForLookup(line.description, line.ref)
+    || line.description.trim()
+    || "BoQ item";
+
   return {
     id: line.id,
     category: "BoQ",
-    description: [line.ref, line.description].filter(Boolean).join(" — ").trim() || line.description,
+    // Prefer clean item text for library / Blake matching (ref stays on the BoQ line).
+    description: cleanDescription,
     qty: typeof line.quantity === "number" && Number.isFinite(line.quantity) ? line.quantity : 1,
     unit: normalizeBoqUnitForLookup(line.unit),
     unitCost,
@@ -167,7 +198,12 @@ export function summariseTenderBoqBlake(lines: TenderBoqLine[]) {
  */
 export async function budgetPriceTenderBoqWithBlake(
   lines: TenderBoqLine[],
-  options: { forceRefresh?: boolean; context?: string } = {},
+  options: {
+    forceRefresh?: boolean;
+    context?: string;
+    onProgress?: (progress: BlakeBudgetProgress) => void;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<TenderBoqBlakeResult> {
   const forceRefresh = Boolean(options.forceRefresh);
   const kitLines = lines
@@ -189,16 +225,34 @@ export async function budgetPriceTenderBoqWithBlake(
     };
   }
 
+  options.onProgress?.({
+    stage: "library",
+    message: "Matching library…",
+    pricedSoFar: 0,
+    openSoFar: kitLines.length,
+  });
+
   const priced = await budgetPriceKitWithBlake(kitLines, {
     forceRefreshBudget: forceRefresh,
     context: options.context,
     preferBlankWhenUnsure: true,
     chunkSize: 30,
     timeoutMs: 40_000,
+    onProgress: options.onProgress,
+    signal: options.signal,
   });
 
   const nextLines = mergeKitPricesOntoBoqLines(lines, priced.lines, { forceRefresh });
   const summary = summariseTenderBoqBlake(nextLines);
+
+  options.onProgress?.({
+    stage: "done",
+    message: summary.leftBlank
+      ? `Done · ${summary.pricedCount} priced · ${summary.leftBlank} blank`
+      : `Done · ${summary.pricedCount} priced`,
+    pricedSoFar: summary.pricedCount,
+    openSoFar: summary.leftBlank,
+  });
 
   return {
     lines: nextLines,

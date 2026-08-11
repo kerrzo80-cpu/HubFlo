@@ -40275,6 +40275,13 @@ button.nexa-kpi-card,
   margin-top: 12px;
 }
 
+.tenders-boq-blake-progress {
+  margin: 10px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f766e;
+}
+
 .tenders-file-button {
   display: inline-flex;
   align-items: center;

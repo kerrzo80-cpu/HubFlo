@@ -16,6 +16,15 @@ import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
 const BUDGET_NOTE =
   "Blake budget (UK trade ballpark) — amend to supplier quote when uploaded";
 
+export type BlakeBudgetProgress = {
+  stage: "library" | "blake" | "done";
+  message: string;
+  chunkIndex?: number;
+  chunkTotal?: number;
+  pricedSoFar?: number;
+  openSoFar?: number;
+};
+
 export type BlakeBudgetPriceOptions = {
   forceRefreshBudget?: boolean;
   context?: string;
@@ -28,6 +37,10 @@ export type BlakeBudgetPriceOptions = {
   chunkSize?: number;
   /** Per-chunk OpenAI timeout in ms. Default 45s. */
   timeoutMs?: number;
+  /** Incremental status for UI (library match → Blake chunks → done). */
+  onProgress?: (progress: BlakeBudgetProgress) => void;
+  /** Optional abort (client cancel / disconnect). */
+  signal?: AbortSignal;
 };
 
 function extractChatText(body: unknown) {
@@ -95,11 +108,18 @@ export type BlakeBudgetPriceResult = {
   budgetTotal: number;
 };
 
-function abortSignal(timeoutMs: number): AbortSignal | undefined {
+function abortSignal(timeoutMs: number, outer?: AbortSignal): AbortSignal | undefined {
+  const signals: AbortSignal[] = [];
+  if (outer) signals.push(outer);
   if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
-    return AbortSignal.timeout(timeoutMs);
+    signals.push(AbortSignal.timeout(timeoutMs));
   }
-  return undefined;
+  if (!signals.length) return undefined;
+  if (signals.length === 1) return signals[0];
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.any === "function") {
+    return AbortSignal.any(signals);
+  }
+  return signals[0];
 }
 
 function chunkArray<T>(items: T[], size: number): T[][] {
@@ -109,6 +129,14 @@ function chunkArray<T>(items: T[], size: number): T[][] {
     out.push(items.slice(i, i + size));
   }
   return out;
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) {
+    const err = new Error("Blake budget pricing cancelled");
+    err.name = "AbortError";
+    throw err;
+  }
 }
 
 async function askBlakeBudgetChunk(
@@ -129,13 +157,14 @@ async function askBlakeBudgetChunk(
   }));
 
   try {
+    throwIfAborted(options.signal);
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${openAi.apiKey}`,
         "Content-Type": "application/json",
       },
-      signal: abortSignal(timeoutMs),
+      signal: abortSignal(timeoutMs, options.signal),
       body: JSON.stringify({
         model: openAi.model || "gpt-4.1-mini",
         temperature: 0.2,
@@ -144,8 +173,8 @@ async function askBlakeBudgetChunk(
           {
             role: "system",
             content: preferBlank
-              ? "Return strict JSON only. You are Blake pricing a UK plumbing/heating Bill of Quantities for budget estimating. Use typical 2024–2026 UK merchant trade prices (Wolseley / City Plumbing / Screwfix trade ballpark). These are BUDGET guide unit rates — not firm quotes. If you are not confident what the item is, omit it (do not invent a rate, do not return 0)."
-              : "Return strict JSON only. You are Blake pricing a UK plumbing/heating materials list for budget estimating. Use typical 2024–2026 UK merchant trade prices (Wolseley / City Plumbing / Screwfix trade ballpark). These are BUDGET costs for comparing to supplier quotes later — not firm quotes.",
+              ? "Return strict JSON only. You are Blake pricing a UK MEP / builders Bill of Quantities for budget estimating (plumbing, heating, drainage, electrical basics, ventilation, insulation, builders work, ancillaries). Use typical 2024–2026 UK merchant trade prices (Wolseley / City Plumbing / Screwfix / CEF / BES trade ballpark). These are BUDGET guide unit rates — not firm quotes. If you are not confident what the item is, omit it (do not invent a rate, do not return 0)."
+              : "Return strict JSON only. You are Blake pricing a UK MEP materials list for budget estimating (plumbing, heating, drainage, electrical basics, ventilation, insulation, builders work). Use typical 2024–2026 UK merchant trade prices (Wolseley / City Plumbing / Screwfix / CEF trade ballpark). These are BUDGET costs for comparing to supplier quotes later — not firm quotes.",
           },
           {
             role: "user",
@@ -156,6 +185,7 @@ async function askBlakeBudgetChunk(
               preferBlank
                 ? "If unsure of the item, trade unit, or a sensible UK rate, omit that line entirely. Never return 0. Prefer blank over a guess."
                 : "If a unitCost is already present, you may refine it if clearly wrong; otherwise keep a sensible UK trade figure. Never return 0 unless the item is truly free. Prefer a provisional budget over blank.",
+              "Cover common trades when present: copper/MDPE/waste/soil/UG drainage, sanitary, radiators/TRVs, boilers/ASHP/cylinders, extract fans/ducts, T&E/sockets/switches/FCUs, pipe insulation, fire collars, builders work / chases.",
               "Return JSON: { lines: [{ id, unitCost, note? }] }",
               options.context ? `Job context: ${options.context}` : "",
               JSON.stringify({ lines: payload }),
@@ -191,6 +221,9 @@ async function askBlakeBudgetChunk(
     }
     return { byId };
   } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      return { byId, error: "Blake budget pricing cancelled" };
+    }
     const message = err instanceof Error ? err.message : "Budget pricing failed";
     const timedOut = /abort|timeout/i.test(message);
     return { byId, error: timedOut ? `OpenAI timed out after ${timeoutMs}ms` : message };
@@ -206,8 +239,27 @@ export async function budgetPriceKitWithBlake(
   lines: KitLine[],
   options: BlakeBudgetPriceOptions = {},
 ): Promise<BlakeBudgetPriceResult> {
+  throwIfAborted(options.signal);
+  options.onProgress?.({
+    stage: "library",
+    message: "Matching library…",
+    pricedSoFar: lines.filter((line) => line.unitCost > 0).length,
+    openSoFar: lines.filter((line) => !(line.unitCost > 0)).length,
+  });
+
   const openAi = getTakeoffOpenAiConfig();
   const libraryFirst = applyTaggedGuidePrices(lines);
+  const libraryPriced = libraryFirst.filter((line) => line.unitCost > 0).length;
+  const libraryOpen = libraryFirst.length - libraryPriced;
+
+  options.onProgress?.({
+    stage: "library",
+    message: libraryOpen
+      ? `Library matched ${libraryPriced} · ${libraryOpen} for Blake…`
+      : `Library matched ${libraryPriced}`,
+    pricedSoFar: libraryPriced,
+    openSoFar: libraryOpen,
+  });
 
   if (!openAi.apiKey) {
     const summary = summariseGuidePricing(libraryFirst);
@@ -259,11 +311,26 @@ export async function budgetPriceKitWithBlake(
   const chunks = chunkArray(toAsk.length ? toAsk : libraryFirst, chunkSize);
   const byId = new Map<string, number>();
   const errors: string[] = [];
+  let asked = 0;
 
-  for (const chunk of chunks) {
+  for (let index = 0; index < chunks.length; index += 1) {
+    throwIfAborted(options.signal);
+    const chunk = chunks[index]!;
+    asked += chunk.length;
+    options.onProgress?.({
+      stage: "blake",
+      message: `Blake pricing ${Math.min(asked, toAsk.length)}/${toAsk.length || asked}…`,
+      chunkIndex: index + 1,
+      chunkTotal: chunks.length,
+      pricedSoFar: libraryPriced + byId.size,
+      openSoFar: Math.max(0, (toAsk.length || asked) - byId.size),
+    });
     const result = await askBlakeBudgetChunk(chunk, openAi, options);
     for (const [id, cost] of result.byId) byId.set(id, cost);
-    if (result.error) errors.push(result.error);
+    if (result.error) {
+      errors.push(result.error);
+      if (/cancelled/i.test(result.error)) break;
+    }
   }
 
   const priced = libraryFirst.map((line) => {

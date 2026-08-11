@@ -8,6 +8,22 @@ import { applyBlakeBudgetPricesToTender, listTenders } from "@/lib/tenders-data"
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
+type ProgressEvent = {
+  type: "progress";
+  stage: "library" | "blake" | "done";
+  message: string;
+  chunkIndex?: number;
+  chunkTotal?: number;
+  pricedSoFar?: number;
+  openSoFar?: number;
+};
+
+function wantsStream(request: NextRequest) {
+  const accept = request.headers.get("accept") || "";
+  if (accept.includes("application/x-ndjson")) return true;
+  return request.nextUrl.searchParams.get("stream") === "1";
+}
+
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -22,47 +38,125 @@ export async function POST(
 
   const { id } = await context.params;
   const body = (await parseJsonRequestBody<{ forceRefresh?: boolean; actor?: string }>(request)) || {};
+  const stream = wantsStream(request);
 
-  try {
-    const { tender, priced } = await applyBlakeBudgetPricesToTender(id, {
-      forceRefresh: Boolean(body.forceRefresh),
-    });
-
+  if (!stream) {
     try {
-      appendAuditEvent({
-        actor: body.actor?.trim() || "NeXa user",
-        action: "tender.blake_budget_prices",
-        recordType: "tender",
-        recordId: tender.id,
-        summary: priced.aiUsed
-          ? `Blake budget prices · ${priced.blakeFilled} Blake · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`
-          : `Guide budget prices · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`,
-        source: "tenders",
-        importance: "normal",
+      const { tender, priced } = await applyBlakeBudgetPricesToTender(id, {
+        forceRefresh: Boolean(body.forceRefresh),
       });
-    } catch {
-      // non-blocking
-    }
 
-    return NextResponse.json({
-      ok: true,
-      tender,
-      tenders: listTenders(),
-      aiUsed: priced.aiUsed,
-      connected: priced.connected,
-      model: priced.model,
-      error: priced.error,
-      pricedCount: priced.pricedCount,
-      stillOpenCount: priced.stillOpenCount,
-      libraryFilled: priced.libraryFilled,
-      blakeFilled: priced.blakeFilled,
-      leftBlank: priced.leftBlank,
-      budgetTotal: priced.budgetTotal,
-    });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unable to apply Blake budget prices" },
-      { status: 400 },
-    );
+      try {
+        appendAuditEvent({
+          actor: body.actor?.trim() || "NeXa user",
+          action: "tender.blake_budget_prices",
+          recordType: "tender",
+          recordId: tender.id,
+          summary: priced.aiUsed
+            ? `Blake budget prices · ${priced.blakeFilled} Blake · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`
+            : `Guide budget prices · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`,
+          source: "tenders",
+          importance: "normal",
+        });
+      } catch {
+        // non-blocking
+      }
+
+      return NextResponse.json({
+        ok: true,
+        tender,
+        tenders: listTenders(),
+        aiUsed: priced.aiUsed,
+        connected: priced.connected,
+        model: priced.model,
+        error: priced.error,
+        pricedCount: priced.pricedCount,
+        stillOpenCount: priced.stillOpenCount,
+        libraryFilled: priced.libraryFilled,
+        blakeFilled: priced.blakeFilled,
+        leftBlank: priced.leftBlank,
+        budgetTotal: priced.budgetTotal,
+      });
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Unable to apply Blake budget prices" },
+        { status: 400 },
+      );
+    }
   }
+
+  const encoder = new TextEncoder();
+  const readable = new ReadableStream({
+    async start(controller) {
+      const write = (payload: unknown) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+      };
+
+      try {
+        write({
+          type: "progress",
+          stage: "library",
+          message: "Matching library…",
+        } satisfies ProgressEvent);
+
+        const { tender, priced } = await applyBlakeBudgetPricesToTender(id, {
+          forceRefresh: Boolean(body.forceRefresh),
+          signal: request.signal,
+          onProgress: (progress) => {
+            write({
+              type: "progress",
+              ...progress,
+            } satisfies ProgressEvent);
+          },
+        });
+
+        try {
+          appendAuditEvent({
+            actor: body.actor?.trim() || "NeXa user",
+            action: "tender.blake_budget_prices",
+            recordType: "tender",
+            recordId: tender.id,
+            summary: priced.aiUsed
+              ? `Blake budget prices · ${priced.blakeFilled} Blake · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`
+              : `Guide budget prices · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`,
+            source: "tenders",
+            importance: "normal",
+          });
+        } catch {
+          // non-blocking
+        }
+
+        write({
+          type: "result",
+          ok: true,
+          tender,
+          tenders: listTenders(),
+          aiUsed: priced.aiUsed,
+          connected: priced.connected,
+          model: priced.model,
+          error: priced.error,
+          pricedCount: priced.pricedCount,
+          stillOpenCount: priced.stillOpenCount,
+          libraryFilled: priced.libraryFilled,
+          blakeFilled: priced.blakeFilled,
+          leftBlank: priced.leftBlank,
+          budgetTotal: priced.budgetTotal,
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unable to apply Blake budget prices";
+        write({ type: "error", error: message });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(readable, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }

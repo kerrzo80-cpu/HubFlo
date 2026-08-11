@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
   ClipboardList,
   Download,
   FileSpreadsheet,
+  FolderPlus,
   Plus,
   RefreshCw,
   Search,
@@ -24,8 +25,14 @@ import {
   boqProgress,
   computeBoqTotal,
   daysLeftForDeadline,
+  isTenderDocumentKind,
+  resolveTenderDocumentFolderKind,
+  tenderDocumentFolderPathLabel,
   type Tender,
   type TenderBoqLine,
+  type TenderDocument,
+  type TenderDocumentFolder,
+  type TenderDocumentKind,
   type TenderStatus,
 } from "@/lib/tenders-types";
 
@@ -43,15 +50,6 @@ function money(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "—";
   return gbp.format(value);
 }
-
-type TenderDocumentKind =
-  | "issued-boq"
-  | "priced-boq"
-  | "form-of-tender"
-  | "drawing"
-  | "specification"
-  | "supplier-quote"
-  | "other";
 
 type TabKey = "overview" | "boq" | "documents" | "submit";
 
@@ -97,6 +95,8 @@ export function TendersPanel({
   const [qualificationDraft, setQualificationDraft] = useState("");
   const [clientSuggestionsOpen, setClientSuggestionsOpen] = useState(false);
   const [blakeBudgetBusy, setBlakeBudgetBusy] = useState(false);
+  const [blakeBudgetStatus, setBlakeBudgetStatus] = useState<string | null>(null);
+  const blakeBudgetAbortRef = useRef<AbortController | null>(null);
 
   const selected = useMemo(
     () => tenders.find((tender) => tender.id === selectedId) ?? null,
@@ -449,18 +449,35 @@ export function TendersPanel({
       onNotice("Import a BoQ first — Blake needs measured lines to price.");
       return;
     }
+    if (blakeBudgetBusy) return;
+
+    blakeBudgetAbortRef.current?.abort();
+    const abort = new AbortController();
+    blakeBudgetAbortRef.current = abort;
+
     setBlakeBudgetBusy(true);
     setSaving(true);
+    setBlakeBudgetStatus("Matching library…");
     try {
-      const response = await fetch(`/api/tenders/${encodeURIComponent(selected.id)}/budget-prices`, {
+      const response = await fetch(`/api/tenders/${encodeURIComponent(selected.id)}/budget-prices?stream=1`, {
         method: "POST",
         headers: {
           ...requestHeaders,
           "Content-Type": "application/json",
+          Accept: "application/x-ndjson",
         },
         body: JSON.stringify({ forceRefresh, actor: actorName }),
+        signal: abort.signal,
       });
-      const payload = (await response.json()) as {
+
+      const contentType = response.headers.get("content-type") || "";
+      if (!response.ok && !contentType.includes("ndjson")) {
+        const fail = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(fail.error || "Blake budget pricing failed");
+      }
+
+      type BlakePayload = {
+        type?: string;
         error?: string;
         tender?: Tender;
         tenders?: Tender[];
@@ -470,24 +487,93 @@ export function TendersPanel({
         leftBlank?: number;
         budgetTotal?: number;
         pricedCount?: number;
+        message?: string;
+        stage?: string;
       };
-      if (!response.ok) throw new Error(payload.error || "Blake budget pricing failed");
+
+      let payload: BlakePayload | null = null;
+
+      if (contentType.includes("ndjson") && response.body) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n");
+          buffer = parts.pop() || "";
+          for (const part of parts) {
+            const line = part.trim();
+            if (!line) continue;
+            let event: BlakePayload;
+            try {
+              event = JSON.parse(line) as BlakePayload;
+            } catch {
+              continue;
+            }
+            if (event.type === "progress" && event.message) {
+              setBlakeBudgetStatus(event.message);
+            } else if (event.type === "result") {
+              payload = event;
+            } else if (event.type === "error") {
+              throw new Error(event.error || "Blake budget pricing failed");
+            }
+          }
+        }
+        if (buffer.trim()) {
+          try {
+            const event = JSON.parse(buffer.trim()) as BlakePayload;
+            if (event.type === "result") payload = event;
+            else if (event.type === "error") throw new Error(event.error || "Blake budget pricing failed");
+          } catch (error) {
+            if (error instanceof Error && /Blake budget/.test(error.message)) throw error;
+          }
+        }
+      } else {
+        payload = (await response.json()) as BlakePayload;
+        if (!response.ok) throw new Error(payload.error || "Blake budget pricing failed");
+      }
+
+      if (!payload) throw new Error("Blake budget pricing returned no result");
+      if (payload.error && !(payload.pricedCount || payload.libraryFilled || payload.blakeFilled)) {
+        throw new Error(payload.error);
+      }
+
       if (Array.isArray(payload.tenders)) setTenders(payload.tenders);
       else if (payload.tender) {
-        setTenders((prev) => prev.map((row) => (row.id === payload.tender!.id ? payload.tender! : row)));
+        setTenders((prev) => prev.map((row) => (row.id === payload!.tender!.id ? payload!.tender! : row)));
       }
       const blank = payload.leftBlank ?? 0;
-      onNotice(
-        payload.aiUsed
-          ? `Blake budget prices applied · ${payload.blakeFilled ?? 0} Blake · ${payload.libraryFilled ?? 0} library · ${blank} left blank · ${money(payload.budgetTotal)}. Guide rates only — amend before FoT.`
-          : `Guide rates applied · ${payload.libraryFilled ?? 0} from library · ${blank} left blank · ${money(payload.budgetTotal)}. OpenAI offline or skipped — blanks stay unpriced.`,
+      const priced = payload.pricedCount ?? 0;
+      const notice = payload.aiUsed
+        ? `Blake budget prices applied · ${payload.blakeFilled ?? 0} Blake · ${payload.libraryFilled ?? 0} library · ${priced} priced · ${blank} blank · ${money(payload.budgetTotal)}. Guide rates only — amend before FoT.`
+        : `Guide rates applied · ${payload.libraryFilled ?? 0} from library · ${priced} priced · ${blank} blank · ${money(payload.budgetTotal)}. OpenAI offline or skipped — blanks stay unpriced.`;
+      setBlakeBudgetStatus(
+        blank
+          ? `Done · ${priced} priced · ${blank} blank`
+          : `Done · ${priced} priced`,
       );
+      onNotice(notice);
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "Unable to run Blake budget prices");
+      if (error instanceof Error && error.name === "AbortError") {
+        setBlakeBudgetStatus("Cancelled");
+        onNotice("Blake budget pricing cancelled.");
+      } else {
+        setBlakeBudgetStatus(null);
+        onNotice(error instanceof Error ? error.message : "Unable to run Blake budget prices");
+      }
     } finally {
+      if (blakeBudgetAbortRef.current === abort) blakeBudgetAbortRef.current = null;
       setBlakeBudgetBusy(false);
       setSaving(false);
+      window.setTimeout(() => setBlakeBudgetStatus(null), 4000);
     }
+  }
+
+  function cancelBlakeBudgetPrices() {
+    blakeBudgetAbortRef.current?.abort();
+    setBlakeBudgetStatus("Cancelling…");
   }
 
   async function downloadFormOfTender() {
@@ -924,7 +1010,21 @@ export function TendersPanel({
                   >
                     Refresh budget guides
                   </button>
+                  {blakeBudgetBusy ? (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={cancelBlakeBudgetPrices}
+                    >
+                      Cancel
+                    </button>
+                  ) : null}
                 </div>
+                {blakeBudgetStatus ? (
+                  <p className="tenders-boq-blake-progress" aria-live="polite">
+                    {blakeBudgetStatus}
+                  </p>
+                ) : null}
               </div>
               <div className="tenders-metric-row">
                 <article>
