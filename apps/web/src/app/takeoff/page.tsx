@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import {
+  ChevronDown,
   ExternalLink,
   FolderOpen,
   Loader2,
@@ -167,6 +168,7 @@ export default function TakeoffStudioPage() {
   const [proposeCylinder, setProposeCylinder] = useState(true);
   const [proposeQuestions, setProposeQuestions] = useState<string[]>([]);
   const [logOpen, setLogOpen] = useState(false);
+  const [drawSizesOpen, setDrawSizesOpen] = useState(false);
   const [newLayerName, setNewLayerName] = useState("");
   const saveTimer = useRef<number | null>(null);
   const historyRef = useRef<StudioState[]>([]);
@@ -1686,15 +1688,6 @@ export default function TakeoffStudioPage() {
         </div>
       ) : null}
 
-      {selected && !hasPendingAiReview && hasBlakePipesOnSheet ? (
-        <div className="nexa-studio-banner ok nexa-studio-ai-review-banner">
-          <span>
-            Blake: {blakePipeRunCount} pipe run{blakePipeRunCount === 1 ? "" : "s"} on sheet — Edit to trim, then Push.
-          </span>
-          <button type="button" onClick={() => setBoqOpen(true)}>BOQ</button>
-        </div>
-      ) : null}
-
       <div className={`nexa-studio-body${railCollapsed ? " rail-collapsed" : ""}`}>
         <aside className={`nexa-studio-rail${railCollapsed ? " is-collapsed" : ""}`}>
           <button
@@ -1999,13 +1992,20 @@ export default function TakeoffStudioPage() {
                             <button
                               type="button"
                               className="nexa-studio-class-pick"
-                              aria-expanded={isActive && cls.kind === "linear"}
-                              onClick={() => void persistStudio({
-                                ...studio,
-                                activeClassificationId: cls.id,
-                                tool: cls.kind,
-                                activeLayerId: classificationLayer(cls),
-                              })}
+                              aria-expanded={isActive && cls.kind === "linear" ? drawSizesOpen : undefined}
+                              onClick={() => {
+                                if (isActive && cls.kind === "linear") {
+                                  setDrawSizesOpen((open) => !open);
+                                  return;
+                                }
+                                void persistStudio({
+                                  ...studio,
+                                  activeClassificationId: cls.id,
+                                  tool: cls.kind,
+                                  activeLayerId: classificationLayer(cls),
+                                });
+                                setDrawSizesOpen(cls.kind === "linear");
+                              }}
                             >
                               <span>
                                 <strong>{cls.name}</strong>
@@ -2033,32 +2033,45 @@ export default function TakeoffStudioPage() {
                             </button>
                           </div>
                           {isActive && cls.kind === "linear" ? (
-                            <div className="nexa-studio-draw-sizes" role="group" aria-label={`Pipe size for ${cls.name}`}>
-                              <span className="nexa-studio-draw-sizes-label">Size</span>
-                              {STUDIO_PIPE_SPECS.map((spec) => {
-                                const active = activeSpecId === spec.id;
-                                return (
-                                  <button
-                                    key={spec.id}
-                                    type="button"
-                                    className={active ? "on" : undefined}
-                                    onClick={() => {
-                                      void persistStudio({ ...studio, activePipeSpecId: spec.id, tool: "linear" });
-                                      if (selected) {
-                                        recordTakeoffLearningClient({
-                                          type: "pipe_spec_choice",
-                                          projectId: selected.id,
-                                          pipeSpecId: spec.id,
-                                          trade: "plumbing",
-                                        });
-                                      }
-                                    }}
-                                    title={`${spec.diameter} ${spec.material}${spec.autoCouplings ? ` · couplings every ${spec.stockLengthM}m` : ""}${spec.autoElbows ? " · auto elbows" : ""}`}
-                                  >
-                                    {spec.label}
-                                  </button>
-                                );
-                              })}
+                            <div className={`nexa-studio-draw-sizes${drawSizesOpen ? " is-open" : ""}`}>
+                              <button
+                                type="button"
+                                className="nexa-studio-draw-sizes-toggle"
+                                aria-expanded={drawSizesOpen}
+                                onClick={() => setDrawSizesOpen((open) => !open)}
+                              >
+                                <span className="nexa-studio-draw-sizes-label">Size</span>
+                                <strong>{activeSpec?.label || "Pick"}</strong>
+                                <ChevronDown size={14} aria-hidden />
+                              </button>
+                              {drawSizesOpen ? (
+                                <div className="nexa-studio-draw-sizes-chips" role="group" aria-label={`Pipe size for ${cls.name}`}>
+                                  {STUDIO_PIPE_SPECS.map((spec) => {
+                                    const active = activeSpecId === spec.id;
+                                    return (
+                                      <button
+                                        key={spec.id}
+                                        type="button"
+                                        className={active ? "on" : undefined}
+                                        onClick={() => {
+                                          void persistStudio({ ...studio, activePipeSpecId: spec.id, tool: "linear" });
+                                          if (selected) {
+                                            recordTakeoffLearningClient({
+                                              type: "pipe_spec_choice",
+                                              projectId: selected.id,
+                                              pipeSpecId: spec.id,
+                                              trade: "plumbing",
+                                            });
+                                          }
+                                        }}
+                                        title={`${spec.diameter} ${spec.material}${spec.autoCouplings ? ` · couplings every ${spec.stockLengthM}m` : ""}${spec.autoElbows ? " · auto elbows" : ""}`}
+                                      >
+                                        {spec.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              ) : null}
                             </div>
                           ) : null}
                         </div>

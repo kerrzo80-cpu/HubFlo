@@ -418,6 +418,7 @@
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   /* Keep the rail/main inside the remaining viewport so side panels can scroll. */
   overflow: hidden;
 }
@@ -429,12 +430,28 @@
 
 .nexa-studio-rail {
   min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  max-height: 100%;
+  height: 100%;
+  overflow: hidden;
   background: var(--surface);
   border-right: 1px solid var(--line);
   padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nexa-studio-rail-toggle {
+  display: none;
+  flex: 0 0 auto;
+}
+
+.nexa-studio-rail-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: grid;
   gap: 12px;
   align-content: start;
@@ -443,24 +460,14 @@
   scrollbar-width: thin;
 }
 
-.nexa-studio-rail::-webkit-scrollbar {
+.nexa-studio-rail-body::-webkit-scrollbar {
   width: 10px;
 }
 
-.nexa-studio-rail::-webkit-scrollbar-thumb {
+.nexa-studio-rail-body::-webkit-scrollbar-thumb {
   background: #b7c9d4;
   border-radius: 999px;
   border: 2px solid var(--surface);
-}
-
-.nexa-studio-rail-toggle {
-  display: none;
-}
-
-.nexa-studio-rail-body {
-  display: grid;
-  gap: 12px;
-  align-content: start;
 }
 
 .nexa-studio-rail section {
@@ -656,13 +663,33 @@
 }
 
 .nexa-studio-draw-sizes {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 2px 8px 36px;
+  display: grid;
+  gap: 6px;
+  padding: 4px 6px 8px 36px;
   border-top: 1px dashed color-mix(in srgb, var(--line) 80%, transparent);
   margin: 0 2px;
+}
+
+.nexa-studio-draw-sizes-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nexa-studio-draw-sizes-toggle:hover {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: var(--line);
 }
 
 .nexa-studio-draw-sizes-label {
@@ -671,10 +698,34 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted);
-  margin-right: 2px;
 }
 
-.nexa-studio-draw-sizes button {
+.nexa-studio-draw-sizes-toggle strong {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.nexa-studio-draw-sizes-toggle svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+  transition: transform 140ms ease;
+}
+
+.nexa-studio-draw-sizes.is-open .nexa-studio-draw-sizes-toggle svg {
+  transform: rotate(180deg);
+}
+
+.nexa-studio-draw-sizes-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.nexa-studio-draw-sizes-chips button {
   border: 1px solid var(--line);
   background: #fff;
   color: var(--ink);
@@ -686,7 +737,7 @@
   min-height: 30px;
 }
 
-.nexa-studio-draw-sizes button.on {
+.nexa-studio-draw-sizes-chips button.on {
   background: var(--blue-deep);
   border-color: var(--blue-deep);
   color: #fff;
@@ -1968,7 +2019,9 @@
     flex: 1 1 auto;
   }
 
-  .nexa-studio-rail {
+  .nexa-studio-rail,
+  .nexa-studio-rail-body {
+    min-height: 0;
     max-height: 100%;
   }
 }
@@ -2007,8 +2060,9 @@
 
   .nexa-studio-rail {
     order: 1;
+    height: auto;
     max-height: min(48dvh, 420px);
-    overflow-y: auto;
+    overflow: hidden;
     border-right: 0;
     border-top: 1px solid var(--line);
     border-bottom: 0;
@@ -2087,7 +2141,7 @@
   }
 
   .nexa-studio-service-bar button,
-  .nexa-studio-draw-sizes button {
+  .nexa-studio-draw-sizes-chips button {
     flex: 0 0 auto;
     padding: 5px 8px;
     font-size: 11px;
