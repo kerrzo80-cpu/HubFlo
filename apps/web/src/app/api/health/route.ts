@@ -176,7 +176,7 @@ export async function GET() {
       mailboxIcloudFix: "hydrate-dirty-v1",
       mailboxPersist: "verify-disk-v2",
       takeoffSkill: "drawing-first-v8-routes-page",
-      takeoffMacScroll: "studio-rail-body-scroll-v3",
+      takeoffMacScroll: "studio-rail-body-scroll-v4",
       takeoffAiConfirm: "pins-only-v2",
       takeoffBlakePipeRuns: "vector-stroke-v1",
       takeoffBlakeLearn: "habits-v1",

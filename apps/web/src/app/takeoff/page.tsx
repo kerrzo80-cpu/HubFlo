@@ -1689,7 +1689,7 @@ export default function TakeoffStudioPage() {
         </div>
       ) : null}
 
-      {/* Banners overlay canvas — never steal body height from the absolute rail. */}
+      {/* Banners overlay canvas — never steal body height from the rail scrollport. */}
       <div className="nexa-studio-banner-stack" aria-live="polite">
         {(notice || error) ? (
           <div className={`nexa-studio-banner ${error ? "error" : "ok"}`}>{error || notice}</div>
@@ -1725,7 +1725,7 @@ export default function TakeoffStudioPage() {
             <strong>{selected?.reference || "Projects"}</strong>
           </button>
 
-          {/* LAYOUT QA: single scroll pane — every rail section must live inside this div. */}
+          {/* LAYOUT QA: absolute scrollport inside rail — every section lives here. */}
           <div
             className="nexa-studio-rail-scroll"
             onWheel={(event) => {

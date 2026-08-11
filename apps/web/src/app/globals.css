@@ -23690,12 +23690,16 @@ body:has([data-takeoff-mode="page"]) {
 }
 
 /*
- * Studio owns a locked 100dvh viewport; left rail is a flex sibling that scrolls
- * internally via .nexa-studio-rail-scroll (see LAYOUT QA in studio.css). Unlocking
- * document scroll lets the rail grow past the canvas and clip with no usable scrollbar.
+ * Studio owns a locked 100dvh viewport; left rail scrolls internally via
+ * .nexa-studio-rail-scroll (see LAYOUT QA in studio.css). Unlocking document
+ * scroll lets the rail grow past the canvas and clip with no usable scrollbar.
+ * Lock from :has(.nexa-studio) alone (not only .nexa-takeoff-scroll) so Safari
+ * does not content-size the page before the layout effect adds the class.
  * Phones keep page scroll via the max-width:960 studio rules.
  */
 @media (min-width: 961px) {
+  html:has(.nexa-studio),
+  html:has(.nexa-studio) body,
   html.nexa-takeoff-scroll:has(.nexa-studio),
   html.nexa-takeoff-scroll:has(.nexa-studio) body {
     height: 100% !important;

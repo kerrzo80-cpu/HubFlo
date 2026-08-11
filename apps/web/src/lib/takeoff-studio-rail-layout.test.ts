@@ -4,11 +4,12 @@ import { describe, expect, it } from "vitest";
 
 /**
  * Regression guard for Takeoff Studio left-rail layout.
- * Catches the bounce of absolute-rail / sticky-Draw-as / dropzone-over-list bugs.
+ * Catches content-sized rail (no scrollport), sticky Draw-as, dropzone-over-list.
  */
 const root = resolve(__dirname, "..");
 const studioCss = readFileSync(resolve(root, "app/takeoff/studio/studio.css"), "utf8");
 const pageTsx = readFileSync(resolve(root, "app/takeoff/page.tsx"), "utf8");
+const globalsCss = readFileSync(resolve(root, "app/globals.css"), "utf8");
 
 function blockFor(selector: string, source: string) {
   const re = new RegExp(`${selector.replace(/\./g, "\\.")}\\s*\\{([^}]*)\\}`, "m");
@@ -18,23 +19,32 @@ function blockFor(selector: string, source: string) {
 }
 
 describe("Takeoff Studio left-rail layout contract", () => {
-  it("keeps a flex body + non-absolute desktop rail with a scrollable pane", () => {
+  it("keeps a definite-height body grid with an absolute rail scrollport (Safari-safe)", () => {
     const body = blockFor(".nexa-studio-body", studioCss);
-    expect(body).toMatch(/display:\s*flex/);
+    expect(body).toMatch(/display:\s*grid/);
+    expect(body).toMatch(/minmax\(0,\s*1fr\)/);
+    expect(body).toMatch(/height:\s*0/);
     expect(body).toMatch(/min-height:\s*0/);
     expect(body).toMatch(/overflow:\s*hidden/);
 
     const rail = blockFor(".nexa-studio-rail", studioCss);
-    expect(rail).toMatch(/position:\s*relative/);
-    expect(rail).not.toMatch(/position:\s*absolute/);
+    expect(rail).toMatch(/height:\s*100%/);
+    expect(rail).toMatch(/max-height:\s*100%/);
     expect(rail).toMatch(/min-height:\s*0/);
     expect(rail).toMatch(/overflow:\s*hidden/);
-    expect(rail).toMatch(/flex-direction:\s*column/);
+    expect(rail).toMatch(/position:\s*relative/);
 
     const scroll = blockFor(".nexa-studio-rail-scroll", studioCss);
-    expect(scroll).toMatch(/flex:\s*1\s+1\s+0%/);
+    expect(scroll).toMatch(/position:\s*absolute/);
+    expect(scroll).toMatch(/inset:\s*6px/);
     expect(scroll).toMatch(/min-height:\s*0/);
-    expect(scroll).toMatch(/overflow-y:\s*auto/);
+    expect(scroll).toMatch(/overflow-y:\s*scroll/);
+  });
+
+  it("locks desktop document scroll whenever .nexa-studio is present", () => {
+    const studioLock = globalsCss.slice(globalsCss.indexOf("Studio owns a locked"));
+    expect(studioLock).toMatch(/html:has\(\.nexa-studio\)/);
+    expect(studioLock).toMatch(/overflow:\s*hidden\s*!important/);
   });
 
   it("forbids sticky Draw-as outside the scroll pane", () => {

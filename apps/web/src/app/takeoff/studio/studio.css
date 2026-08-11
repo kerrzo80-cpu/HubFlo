@@ -1,15 +1,16 @@
 /*
  * LAYOUT QA — Takeoff Studio left-rail contract (do not regress):
  * 1. .nexa-studio = exclusive 100dvh column; overflow:hidden.
- * 2. .nexa-studio-body = flex row; flex:1 1 0%; min-height:0; overflow:hidden.
- * 3. Desktop rail = flex child (NOT position:absolute). Absolute + non-scroll siblings
- *    previously crushed .nexa-studio-rail-scroll to ~0 height (no scrollbar, Log clipped).
+ * 2. .nexa-studio-body = flex:1 with height:0 (Safari) + CSS grid minmax(0,1fr) row
+ *    so the rail NEVER content-sizes past the viewport (v3 flex-stretch failed on Safari).
+ * 3. Desktop rail = grid cell with height/max-height 100%; overflow:hidden.
  * 4. DOM: aside.nexa-studio-rail > .nexa-studio-rail-scroll > ALL sections (Projects,
  *    Draw as, Links, Drawings, More). No sticky Draw-as outside the scroll pane.
- * 5. .nexa-studio-rail-scroll = flex:1 1 0%; min-height:0; overflow-y:auto (must scroll).
+ * 5. .nexa-studio-rail-scroll = position:absolute; inset:6px; overflow-y:scroll
+ *    (absolute scrollport — Safari cannot content-size past the rail).
  * 6. Drawings: .nexa-studio-doc-list THEN .nexa-studio-drawing-drop (never overlap /
  *    absolute-cover list names). Dropzone is position:relative; flex:0 0 auto.
- * 7. .nexa-studio-main = flex:1; min-width:0; min-height:0 (no margin-left hack).
+ * 7. .nexa-studio-main = grid cell; min-width:0; min-height:0; height:100%.
  * 8. Banners: .nexa-studio-banner-stack absolute overlay — never steals body height.
  * Guard: apps/web/src/lib/takeoff-studio-rail-layout.test.ts
  */
@@ -446,11 +447,15 @@
 }
 
 .nexa-studio-body {
+  /* height:0 + flex-grow = Safari forces remaining viewport, not content height. */
   flex: 1 1 0%;
+  height: 0;
   min-height: 0;
+  max-height: 100%;
   position: relative;
-  display: flex;
-  flex-direction: row;
+  display: grid;
+  grid-template-columns: var(--nexa-studio-rail-w) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   align-items: stretch;
   overflow: hidden;
 }
@@ -461,22 +466,22 @@
 }
 
 .nexa-studio-rail {
-  /* Flex child of body — height comes from stretch, not content size. */
+  /* Grid cell with definite height — never grow with accordion content. */
   position: relative;
-  flex: 0 0 var(--nexa-studio-rail-w);
-  width: var(--nexa-studio-rail-w);
-  max-width: var(--nexa-studio-rail-w);
+  grid-column: 1;
+  grid-row: 1;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: 100%;
   z-index: 3;
   min-height: 0;
   min-width: 0;
-  align-self: stretch;
   overflow: hidden;
   background: var(--surface);
   border-right: 1px solid var(--line);
   padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: block; /* scroll pane is absolutely filled — avoid flex content sizing */
 }
 
 .nexa-studio-rail-toggle {
@@ -508,29 +513,43 @@
 }
 
 .nexa-studio-rail-scroll {
-  flex: 1 1 0%;
+  /*
+   * Absolute fill of the rail padding box = definite scrollport in Safari.
+   * Flex/height:0 alone still content-sized the pane on macOS Safari (v3), so
+   * Rates clipped with scrollHeight === clientHeight and overflow-y never engaged.
+   */
+  position: absolute;
+  inset: 6px;
+  box-sizing: border-box;
   min-height: 0;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: scroll; /* visible gutter over overlay-only trackpads */
   overscroll-behavior: contain;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: block;
   -webkit-overflow-scrolling: touch;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
-  /* Isolate wheel scroll to this pane (canvas zoom must not steal it). */
   touch-action: pan-y;
 }
 
+.nexa-studio-rail-scroll > * + * {
+  margin-top: 4px;
+}
+
 .nexa-studio-rail-scroll::-webkit-scrollbar {
-  width: 8px;
+  width: 10px;
+  -webkit-appearance: none;
+}
+
+.nexa-studio-rail-scroll::-webkit-scrollbar-track {
+  background: #eef3f6;
+  border-radius: 999px;
 }
 
 .nexa-studio-rail-scroll::-webkit-scrollbar-thumb {
-  background: #b7c9d4;
+  background: #8aa4b4;
   border-radius: 999px;
-  border: 2px solid var(--surface);
+  border: 2px solid #eef3f6;
 }
 
 .nexa-studio-rail-acc {
@@ -1726,13 +1745,14 @@
 }
 
 .nexa-studio-main {
-  flex: 1 1 0%;
+  grid-column: 2;
+  grid-row: 1;
   margin-left: 0;
   width: auto;
-  height: auto;
+  height: 100%;
+  max-height: 100%;
   min-width: 0;
   min-height: 0;
-  align-self: stretch;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2147,7 +2167,7 @@
   to { transform: rotate(360deg); }
 }
 
-/* Short laptop heights: keep flex + scroll contract (see LAYOUT QA). */
+/* Short laptop heights: keep definite height + scroll contract (see LAYOUT QA). */
 @media (max-height: 920px) and (min-width: 961px) {
   .nexa-studio {
     height: 100dvh;
@@ -2157,6 +2177,7 @@
 
   .nexa-studio-body {
     flex: 1 1 0%;
+    height: 0;
     min-height: 0;
   }
 
@@ -2164,6 +2185,7 @@
   .nexa-studio-rail-scroll,
   .nexa-studio-main {
     min-height: 0;
+    max-height: 100%;
   }
 }
 
@@ -2194,17 +2216,23 @@
   .nexa-studio-body {
     display: flex;
     flex-direction: column;
+    grid-template-columns: none;
+    grid-template-rows: none;
     flex: 1 1 auto;
+    height: auto;
     min-height: calc(100dvh - 56px);
     position: relative;
   }
 
   .nexa-studio-main {
     order: -1;
+    grid-column: auto;
+    grid-row: auto;
     flex: 1 1 auto;
     margin-left: 0;
     width: auto;
     height: auto;
+    max-height: none;
     min-height: 68dvh;
     overflow: hidden;
   }
@@ -2219,6 +2247,8 @@
 
   .nexa-studio-rail {
     position: relative;
+    grid-column: auto;
+    grid-row: auto;
     flex: 0 0 auto;
     width: auto;
     max-width: none;
@@ -2230,6 +2260,18 @@
     border-top: 1px solid var(--line);
     border-bottom: 0;
     padding: 8px 10px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .nexa-studio-rail-scroll {
+    position: relative;
+    inset: auto;
+    flex: 1 1 0%;
+    height: 0;
+    min-height: 0;
+    overflow-y: scroll;
   }
 
   .nexa-studio-rail-toggle {
