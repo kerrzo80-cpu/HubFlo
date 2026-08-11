@@ -170,11 +170,11 @@ export default function TakeoffStudioPage() {
   const [logOpen, setLogOpen] = useState(false);
   const [drawSizesOpen, setDrawSizesOpen] = useState(false);
   const [newLayerName, setNewLayerName] = useState("");
-  /** Accordion: Projects | Link | Drawings | Draw as | More — collapse Link + project list when a project is open. */
+  /** Accordion: Projects | Link | Drawings | Draw as | More — keep Draw as + Drawings open on Mark. */
   const [railAccordions, setRailAccordions] = useState({
     projects: true,
     link: false,
-    drawings: false,
+    drawings: true,
     draw: true,
     more: false,
   });
@@ -335,12 +335,12 @@ export default function TakeoffStudioPage() {
     setSaveState("saved");
     setReviewOpen(false);
     seededServicesRef.current = null;
-    // Mark mode: only Draw as stays open above the fold — Link/Drawings/Projects collapse.
+    // Mark mode: Draw as + Drawings open; Link / Projects / More stay collapsible.
     setRailAccordions((prev) => ({
       ...prev,
       projects: !selectedId,
       link: false,
-      drawings: false,
+      drawings: true,
       draw: true,
       more: false,
     }));
@@ -1725,69 +1725,88 @@ export default function TakeoffStudioPage() {
             <strong>{selected?.reference || "Projects"}</strong>
           </button>
 
-          <section className={`nexa-studio-rail-acc${railAccordions.projects ? " is-open" : ""}`}>
-            <button
-              type="button"
-              className="nexa-studio-rail-acc-toggle"
-              aria-expanded={railAccordions.projects}
-              onClick={() => toggleRailAccordion("projects")}
-            >
-              <FolderOpen size={14} aria-hidden />
-              <h2>Projects</h2>
-              {selected ? <strong className="nexa-studio-rail-active">{selected.reference}</strong> : null}
-              <ChevronDown size={14} aria-hidden />
-            </button>
-            {railAccordions.projects ? (
-              <div className="nexa-studio-rail-acc-body">
-                <div className="nexa-studio-create">
-                  <input
-                    value={draftName}
-                    onChange={(e) => setDraftName(e.target.value)}
-                    placeholder="New project name"
-                  />
-                  <button type="button" className="nexa-studio-primary" disabled={busy === "create"} onClick={() => void createProject()}>
-                    {busy === "create" ? <Loader2 className="spin" size={14} /> : <Plus size={14} />}
-                    New
-                  </button>
+          {/* LAYOUT QA: single scroll pane — every rail section must live inside this div. */}
+          <div
+            className="nexa-studio-rail-scroll"
+            onWheel={(event) => {
+              // Keep wheel/trackpad scroll on the rail; do not let canvas zoom handlers steal it.
+              event.stopPropagation();
+            }}
+          >
+            <section className={`nexa-studio-rail-acc${railAccordions.projects ? " is-open" : ""}`}>
+              <button
+                type="button"
+                className="nexa-studio-rail-acc-toggle"
+                aria-expanded={railAccordions.projects}
+                onClick={() => toggleRailAccordion("projects")}
+              >
+                <FolderOpen size={14} aria-hidden />
+                <h2>Projects</h2>
+                {selected ? <strong className="nexa-studio-rail-active">{selected.reference}</strong> : null}
+                <ChevronDown size={14} aria-hidden />
+              </button>
+              {railAccordions.projects ? (
+                <div className="nexa-studio-rail-acc-body">
+                  <div className="nexa-studio-create">
+                    <input
+                      value={draftName}
+                      onChange={(e) => setDraftName(e.target.value)}
+                      placeholder="New project name"
+                    />
+                    <button type="button" className="nexa-studio-primary" disabled={busy === "create"} onClick={() => void createProject()}>
+                      {busy === "create" ? <Loader2 className="spin" size={14} /> : <Plus size={14} />}
+                      New
+                    </button>
+                  </div>
+                  <div className="nexa-studio-project-list">
+                    {projects.map((project) => (
+                      <div key={project.id} className={`nexa-studio-project-row${project.id === selectedId ? " on" : ""}`}>
+                        <button
+                          type="button"
+                          className="nexa-studio-project-pick"
+                          onClick={() => {
+                            setSelectedId(project.id);
+                            setBoqOpen(false);
+                          }}
+                        >
+                          <strong>{project.reference}</strong>
+                          <span>{project.name}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="nexa-studio-project-delete"
+                          aria-label={`Delete ${project.reference}`}
+                          title="Delete project"
+                          disabled={busy === `delete-${project.id}`}
+                          onClick={() => void deleteProject(project.id, project.reference)}
+                        >
+                          {busy === `delete-${project.id}` ? <Loader2 className="spin" size={13} /> : <Trash2 size={13} />}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="nexa-studio-project-list">
-                  {projects.map((project) => (
-                    <div key={project.id} className={`nexa-studio-project-row${project.id === selectedId ? " on" : ""}`}>
-                      <button
-                        type="button"
-                        className="nexa-studio-project-pick"
-                        onClick={() => {
-                          setSelectedId(project.id);
-                          setBoqOpen(false);
-                        }}
-                      >
-                        <strong>{project.reference}</strong>
-                        <span>{project.name}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="nexa-studio-project-delete"
-                        aria-label={`Delete ${project.reference}`}
-                        title="Delete project"
-                        disabled={busy === `delete-${project.id}`}
-                        onClick={() => void deleteProject(project.id, project.reference)}
-                      >
-                        {busy === `delete-${project.id}` ? <Loader2 className="spin" size={13} /> : <Trash2 size={13} />}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </section>
+              ) : null}
+            </section>
 
-          {!boqOpen && selected ? (
-            <section className="nexa-studio-rail-draw-sticky" aria-label="Draw as">
-              <header className="nexa-studio-rail-draw-sticky-head">
-                <h2>Draw as</h2>
-                <span>{activeClass?.name || `${visibleClassifications.length} tools`}</span>
-              </header>
-              <div className="nexa-studio-rail-draw-sticky-body">
+            {selected ? (
+              <>
+              {!boqOpen ? (
+                <section className={`nexa-studio-rail-acc nexa-studio-rail-acc-draw${railAccordions.draw ? " is-open" : ""}`}>
+                  <button
+                    type="button"
+                    className="nexa-studio-rail-acc-toggle"
+                    aria-expanded={railAccordions.draw}
+                    onClick={() => toggleRailAccordion("draw")}
+                  >
+                    <h2>Draw as</h2>
+                    <span className="nexa-studio-rail-acc-meta">
+                      {activeClass?.name || `${visibleClassifications.length} tools`}
+                    </span>
+                    <ChevronDown size={14} aria-hidden />
+                  </button>
+                  {railAccordions.draw ? (
+                    <div className="nexa-studio-rail-acc-body">
                       {unscaledLinearCount > 0 ? (
                         <p className="nexa-studio-boq-scale-warn">
                           {unscaledLinearCount} run{unscaledLinearCount === 1 ? "" : "s"} need Set scale
@@ -1924,12 +1943,10 @@ export default function TakeoffStudioPage() {
                         <input value={newClassName} onChange={(e) => setNewClassName(e.target.value)} placeholder="Name" />
                         <button type="button" className="ghost" onClick={addClassification}>Add</button>
                       </div>
-              </div>
-            </section>
-          ) : null}
-
-          {selected ? (
-            <div className="nexa-studio-rail-scroll">
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
 
               <section className={`nexa-studio-rail-acc${railAccordions.link ? " is-open" : ""}`}>
                 <button
@@ -2036,15 +2053,7 @@ export default function TakeoffStudioPage() {
                   </button>
                   {railAccordions.drawings ? (
                     <div className="nexa-studio-rail-acc-body">
-                      <FileDropZone
-                        accept="application/pdf,.pdf"
-                        multiple
-                        disabled={busy === "upload" || !selected}
-                        label={busy === "upload" ? "Uploading…" : "Drop PDF or click"}
-                        hint="PDF drawing sets"
-                        onFiles={(files) => void uploadDrawingFiles(files)}
-                        className="nexa-studio-drawing-drop"
-                      />
+                      {/* List first, compact dropzone after — never stack dropzone over names. */}
                       <div className="nexa-studio-doc-list">
                         {drawingDocs.length ? drawingDocs.map((doc: TakeoffDocument) => (
                           <button
@@ -2057,6 +2066,16 @@ export default function TakeoffStudioPage() {
                           </button>
                         )) : <p className="muted">Upload a PDF plan set.</p>}
                       </div>
+                      <FileDropZone
+                        accept="application/pdf,.pdf"
+                        multiple
+                        compact
+                        disabled={busy === "upload" || !selected}
+                        label={busy === "upload" ? "Uploading…" : "Drop PDF or click"}
+                        hint="PDF drawing sets"
+                        onFiles={(files) => void uploadDrawingFiles(files)}
+                        className="nexa-studio-drawing-drop"
+                      />
                       <div className="nexa-studio-layer-list nexa-studio-layer-list-compact" role="tablist" aria-label="Service layers">
                         {studioLayers.map((layer) => (
                           <div key={layer.id} className={`nexa-studio-layer-row${activeLayerId === layer.id ? " on" : ""}`}>
@@ -2280,8 +2299,9 @@ export default function TakeoffStudioPage() {
                   </div>
                 ) : null}
               </section>
-            </div>
-          ) : null}
+              </>
+            ) : null}
+          </div>
         </aside>
 
         <main className="nexa-studio-main">

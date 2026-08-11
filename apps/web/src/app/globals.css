@@ -23690,9 +23690,9 @@ body:has([data-takeoff-mode="page"]) {
 }
 
 /*
- * Studio owns a locked 100dvh viewport; left rail is position:absolute and scrolls
- * internally (see LAYOUT QA in studio.css). Unlocking document scroll lets the rail
- * grow past the canvas and clip with no usable scrollbar.
+ * Studio owns a locked 100dvh viewport; left rail is a flex sibling that scrolls
+ * internally via .nexa-studio-rail-scroll (see LAYOUT QA in studio.css). Unlocking
+ * document scroll lets the rail grow past the canvas and clip with no usable scrollbar.
  * Phones keep page scroll via the max-width:960 studio rules.
  */
 @media (min-width: 961px) {
@@ -39925,10 +39925,7 @@ button.nexa-kpi-card,
   outline-offset: 2px;
 }
 
-.nexa-studio-drawing-drop {
-  margin-bottom: 10px;
-  min-height: 72px;
-}
+/* Takeoff Studio drawing drop lives in studio.css (.nexa-studio-drawing-drop). */
 
 .tenders-tracker-drop {
   min-width: 180px;

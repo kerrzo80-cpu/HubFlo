@@ -1,15 +1,17 @@
 /*
- * LAYOUT QA — Takeoff Studio height contract (do not regress):
- * 1. .nexa-studio = exclusive 100dvh column under its own header; overflow:hidden.
- * 2. html/body locked (globals) whenever .nexa-studio is present on desktop.
- * 3. .nexa-studio-body = flex:1 1 0%; min-height:0; position:relative; overflow:hidden.
- * 4. Desktop rail = position:absolute; inset:0 auto 0 0; width var; overflow:hidden.
- * 5. Mark mode: .nexa-studio-rail-draw-sticky sits ABOVE .nexa-studio-rail-scroll so
- *    Draw as is above the fold without scrolling past Link/Drawings.
- * 6. .nexa-studio-rail-scroll = flex:1; min-height:0; overflow-y:scroll (scrollbar always).
- * 7. .nexa-studio-main = margin-left: var(--nexa-studio-rail-w); height:100%; min-height:0.
- * 8. Banners live in .nexa-studio-banner-stack (absolute overlay) — never steal body height.
- * 9. No .nexa-studio-quick-actions on Mark — Scale/BOQ/Blake live in the top flow only.
+ * LAYOUT QA — Takeoff Studio left-rail contract (do not regress):
+ * 1. .nexa-studio = exclusive 100dvh column; overflow:hidden.
+ * 2. .nexa-studio-body = flex row; flex:1 1 0%; min-height:0; overflow:hidden.
+ * 3. Desktop rail = flex child (NOT position:absolute). Absolute + non-scroll siblings
+ *    previously crushed .nexa-studio-rail-scroll to ~0 height (no scrollbar, Log clipped).
+ * 4. DOM: aside.nexa-studio-rail > .nexa-studio-rail-scroll > ALL sections (Projects,
+ *    Draw as, Links, Drawings, More). No sticky Draw-as outside the scroll pane.
+ * 5. .nexa-studio-rail-scroll = flex:1 1 0%; min-height:0; overflow-y:auto (must scroll).
+ * 6. Drawings: .nexa-studio-doc-list THEN .nexa-studio-drawing-drop (never overlap /
+ *    absolute-cover list names). Dropzone is position:relative; flex:0 0 auto.
+ * 7. .nexa-studio-main = flex:1; min-width:0; min-height:0 (no margin-left hack).
+ * 8. Banners: .nexa-studio-banner-stack absolute overlay — never steals body height.
+ * Guard: apps/web/src/lib/takeoff-studio-rail-layout.test.ts
  */
 .nexa-studio {
   --ink: #173344;
@@ -447,7 +449,9 @@
   flex: 1 1 0%;
   min-height: 0;
   position: relative;
-  display: block;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
   overflow: hidden;
 }
 
@@ -457,13 +461,15 @@
 }
 
 .nexa-studio-rail {
-  /* Absolute fill of body — never content-size. Scroll lives on .nexa-studio-rail-scroll. */
-  position: absolute;
-  inset: 0 auto 0 0;
+  /* Flex child of body — height comes from stretch, not content size. */
+  position: relative;
+  flex: 0 0 var(--nexa-studio-rail-w);
   width: var(--nexa-studio-rail-w);
+  max-width: var(--nexa-studio-rail-w);
   z-index: 3;
   min-height: 0;
   min-width: 0;
+  align-self: stretch;
   overflow: hidden;
   background: var(--surface);
   border-right: 1px solid var(--line);
@@ -478,58 +484,15 @@
   flex: 0 0 auto;
 }
 
-.nexa-studio-rail-draw-sticky {
-  flex: 0 1 auto;
-  max-height: min(58dvh, 520px);
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  border: 1px solid var(--blue);
-  border-radius: 8px;
+/* Draw as lives inside .nexa-studio-rail-scroll as an accordion (nexa-studio-rail-acc-draw).
+ * Legacy sticky Draw-as outside the scroll pane crushed the rail — do not restore it. */
+.nexa-studio-rail-acc-draw {
+  border-color: var(--blue);
   background: #f4faff;
-  overflow: hidden;
 }
 
-.nexa-studio-rail-draw-sticky-head {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px 2px;
-}
-
-.nexa-studio-rail-draw-sticky-head h2 {
-  margin: 0;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+.nexa-studio-rail-acc-draw > .nexa-studio-rail-acc-toggle h2 {
   color: var(--blue-deep);
-  flex: 0 0 auto;
-}
-
-.nexa-studio-rail-draw-sticky-head span {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--ink);
-}
-
-.nexa-studio-rail-draw-sticky-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 0 6px 6px;
-  display: grid;
-  gap: 4px;
-  align-content: start;
-  scrollbar-width: thin;
 }
 
 .nexa-studio-rail-active {
@@ -548,14 +511,16 @@
   flex: 1 1 0%;
   min-height: 0;
   overflow-x: hidden;
-  overflow-y: scroll; /* always reserve scrollbar — no “clipped with no scroll” */
+  overflow-y: auto;
   overscroll-behavior: contain;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 4px;
-  align-content: start;
   -webkit-overflow-scrolling: touch;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
+  /* Isolate wheel scroll to this pane (canvas zoom must not steal it). */
+  touch-action: pan-y;
 }
 
 .nexa-studio-rail-scroll::-webkit-scrollbar {
@@ -622,9 +587,11 @@
 }
 
 .nexa-studio-rail-acc-body {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
   padding: 0 6px 6px;
+  min-width: 0;
 }
 
 .nexa-studio-rail section:not(.nexa-studio-rail-acc) {
@@ -707,6 +674,23 @@
 .nexa-studio-class-list {
   display: grid;
   gap: 4px;
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+/* Compact upload under the drawing list — never absolute / never covers names. */
+.nexa-studio-drawing-drop.file-drop-zone,
+.nexa-studio-drawing-drop {
+  position: relative;
+  z-index: 0;
+  flex: 0 0 auto;
+  align-self: stretch;
+  margin: 4px 0 0;
+  min-height: 40px;
+  padding: 8px 10px;
+  isolation: isolate;
 }
 
 .nexa-studio-project-row {
@@ -1742,10 +1726,13 @@
 }
 
 .nexa-studio-main {
-  margin-left: var(--nexa-studio-rail-w);
-  height: 100%;
+  flex: 1 1 0%;
+  margin-left: 0;
+  width: auto;
+  height: auto;
   min-width: 0;
   min-height: 0;
+  align-self: stretch;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2160,7 +2147,7 @@
   to { transform: rotate(360deg); }
 }
 
-/* Short laptop heights: absolute rail + locked document scroll (see LAYOUT QA). */
+/* Short laptop heights: keep flex + scroll contract (see LAYOUT QA). */
 @media (max-height: 920px) and (min-width: 961px) {
   .nexa-studio {
     height: 100dvh;
@@ -2205,9 +2192,8 @@
   }
 
   .nexa-studio-body {
-    display: grid;
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(68dvh, 1fr) auto;
+    display: flex;
+    flex-direction: column;
     flex: 1 1 auto;
     min-height: calc(100dvh - 56px);
     position: relative;
@@ -2215,7 +2201,9 @@
 
   .nexa-studio-main {
     order: -1;
+    flex: 1 1 auto;
     margin-left: 0;
+    width: auto;
     height: auto;
     min-height: 68dvh;
     overflow: hidden;
@@ -2231,10 +2219,9 @@
 
   .nexa-studio-rail {
     position: relative;
-    top: auto;
-    bottom: auto;
-    left: auto;
+    flex: 0 0 auto;
     width: auto;
+    max-width: none;
     order: 1;
     height: auto;
     max-height: min(48dvh, 420px);
@@ -2278,7 +2265,7 @@
   }
 
   .nexa-studio-body.rail-collapsed {
-    grid-template-rows: minmax(78dvh, 1fr) auto;
+    /* Flex column: collapsed rail is a short toggle strip under the canvas. */
   }
 
   .nexa-studio-body.rail-collapsed .nexa-studio-main,
