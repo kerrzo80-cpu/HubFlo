@@ -8,7 +8,10 @@ import {
   listTenders,
   type TenderDocumentKind,
 } from "@/lib/tenders-data";
-import { sheetRowsFromWorkbookBuffer } from "@/lib/tenders-xlsx";
+import {
+  allSheetRowsFromWorkbookBuffer,
+  sheetRowsFromWorkbookBuffer,
+} from "@/lib/tenders-xlsx";
 import { saveUploadedRecordDocument } from "@/lib/record-documents";
 
 export const runtime = "nodejs";
@@ -82,7 +85,8 @@ export async function POST(request: NextRequest) {
         const delimiter = name.endsWith(".tsv") || text.includes("\t") ? "\t" : ",";
         rows = text.split(/\r?\n/).map((line) => line.split(delimiter));
       } else {
-        rows = sheetRowsFromWorkbookBuffer(bytes);
+        // Client BoQs commonly split bill “pages” across worksheets — ingest all sheets.
+        rows = allSheetRowsFromWorkbookBuffer(bytes);
       }
       const tender = importBoqRowsIntoTender(tenderId, rows);
       return NextResponse.json({ tender, tenders: listTenders() });

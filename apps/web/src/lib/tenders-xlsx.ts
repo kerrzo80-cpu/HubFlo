@@ -1,11 +1,6 @@
 import * as XLSX from "xlsx";
 
-/** Read first sheet of an .xlsx/.xls buffer into rows of string cells. */
-export function sheetRowsFromWorkbookBuffer(bytes: Buffer | ArrayBuffer, sheetIndex = 0): string[][] {
-  const workbook = XLSX.read(bytes, { type: "buffer", cellDates: true });
-  const name = workbook.SheetNames[sheetIndex];
-  if (!name) return [];
-  const sheet = workbook.Sheets[name];
+function cellsFromSheet(sheet: unknown): string[][] {
   if (!sheet) return [];
   const raw = XLSX.utils.sheet_to_json<(string | number | Date | boolean | null | undefined)[]>(sheet, {
     header: 1,
@@ -22,6 +17,57 @@ export function sheetRowsFromWorkbookBuffer(bytes: Buffer | ArrayBuffer, sheetIn
       return String(cell).trim();
     }),
   );
+}
+
+function isBlankRow(row: string[]) {
+  return row.every((cell) => !String(cell || "").trim());
+}
+
+function isBoqHeaderRow(row: string[]) {
+  const first = String(row[0] || "")
+    .trim()
+    .toLowerCase();
+  return first === "ref" || first === "item" || first === "item ref";
+}
+
+/** Read one sheet of an .xlsx/.xls buffer into rows of string cells. */
+export function sheetRowsFromWorkbookBuffer(bytes: Buffer | ArrayBuffer, sheetIndex = 0): string[][] {
+  const workbook = XLSX.read(bytes, { type: "buffer", cellDates: true });
+  const name = workbook.SheetNames[sheetIndex];
+  if (!name) return [];
+  return cellsFromSheet(workbook.Sheets[name]);
+}
+
+/**
+ * Read every non-empty worksheet and concatenate rows.
+ * Multi-tab client BoQs often put each bill “page” on its own sheet — Tenders must not stop at sheet 0.
+ * Inserts a section header from the sheet name between sheets, and skips duplicate column headers after the first.
+ */
+export function allSheetRowsFromWorkbookBuffer(bytes: Buffer | ArrayBuffer): string[][] {
+  const workbook = XLSX.read(bytes, { type: "buffer", cellDates: true });
+  const merged: string[][] = [];
+  let emittedData = false;
+
+  for (const name of workbook.SheetNames) {
+    const rows = cellsFromSheet(workbook.Sheets[name]).filter((row) => !isBlankRow(row));
+    if (!rows.length) continue;
+
+    if (emittedData) {
+      merged.push(["", name]);
+    }
+
+    let start = 0;
+    if (emittedData && isBoqHeaderRow(rows[0] || [])) {
+      start = 1;
+    }
+
+    for (let i = start; i < rows.length; i += 1) {
+      merged.push(rows[i] || []);
+    }
+    emittedData = true;
+  }
+
+  return merged;
 }
 
 export function rowsToDelimitedText(rows: string[][], delimiter = ",") {

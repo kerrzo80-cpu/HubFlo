@@ -881,7 +881,7 @@ export function TendersPanel({
                 <FileDropZone
                   accept=".xlsx,.xls,.csv,.tsv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
                   label="Drop BoQ spreadsheet here or click to browse"
-                  hint=".xlsx, .xls, .csv"
+                  hint=".xlsx / .xls (all sheets) · .csv"
                   disabled={saving}
                   onFiles={(files) => void onBoqFile(files[0] ?? null)}
                 />
