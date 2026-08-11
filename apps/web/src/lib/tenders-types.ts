@@ -1,3 +1,16 @@
+import type { TenderDocumentFolder } from "@/lib/tender-document-folders";
+
+export type { TenderDocumentFolder } from "@/lib/tender-document-folders";
+export {
+  TENDER_DOCUMENT_FOLDER_MAX_DEPTH,
+  TENDER_DOCUMENT_KINDS,
+  isTenderDocumentKind,
+  normalizeTenderDocumentFolders,
+  resolveTenderDocumentFolderKind,
+  tenderDocumentFolderDepth,
+  tenderDocumentFolderPathLabel,
+} from "@/lib/tender-document-folders";
+
 export const TENDER_STATUSES = [
   "Not Started",
   "In Progress",
@@ -49,6 +62,8 @@ export type TenderDocument = {
   url?: string;
   uploadedAt: string;
   note?: string;
+  /** Optional custom folder; files without this sit in the built-in kind bucket. */
+  folderId?: string;
 };
 
 export type TenderBoqLineKind = "header" | "measured" | "note";
@@ -100,6 +115,8 @@ export type Tender = {
   boqTitle?: string;
   boqLines: TenderBoqLine[];
   documents: TenderDocument[];
+  /** Office-created folders/subfolders for drawings, specs, etc. Built-in kinds always remain. */
+  documentFolders?: TenderDocumentFolder[];
   submittedAt?: string;
   convertedJobId?: string;
   convertedJobRef?: string;

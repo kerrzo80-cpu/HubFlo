@@ -18,6 +18,12 @@ import {
 
 import { FileDropZone } from "@/components/FileDropZone";
 import {
+  isTenderDocumentKind,
+  resolveTenderDocumentFolderKind,
+  tenderDocumentFolderPathLabel,
+  type TenderDocumentFolder,
+} from "@/lib/tender-document-folders";
+import {
   TENDER_AREAS,
   TENDER_CATEGORIES,
   TENDER_STATUSES,
@@ -25,13 +31,9 @@ import {
   boqProgress,
   computeBoqTotal,
   daysLeftForDeadline,
-  isTenderDocumentKind,
-  resolveTenderDocumentFolderKind,
-  tenderDocumentFolderPathLabel,
   type Tender,
   type TenderBoqLine,
   type TenderDocument,
-  type TenderDocumentFolder,
   type TenderDocumentKind,
   type TenderStatus,
 } from "@/lib/tenders-types";
@@ -60,7 +62,55 @@ const DOC_KINDS: Array<{ kind: TenderDocumentKind; label: string }> = [
   { kind: "drawing", label: "Drawings" },
   { kind: "specification", label: "Specification" },
   { kind: "supplier-quote", label: "Supplier quotes" },
+  { kind: "other", label: "Other" },
 ];
+
+const DOC_KIND_LABELS = Object.fromEntries(DOC_KINDS.map((item) => [item.kind, item.label])) as Record<
+  TenderDocumentKind,
+  string
+>;
+
+type DocTargetValue = `kind:${TenderDocumentKind}` | `folder:${string}`;
+
+function encodeDocTarget(kind: TenderDocumentKind, folderId?: string | null): DocTargetValue {
+  if (folderId) return `folder:${folderId}`;
+  return `kind:${kind}`;
+}
+
+function decodeDocTarget(value: string): { kind?: TenderDocumentKind; folderId?: string } {
+  if (value.startsWith("folder:")) return { folderId: value.slice("folder:".length) };
+  if (value.startsWith("kind:")) {
+    const kind = value.slice("kind:".length);
+    return { kind: isTenderDocumentKind(kind) ? kind : "other" };
+  }
+  if (isTenderDocumentKind(value)) return { kind: value };
+  return { kind: "other" };
+}
+
+function listFolderOptions(
+  folders: TenderDocumentFolder[],
+): Array<{ value: DocTargetValue; label: string; kind: TenderDocumentKind }> {
+  const options: Array<{ value: DocTargetValue; label: string; kind: TenderDocumentKind }> = [];
+  for (const item of DOC_KINDS) {
+    options.push({ value: encodeDocTarget(item.kind), label: item.label, kind: item.kind });
+  }
+  for (const folder of folders) {
+    const kind = resolveTenderDocumentFolderKind(folders, folder.id);
+    options.push({
+      value: encodeDocTarget(kind, folder.id),
+      label: tenderDocumentFolderPathLabel(folders, folder.id, DOC_KIND_LABELS),
+      kind,
+    });
+  }
+  return options;
+}
+
+function foldersUnderParent(folders: TenderDocumentFolder[], parentId: string | null) {
+  return folders
+    .filter((folder) => (folder.parentId || null) === parentId)
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
 
 export function TendersPanel({
   requestHeaders,
@@ -263,12 +313,48 @@ export function TendersPanel({
   async function deleteDocument(documentId: string, documentName: string) {
     if (!selected) return;
     if (!window.confirm(`Remove “${documentName}” from this tender?`)) return;
+    const tenderId = selected.id;
+    // Optimistic UI so Remove feels instant even if the network is slow.
+    setTenders((current) =>
+      current.map((row) =>
+        row.id === tenderId
+          ? { ...row, documents: row.documents.filter((doc) => doc.id !== documentId) }
+          : row,
+      ),
+    );
     try {
-      await postAction({ action: "delete-document", id: selected.id, documentId });
+      await postAction({ action: "delete-document", id: tenderId, documentId });
       onNotice(`Removed ${documentName}.`);
     } catch (error) {
+      await loadTenders();
       onNotice(error instanceof Error ? error.message : "Unable to remove document");
     }
+  }
+
+  async function clearBoq() {
+    if (!selected || !selected.boqLines.length) return;
+    const lineCount = selected.boqLines.length;
+    if (
+      !window.confirm(
+        `Clear the imported BoQ (${lineCount} line${lineCount === 1 ? "" : "s"}) from this tender?\n\nDocument uploads are kept — remove those under Documents if needed. You can re-import afterwards.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await postAction({ action: "clear-boq", id: selected.id });
+      setBoqImportText("");
+      onNotice("BoQ cleared — import a new spreadsheet when ready.");
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to clear BoQ");
+    }
+  }
+
+  function confirmReplaceBoq(lineCount: number) {
+    if (!lineCount) return true;
+    return window.confirm(
+      `Replace the existing BoQ (${lineCount} line${lineCount === 1 ? "" : "s"}) with this import? Pricing on the old lines will be lost.`,
+    );
   }
 
   async function openOrCreateTakeoff(createNew = false) {
@@ -356,6 +442,7 @@ export function TendersPanel({
 
   async function importBoq() {
     if (!selected || !boqImportText.trim()) return;
+    if (!confirmReplaceBoq(selected.boqLines.length)) return;
     try {
       await postAction({
         action: "import-boq",
@@ -395,6 +482,13 @@ export function TendersPanel({
       };
       if (!response.ok) throw new Error(payload.error || "Upload failed");
       if (Array.isArray(payload.tenders)) setTenders(payload.tenders);
+      else if (payload.tender?.id) {
+        setTenders((current) => {
+          const exists = current.some((row) => row.id === payload.tender!.id);
+          if (exists) return current.map((row) => (row.id === payload.tender!.id ? payload.tender! : row));
+          return [payload.tender!, ...current];
+        });
+      }
       if (payload.tender?.id) setSelectedId(payload.tender.id);
       onNotice(
         payload.message ||
@@ -415,6 +509,7 @@ export function TendersPanel({
 
   async function onBoqFile(file: File | null) {
     if (!file || !selected) return;
+    if (!confirmReplaceBoq(selected.boqLines.length)) return;
     const name = file.name.toLowerCase();
     if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
       await uploadImportFile("import-boq", file, { tenderId: selected.id });
@@ -1019,6 +1114,16 @@ export function TendersPanel({
                       Cancel
                     </button>
                   ) : null}
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={saving || blakeBudgetBusy || !selected.boqLines.length}
+                    onClick={() => void clearBoq()}
+                    title="Remove imported lines so you can re-import a replacement BoQ"
+                  >
+                    <Trash2 size={15} />
+                    Clear BoQ
+                  </button>
                 </div>
                 {blakeBudgetStatus ? (
                   <p className="tenders-boq-blake-progress" aria-live="polite">
@@ -1064,7 +1169,7 @@ export function TendersPanel({
                 />
                 <button type="button" className="primary-button" disabled={saving || !boqImportText.trim()} onClick={() => void importBoq()}>
                   <FileSpreadsheet size={15} />
-                  Import pasted BoQ
+                  {selected.boqLines.length ? "Replace with pasted BoQ" : "Import pasted BoQ"}
                 </button>
               </div>
             </div>
@@ -1193,28 +1298,35 @@ export function TendersPanel({
             </div>
             <ul className="tenders-doc-list">
               {DOC_KINDS.map(({ kind, label }) => {
-                const matched = selected.documents.filter((doc) => doc.kind === kind);
+                const matched = (selected.documents || []).filter((doc) => doc.kind === kind);
                 return (
-                  <li key={kind}>
+                  <li key={kind} className="tenders-doc-kind">
                     <strong>{label}</strong>
                     {matched.length ? (
                       <ul className="tenders-doc-file-list">
                         {matched.map((doc) => (
                           <li key={doc.id} className="tenders-doc-file-row">
-                            {doc.url ? (
-                              <a href={doc.url} target="_blank" rel="noreferrer">
-                                {doc.name}
-                              </a>
-                            ) : (
-                              <span>{doc.name}</span>
-                            )}
+                            <div className="tenders-doc-file-meta">
+                              {doc.url ? (
+                                <a href={doc.url} target="_blank" rel="noreferrer">
+                                  {doc.name}
+                                </a>
+                              ) : (
+                                <span>{doc.name}</span>
+                              )}
+                              {doc.note ? <small>{doc.note}</small> : null}
+                            </div>
                             <button
                               type="button"
                               className="secondary-button tenders-doc-delete"
                               disabled={saving}
                               aria-label={`Remove ${doc.name}`}
                               title="Remove document"
-                              onClick={() => void deleteDocument(doc.id, doc.name)}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                void deleteDocument(doc.id, doc.name);
+                              }}
                             >
                               <Trash2 size={14} />
                               Remove
@@ -1223,7 +1335,7 @@ export function TendersPanel({
                         ))}
                       </ul>
                     ) : (
-                      <span>Not attached yet</span>
+                      <span className="tenders-doc-empty">Not attached yet</span>
                     )}
                   </li>
                 );

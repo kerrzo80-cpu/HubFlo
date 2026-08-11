@@ -6,7 +6,15 @@ import { loadServerStore, writeServerStore, getServerStoreDirectory } from "@/li
 import { rowsToDelimitedText } from "@/lib/tenders-xlsx";
 import { createJob } from "@/lib/workflow-data";
 import { createTakeoffProject, getTakeoffProject, updateTakeoffProject } from "@/lib/takeoff-data";
-import { readRecordDocumentFile } from "@/lib/record-documents";
+import { deleteRecordDocumentByFileUrl, readRecordDocumentFile } from "@/lib/record-documents";
+import {
+  TENDER_DOCUMENT_FOLDER_MAX_DEPTH,
+  isTenderDocumentKind,
+  normalizeTenderDocumentFolders,
+  resolveTenderDocumentFolderKind,
+  tenderDocumentFolderDepth,
+  type TenderDocumentFolder,
+} from "@/lib/tender-document-folders";
 import {
   TENDER_STATUSES,
   alertForDeadline,
@@ -16,10 +24,20 @@ import {
   type TenderBoqLine,
   type TenderDayworkRates,
   type TenderDocument,
+  type TenderDocumentKind,
   type TenderStatus,
 } from "@/lib/tenders-types";
 
 export * from "@/lib/tenders-types";
+export {
+  TENDER_DOCUMENT_FOLDER_MAX_DEPTH,
+  isTenderDocumentKind,
+  normalizeTenderDocumentFolders,
+  resolveTenderDocumentFolderKind,
+  tenderDocumentFolderDepth,
+  tenderDocumentFolderPathLabel,
+} from "@/lib/tender-document-folders";
+export type { TenderDocumentFolder } from "@/lib/tender-document-folders";
 
 type TenderStore = {
   tenders: Tender[];
@@ -225,6 +243,22 @@ export function getTender(id: string) {
   return readStore().tenders.find((tender) => tender.id === id) ?? null;
 }
 
+function normalizeTenderDocument(input: Partial<TenderDocument> | null | undefined): TenderDocument {
+  const kindRaw = typeof input?.kind === "string" ? input.kind : "other";
+  const kind: TenderDocumentKind = isTenderDocumentKind(kindRaw) ? kindRaw : "other";
+  const folderId = typeof input?.folderId === "string" && input.folderId.trim() ? input.folderId.trim() : undefined;
+  return {
+    id: typeof input?.id === "string" && input.id.trim() ? input.id.trim() : uid("tdoc"),
+    kind,
+    name: typeof input?.name === "string" && input.name.trim() ? input.name.trim() : "Document",
+    mimeType: typeof input?.mimeType === "string" ? input.mimeType : undefined,
+    url: typeof input?.url === "string" ? input.url : undefined,
+    uploadedAt: typeof input?.uploadedAt === "string" && input.uploadedAt ? input.uploadedAt : nowIso(),
+    note: typeof input?.note === "string" && input.note.trim() ? input.note.trim() : undefined,
+    folderId,
+  };
+}
+
 function normalizeTender(input: Partial<Tender> & { name: string; client: string }): Tender {
   const now = nowIso();
   const lines = Array.isArray(input.boqLines) ? input.boqLines : [];
@@ -256,7 +290,10 @@ function normalizeTender(input: Partial<Tender> & { name: string; client: string
     },
     boqTitle: input.boqTitle || "",
     boqLines: lines,
-    documents: Array.isArray(input.documents) ? input.documents : [],
+    documents: Array.isArray(input.documents)
+      ? input.documents.map((doc) => normalizeTenderDocument(doc))
+      : [],
+    documentFolders: normalizeTenderDocumentFolders(input.documentFolders),
     submittedAt: input.submittedAt,
     convertedJobId: input.convertedJobId,
     convertedJobRef: input.convertedJobRef,
@@ -420,6 +457,18 @@ export function importBoqIntoTender(id: string, raw: string, title?: string) {
 
 export function importBoqRowsIntoTender(id: string, rows: string[][], title?: string) {
   return importBoqIntoTender(id, rowsToDelimitedText(rows), title);
+}
+
+/** Wipe imported BoQ lines so the office can start a fresh import. Does not touch document uploads. */
+export function clearBoqFromTender(id: string) {
+  const existing = getTender(id);
+  if (!existing) throw new Error("Tender not found.");
+  return updateTender(id, {
+    boqTitle: "",
+    boqLines: [],
+    bidValue: 0,
+    tenderSum: existing.status === "Sent" || existing.status === "Won" ? existing.tenderSum : 0,
+  });
 }
 
 function cell(row: string[], index: number) {
@@ -640,26 +689,153 @@ export function addTenderDocument(
 ) {
   const existing = getTender(tenderId);
   if (!existing) throw new Error("Tender not found.");
+  const folders = existing.documentFolders || [];
+  let folderId = document.folderId?.trim() || undefined;
+  let kind = document.kind;
+  if (folderId) {
+    if (isTenderDocumentKind(folderId)) {
+      kind = folderId;
+      folderId = undefined;
+    } else {
+      const folder = folders.find((item) => item.id === folderId);
+      if (!folder) throw new Error("Folder not found on this tender.");
+      kind = resolveTenderDocumentFolderKind(folders, folderId);
+    }
+  }
   const nextDoc: TenderDocument = {
     id: document.id || uid("tdoc"),
-    kind: document.kind,
+    kind,
     name: document.name,
     mimeType: document.mimeType,
     url: document.url,
     uploadedAt: document.uploadedAt || nowIso(),
     note: document.note,
+    folderId,
   };
   return updateTender(tenderId, {
     documents: [nextDoc, ...existing.documents.filter((item) => item.id !== nextDoc.id)],
   });
 }
 
+export function moveTenderDocument(
+  tenderId: string,
+  documentId: string,
+  target: { kind?: TenderDocumentKind; folderId?: string | null },
+) {
+  const existing = getTender(tenderId);
+  if (!existing) throw new Error("Tender not found.");
+  const folders = existing.documentFolders || [];
+  const targetDoc = existing.documents.find((doc) => doc.id === documentId);
+  if (!targetDoc) throw new Error("Document not found on this tender.");
+
+  let folderId = typeof target.folderId === "string" && target.folderId.trim() ? target.folderId.trim() : undefined;
+  let kind = target.kind || targetDoc.kind;
+
+  if (folderId) {
+    if (isTenderDocumentKind(folderId)) {
+      kind = folderId;
+      folderId = undefined;
+    } else {
+      const folder = folders.find((item) => item.id === folderId);
+      if (!folder) throw new Error("Folder not found on this tender.");
+      kind = resolveTenderDocumentFolderKind(folders, folderId);
+    }
+  } else if (target.kind) {
+    kind = target.kind;
+    folderId = undefined;
+  }
+
+  return updateTender(tenderId, {
+    documents: existing.documents.map((doc) =>
+      doc.id === documentId ? { ...doc, kind, folderId } : doc,
+    ),
+  });
+}
+
+export function addTenderDocumentFolder(
+  tenderId: string,
+  input: { name: string; parentId?: string | null },
+) {
+  const existing = getTender(tenderId);
+  if (!existing) throw new Error("Tender not found.");
+  const name = input.name.trim().slice(0, 80);
+  if (!name) throw new Error("Folder name is required.");
+
+  const parentId = input.parentId?.trim() || null;
+  const folders = existing.documentFolders || [];
+
+  if (parentId) {
+    if (isTenderDocumentKind(parentId)) {
+      // Nesting directly under a built-in kind is depth 1 — always allowed.
+    } else {
+      const parent = folders.find((folder) => folder.id === parentId);
+      if (!parent) throw new Error("Parent folder not found.");
+      const parentDepth = tenderDocumentFolderDepth(folders, parent.id);
+      if (parentDepth >= TENDER_DOCUMENT_FOLDER_MAX_DEPTH) {
+        throw new Error("Folders can only nest two levels under a document type.");
+      }
+    }
+  }
+
+  const duplicate = folders.some(
+    (folder) =>
+      folder.name.toLowerCase() === name.toLowerCase() &&
+      (folder.parentId || null) === parentId,
+  );
+  if (duplicate) throw new Error("A folder with that name already exists here.");
+
+  const next: TenderDocumentFolder = {
+    id: uid("tfolder"),
+    name,
+    parentId,
+  };
+  return updateTender(tenderId, {
+    documentFolders: [...folders, next],
+  });
+}
+
+export function removeTenderDocumentFolder(tenderId: string, folderId: string) {
+  const existing = getTender(tenderId);
+  if (!existing) throw new Error("Tender not found.");
+  const folders = existing.documentFolders || [];
+  const target = folders.find((folder) => folder.id === folderId);
+  if (!target) throw new Error("Folder not found on this tender.");
+
+  const childFolders = folders.filter((folder) => folder.parentId === folderId);
+  if (childFolders.length) {
+    throw new Error("Remove subfolders first.");
+  }
+
+  const parentId = target.parentId || null;
+  const fallbackKind = resolveTenderDocumentFolderKind(folders, folderId);
+  const documents = existing.documents.map((doc) => {
+    if (doc.folderId !== folderId) return doc;
+    // Move files up to the parent folder (or built-in kind root).
+    if (parentId && !isTenderDocumentKind(parentId)) {
+      return { ...doc, folderId: parentId, kind: resolveTenderDocumentFolderKind(folders, parentId) };
+    }
+    return {
+      ...doc,
+      folderId: undefined,
+      kind: parentId && isTenderDocumentKind(parentId) ? parentId : fallbackKind,
+    };
+  });
+
+  return updateTender(tenderId, {
+    documentFolders: folders.filter((folder) => folder.id !== folderId),
+    documents,
+  });
+}
+
 export function removeTenderDocument(tenderId: string, documentId: string) {
   const existing = getTender(tenderId);
   if (!existing) throw new Error("Tender not found.");
-  if (!existing.documents.some((doc) => doc.id === documentId)) {
+  const target = existing.documents.find((doc) => doc.id === documentId);
+  if (!target) {
     throw new Error("Document not found on this tender.");
   }
+  // Drop the underlying upload when present so the file does not linger after Remove.
+  deleteRecordDocumentByFileUrl(target.url);
   return updateTender(tenderId, {
     documents: existing.documents.filter((doc) => doc.id !== documentId),
   });

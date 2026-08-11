@@ -40317,7 +40317,7 @@ button.nexa-kpi-card,
   gap: 8px;
 }
 
-.tenders-doc-list li {
+.tenders-doc-list > li.tenders-doc-kind {
   display: grid;
   gap: 2px;
   padding: 10px 12px;
@@ -40345,19 +40345,40 @@ button.nexa-kpi-card,
   padding: 8px 10px;
 }
 
-.tenders-doc-file-row a,
-.tenders-doc-file-row > span {
+.tenders-doc-file-meta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tenders-doc-file-meta a,
+.tenders-doc-file-meta > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.tenders-doc-file-meta small {
+  color: var(--subtle);
+  font-size: 12px;
+}
+
+.tenders-doc-empty {
+  color: var(--subtle);
+  font-size: 13px;
+}
+
 .tenders-doc-delete {
+  display: inline-flex;
+  align-items: center;
   flex: 0 0 auto;
   gap: 6px;
   min-height: 32px;
   padding: 4px 10px;
+  position: relative;
+  z-index: 1;
 }
 
 .tenders-hint {

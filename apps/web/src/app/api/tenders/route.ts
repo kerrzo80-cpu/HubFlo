@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import {
+  addTenderDocumentFolder,
+  clearBoqFromTender,
   deleteTender,
   deleteTenders,
   archiveTenders,
@@ -10,12 +12,15 @@ import {
   importBoqIntoTender,
   listTenders,
   markTenderSubmitted,
+  moveTenderDocument,
   removeTenderDocument,
+  removeTenderDocumentFolder,
   updateBoqLine,
   updateTender,
   upsertTender,
   type Tender,
   type TenderBoqLine,
+  type TenderDocumentKind,
   type TenderStatus,
 } from "@/lib/tenders-data";
 
@@ -51,13 +56,21 @@ export async function POST(request: NextRequest) {
       | "delete-bulk"
       | "archive-bulk"
       | "import-boq"
+      | "clear-boq"
       | "update-boq-line"
       | "delete-document"
+      | "create-document-folder"
+      | "delete-document-folder"
+      | "move-document"
       | "submit"
       | "convert-won";
     id?: string;
     ids?: string[];
     documentId?: string;
+    folderId?: string | null;
+    folderName?: string;
+    parentId?: string | null;
+    kind?: TenderDocumentKind;
     tender?: Partial<Tender> & { name?: string; client?: string };
     patch?: Partial<Tender>;
     lineId?: string;
@@ -113,6 +126,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ tender, tenders: listTenders() });
     }
 
+    if (body?.action === "clear-boq") {
+      if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const tender = clearBoqFromTender(body.id);
+      return NextResponse.json({ tender, tenders: listTenders() });
+    }
+
     if (body?.action === "update-boq-line") {
       if (!body.id || !body.lineId) {
         return NextResponse.json({ error: "id and lineId required" }, { status: 400 });
@@ -126,6 +145,36 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "id and documentId required" }, { status: 400 });
       }
       const tender = removeTenderDocument(body.id, body.documentId);
+      return NextResponse.json({ tender, tenders: listTenders() });
+    }
+
+    if (body?.action === "create-document-folder") {
+      if (!body.id || !body.folderName?.trim()) {
+        return NextResponse.json({ error: "id and folderName required" }, { status: 400 });
+      }
+      const tender = addTenderDocumentFolder(body.id, {
+        name: body.folderName,
+        parentId: body.parentId,
+      });
+      return NextResponse.json({ tender, tenders: listTenders() });
+    }
+
+    if (body?.action === "delete-document-folder") {
+      if (!body.id || !body.folderId) {
+        return NextResponse.json({ error: "id and folderId required" }, { status: 400 });
+      }
+      const tender = removeTenderDocumentFolder(body.id, body.folderId);
+      return NextResponse.json({ tender, tenders: listTenders() });
+    }
+
+    if (body?.action === "move-document") {
+      if (!body.id || !body.documentId) {
+        return NextResponse.json({ error: "id and documentId required" }, { status: 400 });
+      }
+      const tender = moveTenderDocument(body.id, body.documentId, {
+        kind: body.kind,
+        folderId: body.folderId,
+      });
       return NextResponse.json({ tender, tenders: listTenders() });
     }
 

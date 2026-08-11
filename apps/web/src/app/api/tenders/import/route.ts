@@ -3,11 +3,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import {
   addTenderDocument,
+  getTender,
   importBoqRowsIntoTender,
   importTrackerRows,
   listTenders,
+  resolveTenderDocumentFolderKind,
   type TenderDocumentKind,
 } from "@/lib/tenders-data";
+import { isTenderDocumentKind } from "@/lib/tender-document-folders";
 import {
   allSheetRowsFromWorkbookBuffer,
   sheetRowsFromWorkbookBuffer,
@@ -94,8 +97,27 @@ export async function POST(request: NextRequest) {
 
     if (action === "upload-document") {
       const tenderId = String(formData.get("tenderId") || "").trim();
-      const kind = (String(formData.get("kind") || "other") || "other") as TenderDocumentKind;
+      const kindRaw = String(formData.get("kind") || "other") || "other";
+      const folderIdRaw = String(formData.get("folderId") || "").trim();
       if (!tenderId) return NextResponse.json({ error: "tenderId required" }, { status: 400 });
+
+      const tenderBefore = getTender(tenderId);
+      if (!tenderBefore) return NextResponse.json({ error: "Tender not found." }, { status: 404 });
+
+      let kind: TenderDocumentKind = isTenderDocumentKind(kindRaw) ? kindRaw : "other";
+      let folderId: string | undefined = folderIdRaw || undefined;
+      if (folderId) {
+        if (isTenderDocumentKind(folderId)) {
+          kind = folderId;
+          folderId = undefined;
+        } else {
+          const folders = tenderBefore.documentFolders || [];
+          if (!folders.some((folder) => folder.id === folderId)) {
+            return NextResponse.json({ error: "Folder not found on this tender." }, { status: 400 });
+          }
+          kind = resolveTenderDocumentFolderKind(folders, folderId);
+        }
+      }
 
       const saved = saveUploadedRecordDocument({
         scope: "tender",
@@ -109,6 +131,7 @@ export async function POST(request: NextRequest) {
 
       const tender = addTenderDocument(tenderId, {
         kind,
+        folderId,
         name: saved.name,
         mimeType: saved.type,
         url: saved.fileUrl,
