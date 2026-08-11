@@ -8,7 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
-import { ChevronLeft, ChevronRight, Loader2, Redo2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, Box, Loader2, Redo2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 
 import type { TakeoffDocument } from "@/lib/takeoff-data";
 import { cacheTakeoffPdfBytes } from "@/lib/takeoff-pdf-browser";
@@ -29,6 +29,7 @@ import {
   type StudioState,
   type StudioTool,
 } from "@/lib/takeoff-studio";
+import { buildIsoPreviewScene } from "@/lib/takeoff-studio-isometric";
 import {
   appendLinearWithAutoFittings,
   elbowPointsAlongRun,
@@ -90,6 +91,7 @@ export default function StudioCanvas({
   const [rectStart, setRectStart] = useState<StudioPoint | null>(null);
   const [rectCurrent, setRectCurrent] = useState<StudioPoint | null>(null);
   const [scaleHints, setScaleHints] = useState<string[]>([]);
+  const [showIsoPreview, setShowIsoPreview] = useState(false);
 
   const [dragPreview, setDragPreview] = useState<{ id: string; point: StudioPoint } | null>(null);
   const [vertexDrag, setVertexDrag] = useState<{
@@ -1026,6 +1028,15 @@ export default function StudioCanvas({
     ["measure", "scale"],
   ];
 
+  const isoScene =
+    showIsoPreview && document
+      ? buildIsoPreviewScene(studio, {
+          documentId: document.id,
+          page,
+          metresPerUnit: pageScale?.metresPerUnit || 0,
+        })
+      : null;
+
   return (
     <div className="nexa-studio-canvas-wrap">
       <div className="nexa-studio-toolbar" role="toolbar" aria-label="Drawing tools">
@@ -1062,6 +1073,16 @@ export default function StudioCanvas({
           <ZoomOut size={15} />
         </button>
         <button type="button" onClick={() => fitView(pageSize.width, pageSize.height)} title="Fit drawing on screen">Fit</button>
+        <button
+          type="button"
+          className={showIsoPreview ? "on" : undefined}
+          aria-pressed={showIsoPreview}
+          aria-label="Isometric preview of completed runs"
+          title="Isometric preview of completed runs"
+          onClick={() => setShowIsoPreview((value) => !value)}
+        >
+          <Box size={15} />
+        </button>
         <div className="nexa-studio-page-nav">
           <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} aria-label="Previous page">
             <ChevronLeft size={16} />
@@ -1144,6 +1165,56 @@ export default function StudioCanvas({
           <canvas ref={canvasRef} className="nexa-studio-overlay" />
         </div>
       </div>
+
+      {showIsoPreview ? (
+        <aside className="nexa-studio-iso-panel" aria-label="Isometric route preview">
+          <header>
+            <strong>Isometric preview</strong>
+            <button type="button" onClick={() => setShowIsoPreview(false)} aria-label="Close isometric preview">
+              Close
+            </button>
+          </header>
+          {!isoScene ? (
+            <p className="nexa-studio-iso-empty">Finish a Length run on this page to preview routes in 3D.</p>
+          ) : (
+            <>
+              <svg
+                className="nexa-studio-iso-svg"
+                viewBox={isoScene.viewBox}
+                role="img"
+                aria-label="Isometric view of completed pipe runs"
+              >
+                {isoScene.routes.map((route) => (
+                  <g key={route.id}>
+                    <path d={route.planPath} fill="none" stroke={route.colour} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+                    {route.dropPaths.map((dropPath, index) => (
+                      <path
+                        key={`${route.id}-drop-${index}`}
+                        d={dropPath}
+                        fill="none"
+                        stroke={route.colour}
+                        strokeWidth={2}
+                        strokeLinecap="round"
+                        opacity={0.85}
+                        strokeDasharray="4 3"
+                      />
+                    ))}
+                  </g>
+                ))}
+              </svg>
+              <ul className="nexa-studio-iso-legend">
+                {isoScene.routes.map((route) => (
+                  <li key={route.id}>
+                    <span style={{ background: route.colour }} />
+                    {route.label} · {route.metres.toFixed(2)} m
+                    {route.dropCount > 0 ? ` · ${route.dropCount}× drop` : route.verticalM > 0 ? ` · ${route.verticalM.toFixed(1)} m vertical` : ""}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </aside>
+      ) : null}
 
       <div className="nexa-studio-statusbar">
         <span>
