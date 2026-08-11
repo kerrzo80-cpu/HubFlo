@@ -213,7 +213,6 @@ export default function TakeoffStudioPage() {
   const boqMaterialCost = summarisePricedMaterials(pricedBoqForPanel).materialCost;
   const boqLayerLabel =
     studioLayers.find((layer) => layer.id === activeLayerId)?.label || "Master / all";
-  const showSizeBar = studio.tool === "linear" || activeClass?.kind === "linear";
   const linkedQuote = quotes.find((q) => q.id === selected?.linkedQuoteId);
   const linkedTender = tenders.find((t) => t.id === selected?.sourceTenderId);
   // Pin review board is fixture counts only — ignore legacy pipe-metre rows in aiReviewMeasured.
@@ -1673,26 +1672,26 @@ export default function TakeoffStudioPage() {
 
       {selected && activeDoc && !studio.scales.some((row) => row.documentId === activeDoc.id && row.page === (studio.activePage || 1)) ? (
         <div className="nexa-studio-banner warn">
-          Set scale before measuring lengths or areas — use a <strong>1:N</strong> chip if Blake finds one on the sheet, or tap <strong>Scale</strong>, two points, enter metres.
+          Set scale before measuring — 1:N chip or Scale tool → two points → metres.
         </div>
       ) : null}
 
       {selected && hasPendingAiReview ? (
         <div className="nexa-studio-banner warn nexa-studio-ai-review-banner">
           <span>
-            Blake placed {aiReviewPinCount || blakePinCount} fixture pin{(aiReviewPinCount || blakePinCount) === 1 ? "" : "s"} to confirm before Core push.
-            {blakePipeRunCount > 0 ? ` ${blakePipeRunCount} pipe run(s) are already in the BOQ.` : ""}
+            Blake: {aiReviewPinCount || blakePinCount} fixture pin{(aiReviewPinCount || blakePinCount) === 1 ? "" : "s"} to confirm
+            {blakePipeRunCount > 0 ? ` · ${blakePipeRunCount} pipe run(s) in BOQ` : ""}.
           </span>
-          <button type="button" onClick={() => setReviewOpen(true)}>Review fixture pins</button>
+          <button type="button" onClick={() => setReviewOpen(true)}>Review pins</button>
         </div>
       ) : null}
 
       {selected && !hasPendingAiReview && hasBlakePipesOnSheet ? (
         <div className="nexa-studio-banner ok nexa-studio-ai-review-banner">
           <span>
-            Blake drew {blakePipeRunCount} pipe run{blakePipeRunCount === 1 ? "" : "s"} on the sheet — already in the BOQ. Use Edit to trim, then Push.
+            Blake: {blakePipeRunCount} pipe run{blakePipeRunCount === 1 ? "" : "s"} on sheet — Edit to trim, then Push.
           </span>
-          <button type="button" onClick={() => setBoqOpen(true)}>Open BOQ</button>
+          <button type="button" onClick={() => setBoqOpen(true)}>BOQ</button>
         </div>
       ) : null}
 
@@ -1977,49 +1976,91 @@ export default function TakeoffStudioPage() {
                   <div className="nexa-studio-class-list">
                     {visibleClassifications.map((cls) => {
                       const qty = quantities.find((row) => row.classificationId === cls.id);
+                      const isActive = cls.id === studio.activeClassificationId;
+                      const activeSpecId = studio.activePipeSpecId || DEFAULT_STUDIO_PIPE_SPEC_ID;
+                      const activeSpec = STUDIO_PIPE_SPECS.find((spec) => spec.id === activeSpecId);
                       return (
                         <div
                           key={cls.id}
-                          className={`nexa-studio-class-row${cls.id === studio.activeClassificationId ? " on" : ""}`}
+                          className={`nexa-studio-class-row${isActive ? " on" : ""}`}
                         >
-                          <label className="nexa-studio-class-colour" title="Pipe / mark colour">
-                            <span style={{ background: cls.colour }} />
-                            <input
-                              type="color"
-                              value={/^#[0-9a-fA-F]{6}$/.test(cls.colour) ? cls.colour : "#2878c8"}
-                              aria-label={`Colour for ${cls.name}`}
-                              onChange={(e) => {
-                                void persistStudio(setClassificationColour(studio, cls.id, e.target.value));
-                              }}
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            className="nexa-studio-class-pick"
-                            onClick={() => void persistStudio({
-                              ...studio,
-                              activeClassificationId: cls.id,
-                              tool: cls.kind,
-                              activeLayerId: classificationLayer(cls),
-                            })}
-                          >
-                            <span>
-                              <strong>{cls.name}</strong>
-                              <small>{cls.kind} · {qty?.pieces || 0} item{(qty?.pieces || 0) === 1 ? "" : "s"}</small>
-                            </span>
-                            <em>
-                              {qty && qty.quantity > 0 ? `${qty.quantity} ${qty.unit}` : "—"}
-                            </em>
-                          </button>
-                          <button
-                            type="button"
-                            className="nexa-studio-class-delete"
-                            aria-label={`Delete ${cls.name}`}
-                            title="Delete classification"
-                            onClick={() => deleteClassification(cls.id)}
-                          >
-                            ×
-                          </button>
+                          <div className="nexa-studio-class-row-main">
+                            <label className="nexa-studio-class-colour" title="Pipe / mark colour">
+                              <span style={{ background: cls.colour }} />
+                              <input
+                                type="color"
+                                value={/^#[0-9a-fA-F]{6}$/.test(cls.colour) ? cls.colour : "#2878c8"}
+                                aria-label={`Colour for ${cls.name}`}
+                                onChange={(e) => {
+                                  void persistStudio(setClassificationColour(studio, cls.id, e.target.value));
+                                }}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              className="nexa-studio-class-pick"
+                              aria-expanded={isActive && cls.kind === "linear"}
+                              onClick={() => void persistStudio({
+                                ...studio,
+                                activeClassificationId: cls.id,
+                                tool: cls.kind,
+                                activeLayerId: classificationLayer(cls),
+                              })}
+                            >
+                              <span>
+                                <strong>{cls.name}</strong>
+                                <small>
+                                  {cls.kind}
+                                  {cls.kind === "linear" && isActive && activeSpec
+                                    ? ` · ${activeSpec.label}`
+                                    : ""}
+                                  {" · "}
+                                  {qty?.pieces || 0} item{(qty?.pieces || 0) === 1 ? "" : "s"}
+                                </small>
+                              </span>
+                              <em>
+                                {qty && qty.quantity > 0 ? `${qty.quantity} ${qty.unit}` : "—"}
+                              </em>
+                            </button>
+                            <button
+                              type="button"
+                              className="nexa-studio-class-delete"
+                              aria-label={`Delete ${cls.name}`}
+                              title="Delete classification"
+                              onClick={() => deleteClassification(cls.id)}
+                            >
+                              ×
+                            </button>
+                          </div>
+                          {isActive && cls.kind === "linear" ? (
+                            <div className="nexa-studio-draw-sizes" role="group" aria-label={`Pipe size for ${cls.name}`}>
+                              <span className="nexa-studio-draw-sizes-label">Size</span>
+                              {STUDIO_PIPE_SPECS.map((spec) => {
+                                const active = activeSpecId === spec.id;
+                                return (
+                                  <button
+                                    key={spec.id}
+                                    type="button"
+                                    className={active ? "on" : undefined}
+                                    onClick={() => {
+                                      void persistStudio({ ...studio, activePipeSpecId: spec.id, tool: "linear" });
+                                      if (selected) {
+                                        recordTakeoffLearningClient({
+                                          type: "pipe_spec_choice",
+                                          projectId: selected.id,
+                                          pipeSpecId: spec.id,
+                                          trade: "plumbing",
+                                        });
+                                      }
+                                    }}
+                                    title={`${spec.diameter} ${spec.material}${spec.autoCouplings ? ` · couplings every ${spec.stockLengthM}m` : ""}${spec.autoElbows ? " · auto elbows" : ""}`}
+                                  >
+                                    {spec.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : null}
                         </div>
                       );
                     })}
@@ -2040,9 +2081,6 @@ export default function TakeoffStudioPage() {
                     <input value={newClassName} onChange={(e) => setNewClassName(e.target.value)} placeholder="Name" />
                     <button type="button" className="ghost" onClick={addClassification}>Add</button>
                   </div>
-                  <p className="muted nexa-studio-hint">
-                    Pick Hot / Cold / Waste here, then draw on the sheet. Colour swatches can be changed any time.
-                  </p>
                 </section>
               ) : null}
 
@@ -2415,44 +2453,6 @@ export default function TakeoffStudioPage() {
                       Tip: tap plant position first for a better layout. Edit dashed proposed runs like any Blake mark.
                     </p>
                   )}
-                </div>
-              ) : null}
-              {activeClass ? (
-                <p className="nexa-studio-active-draw muted">
-                  Drawing: <strong style={{ color: activeClass.colour }}>{activeClass.name}</strong>
-                  {" "}— change from <strong>Draw as</strong> in the left rail.
-                </p>
-              ) : null}
-              {showSizeBar ? (
-                <div className="nexa-studio-size-bar" aria-label="Pipe size">
-                  <span className="nexa-studio-service-bar-label">Size</span>
-                  {STUDIO_PIPE_SPECS.map((spec) => {
-                    const active = (studio.activePipeSpecId || DEFAULT_STUDIO_PIPE_SPEC_ID) === spec.id;
-                    return (
-                      <button
-                        key={spec.id}
-                        type="button"
-                        className={active ? "on" : undefined}
-                        onClick={() => {
-                          void persistStudio({ ...studio, activePipeSpecId: spec.id, tool: "linear" });
-                          if (selected) {
-                            recordTakeoffLearningClient({
-                              type: "pipe_spec_choice",
-                              projectId: selected.id,
-                              pipeSpecId: spec.id,
-                              trade: "plumbing",
-                            });
-                          }
-                        }}
-                        title={`${spec.diameter} ${spec.material}${spec.autoCouplings ? ` · couplings every ${spec.stockLengthM}m` : ""}${spec.autoElbows ? " · auto elbows" : ""}`}
-                      >
-                        {spec.label}
-                      </button>
-                    );
-                  })}
-                  <span className="nexa-studio-size-note">
-                    Fittings match the Size chip. Scale required for metres/couplings.
-                  </span>
                 </div>
               ) : null}
               <StudioCanvas

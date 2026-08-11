@@ -372,13 +372,13 @@
 
 .nexa-studio-banner {
   flex: 0 0 auto;
-  margin: 8px 12px 0;
-  padding: 9px 12px;
-  border-radius: 10px;
+  margin: 6px 12px 0;
+  padding: 6px 10px;
+  border-radius: 8px;
   background: #fff;
   border: 1px solid var(--line);
-  font-size: 13px;
-  line-height: 1.4;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .nexa-studio-banner.error {
@@ -655,6 +655,43 @@
   font-size: 13px;
 }
 
+.nexa-studio-draw-sizes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 2px 8px 36px;
+  border-top: 1px dashed color-mix(in srgb, var(--line) 80%, transparent);
+  margin: 0 2px;
+}
+
+.nexa-studio-draw-sizes-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+.nexa-studio-draw-sizes button {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 30px;
+}
+
+.nexa-studio-draw-sizes button.on {
+  background: var(--blue-deep);
+  border-color: var(--blue-deep);
+  color: #fff;
+}
+
 .nexa-studio-project-list button,
 .nexa-studio-doc-list button,
 .nexa-studio-class-pick {
@@ -691,11 +728,16 @@
 
 .nexa-studio-class-row {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 36px;
-  align-items: stretch;
   gap: 2px;
   border: 1px solid transparent;
   border-radius: 10px;
+}
+
+.nexa-studio-class-row-main {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 36px;
+  align-items: stretch;
+  gap: 2px;
 }
 
 .nexa-studio-class-colour {
@@ -872,8 +914,11 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 0 0 8px;
-  padding: 0 2px;
+  margin: 0;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
 }
 
 .nexa-studio-quick-actions button {
@@ -1065,15 +1110,20 @@
 .nexa-studio-propose-panel {
   display: grid;
   gap: 12px;
-  margin: 0 0 10px;
-  padding: 14px 14px 13px;
+  margin: 0;
+  padding: 12px 14px;
   border: 1px solid color-mix(in srgb, var(--blue) 28%, var(--line));
-  border-radius: 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--blue) 28%, var(--line));
+  border-radius: 0;
   background:
     radial-gradient(ellipse 70% 55% at 0% 0%, rgba(25, 152, 207, 0.1), transparent 55%),
     linear-gradient(165deg, #f8fcfd 0%, #eef6fa 100%);
-  box-shadow: 0 8px 20px rgba(23, 51, 68, 0.05);
+  box-shadow: none;
   animation: nexa-propose-in 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  flex: 0 1 auto;
+  max-height: min(36vh, 280px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 @keyframes nexa-propose-in {
@@ -1492,17 +1542,16 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
 }
 
 .nexa-studio-canvas-wrap {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .nexa-studio-iso-panel {
@@ -1574,10 +1623,11 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 6px;
+  padding: 6px 10px;
   background: rgba(255, 255, 255, 0.94);
   border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
 }
 
 .nexa-studio-tool-group {
@@ -1585,9 +1635,9 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  padding: 3px;
+  padding: 2px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: #f4f8fb;
 }
 
@@ -1601,32 +1651,15 @@
 }
 
 .nexa-studio-tool-banner {
-  margin: 0;
-  padding: 8px 12px;
-  font-size: 13px;
-  line-height: 1.35;
-  color: #173344;
-  background: #eef7fc;
-  border-bottom: 1px solid #d5e2ea;
+  display: none;
 }
 
 .nexa-studio-feature-callout {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  margin: 0;
-  padding: 8px 12px;
-  font-size: 12.5px;
-  line-height: 1.4;
-  color: #163246;
-  background: linear-gradient(90deg, #e8f6ee 0%, #eef7fc 55%, #f4f8fb 100%);
-  border-bottom: 1px solid #cddfe8;
+  display: none;
 }
 
 .nexa-studio-feature-callout.muted {
-  background: #f5f7f9;
-  color: var(--muted);
+  display: none;
 }
 
 .nexa-studio-feature-callout strong {
@@ -1678,10 +1711,12 @@
 
 .nexa-studio-drop-prompt {
   margin: 0 0 0 auto;
-  flex: 1 1 240px;
+  flex: 1 1 160px;
   text-align: right;
   color: #1a4d66;
   font-weight: 600;
+  font-size: 11px;
+  line-height: 1.3;
 }
 
 .nexa-studio-rise-form-title {
@@ -1715,8 +1750,8 @@
 }
 
 .nexa-studio-stage {
-  flex: 1;
-  min-height: 240px;
+  flex: 1 1 auto;
+  min-height: 0;
   position: relative;
   overflow: hidden;
   background:
@@ -1753,13 +1788,25 @@
   display: flex;
   flex: 0 0 auto;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px 10px;
   align-items: center;
-  padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+  padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px));
   background: #fff;
   border-top: 1px solid var(--line);
   font-size: 12px;
   color: var(--muted);
+}
+
+.nexa-studio-statusbar-hint {
+  flex: 1 1 220px;
+  min-width: 0;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nexa-studio-statusbar strong {
@@ -1907,23 +1954,22 @@
   to { transform: rotate(360deg); }
 }
 
-/* MacBooks / short desktop windows: unlock page scroll so chrome + rail are reachable. */
+/* Keep viewport locked so the drawing stage fills remaining height; rail scrolls internally. */
 @media (max-height: 920px) and (min-width: 961px) {
   .nexa-studio {
-    height: auto;
-    max-height: none;
-    min-height: 100dvh;
-    overflow: visible;
-  }
-
-  .nexa-studio-top {
-    position: sticky;
-    top: 0;
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
   }
 
   .nexa-studio-body {
-    min-height: min(720px, calc(100svh - 96px));
-    height: min(780px, calc(100svh - 72px));
+    min-height: 0;
+    height: auto;
+    flex: 1 1 auto;
+  }
+
+  .nexa-studio-rail {
+    max-height: 100%;
   }
 }
 
@@ -1948,6 +1994,7 @@
   .nexa-studio-main {
     order: -1;
     min-height: 68dvh;
+    overflow: hidden;
   }
 
   .nexa-studio-canvas-wrap {
@@ -1960,7 +2007,8 @@
 
   .nexa-studio-rail {
     order: 1;
-    max-height: none;
+    max-height: min(48dvh, 420px);
+    overflow-y: auto;
     border-right: 0;
     border-top: 1px solid var(--line);
     border-bottom: 0;
@@ -2021,13 +2069,12 @@
     position: sticky;
     top: 0;
     z-index: 4;
-    margin: 0 0 6px;
-    padding: 6px 0 4px;
-    background: linear-gradient(180deg, #f4f8fb 70%, rgba(244, 248, 251, 0));
+    margin: 0;
+    padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.96);
   }
 
-  .nexa-studio-service-bar,
-  .nexa-studio-size-bar {
+  .nexa-studio-service-bar {
     flex-wrap: nowrap;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
@@ -2035,8 +2082,12 @@
     padding: 6px 8px;
   }
 
+  .nexa-studio-draw-sizes {
+    padding-left: 10px;
+  }
+
   .nexa-studio-service-bar button,
-  .nexa-studio-size-bar button {
+  .nexa-studio-draw-sizes button {
     flex: 0 0 auto;
     padding: 5px 8px;
     font-size: 11px;
@@ -2046,6 +2097,13 @@
   .nexa-studio-size-note,
   .nexa-studio-fitting-tally {
     display: none;
+  }
+
+  .nexa-studio-statusbar-hint {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
   }
 
   .nexa-studio-boq-sheet:not(:has(.nexa-studio-boq-panel)) {

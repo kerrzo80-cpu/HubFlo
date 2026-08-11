@@ -983,14 +983,14 @@ export default function StudioCanvas({
       title: "Tap along a pipe or wall run to measure metres.",
       hint: (() => {
         const spec = pipeSpecById(studio.activePipeSpecId);
-        if (!activeClass) return "Pick Hot / Cold / Heating / Waste above, pick pipe size, then tap along the run.";
+        if (!activeClass) return "Pick a service under Draw as, choose Size, then tap along the run.";
         const bits = [
-          `Drawing ${activeClass.name}`,
+          activeClass.name,
           `${spec.diameter} ${spec.material}`,
         ];
-        if (spec.autoElbows) bits.push("elbows auto at bends");
-        if (spec.autoCouplings) bits.push(`couplings every ${spec.stockLengthM}m`);
-        return `${bits.join(" · ")}. Tap the run, then Done run.`;
+        if (spec.autoElbows) bits.push("auto elbows");
+        if (spec.autoCouplings) bits.push(`couplings / ${spec.stockLengthM}m`);
+        return `${bits.join(" · ")} — tap run, then Done.`;
       })(),
     },
     area: {
@@ -1168,44 +1168,6 @@ export default function StudioCanvas({
         <button type="button" onClick={deleteSelected} disabled={!selectedId} title="Delete selected mark">Delete</button>
       </div>
 
-      <p className="nexa-studio-tool-banner">{draftHint}</p>
-
-      {pageLinearCount > 0 ? (
-        <div className="nexa-studio-feature-callout" role="note">
-          <strong>Length tools on this page</strong>
-          <span>
-            {selectedLinear
-              ? "Use Drops × Height in the bar below — tee pins appear on the run. Toggle 3D / Iso above for the isometric preview."
-              : "Tap Edit, select a Length run, then set Drops × Height below (pins on plan). Use 3D / Iso in the toolbar for isometric preview."}
-          </span>
-          {!showIsoPreview ? (
-            <button
-              type="button"
-              className="nexa-studio-feature-callout-action"
-              onClick={() => setShowIsoPreview(true)}
-            >
-              Open 3D / Iso
-            </button>
-          ) : null}
-          {!selectedLinear && studio.tool !== "select" ? (
-            <button
-              type="button"
-              className="nexa-studio-feature-callout-action"
-              onClick={() => setTool("select")}
-            >
-              Edit mode
-            </button>
-          ) : null}
-        </div>
-      ) : document ? (
-        <div className="nexa-studio-feature-callout muted" role="note">
-          <strong>Drops &amp; 3D preview</strong>
-          <span>
-            Draw a Length run (Mark up → Length → Done run). Then set Drops × Height and open 3D / Iso.
-          </span>
-        </div>
-      ) : null}
-
       <div
         ref={stageRef}
         className={`nexa-studio-stage tool-${studio.tool}${spaceDown ? " space-pan" : ""}`}
@@ -1214,6 +1176,7 @@ export default function StudioCanvas({
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onWheel={onWheel}
+        title={draftHint}
       >
         {!document ? <div className="nexa-studio-empty">Upload a PDF drawing to start the takeoff.</div> : null}
         {status === "loading" ? (
@@ -1290,11 +1253,14 @@ export default function StudioCanvas({
       ) : null}
 
       <div className="nexa-studio-statusbar">
+        <span className="nexa-studio-statusbar-hint" title={draftHint}>
+          {draftHint}
+        </span>
         <span>
-          Drawing scale:{" "}
+          Scale:{" "}
           {pageScale
             ? `${pageScale.label || "set"}`
-            : "not set yet — use Set scale"}
+            : "not set — use Set scale"}
         </span>
         {selectedLinear && selectedDrop ? (
           <form
@@ -1302,9 +1268,9 @@ export default function StudioCanvas({
             onSubmit={(event) => event.preventDefault()}
             aria-label="Drops and rise for selected Length run"
           >
-            <span className="nexa-studio-rise-form-title">Drops on selected run</span>
+            <span className="nexa-studio-rise-form-title">Drops</span>
             <label title="How many wall drops leave this ceiling/plan run.">
-              Drops
+              ×
               <input
                 type="number"
                 inputMode="numeric"
@@ -1357,25 +1323,22 @@ export default function StudioCanvas({
             <span className="nexa-studio-rise-metres">
               {selectedDrop.dropCount > 0 ? (
                 <>
-                  Vertical{" "}
-                  <strong>{selectedDrop.verticalM.toFixed(1)} m</strong>
-                  {" · "}
-                  tee pins on plan
+                  Vert <strong>{selectedDrop.verticalM.toFixed(1)} m</strong>
                   {" · "}
                 </>
               ) : null}
-              Run ≈{" "}
+              ≈{" "}
               <strong>
                 {(selectedLinearMetres ?? 0).toFixed(2)} m
               </strong>
-              {selectedDrop.noteLabel ? ` (incl. ${selectedDrop.noteLabel})` : ""}
+              {selectedDrop.noteLabel ? ` (${selectedDrop.noteLabel})` : ""}
             </span>
           </form>
         ) : pageLinearCount > 0 ? (
-          <p className="nexa-studio-drop-prompt">
+          <p className="nexa-studio-drop-prompt" title="Select a Length run in Edit to set Drops × Height. Use 3D / Iso in the toolbar for isometric preview.">
             {pageHasDrops
-              ? "Drops are set on some runs — select a Length run (Edit) to change Drops × Height, or open 3D / Iso."
-              : "Select a Length run (Edit) to set Drops × Height — pins and BoQ vertical metres appear after you enter values."}
+              ? "Edit a Length run to change Drops × Height · 3D / Iso in toolbar"
+              : "Edit a Length run → Drops × Height · 3D / Iso in toolbar"}
           </p>
         ) : null}
         {scaleHints.length && !pageScale ? (
