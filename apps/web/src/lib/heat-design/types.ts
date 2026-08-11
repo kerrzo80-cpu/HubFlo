@@ -154,8 +154,8 @@ export type HeatingEmitterItem = {
 
 export type HeatingPipeKind = "flow" | "return" | "primary" | "gas" | "oil" | "refrigerant" | "dhw";
 
-/** Copper size tier for Blake / takeoff (mm). */
-export type HeatingPipeDiameterMm = 15 | 22 | 28;
+/** Pipe OD tiers for Blake / takeoff (mm). Includes 16 for UK UFH PEX. */
+export type HeatingPipeDiameterMm = 15 | 16 | 22 | 28;
 
 export type HeatingPipeRun = {
   id: string;
@@ -163,7 +163,7 @@ export type HeatingPipeRun = {
   label: string;
   points: PlanPoint[];
   floorLevel: FloorLevel;
-  /** Sized copper (or equivalent) for BOQ / fittings. */
+  /** Sized pipe for BOQ / fittings (copper primary or 16 mm PEX UFH). */
   diameterMm?: HeatingPipeDiameterMm;
   pipeSpecId?: string;
   material?: string;

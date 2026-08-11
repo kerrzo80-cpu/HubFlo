@@ -6,12 +6,12 @@
 
 import { calculateRoomHeatLoss } from "./calc";
 import { dist, pointInPolygon, polygonArea, polygonBounds, roomPolygon } from "./geometry";
+import { sizeTierForPipe } from "./pipe-sizing";
 import type {
   FloorLevel,
   HeatDesignProject,
   HeatDesignRoom,
   HeatingEmitterItem,
-  HeatingPipeDiameterMm,
   HeatingPipeKind,
   HeatingPipeRun,
   HeatingPlantItem,
@@ -86,24 +86,6 @@ function manhattanRoute(from: PlanPoint, to: PlanPoint, preferHorizontalFirst = 
     elbow,
     { x: to.x, y: to.y },
   ];
-}
-
-function sizeTierForPipe(kind: HeatingPipeKind, label: string): {
-  diameterMm: HeatingPipeDiameterMm;
-  pipeSpecId: string;
-  material: string;
-} {
-  const text = `${kind} ${label}`.toLowerCase();
-  if (kind === "primary" || kind === "refrigerant") {
-    return { diameterMm: 28, pipeSpecId: "cu-28", material: "Copper" };
-  }
-  if (/ufh loop/i.test(text)) {
-    return { diameterMm: 15, pipeSpecId: "pex-16", material: "PEX" };
-  }
-  if (kind === "flow" || kind === "return") {
-    return { diameterMm: 15, pipeSpecId: "cu-15", material: "Copper" };
-  }
-  return { diameterMm: 22, pipeSpecId: "cu-22", material: "Copper" };
 }
 
 export function polylineLengthM(points: PlanPoint[]): number {
@@ -313,7 +295,7 @@ function makePipe(
     floorLevel,
     diameterMm: tier.diameterMm,
     pipeSpecId: tier.pipeSpecId,
-    material: kind === "flow" && /ufh loop/i.test(label) ? "PEX" : tier.material,
+    material: tier.material,
   };
 }
 

@@ -35,6 +35,8 @@ export const STUDIO_PIPE_SPECS: StudioPipeSpec[] = [
   { id: "cu-22", label: "22 Cu", material: "Copper", diameter: "22mm", stockLengthM: 3, autoElbows: true, autoCouplings: true },
   { id: "cu-28", label: "28 Cu", material: "Copper", diameter: "28mm", stockLengthM: 3, autoElbows: true, autoCouplings: true },
   { id: "cu-35", label: "35 Cu", material: "Copper", diameter: "35mm", stockLengthM: 3, autoElbows: true, autoCouplings: true },
+  { id: "pex-16", label: "16 PEX UFH", material: "PEX", diameter: "16mm", stockLengthM: 100, autoElbows: false, autoCouplings: false },
+  { id: "ufh-16", label: "16 UFH", material: "UFH pipe", diameter: "16mm", stockLengthM: 100, autoElbows: false, autoCouplings: false },
   { id: "hep-15", label: "15 Hep", material: "Hep2O", diameter: "15mm", stockLengthM: 3, autoElbows: true, autoCouplings: true },
   { id: "hep-22", label: "22 Hep", material: "Hep2O", diameter: "22mm", stockLengthM: 3, autoElbows: true, autoCouplings: true },
   { id: "hep-28", label: "28 Hep", material: "Hep2O", diameter: "28mm", stockLengthM: 3, autoElbows: true, autoCouplings: true },

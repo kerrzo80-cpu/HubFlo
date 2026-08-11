@@ -83,7 +83,7 @@ const LEGACY_STORAGE_KEYS = [
 
 type LabTab = "project" | "plan" | "materials" | "rooms" | "system" | "options" | "kit" | "forms" | "report";
 type LinkTarget = "job" | "quote";
-type SaveStatus = "loading" | "saving" | "saved" | "offline";
+type SaveStatus = "loading" | "saving" | "saved" | "offline" | "error";
 
 function readCachedProject(): HeatDesignProject | null {
   if (typeof window === "undefined") return null;
@@ -339,6 +339,15 @@ export default function HeatDesignLabPage() {
   }, [projects]);
 
   useEffect(() => {
+    function onOnline() {
+      if (!project || saveStatus !== "offline") return;
+      void flushProjectToServer({ ...project, updatedAt: new Date().toISOString() });
+    }
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [project, saveStatus]);
+
+  useEffect(() => {
     let cancelled = false;
     Promise.all([
       fetch("/api/jobs").then((res) => (res.ok ? res.json() : [])),
@@ -425,6 +434,59 @@ export default function HeatDesignLabPage() {
     activateProject(next);
     setLayoutMode(false);
     setSaveStatus(saveStatus === "offline" ? "offline" : "saved");
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("projectId", next.id);
+      window.history.replaceState({}, "", url.toString());
+    }
+  }
+
+  async function saveProjectNow() {
+    if (!project) return;
+    const snapshot = { ...project, updatedAt: new Date().toISOString() };
+    setSaveStatus("saving");
+    try {
+      await flushProjectToServer(snapshot, { surfaceError: true });
+      setNotice(`Saved · ${snapshot.name || "Untitled heat design"}`);
+    } catch (err) {
+      setSaveStatus("error");
+      setNotice(err instanceof Error ? err.message : "Could not save heat design.");
+    }
+  }
+
+  async function deleteActiveProject() {
+    if (!project) return;
+    const name = project.name || "Untitled heat design";
+    if (typeof window !== "undefined" && !window.confirm(`Delete project “${name}”? This cannot be undone.`)) {
+      return;
+    }
+    const deletingId = project.id;
+    setSaveStatus("saving");
+    try {
+      const res = await fetch(`/api/heat-design/projects/${encodeURIComponent(deletingId)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Could not delete heat design project");
+      const remaining = projects.filter((item) => item.id !== deletingId);
+      try {
+        window.localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify(remaining));
+      } catch {
+        /* ignore */
+      }
+      if (remaining.length) {
+        skipNextProjectSaveRef.current = true;
+        setProjects(remaining);
+        activateProject(remaining[0]!);
+        setSaveStatus("saved");
+        setNotice(`Deleted “${name}”. Opened ${remaining[0]!.name || "another project"}.`);
+        return;
+      }
+      await startBlankPlan();
+      setNotice(`Deleted “${name}”. Started a new blank project.`);
+    } catch (err) {
+      setSaveStatus("error");
+      setNotice(err instanceof Error ? err.message : "Could not delete project.");
+    }
   }
 
   function patchProject(patch: Partial<HeatDesignProject>) {
@@ -543,14 +605,41 @@ export default function HeatDesignLabPage() {
   }
 
   function resetDemo() {
-    startTransition(() => {
-      const next = makeDemoProject();
-      setProject(next);
-      setSelectedRoomId(next.rooms[0]?.id ?? null);
-      setLayoutMode(false);
-      setTab("plan");
-      setNotice("Loaded sample project — Portlethen semi.");
-    });
+    void (async () => {
+      setSaveStatus("saving");
+      const localProject = normaliseProject({
+        ...makeDemoProject(),
+        id: `hd-${Date.now().toString(36)}`,
+        name: "Sample · Portlethen semi",
+        updatedAt: new Date().toISOString(),
+      });
+      try {
+        const res = await fetch("/api/heat-design/projects", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(localProject),
+        });
+        if (!res.ok) throw new Error("Could not create sample project");
+        const created = normaliseProject((await res.json()) as HeatDesignProject);
+        startTransition(() => {
+          setProjects((current) => upsertProjectList(current, created));
+          activateProject(created);
+          setLayoutMode(false);
+          setTab("plan");
+          setNotice("Loaded sample as a new project — Portlethen semi (your other projects stay untouched).");
+          setSaveStatus("saved");
+        });
+      } catch {
+        startTransition(() => {
+          setProjects((current) => upsertProjectList(current, localProject));
+          activateProject(localProject);
+          setLayoutMode(false);
+          setTab("plan");
+          setNotice("Sample loaded locally — server unavailable.");
+          setSaveStatus("offline");
+        });
+      }
+    })();
   }
 
   function autoPickPump() {
@@ -927,7 +1016,7 @@ export default function HeatDesignLabPage() {
     setFittingsSummary(summary);
     setLayoutMode(true);
     setNotice(
-      `Rule size · ${summary.totalMetres} m · ${summary.totalElbows} elbows · ${summary.totalCouplings} couplings · ${summary.totalReducers} reducers (28→22→15). Prefer Ask Blake for live AI.`,
+      `Rule size · ${summary.totalMetres} m · ${summary.totalElbows} elbows · ${summary.totalCouplings} couplings · ${summary.totalReducers} reducers (copper 28→22→15 · UFH 16 mm PEX). Prefer Ask Blake for live AI.`,
     );
   }
 
@@ -967,7 +1056,10 @@ export default function HeatDesignLabPage() {
     }
   }
 
-  async function flushProjectToServer(snapshot: HeatDesignProject) {
+  async function flushProjectToServer(
+    snapshot: HeatDesignProject,
+    options: { surfaceError?: boolean } = {},
+  ) {
     if (saveTimerRef.current) {
       window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
@@ -979,10 +1071,19 @@ export default function HeatDesignLabPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(snapshot),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        if (options.surfaceError) throw new Error(`Could not save heat design (${res.status})`);
+        setSaveStatus((current) => (current === "offline" ? current : "error"));
+        return;
+      }
       if (generation !== saveGenerationRef.current) return;
-      setSaveStatus((current) => (current === "offline" ? current : "saved"));
-    } catch {
+      setProjects((current) => upsertProjectList(current, snapshot));
+      setSaveStatus("saved");
+    } catch (err) {
+      setSaveStatus("offline");
+      if (options.surfaceError) {
+        throw err instanceof Error ? err : new Error("Could not save heat design");
+      }
       /* Ask Blake still sends the client snapshot — save race is non-fatal */
     }
   }
@@ -1169,7 +1270,9 @@ export default function HeatDesignLabPage() {
         ? "Saving…"
         : saveStatus === "loading"
           ? "Loading projects…"
-          : "Offline — saved locally";
+          : saveStatus === "error"
+            ? "Save failed — try Save"
+            : "Offline — saved locally";
 
   return (
     <main className={`hd-lab${tab === "plan" ? " is-plan-mode" : ""}`}>
@@ -1205,8 +1308,24 @@ export default function HeatDesignLabPage() {
             </label>
             <span className={`hd-save-status is-${saveStatus}`}>{saveStatusLabel}</span>
             <div className="hd-action-cluster" role="group" aria-label="Project actions">
+              <button
+                type="button"
+                className="hd-btn hd-btn-primary"
+                onClick={() => void saveProjectNow()}
+                disabled={saveStatus === "saving" || saveStatus === "loading"}
+              >
+                Save
+              </button>
               <button type="button" className="hd-btn hd-btn-ghost" onClick={startBlankPlan}>
                 New project
+              </button>
+              <button
+                type="button"
+                className="hd-btn hd-btn-ghost hd-btn-danger"
+                onClick={() => void deleteActiveProject()}
+                disabled={saveStatus === "saving" || saveStatus === "loading"}
+              >
+                Delete
               </button>
               <button type="button" className="hd-btn hd-btn-ghost hd-btn-desktop" onClick={resetDemo}>
                 Load sample
@@ -1604,10 +1723,14 @@ export default function HeatDesignLabPage() {
                     <ul className="hd-blake-fit-list">
                       {(fittingsSummary || summariseHeatingFittings(project.heatingLayout)).bySize.map((row) => (
                         <li key={row.diameterMm}>
-                          <strong>{row.diameterMm} mm</strong>
+                          <strong>
+                            {row.diameterMm} mm {row.material || (row.diameterMm === 16 ? "PEX" : "Copper")}
+                          </strong>
                           <span>
-                            {row.metres} m · {row.elbows} elbow{row.elbows === 1 ? "" : "s"} · {row.couplings}{" "}
-                            coupling{row.couplings === 1 ? "" : "s"}
+                            {row.metres} m
+                            {row.diameterMm === 16 || row.material === "PEX"
+                              ? " · coil (no copper fittings)"
+                              : ` · ${row.elbows} elbow${row.elbows === 1 ? "" : "s"} · ${row.couplings} coupling${row.couplings === 1 ? "" : "s"}`}
                           </span>
                         </li>
                       ))}

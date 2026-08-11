@@ -15,6 +15,7 @@ import {
   type HeatingFittingsSummary,
 } from "./blake-route";
 import { describeHeatingLayoutNotes, ensureDesignLayout } from "./layout";
+import { isUfhCircuitPipe } from "./pipe-sizing";
 import { heatingSystemOptions, type HeatingSystemKind } from "./systems";
 import type {
   HeatDesignProject,
@@ -75,7 +76,7 @@ function slugId(value: string) {
 
 function asDiameterMm(value: unknown): HeatingPipeDiameterMm | null {
   const n = Number(value);
-  if (n === 15 || n === 22 || n === 28) return n;
+  if (n === 15 || n === 16 || n === 22 || n === 28) return n;
   return null;
 }
 
@@ -414,11 +415,20 @@ export function applyBlakePipeSizeHints(
     pipes: sized.pipes.map((pipe) => {
       const hint = byId.get(pipe.id);
       if (!hint) return pipe;
+      // Never rewrite UFH circuit pipe to copper via AI diameter hints.
+      if (isUfhCircuitPipe(pipe) || /ufh\s*(loop|tail)/i.test(pipe.label)) {
+        return {
+          ...pipe,
+          diameterMm: 16,
+          pipeSpecId: "pex-16",
+          material: "PEX",
+        };
+      }
       return {
         ...pipe,
         diameterMm: hint.diameterMm,
-        pipeSpecId: `copper-${hint.diameterMm}`,
-        material: "copper",
+        pipeSpecId: hint.diameterMm === 16 ? "pex-16" : `cu-${hint.diameterMm}`,
+        material: hint.diameterMm === 16 ? "PEX" : "Copper",
       };
     }),
     updatedAt: new Date().toISOString(),
@@ -472,8 +482,8 @@ export async function proposeHeatDesignWithBlake(
     "Explain what you would connect (boiler↔cylinder↔manifolds, flow/return legs, emitter branches) in routeNotes and narrative.",
     "Pick emitterMode (radiators|ufh|mixed) if rooms exist. Keep regenerateLayout true whenever plant or rooms are present so the UI redraws.",
     "Propose a practical install kit with BUDGET unitCost (ex VAT) on every line — never leave 0 unless free. Itemise; no ‘lot’/‘sundry’.",
-    "If the layout has pipes, set applySizing true and optionally override diameters via pipeSizes[{pipeId,diameterMm:15|22|28,reason}].",
-    "Default tiers when unsure: mains 28, branches 22, rad/UFH tails 15.",
+    "If the layout has pipes, set applySizing true and optionally override diameters via pipeSizes[{pipeId,diameterMm:15|22|28,reason}] for copper primary/radiator runs only.",
+    "Default tiers: copper mains 28, branches 22, rad tails 15. UFH loops and manifold tails are ALWAYS 16mm PEX — never copper.",
     "Return clarifyingQuestions when site facts would change materials (existing TRVs, floor type for UFH, cylinder location). Skip if clear.",
     "Return JSON only with keys: summary, narrative, applySizing, regenerateLayout, emitterMode, chosenSystemId, kitLines, clarifyingQuestions, routeNotes, pipeSizes, assumptions.",
     "assumptions: short string array of design assumptions you made.",

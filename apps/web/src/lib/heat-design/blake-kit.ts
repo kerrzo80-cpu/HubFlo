@@ -192,11 +192,14 @@ export function fittingsMaterialAllowances(
 ): BlakeTakeoffAllowance[] {
   const lines: BlakeTakeoffAllowance[] = [];
   for (const row of fittings.bySize) {
+    const material = row.material || (row.diameterMm === 16 ? "PEX" : "Copper");
+    // UFH PEX coils do not get copper stick elbows/couplings.
+    if (material === "PEX" || row.diameterMm === 16) continue;
     if (row.elbows > 0) {
       lines.push({
         id: `studio-mat-${projectId}-blake-elbow-${row.diameterMm}`,
         section: "Fittings",
-        description: `Takeoff · ${row.diameterMm}mm Copper 90° elbow`,
+        description: `Takeoff · ${row.diameterMm}mm ${material} 90° elbow`,
         quantity: row.elbows,
         unit: "nr",
         unitCost: 1.85,
@@ -209,7 +212,7 @@ export function fittingsMaterialAllowances(
       lines.push({
         id: `studio-mat-${projectId}-blake-coupling-${row.diameterMm}`,
         section: "Fittings",
-        description: `Takeoff · ${row.diameterMm}mm Copper coupling`,
+        description: `Takeoff · ${row.diameterMm}mm ${material} coupling`,
         quantity: row.couplings,
         unit: "nr",
         unitCost: 1.35,

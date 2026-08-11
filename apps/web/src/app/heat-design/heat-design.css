@@ -188,6 +188,12 @@
   color: var(--hd-warn);
 }
 
+.hd-save-status.is-error {
+  background: #fff1f2;
+  border-color: #fecdd3;
+  color: #be123c;
+}
+
 .hd-btn {
   appearance: none;
   align-items: center;

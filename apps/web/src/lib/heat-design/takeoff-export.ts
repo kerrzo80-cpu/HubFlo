@@ -16,6 +16,7 @@ import {
 import { appendLinearWithAutoFittings } from "@/lib/takeoff-studio-pipe";
 
 import { applyBlakePipeSizing, summariseHeatingFittings } from "./blake-route";
+import { isUfhCircuitPipe } from "./pipe-sizing";
 import type {
   HeatDesignProject,
   HeatingPlantKind,
@@ -28,8 +29,9 @@ export const HEAT_DESIGN_PLAN_DOC_ID = "heat-design-plan";
 /** 1 m on plan = 100 studio units so takeoff bend/coupling math stays stable. */
 export const HEAT_DESIGN_M_TO_UNITS = 100;
 
-function classForPipeKind(kind: HeatingPipeKind): string {
-  switch (kind) {
+function classForPipe(pipe: { kind: HeatingPipeKind; label?: string; material?: string; pipeSpecId?: string }): string {
+  if (isUfhCircuitPipe(pipe)) return "cls-linear-ufh";
+  switch (pipe.kind) {
     case "flow":
       return "cls-linear-heating-flow";
     case "return":
@@ -130,19 +132,21 @@ export function heatingLayoutToStudio(
 
   for (const pipe of sized.pipes) {
     if (pipe.points.length < 2) continue;
+    const ufh = isUfhCircuitPipe(pipe);
+    const diameterMm = pipe.diameterMm || (ufh ? 16 : 22);
     const linear: Extract<StudioGeometry, { kind: "linear" }> = {
       id: `ai-propose-pipe-${studioId("hd")}`,
-      classificationId: classForPipeKind(pipe.kind),
+      classificationId: classForPipe(pipe),
       kind: "linear",
       documentId: HEAT_DESIGN_PLAN_DOC_ID,
       page: 1,
       points: pipe.points.map((point) => toStudioPoint(point.x, point.y)),
       source: "ai",
-      notes: `proposed · Heat Design · ${pipe.label} · ${pipe.diameterMm || 22}mm`,
-      material: pipe.material || "Copper",
-      diameter: `${pipe.diameterMm || 22}mm`,
-      stockLengthM: 3,
-      pipeSpecId: pipe.pipeSpecId || "cu-22",
+      notes: `proposed · Heat Design · ${pipe.label} · ${diameterMm}mm ${pipe.material || (ufh ? "PEX" : "Copper")}`,
+      material: pipe.material || (ufh ? "PEX" : "Copper"),
+      diameter: `${diameterMm}mm`,
+      stockLengthM: ufh ? 100 : 3,
+      pipeSpecId: pipe.pipeSpecId || (ufh ? "pex-16" : "cu-22"),
     };
     studio = appendLinearWithAutoFittings(studio, linear);
   }

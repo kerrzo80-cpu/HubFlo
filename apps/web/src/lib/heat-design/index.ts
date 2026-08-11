@@ -4,6 +4,7 @@ export * from "./calc";
 export * from "./geometry";
 export * from "./systems";
 export * from "./layout";
+export * from "./pipe-sizing";
 export * from "./flow";
 export * from "./quote-export";
 export * from "./blake-route";

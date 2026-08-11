@@ -375,7 +375,10 @@ export function buildKitLines(input: {
   floorAreaM2?: number;
   exteriorWallAreaM2?: number;
   openingCount?: number;
+  /** Primary / radiator copper F&R metres (exclude UFH PEX loops). */
   pipeRunM?: number;
+  /** Measured 16 mm PEX UFH loop + manifold-tail metres. */
+  ufhLoopRunM?: number;
   wallConstructionLabel?: string;
   radiatorLines?: Array<{ description: string; qty: number; unitCost: number }>;
   emitterMode?: "radiators" | "ufh" | "mixed";
@@ -385,6 +388,7 @@ export function buildKitLines(input: {
   const floorArea = input.floorAreaM2 ?? 0;
   const exteriorWallArea = input.exteriorWallAreaM2 ?? 0;
   const pipeRunM = Math.max(12, Math.round(input.pipeRunM ?? floorArea * 1.1));
+  const ufhLoopRunM = Math.max(0, Math.round(input.ufhLoopRunM ?? 0));
   const loadKw = input.designLoadKw ?? 0;
   const boilerKw = Math.max(12, Math.ceil(loadKw + 4));
   const lines: KitLine[] = [];
@@ -570,7 +574,10 @@ export function buildKitLines(input: {
   lines.push({
     id: "kit-pipe",
     category: "Pipework",
-    description: `Flow/return pipework & insulation (~${pipeRunM} m) @ ${input.flowTemperature}°C design`,
+    description:
+      (input.emitterMode === "ufh" || input.emitterMode === "mixed")
+        ? `Primary / plant copper pipework & insulation (~${pipeRunM} m) @ ${input.flowTemperature}°C design`
+        : `Flow/return copper pipework & insulation (~${pipeRunM} m) @ ${input.flowTemperature}°C design`,
     qty: pipeRunM,
     unitCost: kind === "ashp" || kind === "hybrid" ? 18 : 14,
     unit: "m",
@@ -613,14 +620,14 @@ export function buildKitLines(input: {
   const emitterMode = input.emitterMode ?? "radiators";
   if (emitterMode === "ufh") {
     const ufhArea = Math.max(8, Math.round(floorArea * 0.85));
-    const loopM = Math.max(0, Math.round(input.pipeRunM ?? 0));
+    const loopM = ufhLoopRunM > 0 ? ufhLoopRunM : Math.max(0, Math.round(floorArea * 0.85 * 6));
     lines.push({
       id: "kit-ufh",
       category: "Emitters",
-      description: `UFH pipe & staples (heated ~${ufhArea} m²)`,
-      qty: loopM > 0 ? loopM : ufhArea,
-      unitCost: loopM > 0 ? 2.4 : 42,
-      unit: loopM > 0 ? "m" : "m²",
+      description: `16mm PEX UFH pipe & staples (~${loopM} m, heated ~${ufhArea} m²)`,
+      qty: loopM,
+      unitCost: 2.4,
+      unit: "m",
       required: true,
     });
     lines.push({
@@ -646,9 +653,13 @@ export function buildKitLines(input: {
       lines.push({
         id: "kit-ufh-mixed",
         category: "Emitters",
-        description: "UFH allowance for wet rooms (mixed design)",
-        qty: 1,
-        unitCost: 680,
+        description:
+          ufhLoopRunM > 0
+            ? `16mm PEX UFH pipe & staples for wet rooms (~${ufhLoopRunM} m)`
+            : "UFH allowance for wet rooms (mixed design) — 16mm PEX",
+        qty: ufhLoopRunM > 0 ? ufhLoopRunM : 1,
+        unitCost: ufhLoopRunM > 0 ? 2.4 : 680,
+        unit: ufhLoopRunM > 0 ? "m" : undefined,
         required: true,
       });
     }

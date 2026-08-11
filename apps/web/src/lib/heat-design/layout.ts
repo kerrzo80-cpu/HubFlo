@@ -2,6 +2,7 @@ import { pickRadiatorForRoom } from "./calc";
 import { dist, polygonBounds, roomPolygon, roomWallExterior } from "./geometry";
 import { heatingSystemOptions, type HeatingSystemKind } from "./systems";
 import { buildUfhCircuitsOnLayout } from "./ufh-circuits";
+import { sizeTierForPipe, type HeatingPipeSizeTier } from "./pipe-sizing";
 import type {
   FloorLevel,
   HeatDesignProject,
@@ -15,6 +16,9 @@ import type {
   HeatingSystemLayout,
   PlanPoint,
 } from "./types";
+
+export { isUfhCircuitPipe, sizeTierForPipe } from "./pipe-sizing";
+export type { HeatingPipeSizeTier } from "./pipe-sizing";
 
 function uid(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -283,34 +287,6 @@ export type SeedHeatingLayoutOptions = {
    */
   onlyUserPlants?: boolean;
 };
-
-export type HeatingPipeSizeTier = {
-  diameterMm: 15 | 22 | 28;
-  pipeSpecId: string;
-  material: string;
-};
-
-/** Blake size policy: mains 28 · branches 22 · rad/UFH tails 15. */
-export function sizeTierForPipe(kind: HeatingPipeKind, label: string): HeatingPipeSizeTier {
-  const text = `${kind} ${label}`.toLowerCase();
-  if (kind === "primary" || kind === "refrigerant") {
-    return { diameterMm: 28, pipeSpecId: "cu-28", material: "Copper" };
-  }
-  if (kind === "gas" || kind === "oil") {
-    return { diameterMm: 22, pipeSpecId: "cu-22", material: "Copper" };
-  }
-  if (kind === "dhw") {
-    return { diameterMm: 22, pipeSpecId: "cu-22", material: "Copper" };
-  }
-  // Flow/return: tails to emitters are 15; anything labelled branch/spine/main steps up.
-  if (/\b(main|spine|branch|riser)\b/.test(text)) {
-    return { diameterMm: 22, pipeSpecId: "cu-22", material: "Copper" };
-  }
-  if (kind === "flow" || kind === "return") {
-    return { diameterMm: 15, pipeSpecId: "cu-15", material: "Copper" };
-  }
-  return { diameterMm: 22, pipeSpecId: "cu-22", material: "Copper" };
-}
 
 function makePipe(
   kind: HeatingPipeKind,
@@ -835,7 +811,8 @@ export function pipeStroke(
   kind: HeatingPipeKind,
   diameterMm?: number,
 ): { stroke: string; dash?: string; width: number } {
-  const sizeBoost = diameterMm === 28 ? 1.35 : diameterMm === 22 ? 1.1 : diameterMm === 15 ? 0.85 : 1;
+  const sizeBoost =
+    diameterMm === 28 ? 1.35 : diameterMm === 22 ? 1.1 : diameterMm === 16 ? 0.9 : diameterMm === 15 ? 0.85 : 1;
   const base = (() => {
     switch (kind) {
       case "flow":

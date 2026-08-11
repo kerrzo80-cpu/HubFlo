@@ -23,6 +23,7 @@ import {
   roomWallExterior,
   syncRoomFromPolygon,
 } from "./geometry";
+import { isUfhCircuitPipe } from "./pipe-sizing";
 import { heatingSystemOptions } from "./systems";
 import type {
   HeatDesignProject,
@@ -288,15 +289,20 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
   const systemKind = chosenSystem?.kind ?? "ashp";
 
   const emitterMode = project.emitterMode ?? project.heatingLayout?.emitterMode ?? "radiators";
-  const measuredPipeM = (project.heatingLayout?.pipes ?? []).reduce((sum, pipe) => {
+  const layoutPipes = project.heatingLayout?.pipes ?? [];
+  let ufhLoopRunM = 0;
+  let copperPipeRunM = 0;
+  for (const pipe of layoutPipes) {
     let len = 0;
     for (let i = 1; i < pipe.points.length; i += 1) {
       const a = pipe.points[i - 1]!;
       const b = pipe.points[i]!;
       len += Math.hypot(b.x - a.x, b.y - a.y);
     }
-    return sum + len;
-  }, 0);
+    if (isUfhCircuitPipe(pipe)) ufhLoopRunM += len;
+    else copperPipeRunM += len;
+  }
+  const measuredCopperM = copperPipeRunM;
   const baseKit = buildKitLines({
     systemKind,
     systemLabel: chosenSystem?.label,
@@ -309,8 +315,9 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
     exteriorWallAreaM2: totalExteriorWallArea,
     openingCount,
     pipeRunM: Math.round(
-      measuredPipeM > 1 ? measuredPipeM : totalFloorArea * 1.15 + project.rooms.length * 4,
+      measuredCopperM > 1 ? measuredCopperM : totalFloorArea * 1.15 + project.rooms.length * 4,
     ),
+    ufhLoopRunM: Math.round(ufhLoopRunM),
     wallConstructionLabel: primaryWall ? `${primaryWall.label} (U=${primaryWall.uValue})` : undefined,
     radiatorLines,
     emitterMode,

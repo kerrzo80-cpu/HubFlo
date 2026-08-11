@@ -221,6 +221,33 @@ describe("blake-ai", () => {
       { pipeId: "p-tail", diameterMm: 15, reason: "tail" },
     ]);
     assert.equal(next.pipes.find((p) => p.id === "p-main")?.diameterMm, 28);
+    assert.equal(next.pipes.find((p) => p.id === "p-main")?.material, "Copper");
     assert.equal(next.pipes.find((p) => p.id === "p-tail")?.diameterMm, 15);
+  });
+
+  it("refuses to rewrite UFH circuit pipe to copper via AI hints", () => {
+    const ufhLayout = {
+      ...layout,
+      pipes: [
+        ...layout.pipes,
+        {
+          id: "p-ufh",
+          kind: "flow" as const,
+          label: "UFH loop · Living",
+          floorLevel: "ground" as const,
+          points: [
+            { x: 4, y: 1 },
+            { x: 6, y: 1 },
+          ],
+        },
+      ],
+    };
+    const next = applyBlakePipeSizeHints(ufhLayout, [
+      { pipeId: "p-ufh", diameterMm: 15, reason: "wrong copper hint" },
+    ]);
+    const ufh = next.pipes.find((p) => p.id === "p-ufh");
+    assert.equal(ufh?.diameterMm, 16);
+    assert.equal(ufh?.material, "PEX");
+    assert.equal(ufh?.pipeSpecId, "pex-16");
   });
 });

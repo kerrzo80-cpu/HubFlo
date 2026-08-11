@@ -1,10 +1,11 @@
 /**
  * Blake route sizing + fittings summary for Heat Design layouts.
- * Elbows / couplings / reducers (28→22→15) feed Takeoff BOQ.
+ * Elbows / couplings / reducers (28→22→15) feed Takeoff BOQ for copper.
+ * UFH 16 mm PEX loops/tails count as metres only — not copper stick fittings.
  */
 
 import { dist } from "./geometry";
-import { sizeTierForPipe } from "./layout";
+import { isUfhCircuitPipe, sizeTierForPipe } from "./pipe-sizing";
 import type {
   HeatingPipeDiameterMm,
   HeatingPipeRun,
@@ -17,6 +18,8 @@ export type HeatingFittingBucket = {
   metres: number;
   elbows: number;
   couplings: number;
+  /** Display material for this size bucket (Copper vs PEX). */
+  material?: string;
 };
 
 export type HeatingFittingsSummary = {
@@ -71,7 +74,7 @@ export function countCouplingsMetres(lengthM: number, stockLengthM = 3) {
   return Math.floor(lengthM / stockLengthM);
 }
 
-/** Apply Blake size tiers (28 / 22 / 15) onto an existing layout’s pipes. */
+/** Apply Blake size tiers onto an existing layout’s pipes (UFH stays 16 mm PEX). */
 export function applyBlakePipeSizing(layout: HeatingSystemLayout): HeatingSystemLayout {
   return {
     ...layout,
@@ -109,29 +112,31 @@ function reducerKey(fromMm: HeatingPipeDiameterMm, toMm: HeatingPipeDiameterMm) 
   return `${hi}->${lo}`;
 }
 
+function emptyBucket(diameterMm: HeatingPipeDiameterMm, material: string): HeatingFittingBucket {
+  return { diameterMm, metres: 0, elbows: 0, couplings: 0, material };
+}
+
 /** Summarise metres, elbows, couplings and reducers for the sized network. */
 export function summariseHeatingFittings(layout: HeatingSystemLayout): HeatingFittingsSummary {
   const sized = applyBlakePipeSizing(layout);
   const buckets = new Map<HeatingPipeDiameterMm, HeatingFittingBucket>();
   for (const diameterMm of [28, 22, 15] as HeatingPipeDiameterMm[]) {
-    buckets.set(diameterMm, { diameterMm, metres: 0, elbows: 0, couplings: 0 });
+    buckets.set(diameterMm, emptyBucket(diameterMm, "Copper"));
   }
+  buckets.set(16, emptyBucket(16, "PEX"));
 
   for (const pipe of sized.pipes) {
-    if (pipe.kind === "refrigerant" || pipe.kind === "gas" || pipe.kind === "oil") {
-      // Still size for BOQ copper/fuel lines; gas/oil counted as copper proxy in v1.
-    }
     const diameterMm = pipe.diameterMm || 22;
-    const bucket = buckets.get(diameterMm) || {
-      diameterMm,
-      metres: 0,
-      elbows: 0,
-      couplings: 0,
-    };
+    const ufh = isUfhCircuitPipe(pipe);
+    const bucket = buckets.get(diameterMm) || emptyBucket(diameterMm, ufh ? "PEX" : "Copper");
     const metres = polylineLengthM(pipe.points);
     bucket.metres += metres;
-    bucket.elbows += countElbowsMetres(pipe.points);
-    bucket.couplings += countCouplingsMetres(metres, 3);
+    // Serpentine coil bends are not copper stick elbows / 3 m couplings.
+    if (!ufh) {
+      bucket.elbows += countElbowsMetres(pipe.points);
+      bucket.couplings += countCouplingsMetres(metres, 3);
+    }
+    if (ufh) bucket.material = "PEX";
     buckets.set(diameterMm, bucket);
   }
 
@@ -140,6 +145,8 @@ export function summariseHeatingFittings(layout: HeatingSystemLayout): HeatingFi
     for (let j = i + 1; j < sized.pipes.length; j += 1) {
       const a = sized.pipes[i]!;
       const b = sized.pipes[j]!;
+      // Skip PEX↔copper manifold connections — not copper stick reducers.
+      if (isUfhCircuitPipe(a) || isUfhCircuitPipe(b)) continue;
       if (!a.diameterMm || !b.diameterMm || a.diameterMm === b.diameterMm) continue;
       if (!endpointPairsNear(a, b)) continue;
       const fromMm = Math.max(a.diameterMm, b.diameterMm) as HeatingPipeDiameterMm;
@@ -159,8 +166,9 @@ export function summariseHeatingFittings(layout: HeatingSystemLayout): HeatingFi
   const totalReducers = reducers.reduce((sum, row) => sum + row.count, 0);
 
   const notes = [
-    "Blake sized mains 28 mm, branches 22 mm, rad/UFH tails 15 mm.",
-    "Elbows at right-angle bends · couplings every 3 m · reducers where sizes meet.",
+    "Blake sized mains 28 mm Copper, branches 22 mm Copper, rad tails 15 mm Copper, UFH loops/tails 16 mm PEX.",
+    "Copper elbows at right-angle bends · couplings every 3 m · reducers where copper sizes meet.",
+    "UFH PEX metres counted for BoQ; coil bends are not counted as copper fittings.",
     "Send to Takeoff to put this network on the BOQ for Push.",
   ];
 

@@ -116,6 +116,11 @@ describe("UFH serpentine + manifold assignment", () => {
     assert.ok(summary.ufhPipeM > 0);
     assert.ok(summary.circuitCount >= 2);
     assert.ok(ufhLayout.pipes.some((pipe) => /ufh loop/i.test(pipe.label)));
+    const ufhPipes = ufhLayout.pipes.filter((pipe) => /ufh\s*(loop|tail)/i.test(pipe.label));
+    assert.ok(ufhPipes.length > 0);
+    assert.ok(ufhPipes.every((pipe) => pipe.material === "PEX"));
+    assert.ok(ufhPipes.every((pipe) => pipe.diameterMm === 16));
+    assert.ok(ufhPipes.every((pipe) => pipe.pipeSpecId === "pex-16"));
     assert.ok(circuits.every((row) => row.loopLengthM > 0));
     assert.ok(circuits.every((row) => row.manifoldId));
     assert.equal(spacingMmForWm2(120), 100);
