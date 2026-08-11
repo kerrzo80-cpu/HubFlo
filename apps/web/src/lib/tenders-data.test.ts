@@ -17,7 +17,9 @@ describe("tenders-data BoQ parse", () => {
     const parsed = parseBoqDelimitedText(csv);
     assert.equal(parsed.title, "Plumbing e-Enquiry [Harlaw]");
     assert.equal(parsed.lines[0]?.kind, "header");
+    assert.equal(parsed.lines[0]?.section, "SANITARY APPLIANCES");
     assert.equal(parsed.lines[1]?.ref, "8/1/A");
+    assert.equal(parsed.lines[1]?.section, "SANITARY APPLIANCES");
     assert.equal(parsed.lines[1]?.rate, 1836);
     assert.equal(parsed.lines[3]?.ref, "14/1/d");
     assert.equal(parsed.lines[3]?.rate, null);

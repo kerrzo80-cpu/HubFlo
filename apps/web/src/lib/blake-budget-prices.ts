@@ -173,8 +173,8 @@ async function askBlakeBudgetChunk(
           {
             role: "system",
             content: preferBlank
-              ? "Return strict JSON only. You are Blake pricing a UK MEP / builders Bill of Quantities for budget estimating (plumbing, heating, drainage, electrical basics, ventilation, insulation, builders work, ancillaries). Use typical 2024–2026 UK merchant trade prices (Wolseley / City Plumbing / Screwfix / CEF / BES trade ballpark). These are BUDGET guide unit rates — not firm quotes. If you are not confident what the item is, omit it (do not invent a rate, do not return 0)."
-              : "Return strict JSON only. You are Blake pricing a UK MEP materials list for budget estimating (plumbing, heating, drainage, electrical basics, ventilation, insulation, builders work). Use typical 2024–2026 UK merchant trade prices (Wolseley / City Plumbing / Screwfix / CEF trade ballpark). These are BUDGET costs for comparing to supplier quotes later — not firm quotes.",
+              ? "Return strict JSON only. You are Blake pricing a UK MEP / builders Bill of Quantities for budget estimating across trades (plumbing, heating, LTHW, cold water, drainage, electrical, lighting, containment, ventilation, insulation, builders work, ancillaries). Use typical 2024–2026 UK merchant trade prices (Wolseley / City Plumbing / Screwfix / CEF / BES / Rexel trade ballpark). These are BUDGET guide unit rates — not firm quotes. If you are not confident what the item is, omit it (do not invent a rate, do not return 0)."
+              : "Return strict JSON only. You are Blake pricing a UK MEP materials list for budget estimating (plumbing, heating, drainage, electrical, ventilation, insulation, builders work). Use typical 2024–2026 UK merchant trade prices (Wolseley / City Plumbing / Screwfix / CEF trade ballpark). These are BUDGET costs for comparing to supplier quotes later — not firm quotes.",
           },
           {
             role: "user",
@@ -183,9 +183,9 @@ async function askBlakeBudgetChunk(
                 ? "For each line you can price confidently, return a budget unitCost in GBP (ex VAT)."
                 : "For each line return a budget unitCost in GBP (ex VAT).",
               preferBlank
-                ? "If unsure of the item, trade unit, or a sensible UK rate, omit that line entirely. Never return 0. Prefer blank over a guess."
+                ? "If unsure of the item, trade unit, or a sensible UK rate, omit that line entirely. Never return 0. Prefer blank over a guess. Use the line category / BoQ section as a trade hint (Heating, Electrical, etc.) when present."
                 : "If a unitCost is already present, you may refine it if clearly wrong; otherwise keep a sensible UK trade figure. Never return 0 unless the item is truly free. Prefer a provisional budget over blank.",
-              "Cover common trades when present: copper/MDPE/waste/soil/UG drainage, sanitary, radiators/TRVs, boilers/ASHP/cylinders, extract fans/ducts, T&E/sockets/switches/FCUs, pipe insulation, fire collars, builders work / chases.",
+              "Cover common trades when present: copper/MDPE/waste/soil/UG drainage, sanitary, radiators/TRVs/lockshields, boilers/ASHP/cylinders/pumps/zone valves, cold water storage, extract fans/ducts/MVHR, T&E/sockets/switches/FCUs/lighting/containment, pipe insulation, fire collars, builders work / chases.",
               "Return JSON: { lines: [{ id, unitCost, note? }] }",
               options.context ? `Job context: ${options.context}` : "",
               JSON.stringify({ lines: payload }),

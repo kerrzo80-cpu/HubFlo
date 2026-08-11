@@ -24,6 +24,10 @@ import {
   type TenderDocumentFolder,
 } from "@/lib/tender-document-folders";
 import {
+  filterSelectedMeasuredLineIds,
+  groupBoqLinesBySection,
+} from "@/lib/tender-boq-sections";
+import {
   TENDER_AREAS,
   TENDER_CATEGORIES,
   TENDER_STATUSES,
@@ -147,6 +151,7 @@ export function TendersPanel({
   const [blakeBudgetBusy, setBlakeBudgetBusy] = useState(false);
   const [blakeBudgetStatus, setBlakeBudgetStatus] = useState<string | null>(null);
   const blakeBudgetAbortRef = useRef<AbortController | null>(null);
+  const [boqBlakeLineIds, setBoqBlakeLineIds] = useState<string[]>([]);
   const [uploadTarget, setUploadTarget] = useState<DocTargetValue>("kind:drawing");
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderParent, setNewFolderParent] = useState<DocTargetValue>("kind:drawing");
@@ -158,6 +163,26 @@ export function TendersPanel({
 
   const documentFolders = selected?.documentFolders || [];
   const folderOptions = useMemo(() => listFolderOptions(documentFolders), [documentFolders]);
+  const boqSections = useMemo(
+    () => groupBoqLinesBySection(selected?.boqLines || []),
+    [selected?.boqLines],
+  );
+  const boqBlakeSelectedCount = useMemo(
+    () => filterSelectedMeasuredLineIds(selected?.boqLines || [], boqBlakeLineIds).length,
+    [boqBlakeLineIds, selected?.boqLines],
+  );
+
+  useEffect(() => {
+    setBoqBlakeLineIds([]);
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const measured = new Set(
+      selected.boqLines.filter((line) => line.kind === "measured").map((line) => line.id),
+    );
+    setBoqBlakeLineIds((current) => current.filter((id) => measured.has(id)));
+  }, [selected]);
 
   useEffect(() => {
     if (!selected) return;
@@ -406,6 +431,7 @@ export function TendersPanel({
     try {
       await postAction({ action: "clear-boq", id: selected.id });
       setBoqImportText("");
+      setBoqBlakeLineIds([]);
       onNotice("BoQ cleared — import a new spreadsheet when ready.");
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "Unable to clear BoQ");
@@ -512,6 +538,7 @@ export function TendersPanel({
         boqText: boqImportText,
       });
       setBoqImportText("");
+      setBoqBlakeLineIds([]);
       setTab("boq");
       onNotice("BoQ imported — all issued lines kept; blank rates stay unpriced (not free).");
     } catch (error) {
@@ -552,6 +579,10 @@ export function TendersPanel({
         });
       }
       if (payload.tender?.id) setSelectedId(payload.tender.id);
+      if (action === "import-boq") {
+        setBoqBlakeLineIds([]);
+        setTab("boq");
+      }
       onNotice(
         payload.message ||
           (action === "import-boq"
@@ -560,7 +591,6 @@ export function TendersPanel({
               ? `Tracker imported (${payload.created ?? 0} new, ${payload.updated ?? 0} updated).`
               : "Document uploaded."),
       );
-      if (action === "import-boq") setTab("boq");
       if (action === "upload-document") setTab("documents");
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "Unable to upload");
@@ -601,12 +631,18 @@ export function TendersPanel({
 
   async function runBlakeBudgetPrices(forceRefresh = false) {
     if (!selected) return;
-    const measured = selected.boqLines.filter((line) => line.kind === "measured").length;
-    if (!measured) {
+    const measured = selected.boqLines.filter((line) => line.kind === "measured");
+    if (!measured.length) {
       onNotice("Import a BoQ first — Blake needs measured lines to price.");
       return;
     }
     if (blakeBudgetBusy) return;
+
+    const lineIds = filterSelectedMeasuredLineIds(selected.boqLines, boqBlakeLineIds);
+    if (!lineIds.length) {
+      onNotice("Tick the measured lines (or a whole sheet/section) you want Blake to budget-price first.");
+      return;
+    }
 
     blakeBudgetAbortRef.current?.abort();
     const abort = new AbortController();
@@ -614,7 +650,7 @@ export function TendersPanel({
 
     setBlakeBudgetBusy(true);
     setSaving(true);
-    setBlakeBudgetStatus("Matching library…");
+    setBlakeBudgetStatus(`Matching library · ${lineIds.length} selected…`);
     try {
       const response = await fetch(`/api/tenders/${encodeURIComponent(selected.id)}/budget-prices?stream=1`, {
         method: "POST",
@@ -623,7 +659,7 @@ export function TendersPanel({
           "Content-Type": "application/json",
           Accept: "application/x-ndjson",
         },
-        body: JSON.stringify({ forceRefresh, actor: actorName }),
+        body: JSON.stringify({ forceRefresh, actor: actorName, lineIds }),
         signal: abort.signal,
       });
 
@@ -644,6 +680,8 @@ export function TendersPanel({
         leftBlank?: number;
         budgetTotal?: number;
         pricedCount?: number;
+        targetedCount?: number;
+        targetedPricedCount?: number;
         message?: string;
         stage?: string;
       };
@@ -693,7 +731,7 @@ export function TendersPanel({
       }
 
       if (!payload) throw new Error("Blake budget pricing returned no result");
-      if (payload.error && !(payload.pricedCount || payload.libraryFilled || payload.blakeFilled)) {
+      if (payload.error && !(payload.pricedCount || payload.libraryFilled || payload.blakeFilled || payload.targetedPricedCount)) {
         throw new Error(payload.error);
       }
 
@@ -702,14 +740,13 @@ export function TendersPanel({
         setTenders((prev) => prev.map((row) => (row.id === payload!.tender!.id ? payload!.tender! : row)));
       }
       const blank = payload.leftBlank ?? 0;
-      const priced = payload.pricedCount ?? 0;
+      const targeted = payload.targetedCount ?? lineIds.length;
+      const targetedPriced = payload.targetedPricedCount ?? payload.pricedCount ?? 0;
       const notice = payload.aiUsed
-        ? `Blake budget prices applied · ${payload.blakeFilled ?? 0} Blake · ${payload.libraryFilled ?? 0} library · ${priced} priced · ${blank} blank · ${money(payload.budgetTotal)}. Guide rates only — amend before FoT.`
-        : `Guide rates applied · ${payload.libraryFilled ?? 0} from library · ${priced} priced · ${blank} blank · ${money(payload.budgetTotal)}. OpenAI offline or skipped — blanks stay unpriced.`;
+        ? `Blake budget prices on ${targeted} selected · ${payload.blakeFilled ?? 0} Blake · ${payload.libraryFilled ?? 0} library · ${targetedPriced} of selected priced · ${blank} blank on bill · ${money(payload.budgetTotal)}. Guide rates only — amend before FoT.`
+        : `Guide rates on ${targeted} selected · ${payload.libraryFilled ?? 0} from library · ${targetedPriced} of selected priced · ${blank} blank on bill · ${money(payload.budgetTotal)}. OpenAI offline or skipped — blanks stay unpriced.`;
       setBlakeBudgetStatus(
-        blank
-          ? `Done · ${priced} priced · ${blank} blank`
-          : `Done · ${priced} priced`,
+        `Done · ${targetedPriced}/${targeted} selected priced`,
       );
       onNotice(notice);
     } catch (error) {
@@ -726,6 +763,29 @@ export function TendersPanel({
       setSaving(false);
       window.setTimeout(() => setBlakeBudgetStatus(null), 4000);
     }
+  }
+
+  function toggleBoqBlakeLine(lineId: string, checked: boolean) {
+    setBoqBlakeLineIds((current) => {
+      if (checked) return current.includes(lineId) ? current : [...current, lineId];
+      return current.filter((id) => id !== lineId);
+    });
+  }
+
+  function toggleBoqBlakeSection(measuredIds: string[], checked: boolean) {
+    setBoqBlakeLineIds((current) => {
+      const set = new Set(current);
+      if (checked) {
+        for (const id of measuredIds) set.add(id);
+      } else {
+        for (const id of measuredIds) set.delete(id);
+      }
+      return Array.from(set);
+    });
+  }
+
+  function clearBoqBlakeSelection() {
+    setBoqBlakeLineIds([]);
   }
 
   function cancelBlakeBudgetPrices() {
@@ -1146,7 +1206,7 @@ export function TendersPanel({
                   Price on their refs (e.g. 8/1/A). Keep every issued line — leave Rate blank if not priced so they can see it was not priced (do not put £0 / NIL).
                 </p>
                 <p className="tenders-boq-blake-note">
-                  Blake budget prices fill blanks from the NeXa rate library first, then UK trade ballpark for gaps. Values are budget guides — not firm quotes. Unsure lines stay blank.
+                  Tick measured lines (or a whole sheet/section header) then run Blake. Only ticked lines are budget-priced — use that to price Heating / Electrical packs separately. Library first, then UK trade ballpark for gaps. Guide rates only; unsure lines stay blank.
                 </p>
                 <div className="tenders-boq-blake-actions">
                   <button
@@ -1156,16 +1216,24 @@ export function TendersPanel({
                     onClick={() => void runBlakeBudgetPrices(false)}
                   >
                     <Sparkles size={15} />
-                    {blakeBudgetBusy ? "Blake pricing…" : "Blake budget prices"}
+                    {blakeBudgetBusy
+                      ? "Blake pricing…"
+                      : boqBlakeSelectedCount
+                        ? `Blake budget prices (${boqBlakeSelectedCount})`
+                        : "Blake budget prices"}
                   </button>
                   <button
                     type="button"
                     className="secondary-button"
-                    disabled={saving || blakeBudgetBusy || !selected.boqLines.some((line) => line.kind === "measured")}
+                    disabled={
+                      saving
+                      || blakeBudgetBusy
+                      || !boqBlakeSelectedCount
+                    }
                     onClick={() => void runBlakeBudgetPrices(true)}
-                    title="Re-run Blake/library on previous budget or guide rates (manual rates kept)"
+                    title="Re-run Blake/library on selected budget or guide rates (manual rates kept)"
                   >
-                    Refresh budget guides
+                    Refresh selected guides
                   </button>
                   {blakeBudgetBusy ? (
                     <button
@@ -1176,6 +1244,14 @@ export function TendersPanel({
                       Cancel
                     </button>
                   ) : null}
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={saving || blakeBudgetBusy || !boqBlakeSelectedCount}
+                    onClick={clearBoqBlakeSelection}
+                  >
+                    Clear selection
+                  </button>
                   <button
                     type="button"
                     className="secondary-button"
@@ -1190,6 +1266,10 @@ export function TendersPanel({
                 {blakeBudgetStatus ? (
                   <p className="tenders-boq-blake-progress" aria-live="polite">
                     {blakeBudgetStatus}
+                  </p>
+                ) : boqBlakeSelectedCount ? (
+                  <p className="tenders-boq-blake-progress" aria-live="polite">
+                    {boqBlakeSelectedCount} measured line{boqBlakeSelectedCount === 1 ? "" : "s"} selected for Blake
                   </p>
                 ) : null}
               </div>
@@ -1240,6 +1320,9 @@ export function TendersPanel({
               <table className="tenders-boq-table">
                 <thead>
                   <tr>
+                    <th className="tenders-boq-check-col" scope="col">
+                      <span className="sr-only">Select for Blake</span>
+                    </th>
                     <th>Ref</th>
                     <th>Description</th>
                     <th>Qty</th>
@@ -1254,9 +1337,39 @@ export function TendersPanel({
                   {selected.boqLines.length ? (
                     selected.boqLines.map((line) => {
                       if (line.kind === "header") {
+                        const section = boqSections.find((group) => group.headerId === line.id);
+                        const measuredIds = section?.measuredIds || [];
+                        const selectedInSection = measuredIds.filter((id) => boqBlakeLineIds.includes(id)).length;
+                        const allSelected = measuredIds.length > 0 && selectedInSection === measuredIds.length;
+                        const someSelected = selectedInSection > 0 && !allSelected;
                         return (
                           <tr key={line.id} className="tenders-boq-header-row">
-                            <td colSpan={8}>{line.description}</td>
+                            <td className="tenders-boq-check-col">
+                              {measuredIds.length ? (
+                                <input
+                                  type="checkbox"
+                                  checked={allSelected}
+                                  ref={(el) => {
+                                    if (el) el.indeterminate = someSelected;
+                                  }}
+                                  aria-label={`Select all measured lines in ${line.description || "section"}`}
+                                  disabled={blakeBudgetBusy}
+                                  onChange={(event) => toggleBoqBlakeSection(measuredIds, event.target.checked)}
+                                />
+                              ) : null}
+                            </td>
+                            <td colSpan={8}>
+                              <span className="tenders-boq-section-label">
+                                {line.section || line.description}
+                                {measuredIds.length ? (
+                                  <em>
+                                    {" "}
+                                    · {measuredIds.length} item{measuredIds.length === 1 ? "" : "s"}
+                                    {selectedInSection ? ` · ${selectedInSection} selected` : ""}
+                                  </em>
+                                ) : null}
+                              </span>
+                            </td>
                           </tr>
                         );
                       }
@@ -1277,10 +1390,27 @@ export function TendersPanel({
                           : line.pricingSource === "rate-library"
                             ? "Guide"
                             : "Priced";
+                      const checked = boqBlakeLineIds.includes(line.id);
                       return (
-                        <tr key={line.id} className={priced ? "" : "unpriced"}>
+                        <tr key={line.id} className={`${priced ? "" : "unpriced"}${checked ? " tenders-boq-selected" : ""}`}>
+                          <td className="tenders-boq-check-col">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              aria-label={`Select ${line.ref || line.description} for Blake`}
+                              disabled={blakeBudgetBusy || line.kind !== "measured"}
+                              onChange={(event) => toggleBoqBlakeLine(line.id, event.target.checked)}
+                            />
+                          </td>
                           <td>{line.ref || "—"}</td>
-                          <td>{line.description}</td>
+                          <td>
+                            {line.description}
+                            {line.section ? (
+                              <span className="tenders-boq-line-section" title={line.section}>
+                                {line.section}
+                              </span>
+                            ) : null}
+                          </td>
                           <td>{line.quantity ?? ""}</td>
                           <td>{line.unit || ""}</td>
                           <td>
@@ -1314,7 +1444,7 @@ export function TendersPanel({
                     })
                   ) : (
                     <tr>
-                      <td colSpan={8}>No BoQ lines yet — import their issued Excel/CSV bill.</td>
+                      <td colSpan={9}>No BoQ lines yet — import their issued Excel/CSV bill.</td>
                     </tr>
                   )}
                 </tbody>

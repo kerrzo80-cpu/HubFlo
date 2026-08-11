@@ -19,7 +19,7 @@ import {
 } from "./takeoff-rate-core";
 
 const sampleLines: TenderBoqLine[] = [
-  { id: "h1", kind: "header", description: "SANITARY" },
+  { id: "h1", kind: "header", description: "SANITARY", section: "SANITARY" },
   {
     id: "l1",
     kind: "measured",
@@ -29,6 +29,7 @@ const sampleLines: TenderBoqLine[] = [
     unit: "nr",
     rate: null,
     value: null,
+    section: "SANITARY",
   },
   {
     id: "l2",
@@ -39,6 +40,7 @@ const sampleLines: TenderBoqLine[] = [
     unit: "ITEM",
     rate: null,
     value: null,
+    section: "SANITARY",
   },
   {
     id: "l3",
@@ -50,6 +52,19 @@ const sampleLines: TenderBoqLine[] = [
     rate: 120,
     value: 120,
     pricingSource: "manual",
+    section: "SANITARY",
+  },
+  { id: "h2", kind: "header", description: "Heating", section: "Heating" },
+  {
+    id: "l4",
+    kind: "measured",
+    ref: "9/1/A",
+    description: "Panel radiator 600x1000",
+    quantity: 3,
+    unit: "nr",
+    rate: null,
+    value: null,
+    section: "Heating",
   },
 ];
 
@@ -111,6 +126,9 @@ describe("tender-boq-blake-prices mapping", () => {
     assert.equal(kit!.description, "TRV");
     assert.doesNotMatch(kit!.description, /8\/1\/A/);
 
+    const heating = tenderBoqLineToKitLine(sampleLines[5]!, false);
+    assert.equal(heating?.category, "Heating");
+
     const noisy: TenderBoqLine = {
       id: "n1",
       kind: "measured",
@@ -120,11 +138,13 @@ describe("tender-boq-blake-prices mapping", () => {
       unit: "nr",
       rate: null,
       value: null,
+      section: "Electrical",
     };
     const cleaned = tenderBoqLineToKitLine(noisy, false);
     assert.ok(cleaned);
     assert.match(cleaned!.description, /Double socket/i);
     assert.doesNotMatch(cleaned!.description, /\(4nr\)/);
+    assert.equal(cleaned!.category, "Electrical");
 
     const locked = tenderBoqLineToKitLine(sampleLines[3]!, false);
     assert.equal(locked?.unitCost, 120);
@@ -166,7 +186,42 @@ describe("tender-boq-blake-prices mapping", () => {
 
     const summary = summariseTenderBoqBlake(merged);
     assert.equal(summary.libraryFilled, 1);
-    assert.equal(summary.leftBlank, 1);
+    assert.equal(summary.leftBlank, 2);
     assert.equal(summary.pricedCount, 2);
+  });
+
+  it("only merges onto selected measured line ids", () => {
+    const kits: KitLine[] = [
+      {
+        id: "l1",
+        category: "Sanitary",
+        description: "TRV",
+        qty: 2,
+        unitCost: 18,
+        required: true,
+        unit: "nr",
+        pricingSource: "blake-budget",
+      },
+      {
+        id: "l4",
+        category: "Heating",
+        description: "Panel radiator 600x1000",
+        qty: 3,
+        unitCost: 220,
+        required: true,
+        unit: "nr",
+        pricingSource: "blake-budget",
+      },
+    ];
+    const merged = mergeKitPricesOntoBoqLines(sampleLines, kits, { onlyLineIds: ["l4"] });
+    assert.equal(merged[1]?.rate, null);
+    assert.equal(merged[5]?.rate, 220);
+    assert.equal(merged[5]?.value, 660);
+    assert.equal(merged[5]?.pricingSource, "blake-budget");
+    assert.equal(merged[3]?.pricingSource, "manual");
+
+    const focused = summariseTenderBoqBlake(merged, ["l4"]);
+    assert.equal(focused.targetedCount, 1);
+    assert.equal(focused.targetedPricedCount, 1);
   });
 });

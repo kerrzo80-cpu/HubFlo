@@ -399,12 +399,15 @@ export function parseBoqDelimitedText(raw: string, title?: string): { title: str
   if (header[0] && /^ref$/i.test(header[0])) start += 1;
 
   const lines: TenderBoqLine[] = [];
+  let currentSection = "";
   for (let i = start; i < linesRaw.length; i += 1) {
     const cols = splitRow(linesRaw[i] || "");
     const ref = cols[0] || "";
     const description = cols[1] || cols[0] || "";
     if (!description && !ref) continue;
     if (/^total$/i.test(ref) || /^total$/i.test(description)) continue;
+    // Skip leftover column-header rows between sheets (Ref / Description / …).
+    if (/^ref$/i.test(ref) && /description/i.test(description || "")) continue;
 
     const quantity = parseNumber(cols[2]);
     const unit = cols[3] || "";
@@ -413,10 +416,13 @@ export function parseBoqDelimitedText(raw: string, title?: string): { title: str
     const note = cols[6] || "";
 
     if (!ref && quantity === null && rate === null && value === null) {
+      const headerText = (description || ref).trim();
+      currentSection = headerText;
       lines.push({
         id: uid("boq"),
         kind: "header",
-        description: description || ref,
+        description: headerText,
+        section: headerText || undefined,
       });
       continue;
     }
@@ -431,6 +437,7 @@ export function parseBoqDelimitedText(raw: string, title?: string): { title: str
       rate,
       value: value ?? (rate !== null && quantity !== null ? roundMoney(rate * quantity) : null),
       note: note || undefined,
+      section: currentSection || undefined,
     });
   }
 
@@ -645,6 +652,8 @@ export async function applyBlakeBudgetPricesToTender(
   tenderId: string,
   options: {
     forceRefresh?: boolean;
+    /** When set, only these measured line ids are offered to Blake / the library. */
+    lineIds?: string[];
     onProgress?: (progress: {
       stage: "library" | "blake" | "done";
       message: string;
@@ -665,6 +674,7 @@ export async function applyBlakeBudgetPricesToTender(
   const { budgetPriceTenderBoqWithBlake } = await import("@/lib/tender-boq-blake-prices");
   const priced = await budgetPriceTenderBoqWithBlake(existing.boqLines, {
     forceRefresh: options.forceRefresh,
+    lineIds: options.lineIds,
     context: `${existing.name} · ${existing.client} · ${existing.category} · ${existing.area}`,
     onProgress: options.onProgress,
     signal: options.signal,

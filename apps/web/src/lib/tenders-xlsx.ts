@@ -41,30 +41,36 @@ export function sheetRowsFromWorkbookBuffer(bytes: Buffer | ArrayBuffer, sheetIn
 /**
  * Read every non-empty worksheet and concatenate rows.
  * Multi-tab client BoQs often put each bill “page” on its own sheet — Tenders must not stop at sheet 0.
- * Inserts a section header from the sheet name between sheets, and skips duplicate column headers after the first.
+ * When 2+ sheets have data, inserts a section header from every sheet name (including the first)
+ * and skips column header rows so “Ref / Description” is not imported as a measured line.
  */
 export function allSheetRowsFromWorkbookBuffer(bytes: Buffer | ArrayBuffer): string[][] {
   const workbook = XLSX.read(bytes, { type: "buffer", cellDates: true });
-  const merged: string[][] = [];
-  let emittedData = false;
-
+  const sheets: Array<{ name: string; rows: string[][] }> = [];
   for (const name of workbook.SheetNames) {
     const rows = cellsFromSheet(workbook.Sheets[name]).filter((row) => !isBlankRow(row));
     if (!rows.length) continue;
+    sheets.push({ name, rows });
+  }
 
-    if (emittedData) {
+  const multiSheet = sheets.length > 1;
+  const merged: string[][] = [];
+
+  for (const { name, rows } of sheets) {
+    if (multiSheet) {
       merged.push(["", name]);
     }
 
     let start = 0;
-    if (emittedData && isBoqHeaderRow(rows[0] || [])) {
+    // Skip the column header on follow-on sheets, and on every sheet when multi-tab
+    // (section labels already mark the page — keep “Ref” out of the priced grid).
+    if (isBoqHeaderRow(rows[0] || []) && (multiSheet || merged.length > 0)) {
       start = 1;
     }
 
     for (let i = start; i < rows.length; i += 1) {
       merged.push(rows[i] || []);
     }
-    emittedData = true;
   }
 
   return merged;

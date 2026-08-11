@@ -64,8 +64,12 @@ describe("tenders-xlsx multi-sheet BoQ", () => {
 
     assert.ok(rows.some((row) => row[0] === "8/1/A"));
     assert.ok(rows.some((row) => row[0] === "8/2/A"));
+    assert.ok(rows.some((row) => row[1] === "Page 1"));
     assert.ok(rows.some((row) => row[1] === "Page 2"));
     assert.equal(parsed.lines.filter((line) => line.kind === "measured").length, 3);
+    assert.equal(parsed.lines.filter((line) => line.kind === "header").length, 2);
+    assert.equal(parsed.lines.find((line) => line.ref === "8/1/A")?.section, "Page 1");
+    assert.equal(parsed.lines.find((line) => line.ref === "8/2/A")?.section, "Page 2");
     assert.equal(
       parsed.lines.find((line) => line.ref === "8/2/A")?.description,
       "Washbasin",

@@ -83,6 +83,11 @@ export type TenderBoqLine = {
   note?: string;
   /** blake-budget / rate-library = guide; manual = office/typed. */
   pricingSource?: TenderBoqPricingSource;
+  /**
+   * Sheet / tab / bill section this line belongs to (multi-sheet import or header group).
+   * Header rows usually repeat the section title here too.
+   */
+  section?: string;
   /** @deprecated Unpriced lines stay on the BoQ with blank rates — do not use. */
   excluded?: boolean;
 };

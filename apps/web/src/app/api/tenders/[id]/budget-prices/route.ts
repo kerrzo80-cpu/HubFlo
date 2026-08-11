@@ -37,13 +37,19 @@ export async function POST(
   }
 
   const { id } = await context.params;
-  const body = (await parseJsonRequestBody<{ forceRefresh?: boolean; actor?: string }>(request)) || {};
+  const body =
+    (await parseJsonRequestBody<{ forceRefresh?: boolean; actor?: string; lineIds?: string[] }>(request))
+    || {};
+  const lineIds = Array.isArray(body.lineIds)
+    ? body.lineIds.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : undefined;
   const stream = wantsStream(request);
 
   if (!stream) {
     try {
       const { tender, priced } = await applyBlakeBudgetPricesToTender(id, {
         forceRefresh: Boolean(body.forceRefresh),
+        lineIds,
       });
 
       try {
@@ -53,8 +59,8 @@ export async function POST(
           recordType: "tender",
           recordId: tender.id,
           summary: priced.aiUsed
-            ? `Blake budget prices · ${priced.blakeFilled} Blake · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`
-            : `Guide budget prices · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`,
+            ? `Blake budget prices · ${priced.targetedCount} selected · ${priced.blakeFilled} Blake · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`
+            : `Guide budget prices · ${priced.targetedCount} selected · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`,
           source: "tenders",
           importance: "normal",
         });
@@ -76,6 +82,8 @@ export async function POST(
         blakeFilled: priced.blakeFilled,
         leftBlank: priced.leftBlank,
         budgetTotal: priced.budgetTotal,
+        targetedCount: priced.targetedCount,
+        targetedPricedCount: priced.targetedPricedCount,
       });
     } catch (error) {
       return NextResponse.json(
@@ -101,6 +109,7 @@ export async function POST(
 
         const { tender, priced } = await applyBlakeBudgetPricesToTender(id, {
           forceRefresh: Boolean(body.forceRefresh),
+          lineIds,
           signal: request.signal,
           onProgress: (progress) => {
             write({
@@ -117,8 +126,8 @@ export async function POST(
             recordType: "tender",
             recordId: tender.id,
             summary: priced.aiUsed
-              ? `Blake budget prices · ${priced.blakeFilled} Blake · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`
-              : `Guide budget prices · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`,
+              ? `Blake budget prices · ${priced.targetedCount} selected · ${priced.blakeFilled} Blake · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`
+              : `Guide budget prices · ${priced.targetedCount} selected · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`,
             source: "tenders",
             importance: "normal",
           });
@@ -141,6 +150,8 @@ export async function POST(
           blakeFilled: priced.blakeFilled,
           leftBlank: priced.leftBlank,
           budgetTotal: priced.budgetTotal,
+          targetedCount: priced.targetedCount,
+          targetedPricedCount: priced.targetedPricedCount,
         });
       } catch (error) {
         const message =
