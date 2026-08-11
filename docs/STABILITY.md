@@ -1,24 +1,38 @@
 # Stability path — stop sneeze-crashes
 
-## Deploy smoke (shipped)
+## Deploy smoke / uptime
 
-| Check | How |
-|-------|-----|
-| Local / CI | `pnpm smoke:live:once` or `pnpm smoke:live` |
-| GitHub Actions | `.github/workflows/live-deploy-smoke.yml` on live branch push + every 6h |
-| Render cron | `nexa-live-deploy-smoke` hourly → `POST /api/health/smoke` (retries deploy 502s) |
+| Check | How | Pages? |
+|-------|-----|--------|
+| Local / CI | `pnpm smoke:live:once` or `pnpm smoke:live` | No |
+| GitHub Actions | `.github/workflows/live-deploy-smoke.yml` on live branch push + every 6h | GitHub only (full path smoke) |
+| Render cron `nexa-live-deploy-smoke` | Hourly **liveness** → `GET /api/health` only | Render email **only** if health returns `ok: false` for several retries |
 
-Smoke covers: `/api/health` (incl. `coreRoutes`), `/login`, `/`, Core modules (`/jobs`, `/quotes`, `/leads`, `/setup`, `/reports`, `/people`, `/schedule`, `/invoices`), `/field`, Field SW files, Field manifest, `/heat-design`, `/api/branding`.
+### Why the old Render emails were misleading
 
-**Important:** a Render “server failure” email from `nexa-live-deploy-smoke` means the **smoke cron exited non-zero**, not that the main web service crashed.
+Render emails **“server failure”** whenever the **cron job** exits non-zero — not when the main `nexa-live` web service crashes.
 
-- Mid-deploy 502/503s are retried (~5 minutes).
-- If the probe still only sees a deploy/proxy window, the cron **soft-passes (exit 0)** so Render does not page.
-- Only sustained real check failures should email.
+The previous hourly cron called secret-gated `/api/health/smoke`. That failed often during:
+
+- rapid auto-deploys / cutover 502s
+- missing or mismatched `NEXA_IMPORT_TICK_SECRET` on the cron (immediate exit 1 / 403)
+
+…while the office app was still up. That destroyed confidence.
+
+**Current policy:** Render cron = quiet liveness. Full module smoke = GitHub Actions.
+
+- Soft-pass (exit 0) on deploy/proxy/inconclusive windows.
+- Exit 1 only when `/api/health` repeatedly returns `ok: false`.
 
 Quick check: open https://nexa-live.onrender.com/api/health — if `ok: true`, the app is up.
 
-Health flags: `deploySmoke: soft-pass-deploy-window-v3`, `coreRoutes: url-modules-v1`.
+Health flag: `deploySmoke: health-liveness-no-false-alarm-v1`.
+
+### Apply this on Render
+
+1. Confirm **Auto-Deploy is Off** for `nexa-live` in the Render dashboard (`render-live.yaml` already has `autoDeploy: false`).
+2. After merging this change, **Manual Deploy** `nexa-live` or **Blueprint Sync** so the cron `startCommand` updates (yaml alone does not change a frozen service).
+3. Ship product WIP to **nexa-pilot**; promote to live only when asked or for a blocking fault.
 
 ## Core URL modules (Phase 1)
 
