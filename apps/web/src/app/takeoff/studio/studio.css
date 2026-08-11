@@ -1610,6 +1610,98 @@
   border-bottom: 1px solid #d5e2ea;
 }
 
+.nexa-studio-feature-callout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: #163246;
+  background: linear-gradient(90deg, #e8f6ee 0%, #eef7fc 55%, #f4f8fb 100%);
+  border-bottom: 1px solid #cddfe8;
+}
+
+.nexa-studio-feature-callout.muted {
+  background: #f5f7f9;
+  color: var(--muted);
+}
+
+.nexa-studio-feature-callout strong {
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #0f5f3a;
+}
+
+.nexa-studio-feature-callout.muted strong {
+  color: var(--muted);
+}
+
+.nexa-studio-feature-callout span {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.nexa-studio-feature-callout-action,
+.nexa-studio-iso-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.nexa-studio-feature-callout-action {
+  background: #fff;
+  border: 1px solid #9fbfae;
+  color: #0f5f3a;
+}
+
+.nexa-studio-iso-toggle span {
+  font-size: 12px;
+}
+
+.nexa-studio-toolbar button.nexa-studio-iso-toggle {
+  border-color: #7aa8c4;
+  background: #f0f8fd;
+}
+
+.nexa-studio-drop-prompt {
+  margin: 0 0 0 auto;
+  flex: 1 1 240px;
+  text-align: right;
+  color: #1a4d66;
+  font-weight: 600;
+}
+
+.nexa-studio-rise-form-title {
+  align-self: center;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #0f5f3a;
+  padding-right: 4px;
+}
+
+.nexa-studio-rise-form-active {
+  margin-left: auto;
+  padding: 6px 10px;
+  border: 1px solid #9fbfae;
+  border-radius: 12px;
+  background: #f1faf4;
+}
+
 .nexa-studio-toolbar .on,
 .nexa-studio-toolbar .accent,
 .nexa-studio-scale-form .accent {
