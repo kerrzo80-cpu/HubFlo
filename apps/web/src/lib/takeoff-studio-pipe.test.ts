@@ -6,6 +6,8 @@ import {
   createDefaultStudioState,
   isAiStudioGeometry,
   linearMeasuredMetres,
+  resolveLinearDrop,
+  syncLinearDropFields,
 } from "./takeoff-studio";
 import {
   appendLinearWithAutoFittings,
@@ -16,6 +18,7 @@ import {
   countUnscaledStudioLinears,
   summariseStudioBoq,
   summariseStudioPipeBoq,
+  updateLinearDrops,
   updateLinearPointsWithFittings,
   updateLinearRiseDropM,
 } from "./takeoff-studio-pipe";
@@ -300,5 +303,117 @@ describe("studio rise / drop metres", () => {
     const withRise = couplingPointsAlongRun(points, 0.1, 3, 4);
     assert.equal(without.length, 0);
     assert.equal(withRise.length, 1);
+  });
+
+  it("resolves N×H vertical metres and migrates bare riseDropM", () => {
+    assert.equal(resolveLinearDrop({ dropCount: 3, dropHeightM: 2.4 }).verticalM, 7.2);
+    assert.equal(resolveLinearDrop({ dropCount: 3, dropHeightM: 2.4 }).elbowCount, 3);
+    assert.equal(resolveLinearDrop({ dropCount: 3, dropHeightM: 2.4 }).noteLabel, "3 × 2.4 m drops");
+    assert.equal(resolveLinearDrop({ dropCount: 1, dropHeightM: 2.4 }).noteLabel, "2.4 m drop");
+
+    // Legacy single field → 1 × height
+    const legacy = resolveLinearDrop({ riseDropM: 2.4 });
+    assert.equal(legacy.dropCount, 1);
+    assert.equal(legacy.dropHeightM, 2.4);
+    assert.equal(legacy.verticalM, 2.4);
+    assert.equal(legacy.elbowCount, 1);
+
+    // count 0 keeps total override
+    const total = resolveLinearDrop({ dropCount: 0, dropHeightM: 0, riseDropM: 5 });
+    assert.equal(total.verticalM, 5);
+    assert.equal(total.mode, "total");
+    assert.equal(total.elbowCount, 1);
+
+    const synced = syncLinearDropFields({ riseDropM: 3 });
+    assert.equal(synced.dropCount, 1);
+    assert.equal(synced.dropHeightM, 3);
+    assert.equal(synced.riseDropM, 3);
+  });
+
+  it("BOQ uses count × height with plural drop note and one elbow per drop", () => {
+    let studio = createDefaultStudioState();
+    studio = {
+      ...studio,
+      scales: [{ documentId: "doc-1", page: 1, metresPerUnit: 0.1 }],
+    };
+    studio = appendLinearWithAutoFittings(studio, {
+      id: "run-multi-drop",
+      classificationId: "cls-ai-P-PIPE-C",
+      kind: "linear",
+      documentId: "doc-1",
+      page: 1,
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+      ],
+      material: "Copper",
+      diameter: "22mm",
+      stockLengthM: 3,
+      pipeSpecId: "cu-22",
+      dropCount: 3,
+      dropHeightM: 2.4,
+    });
+
+    const linear = studio.geometries.find((geo) => geo.id === "run-multi-drop");
+    assert.ok(linear && linear.kind === "linear");
+    assert.equal(linear.dropCount, 3);
+    assert.equal(linear.dropHeightM, 2.4);
+    assert.equal(linear.riseDropM, 7.2); // synced vertical total
+
+    // 10 m plan + 7.2 m vertical
+    const pipeRows = summariseStudioPipeBoq(studio).filter((row) => row.unit === "m");
+    assert.equal(pipeRows.length, 1);
+    assert.equal(pipeRows[0]?.quantity, 17.2);
+    assert.match(pipeRows[0]?.description || "", /incl\. 3 × 2\.4 m drops/);
+
+    const elbows = studio.geometries.filter(
+      (geo) => geo.kind === "count" && geo.fittingKind === "90-elbow" && geo.linkedLinearId === "run-multi-drop",
+    );
+    assert.equal(elbows.length, 3);
+
+    studio = updateLinearDrops(studio, "run-multi-drop", { dropCount: 2, dropHeightM: 2.4 });
+    assert.equal(
+      summariseStudioPipeBoq(studio).find((row) => row.unit === "m")?.quantity,
+      14.8, // 10 + 4.8
+    );
+    assert.equal(
+      studio.geometries.filter(
+        (geo) => geo.kind === "count" && geo.fittingKind === "90-elbow" && geo.linkedLinearId === "run-multi-drop",
+      ).length,
+      2,
+    );
+  });
+
+  it("migrates riseDropM-only linears to dropCount=1 on save", () => {
+    let studio = createDefaultStudioState();
+    studio = {
+      ...studio,
+      scales: [{ documentId: "doc-1", page: 1, metresPerUnit: 0.1 }],
+    };
+    studio = appendLinearWithAutoFittings(studio, {
+      id: "run-legacy",
+      classificationId: "cls-ai-P-PIPE-H",
+      kind: "linear",
+      documentId: "doc-1",
+      page: 1,
+      points: [
+        { x: 0, y: 0 },
+        { x: 50, y: 0 },
+      ],
+      material: "Copper",
+      diameter: "15mm",
+      stockLengthM: 3,
+      pipeSpecId: "cu-15",
+      riseDropM: 2.4,
+    });
+    const linear = studio.geometries.find((geo) => geo.id === "run-legacy");
+    assert.ok(linear && linear.kind === "linear");
+    assert.equal(linear.dropCount, 1);
+    assert.equal(linear.dropHeightM, 2.4);
+    assert.equal(linear.riseDropM, 2.4);
+    assert.equal(
+      summariseStudioPipeBoq(studio).find((row) => row.unit === "m")?.quantity,
+      7.4, // 5 + 2.4
+    );
   });
 });

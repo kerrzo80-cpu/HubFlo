@@ -19,6 +19,7 @@ import {
   linearMeasuredMetres,
   metresPerUnitFromRatio,
   parseScaleRatioLabel,
+  resolveLinearDrop,
   scaleForPage,
   isAiStudioGeometry,
   studioId,
@@ -34,8 +35,8 @@ import {
   pipeSpecById,
   previewFittingsForDraft,
   removeLinearAndFittings,
+  updateLinearDrops,
   updateLinearPointsWithFittings,
-  updateLinearRiseDropM,
 } from "@/lib/takeoff-studio-pipe";
 import { recordTakeoffLearningClient } from "@/lib/takeoff-learning-client";
 
@@ -897,11 +898,12 @@ export default function StudioCanvas({
     selectedGeo?.kind === "linear" && isAiStudioGeometry(selectedGeo),
   );
   const selectedLinear = selectedGeo?.kind === "linear" ? selectedGeo : null;
+  const selectedDrop = selectedLinear ? resolveLinearDrop(selectedLinear) : null;
   const selectedLinearMetres = selectedLinear
     ? linearMeasuredMetres(
       selectedLinear.points,
       scaleForPage(studio, selectedLinear.documentId, selectedLinear.page)?.metresPerUnit || 0,
-      selectedLinear.riseDropM,
+      selectedDrop?.verticalM ?? 0,
     )
     : null;
 
@@ -932,8 +934,8 @@ export default function StudioCanvas({
     },
     select: {
       label: "Edit",
-      title: "Select pins and pipe vertices. Drag vertices to trim AI/vision runs. Set rise/drop on selected Length runs.",
-      hint: "Tap a pin or pipe. Drag vertices to trim/extend — fittings refresh. On a Length run, set Rise / drop (m) in the bar below for ceiling→wall metres.",
+      title: "Select pins and pipe vertices. Drag vertices to trim AI/vision runs. Set drops on selected Length runs.",
+      hint: "Tap a pin or pipe. Drag vertices to trim/extend — fittings refresh. On a Length run, set Drop count × height (m) below for ceiling→wall metres.",
     },
     count: {
       label: "Count",
@@ -1150,37 +1152,75 @@ export default function StudioCanvas({
             ? `${pageScale.label || "set"}`
             : "not set yet — use Set scale"}
         </span>
-        {selectedLinear ? (
+        {selectedLinear && selectedDrop ? (
           <form
             className="nexa-studio-scale-form nexa-studio-rise-form"
             onSubmit={(event) => event.preventDefault()}
           >
-            <label title="Extra vertical metres for a ceiling run into a wall drop (or rise). Added to plan length in the BOQ.">
-              Rise / drop (m)
+            <label title="How many wall drops leave this ceiling/plan run.">
+              Drops
+              <input
+                type="number"
+                inputMode="numeric"
+                step="1"
+                min="0"
+                value={selectedDrop.dropCount}
+                onChange={(event) => {
+                  const next = Number(event.target.value);
+                  onChange(updateLinearDrops(studio, selectedLinear.id, {
+                    dropCount: Number.isFinite(next) ? next : 0,
+                  }));
+                }}
+              />
+            </label>
+            <label title="Height of each drop in metres (e.g. floor-to-ceiling 2.4).">
+              Height (m)
               <input
                 type="number"
                 inputMode="decimal"
                 step="0.1"
                 min="0"
-                value={selectedLinear.riseDropM ?? 0}
+                value={selectedDrop.dropHeightM}
                 onChange={(event) => {
                   const next = Number(event.target.value);
-                  onChange(updateLinearRiseDropM(
-                    studio,
-                    selectedLinear.id,
-                    Number.isFinite(next) ? next : 0,
-                  ));
+                  onChange(updateLinearDrops(studio, selectedLinear.id, {
+                    dropHeightM: Number.isFinite(next) ? next : 0,
+                  }));
                 }}
               />
             </label>
+            {selectedDrop.dropCount === 0 ? (
+              <label title="Simple total rise/drop when drop count is 0.">
+                Total (m)
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.1"
+                  min="0"
+                  value={selectedDrop.verticalM}
+                  onChange={(event) => {
+                    const next = Number(event.target.value);
+                    onChange(updateLinearDrops(studio, selectedLinear.id, {
+                      dropCount: 0,
+                      riseDropM: Number.isFinite(next) ? next : 0,
+                    }));
+                  }}
+                />
+              </label>
+            ) : null}
             <span className="nexa-studio-rise-metres">
+              {selectedDrop.dropCount > 0 ? (
+                <>
+                  Vertical{" "}
+                  <strong>{selectedDrop.verticalM.toFixed(1)} m</strong>
+                  {" · "}
+                </>
+              ) : null}
               Run ≈{" "}
               <strong>
                 {(selectedLinearMetres ?? 0).toFixed(2)} m
               </strong>
-              {(selectedLinear.riseDropM || 0) > 0
-                ? ` (incl. ${Number(selectedLinear.riseDropM).toFixed(1)} m drop)`
-                : ""}
+              {selectedDrop.noteLabel ? ` (incl. ${selectedDrop.noteLabel})` : ""}
             </span>
           </form>
         ) : null}

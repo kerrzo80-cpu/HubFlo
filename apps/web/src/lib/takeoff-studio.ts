@@ -112,10 +112,16 @@ export type StudioGeometry =
       stockLengthM?: number;
       pipeSpecId?: string;
       /**
-       * Vertical extra metres (ceiling→wall drop / rise) — not drawn in 2D.
-       * BoQ pipe m = plan length × scale + riseDropM (clamped ≥ 0).
+       * Vertical extra metres — not drawn in 2D.
+       * Prefer dropCount × dropHeightM when count > 0; otherwise riseDropM is a total override.
+       * BoQ pipe m = plan length × scale + vertical (clamped ≥ 0).
+       * Legacy projects may only have riseDropM (treated as 1 × height on resolve).
        */
       riseDropM?: number;
+      /** Number of wall/ceiling drops on this run (integer ≥ 0). */
+      dropCount?: number;
+      /** Height of each drop in metres (e.g. 2.4). */
+      dropHeightM?: number;
     }
   | {
       id: string;
@@ -318,6 +324,152 @@ export function clampRiseDropM(value?: number | null): number {
   return Math.max(0, value);
 }
 
+/** Clamp drop count to a non-negative integer. */
+export function clampDropCount(value?: number | null): number {
+  if (value == null || !Number.isFinite(value)) return 0;
+  return Math.max(0, Math.floor(value));
+}
+
+export type LinearDropFields = {
+  riseDropM?: number | null;
+  dropCount?: number | null;
+  dropHeightM?: number | null;
+};
+
+export type ResolvedLinearDrop = {
+  /** Effective count for UI / elbows (legacy bare riseDropM → 1). */
+  dropCount: number;
+  /** Height per drop (legacy bare riseDropM → that total). */
+  dropHeightM: number;
+  /** Vertical metres added to plan length. */
+  verticalM: number;
+  /** Elbows at ceiling–wall junctions (one per drop). */
+  elbowCount: number;
+  /**
+   * BoQ fragment without outer parens, e.g. `3 × 2.4 m drops` or `2.4 m drop`.
+   * Empty when no vertical.
+   */
+  noteLabel: string;
+  /** `drops` = N×H source of truth; `total` = riseDropM override; `none`. */
+  mode: "drops" | "total" | "none";
+};
+
+function formatDropMetres(value: number): string {
+  const rounded = Number(value.toFixed(1));
+  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+}
+
+/** Keep N×H totals tidy (e.g. 3×2.4 → 7.2, not 7.199…'). */
+export function roundDropMetres(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+/**
+ * Resolve vertical metres for a Length run.
+ * - dropCount > 0 → vertical = count × height (source of truth)
+ * - dropCount === 0 with explicit count fields → riseDropM total override
+ * - legacy only riseDropM → treat as 1 × height for display / elbows / metres
+ */
+export function resolveLinearDrop(fields: LinearDropFields): ResolvedLinearDrop {
+  const hasCountFields = fields.dropCount != null || fields.dropHeightM != null;
+  const count = clampDropCount(fields.dropCount);
+  const height = clampRiseDropM(fields.dropHeightM);
+  const total = clampRiseDropM(fields.riseDropM);
+
+  if (hasCountFields) {
+    if (count > 0) {
+      const verticalM = roundDropMetres(count * height);
+      if (!(verticalM > 0)) {
+        return {
+          dropCount: count,
+          dropHeightM: height,
+          verticalM: 0,
+          elbowCount: 0,
+          noteLabel: "",
+          mode: "none",
+        };
+      }
+      const noteLabel = count === 1
+        ? `${formatDropMetres(height)} m drop`
+        : `${count} × ${formatDropMetres(height)} m drops`;
+      return {
+        dropCount: count,
+        dropHeightM: height,
+        verticalM,
+        elbowCount: count,
+        noteLabel,
+        mode: "drops",
+      };
+    }
+    // count === 0 → optional total override
+    if (total > 0) {
+      return {
+        dropCount: 0,
+        dropHeightM: height,
+        verticalM: total,
+        elbowCount: 1,
+        noteLabel: `${formatDropMetres(total)} m drop`,
+        mode: "total",
+      };
+    }
+    return {
+      dropCount: 0,
+      dropHeightM: height,
+      verticalM: 0,
+      elbowCount: 0,
+      noteLabel: "",
+      mode: "none",
+    };
+  }
+
+  // Legacy: only riseDropM stored → migrate as 1 × height when loading/resolving
+  if (total > 0) {
+    return {
+      dropCount: 1,
+      dropHeightM: total,
+      verticalM: total,
+      elbowCount: 1,
+      noteLabel: `${formatDropMetres(total)} m drop`,
+      mode: "drops",
+    };
+  }
+  return {
+    dropCount: 0,
+    dropHeightM: 0,
+    verticalM: 0,
+    elbowCount: 0,
+    noteLabel: "",
+    mode: "none",
+  };
+}
+
+/** Normalise persisted fields: sync riseDropM; migrate bare riseDropM → count/height. */
+export function syncLinearDropFields<T extends LinearDropFields>(fields: T): T & {
+  dropCount: number;
+  dropHeightM: number;
+  riseDropM: number;
+} {
+  const resolved = resolveLinearDrop(fields);
+  if (fields.dropCount != null || fields.dropHeightM != null) {
+    const count = clampDropCount(fields.dropCount);
+    const height = clampRiseDropM(fields.dropHeightM);
+    const riseDropM = count > 0
+      ? roundDropMetres(count * height)
+      : clampRiseDropM(fields.riseDropM);
+    return { ...fields, dropCount: count, dropHeightM: height, riseDropM };
+  }
+  // Migrate legacy
+  if (resolved.verticalM > 0) {
+    return {
+      ...fields,
+      dropCount: 1,
+      dropHeightM: resolved.verticalM,
+      riseDropM: resolved.verticalM,
+    };
+  }
+  return { ...fields, dropCount: 0, dropHeightM: 0, riseDropM: 0 };
+}
+
 /**
  * Measured pipe metres for a Length run: plan polyline × scale + rise/drop.
  * Rise/drop alone still counts when scale is missing (absolute metres).
@@ -329,6 +481,15 @@ export function linearMeasuredMetres(
 ): number {
   const planM = metresPerUnit > 0 ? polylineLength(points) * metresPerUnit : 0;
   return Math.max(0, planM + clampRiseDropM(riseDropM));
+}
+
+/** Plan × scale + resolved vertical (count×height or total override / legacy). */
+export function linearMeasuredMetresForGeo(
+  points: StudioPoint[],
+  metresPerUnit: number,
+  fields: LinearDropFields,
+): number {
+  return linearMeasuredMetres(points, metresPerUnit, resolveLinearDrop(fields).verticalM);
 }
 
 /** Shoelace area in page units². */
@@ -693,7 +854,7 @@ export function summariseStudioQuantities(studio: StudioState): StudioQuantityRo
       if (geo.kind === "count") {
         quantity += 1;
       } else if (geo.kind === "linear") {
-        quantity += linearMeasuredMetres(geo.points, mpu, geo.riseDropM);
+        quantity += linearMeasuredMetresForGeo(geo.points, mpu, geo);
       } else if (geo.kind === "area" && geo.closed) {
         quantity += polygonArea(geo.points) * mpu * mpu;
       }

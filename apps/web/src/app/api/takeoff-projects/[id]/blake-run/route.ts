@@ -37,6 +37,7 @@ import {
   mergeStudioScales,
   metresPerUnitFromRatio,
   parseScaleRatioLabel,
+  resolveLinearDrop,
   scaleForPage,
   studioHasAiPipeRuns,
   type StudioPageScale,
@@ -410,7 +411,7 @@ function pipeMetresFromStudio(
     if (geo.kind !== "linear" || geo.classificationId !== classId) continue;
     const scale = scaleForPage(studio, geo.documentId, geo.page);
     const mpu = scale?.metresPerUnit || 0;
-    metres += linearMeasuredMetres(geo.points, mpu, geo.riseDropM);
+    metres += linearMeasuredMetres(geo.points, mpu, resolveLinearDrop(geo).verticalM);
     pieces += 1;
   }
   return { metres: Math.round(metres * 100) / 100, pieces };

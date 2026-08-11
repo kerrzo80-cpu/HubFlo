@@ -1652,6 +1652,12 @@
 
 .nexa-studio-rise-form {
   margin-left: auto;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.nexa-studio-rise-form label input {
+  width: 4.5rem;
 }
 
 .nexa-studio-rise-metres {
