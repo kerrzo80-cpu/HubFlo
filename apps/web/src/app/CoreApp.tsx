@@ -18,6 +18,13 @@ import { createPortal } from "react-dom";
 import { CorePanelSkeleton } from "@/components/CorePanelSkeleton";
 import { FileDropZone } from "@/components/FileDropZone";
 import { downloadBlob } from "@/lib/download-blob";
+import {
+  buildPayrollExportRows,
+  payrollExportFilename,
+  payrollExportToCsv,
+  payrollSummaryToCsv,
+  summarizePayrollByEngineer,
+} from "@/lib/payroll-export";
 import type { SimpleDocumentPdfInput } from "@/lib/simple-document-pdf";
 import { homeViewForPath } from "@/lib/core-routes";
 import {
@@ -25255,6 +25262,30 @@ export default function CoreApp() {
     showNotice(`Confirmed ${blocks.length} booking${blocks.length === 1 ? "" : "s"} for ${employeeName} on ${formatUkDate(date)}.`);
   }
 
+  function exportPayrollCsv(kind: "detail" | "summary" = "detail") {
+    const rows = buildPayrollExportRows(payrollApprovedHours, employees, {
+      weekEnding: timesheetWeekEnd,
+    });
+    if (!rows.length) {
+      showNotice("No approved hours in this week to export.");
+      return;
+    }
+    if (kind === "summary") {
+      const summary = summarizePayrollByEngineer(rows);
+      downloadBlob(
+        payrollExportFilename(timesheetWeekStart, "summary"),
+        new Blob([payrollSummaryToCsv(summary, timesheetWeekEnd)], { type: "text/csv;charset=utf-8" }),
+      );
+      showNotice(`Downloaded payroll summary (${summary.length} engineer${summary.length === 1 ? "" : "s"}).`);
+      return;
+    }
+    downloadBlob(
+      payrollExportFilename(timesheetWeekStart, "detail"),
+      new Blob([payrollExportToCsv(rows)], { type: "text/csv;charset=utf-8" }),
+    );
+    showNotice(`Downloaded payroll detail (${rows.length} line${rows.length === 1 ? "" : "s"}).`);
+  }
+
   function raiseSelectedJobVariation() {
     if (!selectedJob) return;
     const description = selectedJobDeliveryDraft.variationDescription.trim();
@@ -45119,8 +45150,26 @@ export default function CoreApp() {
                   </div>
                   <p className="payroll-stub-note">
                     Approved hours from the Timesheets week board land here after Confirm day / Confirm hours.
-                    Provider export (Xero / payroll file) comes next — review totals on this board for now.
+                    Export a CSV for your payroll bureau, Xero, or Sage — detail (one line per booking) or summary (per engineer).
                   </p>
+                  <div className="timesheet-week-picker payroll-export-actions">
+                    <button
+                      type="button"
+                      className="primary-button"
+                      disabled={!payrollApprovedHours.length}
+                      onClick={() => exportPayrollCsv("detail")}
+                    >
+                      Export payroll CSV
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={!payrollApprovedHours.length}
+                      onClick={() => exportPayrollCsv("summary")}
+                    >
+                      Export summary
+                    </button>
+                  </div>
                   <div className="tenders-metric-row">
                     <article>
                       <span>Approved lines</span>
