@@ -5,6 +5,7 @@ import {
   resolveTenderDocumentFolderKind,
   tenderDocumentFolderDepth,
   tenderDocumentFolderPathLabel,
+  tenderDrawingSetLabel,
   type TenderDocumentFolder,
 } from "@/lib/tender-document-folders";
 
@@ -31,5 +32,12 @@ describe("tender document folders", () => {
       tenderDocumentFolderPathLabel(folders, "f-heat-iso", { drawing: "Drawings" }),
       "Drawings / Heating / Isometrics",
     );
+  });
+
+  it("builds takeoff drawing-set labels without the Drawings kind prefix", () => {
+    assert.equal(tenderDrawingSetLabel(folders, null), "Drawings");
+    assert.equal(tenderDrawingSetLabel(folders, "drawing"), "Drawings");
+    assert.equal(tenderDrawingSetLabel(folders, "f-heat"), "Heating");
+    assert.equal(tenderDrawingSetLabel(folders, "f-heat-iso"), "Heating / Isometrics");
   });
 });

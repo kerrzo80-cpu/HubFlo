@@ -9,6 +9,11 @@ import {
 } from "@/lib/tenders-xlsx";
 import { createJob } from "@/lib/workflow-data";
 import { createTakeoffProject, getTakeoffProject, updateTakeoffProject } from "@/lib/takeoff-data";
+import {
+  SOURCE_TENDER_DOC_PREFIX,
+  takeoffSourceTenderDocId,
+  withSourceFolderNote,
+} from "@/lib/takeoff-drawing-labels";
 import { deleteRecordDocumentByFileUrl, readRecordDocumentFile } from "@/lib/record-documents";
 import {
   TENDER_DOCUMENT_FOLDER_MAX_DEPTH,
@@ -16,6 +21,7 @@ import {
   normalizeTenderDocumentFolders,
   resolveTenderDocumentFolderKind,
   tenderDocumentFolderDepth,
+  tenderDrawingSetLabel,
   type TenderDocumentFolder,
 } from "@/lib/tender-document-folders";
 import {
@@ -39,8 +45,14 @@ export {
   resolveTenderDocumentFolderKind,
   tenderDocumentFolderDepth,
   tenderDocumentFolderPathLabel,
+  tenderDrawingSetLabel,
 } from "@/lib/tender-document-folders";
 export type { TenderDocumentFolder } from "@/lib/tender-document-folders";
+export {
+  takeoffDrawingDisplayLabel,
+  takeoffSourceFolderLabel,
+  takeoffSourceTenderDocId,
+} from "@/lib/takeoff-drawing-labels";
 
 type TenderStore = {
   tenders: Tender[];
@@ -1195,43 +1207,104 @@ function safeTakeoffFileName(fileName: string) {
   return cleaned.slice(0, 140) || "drawing";
 }
 
+export type CopyTenderDrawingsResult = {
+  copied: number;
+  skipped: number;
+  skippedMissing: number;
+  skippedTooLarge: number;
+  skippedBudget: number;
+  labeled: number;
+  tenderDrawingCount: number;
+  takeoff: ReturnType<typeof getTakeoffProject>;
+};
+
 /** Copy tender drawing files into a takeoff project (skip ones already transferred). */
-export function copyTenderDrawingsToTakeoff(tender: Tender, takeoffId: string) {
+export function copyTenderDrawingsToTakeoff(tender: Tender, takeoffId: string): CopyTenderDrawingsResult {
   const project = getTakeoffProject(takeoffId);
-  if (!project) return { copied: 0, skipped: 0, takeoff: null as ReturnType<typeof getTakeoffProject> };
+  const empty = {
+    copied: 0,
+    skipped: 0,
+    skippedMissing: 0,
+    skippedTooLarge: 0,
+    skippedBudget: 0,
+    labeled: 0,
+    tenderDrawingCount: 0,
+    takeoff: null as ReturnType<typeof getTakeoffProject>,
+  };
+  if (!project) return empty;
 
-  const drawings = tender.documents.filter((doc) => doc.kind === "drawing");
-  if (!drawings.length) return { copied: 0, skipped: 0, takeoff: project };
+  const folders = tender.documentFolders || [];
+  const drawings = tender.documents
+    .filter((doc) => doc.kind === "drawing")
+    .slice()
+    .sort((a, b) => {
+      const setA = tenderDrawingSetLabel(folders, a.folderId);
+      const setB = tenderDrawingSetLabel(folders, b.folderId);
+      return setA.localeCompare(setB) || a.name.localeCompare(b.name);
+    });
+  const tenderDrawingCount = drawings.length;
+  if (!drawings.length) {
+    return { ...empty, takeoff: project, tenderDrawingCount: 0 };
+  }
 
-  const MAX_COPY_COUNT = 4;
-  const MAX_COPY_BYTES = 25 * 1024 * 1024;
+  // Soft budget so large tenders stay honest in UI rather than silently truncating at 4.
+  const MAX_COPY_BYTES_PER_FILE = 40 * 1024 * 1024;
+  const MAX_COPY_TOTAL_BYTES = 250 * 1024 * 1024;
 
   const storageRoot = path.join(getServerStoreDirectory(), "takeoff-files", takeoffId);
   mkdirSync(storageRoot, { recursive: true });
 
+  let documents = [...project.documents];
   const added = [];
-  let skipped = 0;
+  let skippedMissing = 0;
+  let skippedTooLarge = 0;
+  let skippedBudget = 0;
+  let labeled = 0;
+  let copiedBytes = documents
+    .filter((row) => takeoffSourceTenderDocId(row.notes))
+    .reduce((sum, row) => sum + (row.size || 0), 0);
+
   for (const doc of drawings) {
-    if (added.length >= MAX_COPY_COUNT) {
-      skipped += 1;
+    const sourceTag = `${SOURCE_TENDER_DOC_PREFIX}${doc.id}`;
+    const setLabel = tenderDrawingSetLabel(folders, doc.folderId);
+    // Prefer exact source id match; fall back to filename-only match without a source tag.
+    const bySource = documents.findIndex((row) => takeoffSourceTenderDocId(row.notes) === doc.id);
+    const byNameOnly =
+      bySource < 0
+        ? documents.findIndex(
+            (row) =>
+              row.kind === "Drawing"
+              && row.fileName === doc.name
+              && !takeoffSourceTenderDocId(row.notes),
+          )
+        : -1;
+    const matchIdx = bySource >= 0 ? bySource : byNameOnly;
+
+    if (matchIdx >= 0) {
+      const existing = documents[matchIdx]!;
+      const nextNotes = withSourceFolderNote(
+        existing.notes.includes(sourceTag) ? existing.notes : [...existing.notes, sourceTag],
+        setLabel,
+      );
+      if (nextNotes.join("\n") !== existing.notes.join("\n")) {
+        documents[matchIdx] = { ...existing, notes: nextNotes };
+        labeled += 1;
+      }
       continue;
     }
-    const sourceTag = `sourceTenderDoc:${doc.id}`;
-    const alreadyThere = project.documents.some(
-      (row) =>
-        row.notes.includes(sourceTag)
-        || (row.kind === "Drawing" && row.fileName === doc.name),
-    );
-    if (alreadyThere) continue;
 
     const recordId = recordDocumentIdFromUrl(doc.url);
     const file = recordId ? readRecordDocumentFile(recordId) : null;
     if (!file?.bytes?.length) {
-      skipped += 1;
+      skippedMissing += 1;
       continue;
     }
-    if (file.bytes.length > MAX_COPY_BYTES) {
-      skipped += 1;
+    if (file.bytes.length > MAX_COPY_BYTES_PER_FILE) {
+      skippedTooLarge += 1;
+      continue;
+    }
+    if (copiedBytes + file.bytes.length > MAX_COPY_TOTAL_BYTES) {
+      skippedBudget += 1;
       continue;
     }
 
@@ -1239,6 +1312,7 @@ export function copyTenderDrawingsToTakeoff(tender: Tender, takeoffId: string) {
     const storedFileName = `${documentId}-${safeTakeoffFileName(doc.name)}`;
     const storageKey = ["takeoff-files", takeoffId, storedFileName].join("/");
     writeFileSync(path.join(storageRoot, storedFileName), file.bytes);
+    copiedBytes += file.bytes.length;
 
     added.push({
       id: documentId,
@@ -1249,13 +1323,28 @@ export function copyTenderDrawingsToTakeoff(tender: Tender, takeoffId: string) {
       storageKey,
       uploadedAt: nowIso(),
       status: "Uploaded" as const,
-      notes: ["Copied from tender drawings on Send to Takeoff.", sourceTag],
+      notes: withSourceFolderNote(
+        ["Copied from tender drawings on Send to Takeoff.", sourceTag],
+        setLabel,
+      ),
     });
   }
 
-  if (!added.length) return { copied: 0, skipped, takeoff: project };
+  const skipped = skippedMissing + skippedTooLarge + skippedBudget;
+  if (!added.length && !labeled) {
+    return {
+      copied: 0,
+      skipped,
+      skippedMissing,
+      skippedTooLarge,
+      skippedBudget,
+      labeled: 0,
+      tenderDrawingCount,
+      takeoff: project,
+    };
+  }
 
-  const documents = [...added, ...project.documents];
+  documents = [...added, ...documents];
   const studio = project.studio
     ? {
         ...project.studio,
@@ -1270,7 +1359,16 @@ export function copyTenderDrawingsToTakeoff(tender: Tender, takeoffId: string) {
     status: project.status === "Draft" ? "In review" : project.status,
   });
 
-  return { copied: added.length, skipped, takeoff: takeoff ?? project };
+  return {
+    copied: added.length,
+    skipped,
+    skippedMissing,
+    skippedTooLarge,
+    skippedBudget,
+    labeled,
+    tenderDrawingCount,
+    takeoff: takeoff ?? project,
+  };
 }
 
 export function sendTenderToTakeoff(tenderId: string, options?: { createNew?: boolean }) {

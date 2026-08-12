@@ -1,6 +1,7 @@
+import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, it } from "node:test";
 
 /**
  * Regression guard for Takeoff Studio left-rail layout.
@@ -14,71 +15,84 @@ const globalsCss = readFileSync(resolve(root, "app/globals.css"), "utf8");
 function blockFor(selector: string, source: string) {
   const re = new RegExp(`${selector.replace(/\./g, "\\.")}\\s*\\{([^}]*)\\}`, "m");
   const match = source.match(re);
-  expect(match, `expected CSS block for ${selector}`).toBeTruthy();
+  assert.ok(match, `expected CSS block for ${selector}`);
   return match![1];
 }
 
 describe("Takeoff Studio left-rail layout contract", () => {
   it("keeps a definite-height body grid with an absolute rail scrollport (Safari-safe)", () => {
     const body = blockFor(".nexa-studio-body", studioCss);
-    expect(body).toMatch(/display:\s*grid/);
-    expect(body).toMatch(/minmax\(0,\s*1fr\)/);
-    expect(body).toMatch(/height:\s*0/);
-    expect(body).toMatch(/min-height:\s*0/);
-    expect(body).toMatch(/overflow:\s*hidden/);
+    assert.match(body, /display:\s*grid/);
+    assert.match(body, /minmax\(0,\s*1fr\)/);
+    assert.match(body, /height:\s*0/);
+    assert.match(body, /min-height:\s*0/);
+    assert.match(body, /overflow:\s*hidden/);
 
     const rail = blockFor(".nexa-studio-rail", studioCss);
-    expect(rail).toMatch(/height:\s*100%/);
-    expect(rail).toMatch(/max-height:\s*100%/);
-    expect(rail).toMatch(/min-height:\s*0/);
-    expect(rail).toMatch(/overflow:\s*hidden/);
-    expect(rail).toMatch(/position:\s*relative/);
+    assert.match(rail, /height:\s*100%/);
+    assert.match(rail, /max-height:\s*100%/);
+    assert.match(rail, /min-height:\s*0/);
+    assert.match(rail, /overflow:\s*hidden/);
+    assert.match(rail, /position:\s*relative/);
 
     const scroll = blockFor(".nexa-studio-rail-scroll", studioCss);
-    expect(scroll).toMatch(/position:\s*absolute/);
-    expect(scroll).toMatch(/inset:\s*6px/);
-    expect(scroll).toMatch(/min-height:\s*0/);
-    expect(scroll).toMatch(/overflow-y:\s*scroll/);
+    assert.match(scroll, /position:\s*absolute/);
+    assert.match(scroll, /inset:\s*6px/);
+    assert.match(scroll, /min-height:\s*0/);
+    assert.match(scroll, /overflow-y:\s*scroll/);
   });
 
   it("locks desktop document scroll whenever .nexa-studio is present", () => {
     const studioLock = globalsCss.slice(globalsCss.indexOf("Studio owns a locked"));
-    expect(studioLock).toMatch(/html:has\(\.nexa-studio\)/);
-    expect(studioLock).toMatch(/overflow:\s*hidden\s*!important/);
+    assert.match(studioLock, /html:has\(\.nexa-studio\)/);
+    assert.match(studioLock, /overflow:\s*hidden\s*!important/);
   });
 
   it("forbids sticky Draw-as outside the scroll pane", () => {
-    expect(studioCss).not.toMatch(/\.nexa-studio-rail-draw-sticky\s*\{/);
-    expect(pageTsx).not.toMatch(/nexa-studio-rail-draw-sticky/);
-    expect(pageTsx).toMatch(/nexa-studio-rail-acc-draw/);
+    assert.doesNotMatch(studioCss, /\.nexa-studio-rail-draw-sticky\s*\{/);
+    assert.doesNotMatch(pageTsx, /nexa-studio-rail-draw-sticky/);
+    assert.match(pageTsx, /nexa-studio-rail-acc-draw/);
   });
 
   it("stacks drawing list above the dropzone in markup", () => {
     const drawingsStart = pageTsx.indexOf("<h2>Drawings</h2>");
-    expect(drawingsStart).toBeGreaterThan(-1);
-    const slice = pageTsx.slice(drawingsStart, drawingsStart + 1800);
+    assert.ok(drawingsStart > -1);
+    const slice = pageTsx.slice(drawingsStart, drawingsStart + 4500);
     const listIdx = slice.indexOf("nexa-studio-doc-list");
     const dropIdx = slice.indexOf("nexa-studio-drawing-drop");
-    expect(listIdx).toBeGreaterThan(-1);
-    expect(dropIdx).toBeGreaterThan(-1);
-    expect(listIdx).toBeLessThan(dropIdx);
+    assert.ok(listIdx > -1);
+    assert.ok(dropIdx > -1);
+    assert.ok(listIdx < dropIdx);
+  });
+
+  it("orders Linked then Drawings before Draw as in the rail", () => {
+    const linked = pageTsx.indexOf("<h2>Linked</h2>");
+    const drawings = pageTsx.indexOf("<h2>Drawings</h2>");
+    const drawAs = pageTsx.indexOf("<h2>Draw as</h2>");
+    const more = pageTsx.indexOf("<h2>More</h2>");
+    assert.ok(linked > -1);
+    assert.ok(drawings > linked);
+    assert.ok(drawAs > drawings);
+    assert.ok(more > drawAs);
+    assert.doesNotMatch(pageTsx, /<h2>Projects<\/h2>/);
+    assert.match(pageTsx, /Takeoff records/);
   });
 
   it("keeps drawing dropzone in normal flow (no absolute cover)", () => {
     const drop = blockFor(".nexa-studio-drawing-drop", studioCss);
-    expect(drop).toMatch(/position:\s*relative/);
-    expect(drop).not.toMatch(/position:\s*absolute/);
-    expect(drop).toMatch(/flex:\s*0\s+0\s+auto/);
+    assert.match(drop, /position:\s*relative/);
+    assert.doesNotMatch(drop, /position:\s*absolute/);
+    assert.match(drop, /flex:\s*0\s+0\s+auto/);
   });
 
   it("wraps rail sections in a single scroll pane with wheel isolation", () => {
-    expect(pageTsx).toMatch(/className="nexa-studio-rail-scroll"/);
-    expect(pageTsx).toMatch(/onWheel=\{\(event\) => \{\s*[\s\S]*?event\.stopPropagation\(\);/);
+    assert.match(pageTsx, /className="nexa-studio-rail-scroll"/);
+    assert.match(pageTsx, /onWheel=\{\(event\) => \{\s*[\s\S]*?event\.stopPropagation\(\);/);
     const scrollOpen = pageTsx.indexOf('className="nexa-studio-rail-scroll"');
     const scrollCloseHint = pageTsx.indexOf("</aside>", scrollOpen);
     const railChunk = pageTsx.slice(scrollOpen, scrollCloseHint);
-    expect(railChunk).toMatch(/Draw as/);
-    expect(railChunk).toMatch(/Drawings/);
-    expect(railChunk).toMatch(/Rates/);
+    assert.match(railChunk, /Draw as/);
+    assert.match(railChunk, /Drawings/);
+    assert.match(railChunk, /Rates/);
   });
 });

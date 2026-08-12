@@ -4,8 +4,8 @@
  * 2. .nexa-studio-body = flex:1 with height:0 (Safari) + CSS grid minmax(0,1fr) row
  *    so the rail NEVER content-sizes past the viewport (v3 flex-stretch failed on Safari).
  * 3. Desktop rail = grid cell with height/max-height 100%; overflow:hidden.
- * 4. DOM: aside.nexa-studio-rail > .nexa-studio-rail-scroll > ALL sections (Projects,
- *    Draw as, Links, Drawings, More). No sticky Draw-as outside the scroll pane.
+ * 4. DOM: aside.nexa-studio-rail > .nexa-studio-rail-scroll > ALL sections (Linked,
+ *    Drawings, Draw as, More). No sticky Draw-as outside the scroll pane.
  * 5. .nexa-studio-rail-scroll = position:absolute; inset:6px; overflow-y:scroll
  *    (absolute scrollport — Safari cannot content-size past the rail).
  * 6. Drawings: .nexa-studio-doc-list THEN .nexa-studio-drawing-drop (never overlap /
@@ -983,6 +983,68 @@
   cursor: pointer;
   color: inherit;
   min-height: 32px;
+}
+
+.nexa-studio-doc-list button {
+  display: grid;
+  gap: 1px;
+  width: 100%;
+}
+
+.nexa-studio-doc-set {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--blue-deep);
+}
+
+.nexa-studio-doc-name {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.nexa-studio-drawing-sync {
+  display: grid;
+  gap: 6px;
+  margin: 4px 0 2px;
+}
+
+.nexa-studio-drawing-sync .muted {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.nexa-studio-link-status {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.nexa-studio-more-projects {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 10px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.nexa-studio-more-projects > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.nexa-studio-more-projects > header h2 {
+  margin: 0;
+  font-size: 12px;
 }
 
 .nexa-studio-project-list button strong,

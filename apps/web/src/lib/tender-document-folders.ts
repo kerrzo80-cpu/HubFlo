@@ -89,6 +89,30 @@ export function tenderDocumentFolderPathLabel(
   return parts.join(" / ") || folderId;
 }
 
+/**
+ * Label for a drawing set in Takeoff (folder chain only — e.g. "Heating", "Hot & cold").
+ * Built-in kind roots like `drawing` map to "Drawings".
+ */
+export function tenderDrawingSetLabel(
+  folders: TenderDocumentFolder[],
+  folderId: string | null | undefined,
+): string {
+  if (!folderId || isTenderDocumentKind(folderId)) return "Drawings";
+  const byId = new Map(folders.map((folder) => [folder.id, folder]));
+  const parts: string[] = [];
+  let current: TenderDocumentFolder | undefined = byId.get(folderId);
+  const seen = new Set<string>();
+  while (current) {
+    if (seen.has(current.id)) break;
+    seen.add(current.id);
+    parts.unshift(current.name);
+    const parentId = current.parentId || "";
+    if (!parentId || isTenderDocumentKind(parentId)) break;
+    current = byId.get(parentId);
+  }
+  return parts.join(" / ") || "Drawings";
+}
+
 export function normalizeTenderDocumentFolders(input: unknown): TenderDocumentFolder[] {
   if (!Array.isArray(input)) return [];
   const folders: TenderDocumentFolder[] = [];

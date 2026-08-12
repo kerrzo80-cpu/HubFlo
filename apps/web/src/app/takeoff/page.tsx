@@ -19,6 +19,11 @@ import { resolveBrandLogoUrl } from "@/lib/branding";
 import { employeeHeaderName, roleHeaderName } from "@/lib/access";
 import type { TakeoffDocument, TakeoffProject } from "@/lib/takeoff-data";
 import {
+  takeoffDrawingDisplayLabel,
+  takeoffSourceFolderLabel,
+  takeoffSourceTenderDocId,
+} from "@/lib/takeoff-drawing-labels";
+import {
   classificationGroup,
   classificationLayer,
   createDefaultStudioState,
@@ -89,6 +94,7 @@ import "./takeoff-skill.css";
 import "./studio/studio.css";
 
 type QuoteOption = { id: string; ref: string; customer: string; site: string };
+type JobOption = { id: string; ref: string; customer: string; status: string };
 type TenderOption = {
   id: string;
   name: string;
@@ -96,6 +102,8 @@ type TenderOption = {
   status: string;
   externalId?: string;
   linkedTakeoffId?: string;
+  /** Drawing-kind PDFs on the Core tender (for sync honesty). */
+  drawingCount: number;
 };
 type AuthState = "checking" | "signed-in" | "signed-out" | "pilot";
 
@@ -121,6 +129,14 @@ function formatAuditWhen(createdAt: string) {
   return createdAt;
 }
 
+function sortDrawingDocs(docs: TakeoffDocument[]) {
+  return docs.slice().sort((a, b) => {
+    const setA = takeoffSourceFolderLabel(a.notes) || "";
+    const setB = takeoffSourceFolderLabel(b.notes) || "";
+    return setA.localeCompare(setB) || a.fileName.localeCompare(b.fileName);
+  });
+}
+
 async function apiFetch(input: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers || {});
   if (!headers.has(roleHeaderName)) headers.set(roleHeaderName, "Office");
@@ -141,6 +157,7 @@ export default function TakeoffStudioPage() {
   const [projects, setProjects] = useState<TakeoffProject[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [quotes, setQuotes] = useState<QuoteOption[]>([]);
+  const [jobs, setJobs] = useState<JobOption[]>([]);
   const [tenders, setTenders] = useState<TenderOption[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -174,10 +191,9 @@ export default function TakeoffStudioPage() {
   /** Collapsible Draw-as groups (Valves, Boilers / plant, …) — mirrors Size accordion chrome. */
   const [openClassGroups, setOpenClassGroups] = useState<Record<string, boolean>>({});
   const [newLayerName, setNewLayerName] = useState("");
-  /** Accordion: Projects | Link | Drawings | Draw as | More — keep Draw as + Drawings open on Mark. */
+  /** Accordion: Linked | Drawings | Draw as | More — Projects lives under More. */
   const [railAccordions, setRailAccordions] = useState({
-    projects: true,
-    link: false,
+    link: true,
     drawings: true,
     draw: true,
     more: false,
@@ -196,8 +212,17 @@ export default function TakeoffStudioPage() {
   const studio: StudioState = ensurePlantClassifications(
     ensureServiceClassifications(selected?.studio ?? createDefaultStudioState()),
   );
-  const drawingDocs = (selected?.documents || []).filter(
-    (doc) => doc.kind === "Drawing" || doc.kind === "Marked-up drawing" || (doc.mimeType || "").includes("pdf"),
+  const drawingDocs = useMemo(
+    () =>
+      sortDrawingDocs(
+        (selected?.documents || []).filter(
+          (doc) =>
+            doc.kind === "Drawing"
+            || doc.kind === "Marked-up drawing"
+            || (doc.mimeType || "").includes("pdf"),
+        ),
+      ),
+    [selected?.documents],
   );
   const activeDoc =
     drawingDocs.find((doc) => doc.id === studio.activeDocumentId) || drawingDocs[0] || null;
@@ -251,6 +276,11 @@ export default function TakeoffStudioPage() {
     studioLayers.find((layer) => layer.id === activeLayerId)?.label || "Master / all";
   const linkedQuote = quotes.find((q) => q.id === selected?.linkedQuoteId);
   const linkedTender = tenders.find((t) => t.id === selected?.sourceTenderId);
+  const linkedJob = jobs.find((j) => j.id === selected?.linkedJobId);
+  const tenderDrawingCount = linkedTender?.drawingCount ?? 0;
+  const sourcedFromTenderCount = drawingDocs.filter((doc) => takeoffSourceTenderDocId(doc.notes)).length;
+  const tenderDrawingsPending = Math.max(0, tenderDrawingCount - sourcedFromTenderCount);
+  const activeDrawingSetLabel = activeDoc ? takeoffSourceFolderLabel(activeDoc.notes) : undefined;
   // Pin review board is fixture counts only — ignore legacy pipe-metre rows in aiReviewMeasured.
   const aiReviewRows = (studio.aiReviewMeasured || []).filter((row) => row.unit === "nr");
   const aiReviewPinCount = aiReviewRows.reduce(
@@ -292,10 +322,11 @@ export default function TakeoffStudioPage() {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [projectRes, quoteRes, tenderRes] = await Promise.all([
+    const [projectRes, quoteRes, tenderRes, jobRes] = await Promise.all([
       apiFetch("/api/takeoff-projects"),
       apiFetch("/api/quotes"),
       apiFetch("/api/tenders"),
+      apiFetch("/api/jobs"),
     ]);
     if (projectRes.status === 401) {
       setAuthState("signed-out");
@@ -335,20 +366,41 @@ export default function TakeoffStudioPage() {
           .filter((quote) => quote.id),
       );
     }
+    if (jobRes.ok) {
+      const jobList = (await jobRes.json()) as Array<Record<string, unknown>>;
+      setJobs(
+        jobList
+          .map((job) => ({
+            id: String(job.id || ""),
+            ref: String(job.ref || ""),
+            customer: String(job.customer || ""),
+            status: String(job.status || ""),
+          }))
+          .filter((job) => job.id),
+      );
+    }
     if (tenderRes.ok) {
       const tenderPayload = (await tenderRes.json()) as {
         tenders?: Array<Record<string, unknown>>;
       };
       setTenders(
         (tenderPayload.tenders || [])
-          .map((tender) => ({
-            id: String(tender.id || ""),
-            name: String(tender.name || ""),
-            client: String(tender.client || ""),
-            status: String(tender.status || ""),
-            externalId: tender.externalId ? String(tender.externalId) : undefined,
-            linkedTakeoffId: tender.linkedTakeoffId ? String(tender.linkedTakeoffId) : undefined,
-          }))
+          .map((tender) => {
+            const documents = Array.isArray(tender.documents) ? tender.documents : [];
+            const drawingCount = documents.filter((doc) => {
+              if (!doc || typeof doc !== "object") return false;
+              return String((doc as { kind?: unknown }).kind || "") === "drawing";
+            }).length;
+            return {
+              id: String(tender.id || ""),
+              name: String(tender.name || ""),
+              client: String(tender.client || ""),
+              status: String(tender.status || ""),
+              externalId: tender.externalId ? String(tender.externalId) : undefined,
+              linkedTakeoffId: tender.linkedTakeoffId ? String(tender.linkedTakeoffId) : undefined,
+              drawingCount,
+            };
+          })
           .filter((tender) => tender.id),
       );
     }
@@ -361,14 +413,13 @@ export default function TakeoffStudioPage() {
     setSaveState("saved");
     setReviewOpen(false);
     seededServicesRef.current = null;
-    // Mark mode: Draw as + Drawings open; Link / Projects / More stay collapsible.
+    // Mark mode: Linked + Drawings + Draw as open; More stays collapsible.
     setRailAccordions((prev) => ({
       ...prev,
-      projects: !selectedId,
-      link: false,
+      link: true,
       drawings: true,
       draw: true,
-      more: false,
+      more: !selectedId,
     }));
   }, [selectedId]);
 
@@ -670,6 +721,48 @@ export default function TakeoffStudioPage() {
     const files = Array.from(event.target.files || []);
     event.target.value = "";
     await uploadDrawingFiles(files);
+  }
+
+  async function syncTenderDrawings() {
+    if (!selected?.sourceTenderId) {
+      setError("Link a Core tender first, then sync drawings.");
+      return;
+    }
+    setBusy("sync-drawings");
+    try {
+      const before = drawingDocs.length;
+      const beforeSourced = sourcedFromTenderCount;
+      const merged = await persistStudio(
+        studio,
+        { sourceTenderId: selected.sourceTenderId },
+        { skipHistory: true, immediate: true },
+      );
+      if (!merged) throw new Error("Could not sync tender drawings");
+      const nextDocs = sortDrawingDocs(
+        (merged.documents || []).filter(
+          (doc) =>
+            doc.kind === "Drawing"
+            || doc.kind === "Marked-up drawing"
+            || (doc.mimeType || "").includes("pdf"),
+        ),
+      );
+      const nextSourced = nextDocs.filter((doc) => takeoffSourceTenderDocId(doc.notes)).length;
+      const added = Math.max(0, nextDocs.length - before);
+      const labeled = Math.max(0, nextSourced - beforeSourced);
+      if (added > 0) {
+        show(`Synced ${added} drawing${added === 1 ? "" : "s"} from tender`);
+      } else if (labeled > 0 || nextSourced > 0) {
+        show("Drawing set labels updated from tender folders");
+      } else if (tenderDrawingCount === 0) {
+        show("Linked tender has no drawing-kind PDFs yet");
+      } else {
+        show("All available tender drawings are already in this takeoff");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sync failed");
+    } finally {
+      setBusy(null);
+    }
   }
 
   function addClassification() {
@@ -1748,8 +1841,14 @@ export default function TakeoffStudioPage() {
             onClick={() => setRailCollapsed((value) => !value)}
           >
             <FolderOpen size={15} />
-            <span>{railCollapsed ? "Projects & tools" : "Hide projects"}</span>
-            <strong>{selected?.reference || "Projects"}</strong>
+            <span>{railCollapsed ? "Links & drawings" : "Hide panel"}</span>
+            <strong>
+              {linkedTender?.name
+                || linkedQuote?.ref
+                || linkedJob?.ref
+                || selected?.reference
+                || "Takeoff"}
+            </strong>
           </button>
 
           {/* LAYOUT QA: absolute scrollport inside rail — every section lives here. */}
@@ -1760,25 +1859,20 @@ export default function TakeoffStudioPage() {
               event.stopPropagation();
             }}
           >
-            <section className={`nexa-studio-rail-acc${railAccordions.projects ? " is-open" : ""}`}>
-              <button
-                type="button"
-                className="nexa-studio-rail-acc-toggle"
-                aria-expanded={railAccordions.projects}
-                onClick={() => toggleRailAccordion("projects")}
-              >
-                <FolderOpen size={14} aria-hidden />
-                <h2>Projects</h2>
-                {selected ? <strong className="nexa-studio-rail-active">{selected.reference}</strong> : null}
-                <ChevronDown size={14} aria-hidden />
-              </button>
-              {railAccordions.projects ? (
+            {!selected ? (
+              <section className="nexa-studio-rail-acc is-open">
+                <button type="button" className="nexa-studio-rail-acc-toggle" aria-expanded>
+                  <FolderOpen size={14} aria-hidden />
+                  <h2>Takeoffs</h2>
+                  <ChevronDown size={14} aria-hidden />
+                </button>
                 <div className="nexa-studio-rail-acc-body">
+                  <p className="muted">Create or open a takeoff, then link a tender and pick drawings.</p>
                   <div className="nexa-studio-create">
                     <input
                       value={draftName}
                       onChange={(e) => setDraftName(e.target.value)}
-                      placeholder="New project name"
+                      placeholder="New takeoff name"
                     />
                     <button type="button" className="nexa-studio-primary" disabled={busy === "create"} onClick={() => void createProject()}>
                       {busy === "create" ? <Loader2 className="spin" size={14} /> : <Plus size={14} />}
@@ -1803,7 +1897,7 @@ export default function TakeoffStudioPage() {
                           type="button"
                           className="nexa-studio-project-delete"
                           aria-label={`Delete ${project.reference}`}
-                          title="Delete project"
+                          title="Delete takeoff"
                           disabled={busy === `delete-${project.id}`}
                           onClick={() => void deleteProject(project.id, project.reference)}
                         >
@@ -1813,12 +1907,299 @@ export default function TakeoffStudioPage() {
                     ))}
                   </div>
                 </div>
-              ) : null}
-            </section>
+              </section>
+            ) : null}
 
             {selected ? (
               <>
+              <section className={`nexa-studio-rail-acc${railAccordions.link ? " is-open" : ""}`}>
+                <button
+                  type="button"
+                  className="nexa-studio-rail-acc-toggle"
+                  aria-expanded={railAccordions.link}
+                  onClick={() => toggleRailAccordion("link")}
+                >
+                  <h2>Linked</h2>
+                  <span className="nexa-studio-rail-acc-meta">
+                    {linkedTender || linkedQuote || linkedJob
+                      ? [linkedTender?.name, linkedQuote?.ref, linkedJob?.ref].filter(Boolean).join(" · ")
+                      : "Tender / quote / job"}
+                  </span>
+                  <ChevronDown size={14} aria-hidden />
+                </button>
+                {railAccordions.link ? (
+                  <div className="nexa-studio-rail-acc-body nexa-studio-core-link">
+                    <label>
+                      Tender
+                      <select
+                        value={selected.sourceTenderId || ""}
+                        onChange={(e) => {
+                          const sourceTenderId = e.target.value || undefined;
+                          void (async () => {
+                            const before = drawingDocs.length;
+                            const merged = await persistStudio(studio, { sourceTenderId }, { skipHistory: true, immediate: true });
+                            if (!merged) return;
+                            const after = (merged.documents || []).filter(
+                              (doc) =>
+                                doc.kind === "Drawing"
+                                || doc.kind === "Marked-up drawing"
+                                || (doc.mimeType || "").includes("pdf"),
+                            ).length;
+                            const added = Math.max(0, after - before);
+                            if (sourceTenderId && added > 0) {
+                              show(`Linked tender · added ${added} drawing${added === 1 ? "" : "s"}`);
+                            } else if (sourceTenderId) {
+                              show("Linked tender");
+                            } else {
+                              show("Tender unlinked");
+                            }
+                          })();
+                        }}
+                      >
+                        <option value="">Select Core tender</option>
+                        {tenders.map((tender) => (
+                          <option key={tender.id} value={tender.id}>
+                            {tender.externalId ? `${tender.externalId} · ` : ""}
+                            {tender.name} · {tender.client}
+                            {tender.drawingCount ? ` · ${tender.drawingCount} dwg` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {linkedTender ? (
+                      <div className="nexa-studio-link-status">
+                        <span>
+                          {linkedTender.status}
+                          {tenderDrawingCount
+                            ? ` · ${sourcedFromTenderCount}/${tenderDrawingCount} drawings synced`
+                            : " · no drawings on tender"}
+                        </span>
+                        <a className="ghost link" href={`/?view=tenders`}>
+                          Open tenders in Core
+                          <ExternalLink size={13} />
+                        </a>
+                      </div>
+                    ) : null}
+                    <label>
+                      Quote
+                      <select
+                        value={selected.linkedQuoteId || ""}
+                        onChange={(e) => {
+                          const linkedQuoteId = e.target.value || undefined;
+                          void persistStudio(studio, { linkedQuoteId });
+                        }}
+                      >
+                        <option value="">Select Core quote</option>
+                        {quotes.map((quote) => (
+                          <option key={quote.id} value={quote.id}>
+                            {quote.ref} · {quote.customer}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {linkedQuote ? (
+                      <a className="ghost link" href={`/?quote=${encodeURIComponent(linkedQuote.id)}`}>
+                        Open {linkedQuote.ref} in Core
+                        <ExternalLink size={13} />
+                      </a>
+                    ) : null}
+
+                    <label>
+                      Job
+                      <select
+                        value={selected.linkedJobId || ""}
+                        onChange={(e) => {
+                          const linkedJobId = e.target.value || undefined;
+                          const job = jobs.find((row) => row.id === linkedJobId);
+                          void persistStudio(studio, {
+                            linkedJobId,
+                            linkedJobRef: linkedJobId ? job?.ref : undefined,
+                          });
+                        }}
+                      >
+                        <option value="">Select Core job</option>
+                        {jobs.map((job) => (
+                          <option key={job.id} value={job.id}>
+                            {job.ref} · {job.customer}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {linkedJob ? (
+                      <a className="ghost link" href={`/?view=jobs`}>
+                        Open {linkedJob.ref} in Core
+                        <ExternalLink size={13} />
+                      </a>
+                    ) : null}
+                    <div className="nexa-studio-push-actions">
+                      <button
+                        type="button"
+                        className="nexa-studio-primary"
+                        disabled={busy === "push"}
+                        onClick={() => void pushToCore()}
+                      >
+                        {busy === "push" ? <Loader2 className="spin" size={14} /> : null}
+                        {selected.linkedQuoteId ? "Push BOQ + drawings" : "Push to new quote"}
+                      </button>
+                      {selected.linkedQuoteId ? (
+                        <button
+                          type="button"
+                          className="ghost"
+                          disabled={busy === "push"}
+                          onClick={() => void pushToCore({ createNew: true })}
+                        >
+                          New quote instead
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+
               {!boqOpen ? (
+                <section className={`nexa-studio-rail-acc${railAccordions.drawings ? " is-open" : ""}`}>
+                  <button
+                    type="button"
+                    className="nexa-studio-rail-acc-toggle"
+                    aria-expanded={railAccordions.drawings}
+                    onClick={() => toggleRailAccordion("drawings")}
+                  >
+                    <h2>Drawings</h2>
+                    <span className="nexa-studio-rail-acc-meta">
+                      {activeDrawingSetLabel
+                        ? `${activeDrawingSetLabel} · ${activeDoc?.fileName || ""}`
+                        : activeDoc?.fileName || `${drawingDocs.length} PDF`}
+                    </span>
+                    <ChevronDown size={14} aria-hidden />
+                  </button>
+                  {railAccordions.drawings ? (
+                    <div className="nexa-studio-rail-acc-body">
+                      {/* List first, compact dropzone after — never stack dropzone over names. */}
+                      <div className="nexa-studio-doc-list">
+                        {drawingDocs.length ? drawingDocs.map((doc: TakeoffDocument) => {
+                          const setLabel = takeoffSourceFolderLabel(doc.notes);
+                          return (
+                            <button
+                              key={doc.id}
+                              type="button"
+                              className={doc.id === activeDoc?.id ? "on" : undefined}
+                              title={takeoffDrawingDisplayLabel(doc.fileName, doc.notes)}
+                              onClick={() => void persistStudio({ ...studio, activeDocumentId: doc.id, activePage: 1 })}
+                            >
+                              {setLabel ? <strong className="nexa-studio-doc-set">{setLabel}</strong> : null}
+                              <span className="nexa-studio-doc-name">{doc.fileName}</span>
+                            </button>
+                          );
+                        }) : <p className="muted">Upload a PDF or sync from the linked tender.</p>}
+                      </div>
+                      {selected.sourceTenderId ? (
+                        <div className="nexa-studio-drawing-sync">
+                          {tenderDrawingCount > 0 ? (
+                            <p className="muted">
+                              {sourcedFromTenderCount >= tenderDrawingCount
+                                ? `Showing all ${tenderDrawingCount} tender drawing${tenderDrawingCount === 1 ? "" : "s"}.`
+                                : `Showing ${sourcedFromTenderCount} of ${tenderDrawingCount} from tender${
+                                    tenderDrawingsPending ? ` — ${tenderDrawingsPending} not loaded yet` : ""
+                                  }.`}
+                            </p>
+                          ) : (
+                            <p className="muted">Linked tender has no drawing-kind PDFs in Documents yet.</p>
+                          )}
+                          <button
+                            type="button"
+                            className="ghost"
+                            disabled={busy === "sync-drawings"}
+                            onClick={() => void syncTenderDrawings()}
+                          >
+                            {busy === "sync-drawings" ? <Loader2 className="spin" size={14} /> : null}
+                            {tenderDrawingsPending > 0 ? "Load remaining from tender" : "Sync from tender"}
+                          </button>
+                        </div>
+                      ) : null}
+                      <FileDropZone
+                        accept="application/pdf,.pdf"
+                        multiple
+                        compact
+                        disabled={busy === "upload" || !selected}
+                        label={busy === "upload" ? "Uploading…" : "Drop PDF or click"}
+                        hint="PDF drawing sets"
+                        onFiles={(files) => void uploadDrawingFiles(files)}
+                        className="nexa-studio-drawing-drop"
+                      />
+                      <div className="nexa-studio-layer-list nexa-studio-layer-list-compact" role="tablist" aria-label="Service layers">
+                        {studioLayers.map((layer) => (
+                          <div key={layer.id} className={`nexa-studio-layer-row${activeLayerId === layer.id ? " on" : ""}`}>
+                            <button
+                              type="button"
+                              role="tab"
+                              aria-selected={activeLayerId === layer.id}
+                              className={activeLayerId === layer.id ? "on" : undefined}
+                              onClick={() => void persistStudio(setStudioActiveLayer(studio, layer.id))}
+                            >
+                              {layer.label}
+                            </button>
+                            {layer.id !== "all" && (studio.customLayers || []).some((row) => row.id === layer.id) ? (
+                              <button
+                                type="button"
+                                className="nexa-studio-layer-delete"
+                                aria-label={`Remove ${layer.label}`}
+                                title="Remove custom layer"
+                                onClick={() => void persistStudio(removeCustomStudioLayer(studio, String(layer.id)))}
+                              >
+                                ×
+                              </button>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="nexa-studio-create class">
+                        <input
+                          value={newLayerName}
+                          onChange={(e) => setNewLayerName(e.target.value)}
+                          placeholder="New layer"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") addCustomLayer();
+                          }}
+                        />
+                        <button type="button" className="ghost" onClick={addCustomLayer}>
+                          <Plus size={14} />
+                          Add
+                        </button>
+                      </div>
+                      <div className="nexa-studio-layer-actions">
+                        <button
+                          type="button"
+                          className="ghost"
+                          disabled={busy === "save-layer" || !activeDoc}
+                          onClick={() => {
+                            setBusy("save-layer");
+                            void saveStudioLayerDrawing(activeLayerId)
+                              .finally(() => setBusy(null));
+                          }}
+                        >
+                          {busy === "save-layer" ? <Loader2 className="spin" size={14} /> : null}
+                          Save layer
+                        </button>
+                        <button
+                          type="button"
+                          className="nexa-studio-primary"
+                          disabled={busy === "save-layers" || !activeDoc}
+                          onClick={() => {
+                            setBusy("save-layers");
+                            void saveAllStudioLayerDrawings()
+                              .finally(() => setBusy(null));
+                          }}
+                        >
+                          {busy === "save-layers" ? <Loader2 className="spin" size={14} /> : null}
+                          Save all
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
+
+{!boqOpen ? (
                 <section className={`nexa-studio-rail-acc nexa-studio-rail-acc-draw${railAccordions.draw ? " is-open" : ""}`}>
                   <button
                     type="button"
@@ -2009,207 +2390,6 @@ export default function TakeoffStudioPage() {
                 </section>
               ) : null}
 
-              <section className={`nexa-studio-rail-acc${railAccordions.link ? " is-open" : ""}`}>
-                <button
-                  type="button"
-                  className="nexa-studio-rail-acc-toggle"
-                  aria-expanded={railAccordions.link}
-                  onClick={() => toggleRailAccordion("link")}
-                >
-                  <h2>Links</h2>
-                  <span className="nexa-studio-rail-acc-meta">
-                    {linkedTender || linkedQuote
-                      ? [linkedTender?.name, linkedQuote?.ref].filter(Boolean).join(" · ")
-                      : "Tender / quote"}
-                  </span>
-                  <ChevronDown size={14} aria-hidden />
-                </button>
-                {railAccordions.link ? (
-                  <div className="nexa-studio-rail-acc-body nexa-studio-core-link">
-                    <label>
-                      Tender
-                      <select
-                        value={selected.sourceTenderId || ""}
-                        onChange={(e) => {
-                          const sourceTenderId = e.target.value || undefined;
-                          void persistStudio(studio, { sourceTenderId });
-                        }}
-                      >
-                        <option value="">Select Core tender</option>
-                        {tenders.map((tender) => (
-                          <option key={tender.id} value={tender.id}>
-                            {tender.externalId ? `${tender.externalId} · ` : ""}
-                            {tender.name} · {tender.client}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    {linkedTender ? (
-                      <a className="ghost link" href={`/?view=tenders`}>
-                        Open tenders in Core
-                        <ExternalLink size={13} />
-                      </a>
-                    ) : null}
-                    <label>
-                      Quote
-                      <select
-                        value={selected.linkedQuoteId || ""}
-                        onChange={(e) => {
-                          const linkedQuoteId = e.target.value || undefined;
-                          void persistStudio(studio, { linkedQuoteId });
-                        }}
-                      >
-                        <option value="">Select Core quote</option>
-                        {quotes.map((quote) => (
-                          <option key={quote.id} value={quote.id}>
-                            {quote.ref} · {quote.customer}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    {linkedQuote ? (
-                      <a className="ghost link" href={`/?quote=${encodeURIComponent(linkedQuote.id)}`}>
-                        Open {linkedQuote.ref} in Core
-                        <ExternalLink size={13} />
-                      </a>
-                    ) : null}
-                    <div className="nexa-studio-push-actions">
-                      <button
-                        type="button"
-                        className="nexa-studio-primary"
-                        disabled={busy === "push"}
-                        onClick={() => void pushToCore()}
-                      >
-                        {busy === "push" ? <Loader2 className="spin" size={14} /> : null}
-                        {selected.linkedQuoteId ? "Push BOQ + drawings" : "Push to new quote"}
-                      </button>
-                      {selected.linkedQuoteId ? (
-                        <button
-                          type="button"
-                          className="ghost"
-                          disabled={busy === "push"}
-                          onClick={() => void pushToCore({ createNew: true })}
-                        >
-                          New quote instead
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : null}
-              </section>
-
-              {!boqOpen ? (
-                <section className={`nexa-studio-rail-acc${railAccordions.drawings ? " is-open" : ""}`}>
-                  <button
-                    type="button"
-                    className="nexa-studio-rail-acc-toggle"
-                    aria-expanded={railAccordions.drawings}
-                    onClick={() => toggleRailAccordion("drawings")}
-                  >
-                    <h2>Drawings</h2>
-                    <span className="nexa-studio-rail-acc-meta">
-                      {activeDoc?.fileName || `${drawingDocs.length} PDF`}
-                    </span>
-                    <ChevronDown size={14} aria-hidden />
-                  </button>
-                  {railAccordions.drawings ? (
-                    <div className="nexa-studio-rail-acc-body">
-                      {/* List first, compact dropzone after — never stack dropzone over names. */}
-                      <div className="nexa-studio-doc-list">
-                        {drawingDocs.length ? drawingDocs.map((doc: TakeoffDocument) => (
-                          <button
-                            key={doc.id}
-                            type="button"
-                            className={doc.id === activeDoc?.id ? "on" : undefined}
-                            onClick={() => void persistStudio({ ...studio, activeDocumentId: doc.id, activePage: 1 })}
-                          >
-                            {doc.fileName}
-                          </button>
-                        )) : <p className="muted">Upload a PDF plan set.</p>}
-                      </div>
-                      <FileDropZone
-                        accept="application/pdf,.pdf"
-                        multiple
-                        compact
-                        disabled={busy === "upload" || !selected}
-                        label={busy === "upload" ? "Uploading…" : "Drop PDF or click"}
-                        hint="PDF drawing sets"
-                        onFiles={(files) => void uploadDrawingFiles(files)}
-                        className="nexa-studio-drawing-drop"
-                      />
-                      <div className="nexa-studio-layer-list nexa-studio-layer-list-compact" role="tablist" aria-label="Service layers">
-                        {studioLayers.map((layer) => (
-                          <div key={layer.id} className={`nexa-studio-layer-row${activeLayerId === layer.id ? " on" : ""}`}>
-                            <button
-                              type="button"
-                              role="tab"
-                              aria-selected={activeLayerId === layer.id}
-                              className={activeLayerId === layer.id ? "on" : undefined}
-                              onClick={() => void persistStudio(setStudioActiveLayer(studio, layer.id))}
-                            >
-                              {layer.label}
-                            </button>
-                            {layer.id !== "all" && (studio.customLayers || []).some((row) => row.id === layer.id) ? (
-                              <button
-                                type="button"
-                                className="nexa-studio-layer-delete"
-                                aria-label={`Remove ${layer.label}`}
-                                title="Remove custom layer"
-                                onClick={() => void persistStudio(removeCustomStudioLayer(studio, String(layer.id)))}
-                              >
-                                ×
-                              </button>
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
-                      <div className="nexa-studio-create class">
-                        <input
-                          value={newLayerName}
-                          onChange={(e) => setNewLayerName(e.target.value)}
-                          placeholder="New layer"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") addCustomLayer();
-                          }}
-                        />
-                        <button type="button" className="ghost" onClick={addCustomLayer}>
-                          <Plus size={14} />
-                          Add
-                        </button>
-                      </div>
-                      <div className="nexa-studio-layer-actions">
-                        <button
-                          type="button"
-                          className="ghost"
-                          disabled={busy === "save-layer" || !activeDoc}
-                          onClick={() => {
-                            setBusy("save-layer");
-                            void saveStudioLayerDrawing(activeLayerId)
-                              .finally(() => setBusy(null));
-                          }}
-                        >
-                          {busy === "save-layer" ? <Loader2 className="spin" size={14} /> : null}
-                          Save layer
-                        </button>
-                        <button
-                          type="button"
-                          className="nexa-studio-primary"
-                          disabled={busy === "save-layers" || !activeDoc}
-                          onClick={() => {
-                            setBusy("save-layers");
-                            void saveAllStudioLayerDrawings()
-                              .finally(() => setBusy(null));
-                          }}
-                        >
-                          {busy === "save-layers" ? <Loader2 className="spin" size={14} /> : null}
-                          Save all
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                </section>
-              ) : null}
-
               <section className={`nexa-studio-rail-acc${railAccordions.more ? " is-open" : ""}`}>
                 <button
                   type="button"
@@ -2218,11 +2398,56 @@ export default function TakeoffStudioPage() {
                   onClick={() => toggleRailAccordion("more")}
                 >
                   <h2>More</h2>
-                  <span className="nexa-studio-rail-acc-meta">Propose · rates · log</span>
+                  <span className="nexa-studio-rail-acc-meta">Records · propose · rates</span>
                   <ChevronDown size={14} aria-hidden />
                 </button>
                 {railAccordions.more ? (
                   <div className="nexa-studio-rail-acc-body">
+                    <div className="nexa-studio-more-projects">
+                      <header>
+                        <h2>Takeoff records</h2>
+                        <span className="muted">{selected.reference}</span>
+                      </header>
+                      <p className="muted">Internal takeoff id for persistence — day-to-day work is Linked + Drawings.</p>
+                      <div className="nexa-studio-create">
+                        <input
+                          value={draftName}
+                          onChange={(e) => setDraftName(e.target.value)}
+                          placeholder="New takeoff name"
+                        />
+                        <button type="button" className="nexa-studio-primary" disabled={busy === "create"} onClick={() => void createProject()}>
+                          {busy === "create" ? <Loader2 className="spin" size={14} /> : <Plus size={14} />}
+                          New
+                        </button>
+                      </div>
+                      <div className="nexa-studio-project-list">
+                        {projects.map((project) => (
+                          <div key={project.id} className={`nexa-studio-project-row${project.id === selectedId ? " on" : ""}`}>
+                            <button
+                              type="button"
+                              className="nexa-studio-project-pick"
+                              onClick={() => {
+                                setSelectedId(project.id);
+                                setBoqOpen(false);
+                              }}
+                            >
+                              <strong>{project.reference}</strong>
+                              <span>{project.name}</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="nexa-studio-project-delete"
+                              aria-label={`Delete ${project.reference}`}
+                              title="Delete takeoff"
+                              disabled={busy === `delete-${project.id}`}
+                              onClick={() => void deleteProject(project.id, project.reference)}
+                            >
+                              {busy === `delete-${project.id}` ? <Loader2 className="spin" size={13} /> : <Trash2 size={13} />}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                     <button
                       type="button"
                       className={`ghost${proposeOpen ? " on" : ""}`}
