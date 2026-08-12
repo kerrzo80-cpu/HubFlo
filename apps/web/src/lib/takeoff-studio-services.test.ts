@@ -5,6 +5,7 @@ import {
   classificationLayer,
   createDefaultStudioState,
   ensureServiceClassifications,
+  groupStudioClassifications,
   importSkillCountsIntoStudio,
   setClassificationColour,
   setStudioActiveLayer,
@@ -49,6 +50,40 @@ describe("takeoff studio service colours and layers", () => {
 
     const gas = byLayer("gas").map((cls) => cls.name);
     assert.ok(gas.includes("Gas cock"));
+  });
+
+  it("groups Draw-as classifications into collapsible sections per layer", () => {
+    const studio = createDefaultStudioState();
+    const hotCold = groupStudioClassifications(
+      studio.classifications.filter((cls) => classificationLayer(cls) === "hot-cold"),
+      { scopeLayer: "hot-cold" },
+    );
+    assert.deepEqual(
+      hotCold.map((row) => row.groupId),
+      ["pipe-runs", "valves", "fittings"],
+    );
+    assert.ok(hotCold.find((row) => row.groupId === "valves")?.items.some((cls) => cls.name === "TMV"));
+
+    const heatingOnly = groupStudioClassifications(
+      studio.classifications.filter((cls) => classificationLayer(cls) === "heating"),
+      { scopeLayer: "heating" },
+    );
+    assert.ok(heatingOnly.some((row) => row.groupId === "radiators-valves"));
+    assert.ok(heatingOnly.some((row) => row.groupId === "ancillaries"));
+    assert.ok(heatingOnly.some((row) => row.groupId === "ufh-manifolds"));
+  });
+
+  it("ensureServiceClassifications backfills Draw-as groups on older flat projects", () => {
+    const base = createDefaultStudioState();
+    const flat = {
+      ...base,
+      classifications: base.classifications.map(({ group: _group, ...cls }) => cls),
+    };
+    const ensured = ensureServiceClassifications(flat);
+    const isolation = ensured.classifications.find((cls) => cls.id === "cls-count-isolation-valve");
+    assert.equal(isolation?.group, "valves");
+    const flow = ensured.classifications.find((cls) => cls.id === "cls-linear-heating-flow");
+    assert.equal(flow?.group, "pipe-runs");
   });
 
   it("ensureServiceClassifications adds missing presets without overwriting colours", () => {

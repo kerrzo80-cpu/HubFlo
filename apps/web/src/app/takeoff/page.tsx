@@ -19,9 +19,11 @@ import { resolveBrandLogoUrl } from "@/lib/branding";
 import { employeeHeaderName, roleHeaderName } from "@/lib/access";
 import type { TakeoffDocument, TakeoffProject } from "@/lib/takeoff-data";
 import {
+  classificationGroup,
   classificationLayer,
   createDefaultStudioState,
   ensureServiceClassifications,
+  groupStudioClassifications,
   importSkillCountsIntoStudio,
   countAiStudioCountPins,
   countAiStudioPipeRuns,
@@ -169,6 +171,8 @@ export default function TakeoffStudioPage() {
   const [proposeQuestions, setProposeQuestions] = useState<string[]>([]);
   const [logOpen, setLogOpen] = useState(false);
   const [drawSizesOpen, setDrawSizesOpen] = useState(false);
+  /** Collapsible Draw-as groups (Valves, Boilers / plant, …) — mirrors Size accordion chrome. */
+  const [openClassGroups, setOpenClassGroups] = useState<Record<string, boolean>>({});
   const [newLayerName, setNewLayerName] = useState("");
   /** Accordion: Projects | Link | Drawings | Draw as | More — keep Draw as + Drawings open on Mark. */
   const [railAccordions, setRailAccordions] = useState({
@@ -203,6 +207,28 @@ export default function TakeoffStudioPage() {
   const visibleClassifications = studio.classifications.filter((cls) =>
     activeLayerId === "all" ? true : classificationLayer(cls) === activeLayerId,
   );
+  const drawAsGroups = useMemo(
+    () =>
+      groupStudioClassifications(visibleClassifications, {
+        scopeLayer: activeLayerId,
+        layerLabels: studioLayers,
+      }),
+    [visibleClassifications, activeLayerId, studioLayers],
+  );
+  const activeDrawGroupKey = useMemo(() => {
+    if (!activeClass) return null;
+    const groupId = classificationGroup(activeClass);
+    return activeLayerId === "all"
+      ? `${classificationLayer(activeClass)}::${groupId}`
+      : groupId;
+  }, [activeClass, activeLayerId]);
+
+  useEffect(() => {
+    if (!activeDrawGroupKey) return;
+    setOpenClassGroups((prev) =>
+      prev[activeDrawGroupKey] ? prev : { ...prev, [activeDrawGroupKey]: true },
+    );
+  }, [activeDrawGroupKey, activeLayerId]);
   const quantities = summariseStudioQuantities(studio);
   const layerBoq = summariseStudioBoq(studio, activeLayerId);
   const masterBoq = summariseStudioBoq(studio, "all");
@@ -658,6 +684,7 @@ export default function TakeoffStudioPage() {
       colour,
       unit: newClassKind === "area" ? "m2" : newClassKind === "linear" ? "m" : "nr",
       layer: activeLayerId === "all" ? "general" : activeLayerId,
+      group: "general",
     };
     void persistStudio({
       ...studio,
@@ -1816,111 +1843,145 @@ export default function TakeoffStudioPage() {
                         </p>
                       ) : null}
                       <div className="nexa-studio-class-list">
-                        {visibleClassifications.map((cls) => {
-                          const qty = quantities.find((row) => row.classificationId === cls.id);
-                          const isActive = cls.id === studio.activeClassificationId;
-                          const activeSpecId = studio.activePipeSpecId || DEFAULT_STUDIO_PIPE_SPEC_ID;
-                          const activeSpec = STUDIO_PIPE_SPECS.find((spec) => spec.id === activeSpecId);
+                        {drawAsGroups.map((section) => {
+                          const groupOpen = Boolean(openClassGroups[section.key]);
+                          const groupHasActive = section.items.some(
+                            (cls) => cls.id === studio.activeClassificationId,
+                          );
                           return (
                             <div
-                              key={cls.id}
-                              className={`nexa-studio-class-row${isActive ? " on" : ""}`}
+                              key={section.key}
+                              className={`nexa-studio-class-group${groupOpen ? " is-open" : ""}${groupHasActive ? " has-active" : ""}`}
                             >
-                              <div className="nexa-studio-class-row-main">
-                                <label className="nexa-studio-class-colour" title="Pipe / mark colour">
-                                  <span style={{ background: cls.colour }} />
-                                  <input
-                                    type="color"
-                                    value={/^#[0-9a-fA-F]{6}$/.test(cls.colour) ? cls.colour : "#2878c8"}
-                                    aria-label={`Colour for ${cls.name}`}
-                                    onChange={(e) => {
-                                      void persistStudio(setClassificationColour(studio, cls.id, e.target.value));
-                                    }}
-                                  />
-                                </label>
-                                <button
-                                  type="button"
-                                  className="nexa-studio-class-pick"
-                                  aria-expanded={isActive && cls.kind === "linear" ? drawSizesOpen : undefined}
-                                  onClick={() => {
-                                    if (isActive && cls.kind === "linear") {
-                                      setDrawSizesOpen((open) => !open);
-                                      return;
-                                    }
-                                    void persistStudio({
-                                      ...studio,
-                                      activeClassificationId: cls.id,
-                                      tool: cls.kind,
-                                      activeLayerId: classificationLayer(cls),
-                                    });
-                                    setDrawSizesOpen(cls.kind === "linear");
-                                  }}
-                                >
-                                  <span>
-                                    <strong>{cls.name}</strong>
-                                    <small>
-                                      {cls.kind}
-                                      {cls.kind === "linear" && isActive && activeSpec
-                                        ? ` · ${activeSpec.label}`
-                                        : ""}
-                                      {" · "}
-                                      {qty?.pieces || 0} item{(qty?.pieces || 0) === 1 ? "" : "s"}
-                                    </small>
-                                  </span>
-                                  <em>
-                                    {qty && qty.quantity > 0 ? `${qty.quantity} ${qty.unit}` : "—"}
-                                  </em>
-                                </button>
-                                <button
-                                  type="button"
-                                  className="nexa-studio-class-delete"
-                                  aria-label={`Delete ${cls.name}`}
-                                  title="Delete classification"
-                                  onClick={() => deleteClassification(cls.id)}
-                                >
-                                  ×
-                                </button>
-                              </div>
-                              {isActive && cls.kind === "linear" ? (
-                                <div className={`nexa-studio-draw-sizes${drawSizesOpen ? " is-open" : ""}`}>
-                                  <button
-                                    type="button"
-                                    className="nexa-studio-draw-sizes-toggle"
-                                    aria-expanded={drawSizesOpen}
-                                    onClick={() => setDrawSizesOpen((open) => !open)}
-                                  >
-                                    <span className="nexa-studio-draw-sizes-label">Size</span>
-                                    <strong>{activeSpec?.label || "Pick"}</strong>
-                                    <ChevronDown size={14} aria-hidden />
-                                  </button>
-                                  {drawSizesOpen ? (
-                                    <div className="nexa-studio-draw-sizes-chips" role="group" aria-label={`Pipe size for ${cls.name}`}>
-                                      {STUDIO_PIPE_SPECS.map((spec) => {
-                                        const active = activeSpecId === spec.id;
-                                        return (
+                              <button
+                                type="button"
+                                className="nexa-studio-class-group-toggle"
+                                aria-expanded={groupOpen}
+                                onClick={() => {
+                                  setOpenClassGroups((prev) => ({
+                                    ...prev,
+                                    [section.key]: !prev[section.key],
+                                  }));
+                                }}
+                              >
+                                <span className="nexa-studio-class-group-label">{section.label}</span>
+                                <strong>
+                                  {section.items.length} item{section.items.length === 1 ? "" : "s"}
+                                </strong>
+                                <ChevronDown size={14} aria-hidden />
+                              </button>
+                              {groupOpen ? (
+                                <div className="nexa-studio-class-group-body">
+                                  {section.items.map((cls) => {
+                                    const qty = quantities.find((row) => row.classificationId === cls.id);
+                                    const isActive = cls.id === studio.activeClassificationId;
+                                    const activeSpecId = studio.activePipeSpecId || DEFAULT_STUDIO_PIPE_SPEC_ID;
+                                    const activeSpec = STUDIO_PIPE_SPECS.find((spec) => spec.id === activeSpecId);
+                                    return (
+                                      <div
+                                        key={cls.id}
+                                        className={`nexa-studio-class-row${isActive ? " on" : ""}`}
+                                      >
+                                        <div className="nexa-studio-class-row-main">
+                                          <label className="nexa-studio-class-colour" title="Pipe / mark colour">
+                                            <span style={{ background: cls.colour }} />
+                                            <input
+                                              type="color"
+                                              value={/^#[0-9a-fA-F]{6}$/.test(cls.colour) ? cls.colour : "#2878c8"}
+                                              aria-label={`Colour for ${cls.name}`}
+                                              onChange={(e) => {
+                                                void persistStudio(setClassificationColour(studio, cls.id, e.target.value));
+                                              }}
+                                            />
+                                          </label>
                                           <button
-                                            key={spec.id}
                                             type="button"
-                                            className={active ? "on" : undefined}
+                                            className="nexa-studio-class-pick"
+                                            aria-expanded={isActive && cls.kind === "linear" ? drawSizesOpen : undefined}
                                             onClick={() => {
-                                              void persistStudio({ ...studio, activePipeSpecId: spec.id, tool: "linear" });
-                                              if (selected) {
-                                                recordTakeoffLearningClient({
-                                                  type: "pipe_spec_choice",
-                                                  projectId: selected.id,
-                                                  pipeSpecId: spec.id,
-                                                  trade: "plumbing",
-                                                });
+                                              if (isActive && cls.kind === "linear") {
+                                                setDrawSizesOpen((open) => !open);
+                                                return;
                                               }
+                                              void persistStudio({
+                                                ...studio,
+                                                activeClassificationId: cls.id,
+                                                tool: cls.kind,
+                                                activeLayerId: classificationLayer(cls),
+                                              });
+                                              setDrawSizesOpen(cls.kind === "linear");
                                             }}
-                                            title={`${spec.diameter} ${spec.material}${spec.autoCouplings ? ` · couplings every ${spec.stockLengthM}m` : ""}${spec.autoElbows ? " · auto elbows" : ""}`}
                                           >
-                                            {spec.label}
+                                            <span>
+                                              <strong>{cls.name}</strong>
+                                              <small>
+                                                {cls.kind}
+                                                {cls.kind === "linear" && isActive && activeSpec
+                                                  ? ` · ${activeSpec.label}`
+                                                  : ""}
+                                                {" · "}
+                                                {qty?.pieces || 0} item{(qty?.pieces || 0) === 1 ? "" : "s"}
+                                              </small>
+                                            </span>
+                                            <em>
+                                              {qty && qty.quantity > 0 ? `${qty.quantity} ${qty.unit}` : "—"}
+                                            </em>
                                           </button>
-                                        );
-                                      })}
-                                    </div>
-                                  ) : null}
+                                          <button
+                                            type="button"
+                                            className="nexa-studio-class-delete"
+                                            aria-label={`Delete ${cls.name}`}
+                                            title="Delete classification"
+                                            onClick={() => deleteClassification(cls.id)}
+                                          >
+                                            ×
+                                          </button>
+                                        </div>
+                                        {isActive && cls.kind === "linear" ? (
+                                          <div className={`nexa-studio-draw-sizes${drawSizesOpen ? " is-open" : ""}`}>
+                                            <button
+                                              type="button"
+                                              className="nexa-studio-draw-sizes-toggle"
+                                              aria-expanded={drawSizesOpen}
+                                              onClick={() => setDrawSizesOpen((open) => !open)}
+                                            >
+                                              <span className="nexa-studio-draw-sizes-label">Size</span>
+                                              <strong>{activeSpec?.label || "Pick"}</strong>
+                                              <ChevronDown size={14} aria-hidden />
+                                            </button>
+                                            {drawSizesOpen ? (
+                                              <div className="nexa-studio-draw-sizes-chips" role="group" aria-label={`Pipe size for ${cls.name}`}>
+                                                {STUDIO_PIPE_SPECS.map((spec) => {
+                                                  const active = activeSpecId === spec.id;
+                                                  return (
+                                                    <button
+                                                      key={spec.id}
+                                                      type="button"
+                                                      className={active ? "on" : undefined}
+                                                      onClick={() => {
+                                                        void persistStudio({ ...studio, activePipeSpecId: spec.id, tool: "linear" });
+                                                        if (selected) {
+                                                          recordTakeoffLearningClient({
+                                                            type: "pipe_spec_choice",
+                                                            projectId: selected.id,
+                                                            pipeSpecId: spec.id,
+                                                            trade: "plumbing",
+                                                          });
+                                                        }
+                                                      }}
+                                                      title={`${spec.diameter} ${spec.material}${spec.autoCouplings ? ` · couplings every ${spec.stockLengthM}m` : ""}${spec.autoElbows ? " · auto elbows" : ""}`}
+                                                    >
+                                                      {spec.label}
+                                                    </button>
+                                                  );
+                                                })}
+                                              </div>
+                                            ) : null}
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               ) : null}
                             </div>

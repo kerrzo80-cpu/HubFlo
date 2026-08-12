@@ -14,6 +14,21 @@ describe("blake route & equipment proposer", () => {
     assert.ok(studio.classifications.some((cls) => cls.id === "cls-count-flue-terminal"));
     assert.ok(studio.classifications.some((cls) => cls.id === "cls-count-condensate-pump"));
     assert.ok(studio.classifications.some((cls) => cls.id === "cls-count-outdoor-sensor"));
+    const boiler = studio.classifications.find((cls) => cls.id === "cls-ai-P-BOILER");
+    assert.equal(boiler?.group, "boilers-plant");
+    const rad = studio.classifications.find((cls) => cls.id === "cls-ai-P-RAD");
+    assert.equal(rad?.group, "radiators-valves");
+  });
+
+  it("ensurePlantClassifications backfills Draw-as groups on older plant pins", () => {
+    const base = ensurePlantClassifications(createDefaultStudioState());
+    const flat = {
+      ...base,
+      classifications: base.classifications.map(({ group: _group, ...cls }) => cls),
+    };
+    const ensured = ensurePlantClassifications(flat);
+    assert.equal(ensured.classifications.find((cls) => cls.id === "cls-count-flue-terminal")?.group, "boilers-plant");
+    assert.equal(ensured.classifications.find((cls) => cls.id === "cls-ai-P-MANIFOLD")?.group, "ufh-manifolds");
   });
 
   it("proposes boiler + radiators plant, stubs, and follow-up questions", () => {

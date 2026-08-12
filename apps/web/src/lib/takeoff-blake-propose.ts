@@ -59,6 +59,7 @@ export const PLANT_CLASS_DEFS = [
     colour: "#c2410c",
     unit: "nr" as const,
     layer: "heating" as const,
+    group: "boilers-plant" as const,
     notes: "Gas / system / combi boiler",
   },
   {
@@ -68,6 +69,7 @@ export const PLANT_CLASS_DEFS = [
     colour: "#0f766e",
     unit: "nr" as const,
     layer: "heating" as const,
+    group: "boilers-plant" as const,
     notes: "Air source heat pump",
   },
   {
@@ -77,6 +79,7 @@ export const PLANT_CLASS_DEFS = [
     colour: "#1d4ed8",
     unit: "nr" as const,
     layer: "heating" as const,
+    group: "boilers-plant" as const,
     notes: "Hot water cylinder",
   },
   {
@@ -86,6 +89,7 @@ export const PLANT_CLASS_DEFS = [
     colour: "#7c3aed",
     unit: "nr" as const,
     layer: "heating" as const,
+    group: "ufh-manifolds" as const,
     notes: "Underfloor heating manifold",
   },
   {
@@ -95,6 +99,7 @@ export const PLANT_CLASS_DEFS = [
     colour: "#b45309",
     unit: "nr" as const,
     layer: "heating" as const,
+    group: "radiators-valves" as const,
     notes: "Radiator / emitter",
   },
   // Boiler / plant ancillaries — same heating layer so they sit in Draw as with the plant pins
@@ -105,6 +110,7 @@ export const PLANT_CLASS_DEFS = [
     colour: "#9a3412",
     unit: "nr" as const,
     layer: "heating" as const,
+    group: "boilers-plant" as const,
     notes: "Flue terminal / plume kit",
   },
   {
@@ -114,6 +120,7 @@ export const PLANT_CLASS_DEFS = [
     colour: "#57534e",
     unit: "nr" as const,
     layer: "heating" as const,
+    group: "boilers-plant" as const,
     notes: "Condensate lift pump",
   },
   {
@@ -123,6 +130,7 @@ export const PLANT_CLASS_DEFS = [
     colour: "#44403c",
     unit: "nr" as const,
     layer: "heating" as const,
+    group: "boilers-plant" as const,
     notes: "Condensate trap / neutraliser",
   },
   {
@@ -132,6 +140,7 @@ export const PLANT_CLASS_DEFS = [
     colour: "#ca8a04",
     unit: "nr" as const,
     layer: "heating" as const,
+    group: "boilers-plant" as const,
     notes: "Appliance gas isolation",
   },
   {
@@ -141,6 +150,7 @@ export const PLANT_CLASS_DEFS = [
     colour: "#bf4f14",
     unit: "nr" as const,
     layer: "heating" as const,
+    group: "boilers-plant" as const,
     notes: "Flow / return isolation pair",
   },
   {
@@ -150,6 +160,7 @@ export const PLANT_CLASS_DEFS = [
     colour: "#a16207",
     unit: "nr" as const,
     layer: "heating" as const,
+    group: "boilers-plant" as const,
     notes: "PRV discharge via tundish",
   },
   {
@@ -159,6 +170,7 @@ export const PLANT_CLASS_DEFS = [
     colour: "#0e7490",
     unit: "nr" as const,
     layer: "heating" as const,
+    group: "boilers-plant" as const,
     notes: "Weather compensation sensor",
   },
 ];
@@ -174,9 +186,24 @@ export function ensurePlantClassifications(studio: StudioState): StudioState {
   const classifications = [...base.classifications];
   let changed = false;
   for (const def of PLANT_CLASS_DEFS) {
-    if (classifications.some((cls) => cls.id === def.id)) continue;
-    classifications.push({ ...def });
-    changed = true;
+    const idx = classifications.findIndex((cls) => cls.id === def.id);
+    if (idx < 0) {
+      classifications.push({ ...def });
+      changed = true;
+      continue;
+    }
+    const existing = classifications[idx]!;
+    let next = existing;
+    if (!existing.layer && def.layer) {
+      next = { ...next, layer: def.layer };
+    }
+    if (!existing.group && def.group) {
+      next = { ...next, group: def.group };
+    }
+    if (next !== existing) {
+      classifications[idx] = next;
+      changed = true;
+    }
   }
   if (!changed) return base;
   return { ...base, classifications, updatedAt: new Date().toISOString() };

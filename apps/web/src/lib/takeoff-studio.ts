@@ -63,6 +63,39 @@ export type StudioCustomLayer = {
   label: string;
 };
 
+/** Collapsible Draw-as groups inside a service layer (Valves, Boilers, …). */
+export type StudioClassGroupId =
+  | "pipe-runs"
+  | "valves"
+  | "fittings"
+  | "radiators-valves"
+  | "ufh-manifolds"
+  | "ancillaries"
+  | "boilers-plant"
+  | "sanitary-ware"
+  | "traps-waste"
+  | "cocks-meters"
+  | "general";
+
+export const STUDIO_CLASS_GROUPS: Array<{ id: StudioClassGroupId; label: string }> = [
+  { id: "pipe-runs", label: "Pipe runs" },
+  { id: "valves", label: "Valves" },
+  { id: "fittings", label: "Fittings" },
+  { id: "radiators-valves", label: "Radiators & valves" },
+  { id: "ufh-manifolds", label: "UFH / manifolds" },
+  { id: "ancillaries", label: "Ancillaries" },
+  { id: "boilers-plant", label: "Boilers / plant" },
+  { id: "sanitary-ware", label: "Sanitary ware" },
+  { id: "traps-waste", label: "Traps & waste" },
+  { id: "cocks-meters", label: "Cocks & meters" },
+  { id: "general", label: "General" },
+];
+
+export function studioClassGroupLabel(groupId: StudioClassGroupId | string | undefined): string {
+  const id = (groupId || "general") as StudioClassGroupId;
+  return STUDIO_CLASS_GROUPS.find((row) => row.id === id)?.label || "General";
+}
+
 export type StudioClassification = {
   id: string;
   kind: StudioClassKind;
@@ -71,6 +104,8 @@ export type StudioClassification = {
   unit: "m2" | "m" | "nr";
   /** Service layer for filter / hide — optional for older projects. */
   layer?: StudioServiceLayerId;
+  /** Collapsible Draw-as group within the layer — optional for older projects. */
+  group?: StudioClassGroupId;
   notes?: string;
 };
 
@@ -223,55 +258,55 @@ export function removeCustomStudioLayer(studio: StudioState, layerId: string): S
 
 /** Preset pipe / fixture services with fixed colours — tap these instead of guessing. */
 export const SERVICE_CLASS_DEFS: Array<StudioClassification & { role?: "hot" | "cold" | "waste" }> = [
-  // Hot & cold — linears then count items for valves / fittings while marking the run
-  { id: "cls-ai-P-PIPE-H", kind: "linear", name: "Hot pipe runs", colour: "#d64545", unit: "m", layer: "hot-cold", role: "hot", notes: "Domestic hot water" },
-  { id: "cls-ai-P-PIPE-C", kind: "linear", name: "Cold pipe runs", colour: "#2878c8", unit: "m", layer: "hot-cold", role: "cold", notes: "Domestic cold water" },
-  { id: "cls-count-isolation-valve", kind: "count", name: "Isolation valve", colour: "#bf4f14", unit: "nr", layer: "hot-cold", notes: "Service / isolator" },
-  { id: "cls-count-check-valve", kind: "count", name: "Check valve (NRV)", colour: "#c2410c", unit: "nr", layer: "hot-cold", notes: "Non-return valve" },
-  { id: "cls-count-double-check", kind: "count", name: "Double check valve", colour: "#9a3412", unit: "nr", layer: "hot-cold", notes: "Backflow prevention" },
-  { id: "cls-count-prv", kind: "count", name: "PRV", colour: "#a16207", unit: "nr", layer: "hot-cold", notes: "Pressure reducing valve" },
-  { id: "cls-count-stopcock", kind: "count", name: "Stopcock", colour: "#854d0e", unit: "nr", layer: "hot-cold", notes: "Stop valve / stoptap" },
-  { id: "cls-count-ball-valve", kind: "count", name: "Ball valve", colour: "#b45309", unit: "nr", layer: "hot-cold", notes: "Full-bore ball valve" },
-  { id: "cls-count-gate-valve", kind: "count", name: "Gate valve", colour: "#92400e", unit: "nr", layer: "hot-cold", notes: "Gate valve" },
-  { id: "cls-count-tmv", kind: "count", name: "TMV", colour: "#dc2626", unit: "nr", layer: "hot-cold", notes: "Thermostatic mixing valve" },
-  { id: "cls-count-flexi", kind: "count", name: "Flexi connector", colour: "#ea580c", unit: "nr", layer: "hot-cold", notes: "Braided flexi hose / tail" },
-  { id: "cls-count-exp-vessel-dhw", kind: "count", name: "Expansion vessel (DHW)", colour: "#1d4ed8", unit: "nr", layer: "hot-cold", notes: "Unvented / DHW expansion" },
-  { id: "cls-count-booster-pump", kind: "count", name: "Booster / secondary pump", colour: "#0369a1", unit: "nr", layer: "hot-cold", notes: "Cold boost or secondary return pump" },
+  // Hot & cold — pipe runs, then valves / fittings in collapsible Draw-as groups
+  { id: "cls-ai-P-PIPE-H", kind: "linear", name: "Hot pipe runs", colour: "#d64545", unit: "m", layer: "hot-cold", group: "pipe-runs", role: "hot", notes: "Domestic hot water" },
+  { id: "cls-ai-P-PIPE-C", kind: "linear", name: "Cold pipe runs", colour: "#2878c8", unit: "m", layer: "hot-cold", group: "pipe-runs", role: "cold", notes: "Domestic cold water" },
+  { id: "cls-count-isolation-valve", kind: "count", name: "Isolation valve", colour: "#bf4f14", unit: "nr", layer: "hot-cold", group: "valves", notes: "Service / isolator" },
+  { id: "cls-count-check-valve", kind: "count", name: "Check valve (NRV)", colour: "#c2410c", unit: "nr", layer: "hot-cold", group: "valves", notes: "Non-return valve" },
+  { id: "cls-count-double-check", kind: "count", name: "Double check valve", colour: "#9a3412", unit: "nr", layer: "hot-cold", group: "valves", notes: "Backflow prevention" },
+  { id: "cls-count-prv", kind: "count", name: "PRV", colour: "#a16207", unit: "nr", layer: "hot-cold", group: "valves", notes: "Pressure reducing valve" },
+  { id: "cls-count-stopcock", kind: "count", name: "Stopcock", colour: "#854d0e", unit: "nr", layer: "hot-cold", group: "valves", notes: "Stop valve / stoptap" },
+  { id: "cls-count-ball-valve", kind: "count", name: "Ball valve", colour: "#b45309", unit: "nr", layer: "hot-cold", group: "valves", notes: "Full-bore ball valve" },
+  { id: "cls-count-gate-valve", kind: "count", name: "Gate valve", colour: "#92400e", unit: "nr", layer: "hot-cold", group: "valves", notes: "Gate valve" },
+  { id: "cls-count-tmv", kind: "count", name: "TMV", colour: "#dc2626", unit: "nr", layer: "hot-cold", group: "valves", notes: "Thermostatic mixing valve" },
+  { id: "cls-count-flexi", kind: "count", name: "Flexi connector", colour: "#ea580c", unit: "nr", layer: "hot-cold", group: "fittings", notes: "Braided flexi hose / tail" },
+  { id: "cls-count-exp-vessel-dhw", kind: "count", name: "Expansion vessel (DHW)", colour: "#1d4ed8", unit: "nr", layer: "hot-cold", group: "fittings", notes: "Unvented / DHW expansion" },
+  { id: "cls-count-booster-pump", kind: "count", name: "Booster / secondary pump", colour: "#0369a1", unit: "nr", layer: "hot-cold", group: "fittings", notes: "Cold boost or secondary return pump" },
 
   // Heating — linears then valves / CH ancillaries (plant pins live in PLANT_CLASS_DEFS)
-  { id: "cls-linear-heating-flow", kind: "linear", name: "Heating flow", colour: "#f97316", unit: "m", layer: "heating", notes: "CH flow" },
-  { id: "cls-linear-heating-return", kind: "linear", name: "Heating return", colour: "#7c3aed", unit: "m", layer: "heating", notes: "CH return" },
-  { id: "cls-linear-ufh", kind: "linear", name: "UFH loops", colour: "#2ea66f", unit: "m", layer: "heating", notes: "Underfloor heating" },
-  { id: "cls-count-trv", kind: "count", name: "TRV", colour: "#ea580c", unit: "nr", layer: "heating", notes: "Thermostatic radiator valve" },
-  { id: "cls-count-lockshield", kind: "count", name: "Lockshield", colour: "#c2410c", unit: "nr", layer: "heating", notes: "Lockshield radiator valve" },
-  { id: "cls-count-zone-valve", kind: "count", name: "Zone / motorised valve", colour: "#7c3aed", unit: "nr", layer: "heating", notes: "2-port / 3-port motorised" },
-  { id: "cls-count-auto-air-vent", kind: "count", name: "Auto air vent", colour: "#0891b2", unit: "nr", layer: "heating", notes: "Automatic air vent" },
-  { id: "cls-count-mag-filter", kind: "count", name: "Magnetic filter", colour: "#475569", unit: "nr", layer: "heating", notes: "MagnaClean / system filter" },
-  { id: "cls-count-filling-loop", kind: "count", name: "Filling loop", colour: "#64748b", unit: "nr", layer: "heating", notes: "Temporary / permanent filling loop" },
-  { id: "cls-count-pressure-gauge", kind: "count", name: "Pressure gauge", colour: "#57534e", unit: "nr", layer: "heating", notes: "System pressure gauge" },
-  { id: "cls-count-circ-pump", kind: "count", name: "Circulating pump", colour: "#0f766e", unit: "nr", layer: "heating", notes: "CH circulating pump" },
-  { id: "cls-count-manifold-actuator", kind: "count", name: "Manifold actuator", colour: "#7c3aed", unit: "nr", layer: "heating", notes: "UFH manifold actuator" },
-  { id: "cls-count-exp-vessel-ch", kind: "count", name: "Expansion vessel (CH)", colour: "#1e40af", unit: "nr", layer: "heating", notes: "Sealed system expansion vessel" },
+  { id: "cls-linear-heating-flow", kind: "linear", name: "Heating flow", colour: "#f97316", unit: "m", layer: "heating", group: "pipe-runs", notes: "CH flow" },
+  { id: "cls-linear-heating-return", kind: "linear", name: "Heating return", colour: "#7c3aed", unit: "m", layer: "heating", group: "pipe-runs", notes: "CH return" },
+  { id: "cls-linear-ufh", kind: "linear", name: "UFH loops", colour: "#2ea66f", unit: "m", layer: "heating", group: "pipe-runs", notes: "Underfloor heating" },
+  { id: "cls-count-trv", kind: "count", name: "TRV", colour: "#ea580c", unit: "nr", layer: "heating", group: "radiators-valves", notes: "Thermostatic radiator valve" },
+  { id: "cls-count-lockshield", kind: "count", name: "Lockshield", colour: "#c2410c", unit: "nr", layer: "heating", group: "radiators-valves", notes: "Lockshield radiator valve" },
+  { id: "cls-count-zone-valve", kind: "count", name: "Zone / motorised valve", colour: "#7c3aed", unit: "nr", layer: "heating", group: "radiators-valves", notes: "2-port / 3-port motorised" },
+  { id: "cls-count-auto-air-vent", kind: "count", name: "Auto air vent", colour: "#0891b2", unit: "nr", layer: "heating", group: "ancillaries", notes: "Automatic air vent" },
+  { id: "cls-count-mag-filter", kind: "count", name: "Magnetic filter", colour: "#475569", unit: "nr", layer: "heating", group: "ancillaries", notes: "MagnaClean / system filter" },
+  { id: "cls-count-filling-loop", kind: "count", name: "Filling loop", colour: "#64748b", unit: "nr", layer: "heating", group: "ancillaries", notes: "Temporary / permanent filling loop" },
+  { id: "cls-count-pressure-gauge", kind: "count", name: "Pressure gauge", colour: "#57534e", unit: "nr", layer: "heating", group: "ancillaries", notes: "System pressure gauge" },
+  { id: "cls-count-circ-pump", kind: "count", name: "Circulating pump", colour: "#0f766e", unit: "nr", layer: "heating", group: "ancillaries", notes: "CH circulating pump" },
+  { id: "cls-count-manifold-actuator", kind: "count", name: "Manifold actuator", colour: "#7c3aed", unit: "nr", layer: "heating", group: "ufh-manifolds", notes: "UFH manifold actuator" },
+  { id: "cls-count-exp-vessel-ch", kind: "count", name: "Expansion vessel (CH)", colour: "#1e40af", unit: "nr", layer: "heating", group: "ancillaries", notes: "Sealed system expansion vessel" },
 
   // Sanitary & waste
-  { id: "cls-ai-P-WASTE", kind: "linear", name: "Waste / soil runs", colour: "#8a5a32", unit: "m", layer: "sanitary-waste", role: "waste", notes: "Waste and soil" },
-  { id: "cls-count-sanitary", kind: "count", name: "Sanitary ware", colour: "#7a4f9a", unit: "nr", layer: "sanitary-waste", notes: "Generic sanitary count" },
-  { id: "cls-count-wc", kind: "count", name: "WC", colour: "#6d28d9", unit: "nr", layer: "sanitary-waste", notes: "WC pan / toilet" },
-  { id: "cls-count-whb", kind: "count", name: "WHB / basin", colour: "#7c3aed", unit: "nr", layer: "sanitary-waste", notes: "Wash hand basin" },
-  { id: "cls-count-bath", kind: "count", name: "Bath", colour: "#8b5cf6", unit: "nr", layer: "sanitary-waste", notes: "Bath" },
-  { id: "cls-count-shower", kind: "count", name: "Shower", colour: "#a855f7", unit: "nr", layer: "sanitary-waste", notes: "Shower tray / enclosure" },
-  { id: "cls-count-sink", kind: "count", name: "Sink", colour: "#9333ea", unit: "nr", layer: "sanitary-waste", notes: "Kitchen / utility sink" },
-  { id: "cls-count-bottle-trap", kind: "count", name: "Bottle trap", colour: "#78716c", unit: "nr", layer: "sanitary-waste", notes: "Basin / sink bottle trap" },
-  { id: "cls-count-gulley", kind: "count", name: "Gulley", colour: "#57534e", unit: "nr", layer: "sanitary-waste", notes: "Yard / bottle gulley" },
-  { id: "cls-count-aav", kind: "count", name: "Air admittance valve", colour: "#44403c", unit: "nr", layer: "sanitary-waste", notes: "AAV / AVT" },
-  { id: "cls-count-pan-connector", kind: "count", name: "WC pan connector", colour: "#a8a29e", unit: "nr", layer: "sanitary-waste", notes: "Pan connector / WC connector" },
-  { id: "cls-count-rodding-eye", kind: "count", name: "Rodding eye", colour: "#78716c", unit: "nr", layer: "sanitary-waste", notes: "Access / rodding eye" },
-  { id: "cls-count-soil-fitting", kind: "count", name: "Soil fitting", colour: "#57534e", unit: "nr", layer: "sanitary-waste", notes: "Boss / branch / bend count" },
+  { id: "cls-ai-P-WASTE", kind: "linear", name: "Waste / soil runs", colour: "#8a5a32", unit: "m", layer: "sanitary-waste", group: "pipe-runs", role: "waste", notes: "Waste and soil" },
+  { id: "cls-count-sanitary", kind: "count", name: "Sanitary ware", colour: "#7a4f9a", unit: "nr", layer: "sanitary-waste", group: "sanitary-ware", notes: "Generic sanitary count" },
+  { id: "cls-count-wc", kind: "count", name: "WC", colour: "#6d28d9", unit: "nr", layer: "sanitary-waste", group: "sanitary-ware", notes: "WC pan / toilet" },
+  { id: "cls-count-whb", kind: "count", name: "WHB / basin", colour: "#7c3aed", unit: "nr", layer: "sanitary-waste", group: "sanitary-ware", notes: "Wash hand basin" },
+  { id: "cls-count-bath", kind: "count", name: "Bath", colour: "#8b5cf6", unit: "nr", layer: "sanitary-waste", group: "sanitary-ware", notes: "Bath" },
+  { id: "cls-count-shower", kind: "count", name: "Shower", colour: "#a855f7", unit: "nr", layer: "sanitary-waste", group: "sanitary-ware", notes: "Shower tray / enclosure" },
+  { id: "cls-count-sink", kind: "count", name: "Sink", colour: "#9333ea", unit: "nr", layer: "sanitary-waste", group: "sanitary-ware", notes: "Kitchen / utility sink" },
+  { id: "cls-count-bottle-trap", kind: "count", name: "Bottle trap", colour: "#78716c", unit: "nr", layer: "sanitary-waste", group: "traps-waste", notes: "Basin / sink bottle trap" },
+  { id: "cls-count-gulley", kind: "count", name: "Gulley", colour: "#57534e", unit: "nr", layer: "sanitary-waste", group: "traps-waste", notes: "Yard / bottle gulley" },
+  { id: "cls-count-aav", kind: "count", name: "Air admittance valve", colour: "#44403c", unit: "nr", layer: "sanitary-waste", group: "traps-waste", notes: "AAV / AVT" },
+  { id: "cls-count-pan-connector", kind: "count", name: "WC pan connector", colour: "#a8a29e", unit: "nr", layer: "sanitary-waste", group: "traps-waste", notes: "Pan connector / WC connector" },
+  { id: "cls-count-rodding-eye", kind: "count", name: "Rodding eye", colour: "#78716c", unit: "nr", layer: "sanitary-waste", group: "traps-waste", notes: "Access / rodding eye" },
+  { id: "cls-count-soil-fitting", kind: "count", name: "Soil fitting", colour: "#57534e", unit: "nr", layer: "sanitary-waste", group: "traps-waste", notes: "Boss / branch / bend count" },
 
   // Gas
-  { id: "cls-linear-gas", kind: "linear", name: "Gas pipe runs", colour: "#d2a400", unit: "m", layer: "gas", notes: "Gas pipework" },
-  { id: "cls-count-gas-cock", kind: "count", name: "Gas cock", colour: "#ca8a04", unit: "nr", layer: "gas", notes: "Gas isolation / cock" },
-  { id: "cls-count-gas-meter", kind: "count", name: "Gas meter", colour: "#a16207", unit: "nr", layer: "gas", notes: "Gas meter position" },
+  { id: "cls-linear-gas", kind: "linear", name: "Gas pipe runs", colour: "#d2a400", unit: "m", layer: "gas", group: "pipe-runs", notes: "Gas pipework" },
+  { id: "cls-count-gas-cock", kind: "count", name: "Gas cock", colour: "#ca8a04", unit: "nr", layer: "gas", group: "cocks-meters", notes: "Gas isolation / cock" },
+  { id: "cls-count-gas-meter", kind: "count", name: "Gas meter", colour: "#a16207", unit: "nr", layer: "gas", group: "cocks-meters", notes: "Gas meter position" },
 ];
 
 const PIPE_CLASS_DEFS = SERVICE_CLASS_DEFS.filter((def) => def.role === "hot" || def.role === "cold" || def.role === "waste") as Array<{
@@ -288,9 +323,9 @@ const PIPE_CLASS_DEFS = SERVICE_CLASS_DEFS.filter((def) => def.role === "hot" ||
 export function createDefaultStudioState(): StudioState {
   const stamp = new Date().toISOString();
   const classifications: StudioClassification[] = [
-    { id: "cls-area-rooms", kind: "area", name: "Rooms", colour: COLOURS[0] || "#1998cf", unit: "m2", layer: "general" },
-    { id: "cls-linear-walls", kind: "linear", name: "Walls", colour: COLOURS[1] || "#2e8c7d", unit: "m", layer: "general" },
-    { id: "cls-count-doors", kind: "count", name: "Doors", colour: COLOURS[2] || "#c45c26", unit: "nr", layer: "general" },
+    { id: "cls-area-rooms", kind: "area", name: "Rooms", colour: COLOURS[0] || "#1998cf", unit: "m2", layer: "general", group: "general" },
+    { id: "cls-linear-walls", kind: "linear", name: "Walls", colour: COLOURS[1] || "#2e8c7d", unit: "m", layer: "general", group: "general" },
+    { id: "cls-count-doors", kind: "count", name: "Doors", colour: COLOURS[2] || "#c45c26", unit: "nr", layer: "general", group: "general" },
     ...SERVICE_CLASS_DEFS.map(({ role: _role, ...cls }) => cls),
   ];
   const cold = classifications.find((cls) => cls.id === "cls-ai-P-PIPE-C");
@@ -680,6 +715,10 @@ export function ensureServiceClassifications(studio: StudioState): StudioState {
     if (!existing.layer && def.layer) {
       next = { ...next, layer: def.layer };
     }
+    // Backfill Draw-as group so older flat lists gain collapsible sections.
+    if (!existing.group && def.group) {
+      next = { ...next, group: def.group };
+    }
     // Migrate Blake's old green "cold" swatch to standard plumbing blue (only exact prior default).
     if (def.id === "cls-ai-P-PIPE-C" && existing.colour.toLowerCase() === "#1f8f5f") {
       next = { ...next, colour: def.colour };
@@ -700,6 +739,76 @@ export function ensurePipeRunClassifications(studio: StudioState): StudioState {
 
 export function classificationLayer(cls: StudioClassification): StudioServiceLayerId {
   return cls.layer || "general";
+}
+
+export function classificationGroup(cls: StudioClassification): StudioClassGroupId {
+  return cls.group || "general";
+}
+
+export type StudioClassificationGroupSection = {
+  /** Stable key for accordion open state (unique when Master / all mixes layers). */
+  key: string;
+  groupId: StudioClassGroupId;
+  label: string;
+  items: StudioClassification[];
+};
+
+/**
+ * Bucket Draw-as classifications into collapsible groups.
+ * When `scopeLayer` is "all", prefixes each section with the service layer label
+ * so Valves on Hot & cold stay separate from Radiators & valves on Heating.
+ */
+export function groupStudioClassifications(
+  classifications: StudioClassification[],
+  options?: {
+    scopeLayer?: StudioServiceLayerId | "all";
+    layerLabels?: Array<{ id: string; label: string }>;
+  },
+): StudioClassificationGroupSection[] {
+  const scopeLayer = options?.scopeLayer || "all";
+  const layerLabel = (layerId: string) =>
+    options?.layerLabels?.find((row) => row.id === layerId)?.label
+    || STUDIO_SERVICE_LAYERS.find((row) => row.id === layerId)?.label
+    || layerId;
+
+  const buckets = new Map<string, StudioClassificationGroupSection>();
+  for (const cls of classifications) {
+    const groupId = classificationGroup(cls);
+    const layerId = classificationLayer(cls);
+    const key = scopeLayer === "all" ? `${layerId}::${groupId}` : groupId;
+    const label =
+      scopeLayer === "all"
+        ? `${layerLabel(layerId)} · ${studioClassGroupLabel(groupId)}`
+        : studioClassGroupLabel(groupId);
+    const existing = buckets.get(key);
+    if (existing) {
+      existing.items.push(cls);
+    } else {
+      buckets.set(key, { key, groupId, label, items: [cls] });
+    }
+  }
+
+  const orderIndex = (groupId: StudioClassGroupId) => {
+    const idx = STUDIO_CLASS_GROUPS.findIndex((row) => row.id === groupId);
+    return idx >= 0 ? idx : STUDIO_CLASS_GROUPS.length;
+  };
+
+  return [...buckets.values()].sort((a, b) => {
+    if (scopeLayer === "all") {
+      const layerA = a.key.split("::")[0] || "";
+      const layerB = b.key.split("::")[0] || "";
+      if (layerA !== layerB) {
+        const layerOrder = STUDIO_SERVICE_LAYERS.map((row) => row.id);
+        const ai = layerOrder.indexOf(layerA as StudioBuiltinLayerId | "all");
+        const bi = layerOrder.indexOf(layerB as StudioBuiltinLayerId | "all");
+        const aRank = ai >= 0 ? ai : layerOrder.length;
+        const bRank = bi >= 0 ? bi : layerOrder.length;
+        if (aRank !== bRank) return aRank - bRank;
+        return layerA.localeCompare(layerB);
+      }
+    }
+    return orderIndex(a.groupId) - orderIndex(b.groupId);
+  });
 }
 
 export function setStudioActiveLayer(
