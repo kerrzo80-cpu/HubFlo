@@ -40031,6 +40031,22 @@ button.nexa-kpi-card,
   color: var(--subtle);
 }
 
+.tenders-boq-import-mode {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin: 0 0 10px;
+}
+
+.tenders-boq-import-mode label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+}
+
 .tenders-client-field {
   position: relative;
 }

@@ -109,3 +109,134 @@ export function detectHeaderIndex(rows: string[][], candidates: string[]) {
   }
   return -1;
 }
+
+/** Minimal BoQ line shape for spreadsheet export (avoids pulling server data helpers). */
+export type TenderBoqExportLine = {
+  kind: "header" | "measured" | "note";
+  ref?: string;
+  description: string;
+  quantity?: number | null;
+  unit?: string;
+  rate?: number | null;
+  value?: number | null;
+  note?: string;
+  sheet?: string;
+  section?: string;
+};
+
+const BOQ_EXPORT_HEADER = ["Ref", "Description", "Quantity", "Units", "Rate", "Value", "Note"];
+
+function cellNumber(value: number | null | undefined): string | number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "";
+  return value;
+}
+
+function sanitizeSheetName(name: string, used: Set<string>): string {
+  const cleaned = name.replace(/[\\/?*\[\]:]/g, " ").replace(/\s+/g, " ").trim().slice(0, 31) || "BoQ";
+  let candidate = cleaned;
+  let n = 2;
+  while (used.has(candidate.toLowerCase())) {
+    const suffix = ` (${n})`;
+    candidate = `${cleaned.slice(0, Math.max(1, 31 - suffix.length))}${suffix}`;
+    n += 1;
+  }
+  used.add(candidate.toLowerCase());
+  return candidate;
+}
+
+/** Flatten BoQ lines into spreadsheet rows (optional section echo for header rows). */
+export function tenderBoqLinesToRows(lines: TenderBoqExportLine[]): string[][] {
+  const rows: string[][] = [BOQ_EXPORT_HEADER.slice()];
+  for (const line of lines) {
+    if (line.kind === "header") {
+      rows.push(["", (line.section || line.description || "").trim(), "", "", "", "", ""]);
+      continue;
+    }
+    if (line.kind === "note") {
+      rows.push(["", line.description || "", "", "", "", "", line.note || ""]);
+      continue;
+    }
+    rows.push([
+      line.ref || "",
+      line.description || "",
+      String(cellNumber(line.quantity)),
+      line.unit || "",
+      String(cellNumber(line.rate)),
+      String(cellNumber(line.value)),
+      line.note || "",
+    ]);
+  }
+  return rows;
+}
+
+/**
+ * Build an .xlsx workbook from tender BoQ lines.
+ * - `sheetKey` set → one worksheet for that tab
+ * - otherwise → one worksheet per BoQ sheet tab (or a single “BoQ” sheet)
+ */
+export function buildTenderBoqXlsxBuffer(
+  lines: TenderBoqExportLine[],
+  options?: { sheetKey?: string | null; title?: string },
+): Buffer {
+  const workbook = XLSX.utils.book_new();
+  const usedNames = new Set<string>();
+  const sheetKey = options?.sheetKey?.trim() || null;
+
+  if (sheetKey) {
+    const filtered = lines.filter((line) => (line.sheet || "").trim() === sheetKey);
+    const rows = tenderBoqLinesToRows(filtered.length ? filtered : lines);
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet(rows),
+      sanitizeSheetName(sheetKey, usedNames),
+    );
+  } else {
+    const order: string[] = [];
+    const bySheet = new Map<string, TenderBoqExportLine[]>();
+    for (const line of lines) {
+      const key = line.sheet?.trim() || "";
+      if (!key) continue;
+      if (!bySheet.has(key)) {
+        bySheet.set(key, []);
+        order.push(key);
+      }
+      bySheet.get(key)!.push(line);
+    }
+
+    if (!order.length) {
+      const title = options?.title?.trim() || "BoQ";
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.aoa_to_sheet(tenderBoqLinesToRows(lines)),
+        sanitizeSheetName(title, usedNames),
+      );
+    } else {
+      // Include any unsheeted lines on a trailing tab so nothing is lost.
+      const orphan = lines.filter((line) => !(line.sheet || "").trim());
+      for (const key of order) {
+        XLSX.utils.book_append_sheet(
+          workbook,
+          XLSX.utils.aoa_to_sheet(tenderBoqLinesToRows(bySheet.get(key) || [])),
+          sanitizeSheetName(key, usedNames),
+        );
+      }
+      if (orphan.length) {
+        XLSX.utils.book_append_sheet(
+          workbook,
+          XLSX.utils.aoa_to_sheet(tenderBoqLinesToRows(orphan)),
+          sanitizeSheetName("Other", usedNames),
+        );
+      }
+    }
+  }
+
+  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+}
+
+export function tenderBoqExportFilename(name: string, sheetKey?: string | null) {
+  const safe = (name || "tender").replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "") || "tender";
+  const sheet = sheetKey?.trim()
+    ? `_${sheetKey.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "")}`
+    : "";
+  return `BoQ_${safe}${sheet}.xlsx`;
+}

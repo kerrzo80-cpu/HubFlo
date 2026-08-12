@@ -77,6 +77,9 @@ export async function POST(request: NextRequest) {
     linePatch?: Partial<TenderBoqLine>;
     boqText?: string;
     boqTitle?: string;
+    mode?: "replace" | "append" | "add";
+    boqImportMode?: "replace" | "append" | "add";
+    appendSheetLabel?: string;
     tenderSum?: number;
     status?: TenderStatus;
   }>(request);
@@ -122,8 +125,13 @@ export async function POST(request: NextRequest) {
       if (!body.id || !body.boqText) {
         return NextResponse.json({ error: "id and boqText required" }, { status: 400 });
       }
-      const tender = importBoqIntoTender(body.id, body.boqText, body.boqTitle);
-      return NextResponse.json({ tender, tenders: listTenders() });
+      const modeRaw = String(body.boqImportMode || body.mode || "replace").trim().toLowerCase();
+      const mode = modeRaw === "append" || modeRaw === "add" ? "append" : "replace";
+      const tender = importBoqIntoTender(body.id, body.boqText, body.boqTitle, {
+        mode,
+        appendSheetLabel: body.appendSheetLabel,
+      });
+      return NextResponse.json({ tender, tenders: listTenders(), mode });
     }
 
     if (body?.action === "clear-boq") {

@@ -84,21 +84,46 @@ export async function POST(request: NextRequest) {
     if (action === "import-boq") {
       const tenderId = String(formData.get("tenderId") || "").trim();
       if (!tenderId) return NextResponse.json({ error: "tenderId required" }, { status: 400 });
+      const modeRaw = String(formData.get("mode") || formData.get("boqImportMode") || "replace")
+        .trim()
+        .toLowerCase();
+      const mode = modeRaw === "append" || modeRaw === "add" ? "append" : "replace";
+      const appendSheetLabel =
+        String(formData.get("appendSheetLabel") || "").trim() ||
+        (file.name ? file.name.replace(/\.[^.]+$/, "").trim() : "") ||
+        undefined;
+      const importOptions = { mode, appendSheetLabel } as const;
       let tender;
       if (name.endsWith(".csv") || name.endsWith(".tsv") || name.endsWith(".txt")) {
         // Quote-aware parse keeps multi-line wording intact.
-        tender = importBoqIntoTender(tenderId, bytes.toString("utf8"));
+        tender = importBoqIntoTender(tenderId, bytes.toString("utf8"), undefined, importOptions);
       } else if (name.endsWith(".pdf") || file.type === "application/pdf") {
         // Text-based PDF → one sheet tab per page → same parse path as Excel.
         tender = importBoqWorkbookIntoTender(
           tenderId,
           await workbookBoqSheetsFromPdfBuffer(bytes, file.name || "boq.pdf"),
+          undefined,
+          importOptions,
         );
       } else {
         // One BoQ sheet tab per Excel worksheet — full cell text, all pages.
-        tender = importBoqWorkbookIntoTender(tenderId, workbookBoqSheetsFromBuffer(bytes));
+        tender = importBoqWorkbookIntoTender(
+          tenderId,
+          workbookBoqSheetsFromBuffer(bytes),
+          undefined,
+          importOptions,
+        );
       }
-      return NextResponse.json({ tender, tenders: listTenders() });
+      const added = tender.boqLines.length;
+      return NextResponse.json({
+        tender,
+        tenders: listTenders(),
+        mode,
+        message:
+          mode === "append"
+            ? `Added lines to BoQ (${added} total line${added === 1 ? "" : "s"}).`
+            : `BoQ replaced (${added} line${added === 1 ? "" : "s"}).`,
+      });
     }
 
     if (action === "upload-document") {

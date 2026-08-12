@@ -760,29 +760,148 @@ export function parseBoqFromWorkbookSheets(
   return { title: resolvedTitle, lines };
 }
 
-function applyBoqImport(id: string, parsed: { title: string; lines: TenderBoqLine[] }) {
+/** How a BoQ file/paste lands on an existing tender bill. */
+export type BoqImportMode = "replace" | "append";
+
+export type BoqImportOptions = {
+  mode?: BoqImportMode;
+  /** Optional label when appending lines that have no workbook sheet tab yet. */
+  appendSheetLabel?: string;
+};
+
+function nextUniqueBoqSheetName(base: string, used: Set<string>): string {
+  const trimmed = base.trim() || "Additional items";
+  if (!used.has(trimmed)) {
+    used.add(trimmed);
+    return trimmed;
+  }
+  let n = 2;
+  while (used.has(`${trimmed} (${n})`)) n += 1;
+  const next = `${trimmed} (${n})`;
+  used.add(next);
+  return next;
+}
+
+/**
+ * Append imported lines onto an existing BoQ without wiping priced work.
+ * New sheets keep distinct tab names; unsheeted imports become “Additional items”.
+ */
+export function mergeBoqImportLines(
+  existing: TenderBoqLine[],
+  incoming: TenderBoqLine[],
+  options?: { appendSheetLabel?: string },
+): TenderBoqLine[] {
+  if (!incoming.length) return existing.slice();
+  if (!existing.length) return incoming.slice();
+
+  const used = new Set<string>();
+  const existingHasSheets = existing.some((line) => Boolean(line.sheet?.trim()));
+  const incomingHasSheets = incoming.some((line) => Boolean(line.sheet?.trim()));
+  let base = existing;
+
+  // Sheet tabs hide unsheeted rows — stamp a home tab before introducing new sheets.
+  if (incomingHasSheets && !existingHasSheets) {
+    const home = nextUniqueBoqSheetName("Issued BoQ", used);
+    base = existing.map((line) => ({
+      ...line,
+      sheet: home,
+      section: line.section || home,
+    }));
+  } else {
+    for (const line of existing) {
+      const sheet = line.sheet?.trim();
+      if (sheet) used.add(sheet);
+    }
+  }
+
+  const rename = new Map<string, string>();
+  for (const line of incoming) {
+    const key = line.sheet?.trim();
+    if (!key || rename.has(key)) continue;
+    rename.set(key, nextUniqueBoqSheetName(key, used));
+  }
+
+  const fallbackLabel = options?.appendSheetLabel?.trim() || "Additional items";
+  // Prefer a dedicated tab for unsheeted imports when the bill already uses sheet tabs
+  // (or will after we stamped “Issued BoQ” above).
+  const baseHasSheets = base.some((line) => Boolean(line.sheet?.trim()));
+  const fallbackSheet =
+    !incomingHasSheets && baseHasSheets ? nextUniqueBoqSheetName(fallbackLabel, used) : null;
+
+  const appended = incoming.map((line) => {
+    const key = line.sheet?.trim();
+    if (key) {
+      const sheet = rename.get(key) || key;
+      const echoesSheet =
+        line.kind === "header" &&
+        ((line.section || "").trim() === key || (line.description || "").trim() === key);
+      return {
+        ...line,
+        sheet,
+        section: echoesSheet ? sheet : line.section || sheet,
+        description: echoesSheet ? sheet : line.description,
+      };
+    }
+    if (fallbackSheet) {
+      return {
+        ...line,
+        sheet: fallbackSheet,
+        section: line.section || fallbackSheet,
+      };
+    }
+    return line;
+  });
+
+  return [...base, ...appended];
+}
+
+function applyBoqImport(
+  id: string,
+  parsed: { title: string; lines: TenderBoqLine[] },
+  options?: BoqImportOptions,
+) {
   const existing = getTender(id);
   if (!existing) throw new Error("Tender not found.");
-  const boqTotal = computeBoqTotal(parsed.lines);
+  const mode: BoqImportMode = options?.mode === "append" ? "append" : "replace";
+  const boqLines =
+    mode === "append"
+      ? mergeBoqImportLines(existing.boqLines, parsed.lines, {
+          appendSheetLabel: options?.appendSheetLabel,
+        })
+      : parsed.lines;
+  const boqTotal = computeBoqTotal(boqLines);
   return updateTender(id, {
-    boqTitle: parsed.title || existing.boqTitle,
-    boqLines: parsed.lines,
+    boqTitle:
+      mode === "append"
+        ? existing.boqTitle || parsed.title || existing.boqTitle
+        : parsed.title || existing.boqTitle,
+    boqLines,
     bidValue: boqTotal || existing.bidValue,
     tenderSum: existing.tenderSum && existing.tenderSum > 0 ? existing.tenderSum : boqTotal,
     status: existing.status === "Not Started" ? "In Progress" : existing.status,
   });
 }
 
-export function importBoqIntoTender(id: string, raw: string, title?: string) {
-  return applyBoqImport(id, parseBoqDelimitedText(raw, title));
+export function importBoqIntoTender(id: string, raw: string, title?: string, options?: BoqImportOptions) {
+  return applyBoqImport(id, parseBoqDelimitedText(raw, title), options);
 }
 
-export function importBoqRowsIntoTender(id: string, rows: string[][], title?: string) {
-  return applyBoqImport(id, parseBoqFromRows(rows, title));
+export function importBoqRowsIntoTender(
+  id: string,
+  rows: string[][],
+  title?: string,
+  options?: BoqImportOptions,
+) {
+  return applyBoqImport(id, parseBoqFromRows(rows, title), options);
 }
 
-export function importBoqWorkbookIntoTender(id: string, sheets: WorkbookSheetRows[], title?: string) {
-  return applyBoqImport(id, parseBoqFromWorkbookSheets(sheets, title));
+export function importBoqWorkbookIntoTender(
+  id: string,
+  sheets: WorkbookSheetRows[],
+  title?: string,
+  options?: BoqImportOptions,
+) {
+  return applyBoqImport(id, parseBoqFromWorkbookSheets(sheets, title), options);
 }
 
 /** Wipe imported BoQ lines so the office can start a fresh import. Does not touch document uploads. */

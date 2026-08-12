@@ -149,6 +149,8 @@ export function TendersPanel({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [tab, setTab] = useState<TabKey>("overview");
   const [boqImportText, setBoqImportText] = useState("");
+  /** When lines already exist, default to appending supplier/extra items rather than wiping the bill. */
+  const [boqImportMode, setBoqImportMode] = useState<"append" | "replace">("append");
   const [qualificationDraft, setQualificationDraft] = useState("");
   const [clientSuggestionsOpen, setClientSuggestionsOpen] = useState(false);
   const [blakeBudgetBusy, setBlakeBudgetBusy] = useState(false);
@@ -196,6 +198,7 @@ export function TendersPanel({
   useEffect(() => {
     setBoqBlakeLineIds([]);
     setBoqSheetTab(null);
+    setBoqImportMode("append");
   }, [selectedId]);
 
   useEffect(() => {
@@ -473,8 +476,13 @@ export function TendersPanel({
   function confirmReplaceBoq(lineCount: number) {
     if (!lineCount) return true;
     return window.confirm(
-      `Replace the existing BoQ (${lineCount} line${lineCount === 1 ? "" : "s"}) with this import? Pricing on the old lines will be lost.`,
+      `Replace the existing BoQ (${lineCount} line${lineCount === 1 ? "" : "s"}) with this import?\n\nPricing on the old lines will be lost. Choose “Add to BoQ” if you only want to append supplier / extra items.`,
     );
+  }
+
+  function effectiveBoqImportMode(lineCount: number): "append" | "replace" {
+    if (!lineCount) return "replace";
+    return boqImportMode;
   }
 
   async function openOrCreateTakeoff(createNew = false) {
@@ -562,17 +570,24 @@ export function TendersPanel({
 
   async function importBoq() {
     if (!selected || !boqImportText.trim()) return;
-    if (!confirmReplaceBoq(selected.boqLines.length)) return;
+    const mode = effectiveBoqImportMode(selected.boqLines.length);
+    if (mode === "replace" && !confirmReplaceBoq(selected.boqLines.length)) return;
     try {
       await postAction({
         action: "import-boq",
         id: selected.id,
         boqText: boqImportText,
+        mode,
+        appendSheetLabel: "Additional items",
       });
       setBoqImportText("");
       setBoqBlakeLineIds([]);
       setTab("boq");
-      onNotice("BoQ imported — all issued lines kept; blank rates stay unpriced (not free).");
+      onNotice(
+        mode === "append"
+          ? "BoQ lines added — existing priced work kept."
+          : "BoQ replaced — all issued lines kept; blank rates stay unpriced (not free).",
+      );
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "Unable to import BoQ");
     }
@@ -600,6 +615,7 @@ export function TendersPanel({
         tender?: Tender;
         created?: number;
         updated?: number;
+        mode?: string;
       };
       if (!response.ok) throw new Error(payload.error || "Upload failed");
       if (Array.isArray(payload.tenders)) setTenders(payload.tenders);
@@ -618,7 +634,9 @@ export function TendersPanel({
       onNotice(
         payload.message ||
           (action === "import-boq"
-            ? "BoQ spreadsheet imported."
+            ? payload.mode === "append"
+              ? "BoQ lines added."
+              : "BoQ spreadsheet imported."
             : action === "import-tracker"
               ? `Tracker imported (${payload.created ?? 0} new, ${payload.updated ?? 0} updated).`
               : "Document uploaded."),
@@ -633,19 +651,55 @@ export function TendersPanel({
 
   async function onBoqFile(file: File | null) {
     if (!file || !selected) return;
-    if (!confirmReplaceBoq(selected.boqLines.length)) return;
+    const mode = effectiveBoqImportMode(selected.boqLines.length);
+    if (mode === "replace" && !confirmReplaceBoq(selected.boqLines.length)) return;
     const name = file.name.toLowerCase();
+    const appendSheetLabel = file.name.replace(/\.[^.]+$/, "").trim() || "Additional items";
     if (
       name.endsWith(".xlsx") ||
       name.endsWith(".xls") ||
       name.endsWith(".pdf") ||
       file.type === "application/pdf"
     ) {
-      await uploadImportFile("import-boq", file, { tenderId: selected.id });
+      await uploadImportFile("import-boq", file, {
+        tenderId: selected.id,
+        mode,
+        appendSheetLabel,
+      });
       return;
     }
     const text = await file.text();
     setBoqImportText(text);
+  }
+
+  async function downloadBoqSpreadsheet(scope: "all" | "active", format: "xlsx" | "csv" = "xlsx") {
+    if (!selected || !selected.boqLines.length) return;
+    const params = new URLSearchParams({ format, scope });
+    if (scope === "active" && activeBoqSheet) params.set("sheet", activeBoqSheet);
+    const response = await fetch(`/api/tenders/${selected.id}/boq-export?${params}`, {
+      headers: requestHeaders,
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      onNotice(payload.error || "Unable to export BoQ spreadsheet.");
+      return;
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const matched = /filename="([^"]+)"/i.exec(disposition);
+    anchor.href = url;
+    anchor.download =
+      matched?.[1] ||
+      `BoQ_${selected.name.replace(/[^a-z0-9]+/gi, "_")}.${format === "csv" ? "csv" : "xlsx"}`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    onNotice(
+      scope === "active"
+        ? `Exported active sheet${activeBoqSheet ? ` (${activeBoqSheet})` : ""} as ${format.toUpperCase()}.`
+        : `Exported full BoQ as ${format.toUpperCase()}.`,
+    );
   }
 
   async function patchBoqLine(lineId: string, linePatch: Partial<TenderBoqLine>) {
@@ -1243,6 +1297,9 @@ export function TendersPanel({
                   Price on their refs (e.g. 8/1/A). Excel sheets appear as workbook tabs below. Full bill wording is kept — leave Rate blank if not priced so they can see it was not priced (do not put £0 / NIL).
                 </p>
                 <p className="tenders-boq-blake-note">
+                  Supplier priced PDF/Excel as extra lines: keep Add to BoQ (default when lines exist), then drop the file below — it appends a new sheet tab. Documents → Supplier quotes only stores the file; it does not pull lines into the bill.
+                </p>
+                <p className="tenders-boq-blake-note">
                   Tick measured lines (or a whole sheet/section header) then run Blake. Only ticked lines are budget-priced — use that to price Heating / Electrical packs separately. Library first, then UK trade ballpark for gaps. Guide rates only; unsure lines stay blank.
                 </p>
                 <div className="tenders-boq-blake-actions">
@@ -1293,6 +1350,39 @@ export function TendersPanel({
                     type="button"
                     className="secondary-button"
                     disabled={saving || blakeBudgetBusy || !selected.boqLines.length}
+                    onClick={() => void downloadBoqSpreadsheet("all", "xlsx")}
+                    title="Download the full BoQ as Excel (all sheet tabs)"
+                  >
+                    <Download size={15} />
+                    Export Excel
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={saving || blakeBudgetBusy || !selected.boqLines.length}
+                    onClick={() => void downloadBoqSpreadsheet(boqSheetTabs.length ? "active" : "all", "xlsx")}
+                    title={
+                      boqSheetTabs.length
+                        ? `Download only the active sheet (${activeBoqSheet || "current"}) as Excel`
+                        : "Download BoQ as Excel"
+                    }
+                  >
+                    <FileSpreadsheet size={15} />
+                    {boqSheetTabs.length ? "Export sheet" : "Export"}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={saving || blakeBudgetBusy || !selected.boqLines.length}
+                    onClick={() => void downloadBoqSpreadsheet(boqSheetTabs.length ? "active" : "all", "csv")}
+                    title="Download as CSV"
+                  >
+                    Export CSV
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={saving || blakeBudgetBusy || !selected.boqLines.length}
                     onClick={() => void clearBoq()}
                     title="Remove imported lines so you can re-import a replacement BoQ"
                   >
@@ -1338,17 +1428,47 @@ export function TendersPanel({
                   placeholder={`Plumbing e-Enquiry [...]\nRef,Description,Quantity,Units,Rate,Value\n8/1/A,Doc M Toilet Pack,1,nr,1836,1836`}
                 />
               </label>
+              {selected.boqLines.length ? (
+                <div className="tenders-inline-add tenders-boq-import-mode" role="group" aria-label="BoQ import mode">
+                  <label>
+                    <input
+                      type="radio"
+                      name="boq-import-mode"
+                      checked={boqImportMode === "append"}
+                      onChange={() => setBoqImportMode("append")}
+                    />
+                    Add to BoQ (keep existing {selected.boqLines.length} lines)
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="boq-import-mode"
+                      checked={boqImportMode === "replace"}
+                      onChange={() => setBoqImportMode("replace")}
+                    />
+                    Replace BoQ (wipe current lines)
+                  </label>
+                </div>
+              ) : null}
               <div className="tenders-inline-add">
                 <FileDropZone
                   accept=".xlsx,.xls,.csv,.tsv,.txt,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
                   label="Drop BoQ spreadsheet or PDF here or click to browse"
-                  hint=".xlsx / .xls · .pdf (text BoQ) · .csv"
+                  hint={
+                    selected.boqLines.length && boqImportMode === "append"
+                      ? ".xlsx / .xls · supplier priced .pdf · .csv — adds as extra sheet tabs"
+                      : ".xlsx / .xls · .pdf (text BoQ) · .csv"
+                  }
                   disabled={saving}
                   onFiles={(files) => void onBoqFile(files[0] ?? null)}
                 />
                 <button type="button" className="primary-button" disabled={saving || !boqImportText.trim()} onClick={() => void importBoq()}>
                   <FileSpreadsheet size={15} />
-                  {selected.boqLines.length ? "Replace with pasted BoQ" : "Import pasted BoQ"}
+                  {!selected.boqLines.length
+                    ? "Import pasted BoQ"
+                    : boqImportMode === "append"
+                      ? "Add pasted BoQ"
+                      : "Replace with pasted BoQ"}
                 </button>
               </div>
             </div>
@@ -1745,7 +1865,7 @@ export function TendersPanel({
               <span className="permission-heading">Return pack</span>
               <h3>What goes back to the main contractor</h3>
               <ol>
-                <li>Priced BoQ on <em>their</em> spreadsheet structure (export/CSV you imported and priced).</li>
+                <li>Priced BoQ on <em>their</em> spreadsheet structure (use Export Excel / CSV on the BoQ tab after pricing).</li>
                 <li>Form of Tender PDF (NeXa generated from this record).</li>
                 <li>Optional covering note with qualifications already on the FoT appendix.</li>
               </ol>
