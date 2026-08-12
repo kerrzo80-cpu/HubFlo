@@ -7,9 +7,16 @@ import {
   deleteTakeoffProject,
   getTakeoffProject,
   updateTakeoffProject,
+  type TakeoffDocument,
   type TakeoffProject,
 } from "@/lib/takeoff-data";
+import {
+  mergeStudioStatesConcurrent,
+  mergeTakeoffDocumentsUnion,
+  type TakeoffConcurrentMergeMeta,
+} from "@/lib/takeoff-studio-concurrent-merge";
 import { takeoffStudioSaveConflicts } from "@/lib/takeoff-studio-save-conflict";
+import type { StudioState } from "@/lib/takeoff-studio";
 import {
   getTender,
   linkTakeoffToTender,
@@ -17,6 +24,20 @@ import {
   restoreTenderSourcedDrawingsToTakeoff,
   copyTenderDrawingsToTakeoff,
 } from "@/lib/tenders-data";
+
+type TakeoffPatchBody = Partial<TakeoffProject> & {
+  expectedUpdatedAt?: string;
+  /** Drawings this client changed since last sync — drives per-drawing merge. */
+  touchedDocumentIds?: string[];
+};
+
+function withConcurrentMergeMeta(
+  project: TakeoffProject,
+  meta: TakeoffConcurrentMergeMeta | undefined,
+) {
+  if (!meta) return project;
+  return { ...project, concurrentMerge: meta };
+}
 
 export async function GET(
   request: NextRequest,
@@ -51,7 +72,7 @@ export async function PATCH(
     );
   }
 
-  const body = await parseJsonRequestBody<Partial<TakeoffProject> & { expectedUpdatedAt?: string }>(request);
+  const body = await parseJsonRequestBody<TakeoffPatchBody>(request);
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
@@ -59,22 +80,54 @@ export async function PATCH(
   const { id } = await params;
   const previous = getTakeoffProject(id);
 
-  // Optional optimistic concurrency: same project open in two browsers must not silently clobber.
+  // Stale project token: merge per-drawing instead of whole-blob last-write-wins.
   const expectedUpdatedAt = typeof body.expectedUpdatedAt === "string" ? body.expectedUpdatedAt : undefined;
-  if (takeoffStudioSaveConflicts(previous?.updatedAt, expectedUpdatedAt)) {
-    return NextResponse.json(
-      {
-        error:
-          "Someone else saved this takeoff. Reload to see their changes, then continue — your marks are still in this browser's autosave.",
-        code: "conflict",
-        serverUpdatedAt: previous?.updatedAt,
-      },
-      { status: 409 },
-    );
-  }
+  const stale = takeoffStudioSaveConflicts(previous?.updatedAt, expectedUpdatedAt);
+  let concurrentMergeMeta: TakeoffConcurrentMergeMeta | undefined;
 
   const patch: Partial<TakeoffProject> = { ...body };
   delete (patch as { expectedUpdatedAt?: string }).expectedUpdatedAt;
+  delete (patch as { touchedDocumentIds?: string[] }).touchedDocumentIds;
+
+  if (stale) {
+    const incomingStudio = body.studio;
+    const canMergeStudio = Boolean(previous && incomingStudio && typeof incomingStudio === "object");
+    if (!canMergeStudio) {
+      return NextResponse.json(
+        {
+          error:
+            "Someone else saved this takeoff. Reload to see their changes, then continue — your marks are still in this browser's autosave.",
+          code: "conflict",
+          serverUpdatedAt: previous?.updatedAt,
+        },
+        { status: 409 },
+      );
+    }
+
+    const touchedRaw = body.touchedDocumentIds;
+    const touchedDocumentIds = Array.isArray(touchedRaw)
+      ? touchedRaw.filter((value): value is string => typeof value === "string" && value.length > 0)
+      : [];
+
+    const serverStudio = (previous!.studio || incomingStudio) as StudioState;
+    const merged = mergeStudioStatesConcurrent({
+      server: serverStudio,
+      incoming: incomingStudio as StudioState,
+      touchedDocumentIds,
+    });
+    patch.studio = merged.studio;
+    concurrentMergeMeta = {
+      adoptedFromServer: merged.adoptedFromServer,
+      overwrittenDocumentIds: merged.overwrittenDocumentIds,
+    };
+
+    if (Array.isArray(body.documents)) {
+      patch.documents = mergeTakeoffDocumentsUnion(
+        previous!.documents || [],
+        body.documents as TakeoffDocument[],
+      );
+    }
+  }
   if (body.sourceTenderId !== undefined) {
     const tenderId = body.sourceTenderId || undefined;
     if (tenderId) {
@@ -137,11 +190,11 @@ export async function PATCH(
       if (tender) {
         const synced = copyTenderDrawingsToTakeoff(tender, updated.id);
         if (synced.takeoff) {
-          return NextResponse.json(synced.takeoff);
+          return NextResponse.json(withConcurrentMergeMeta(synced.takeoff, concurrentMergeMeta));
         }
       }
     } else if (previousTenderId !== nextTenderId) {
-      return NextResponse.json(updated);
+      return NextResponse.json(withConcurrentMergeMeta(updated, concurrentMergeMeta));
     }
   }
 
@@ -167,7 +220,7 @@ export async function PATCH(
     }
   }
 
-  return NextResponse.json(updated);
+  return NextResponse.json(withConcurrentMergeMeta(updated, concurrentMergeMeta));
 }
 
 export async function DELETE(

@@ -30,6 +30,11 @@ import {
   writeTakeoffStudioLocalDraft,
 } from "@/lib/takeoff-studio-local-draft";
 import {
+  documentIdsTouchedSinceBase,
+  softRefreshStudioFromServer,
+  type TakeoffConcurrentMergeMeta,
+} from "@/lib/takeoff-studio-concurrent-merge";
+import {
   classificationGroup,
   classificationLayer,
   createDefaultStudioState,
@@ -214,6 +219,8 @@ export default function TakeoffStudioPage() {
   } | null>(null);
   /** Server `updatedAt` we last successfully loaded/saved — used to detect another user saving the same project. */
   const baseUpdatedAtRef = useRef<string | null>(null);
+  /** Studio snapshot at last successful sync — used to compute which drawings we actually edited. */
+  const baseStudioRef = useRef<StudioState | null>(null);
   const historyRef = useRef<StudioState[]>([]);
   const futureRef = useRef<StudioState[]>([]);
   const [historyTick, setHistoryTick] = useState(0);
@@ -431,6 +438,7 @@ export default function TakeoffStudioPage() {
     seededServicesRef.current = null;
     pendingSaveRef.current = null;
     baseUpdatedAtRef.current = null;
+    baseStudioRef.current = null;
     // Mark mode: Linked + Drawings + Draw as open; More stays collapsible.
     setRailAccordions((prev) => ({
       ...prev,
@@ -443,9 +451,12 @@ export default function TakeoffStudioPage() {
 
   useEffect(() => {
     if (!selected) return;
-    // Seed concurrency token once per open (don't chase every optimistic local updatedAt).
+    // Seed concurrency token / studio baseline once per open (don't chase every optimistic local updatedAt).
     if (baseUpdatedAtRef.current === null && selected.updatedAt) {
       baseUpdatedAtRef.current = selected.updatedAt;
+    }
+    if (baseStudioRef.current === null && selected.studio) {
+      baseStudioRef.current = selected.studio;
     }
   }, [selected]);
 
@@ -612,7 +623,7 @@ export default function TakeoffStudioPage() {
         return "Your login cannot save Takeoffs. Sign in with an Office account, or ask an admin for quote-create permission.";
       }
       if (response.status === 409) {
-        return "Someone else saved this takeoff. Reload to see their changes — your marks are still in this browser's autosave.";
+        return "Someone else saved this takeoff on the same drawing. Reload that sheet to see their marks — your work stays in this browser's autosave.";
       }
       if (response.status === 413 || response.status === 400) {
         return `Could not save studio takeoff (${response.status}) — payload may be too large or invalid. Try again; if it keeps failing, reduce drawings or reload.`;
@@ -628,6 +639,7 @@ export default function TakeoffStudioPage() {
         while (pendingSaveRef.current) {
           const job = pendingSaveRef.current;
           pendingSaveRef.current = null;
+          const touchedDocumentIds = documentIdsTouchedSinceBase(baseStudioRef.current, job.studio);
           try {
             const response = await apiFetch(`/api/takeoff-projects/${job.projectId}`, {
               method: "PATCH",
@@ -635,6 +647,7 @@ export default function TakeoffStudioPage() {
               body: JSON.stringify({
                 studio: job.studio,
                 ...job.extras,
+                touchedDocumentIds,
                 ...(baseUpdatedAtRef.current ? { expectedUpdatedAt: baseUpdatedAtRef.current } : {}),
               }),
             });
@@ -645,16 +658,48 @@ export default function TakeoffStudioPage() {
               pendingSaveRef.current = null;
               return null;
             }
-            const project = (await response.json()) as TakeoffProject;
-            const merged = { ...project, studio: project.studio ?? job.studio };
+            const payload = (await response.json()) as TakeoffProject & {
+              concurrentMerge?: TakeoffConcurrentMergeMeta;
+            };
+            const { concurrentMerge, ...projectFields } = payload;
+            const project = projectFields as TakeoffProject;
+            const serverStudio = project.studio ?? job.studio;
+
+            // If the user kept marking while this request flew, protect those drawings and
+            // pull teammates' other sheets from the merged server copy.
+            const pendingNewer = pendingSaveRef.current;
+            const protectIds = [
+              ...touchedDocumentIds,
+              ...(job.studio.activeDocumentId ? [job.studio.activeDocumentId] : []),
+              ...(pendingNewer?.studio.activeDocumentId ? [pendingNewer.studio.activeDocumentId] : []),
+            ];
+            const localForRefresh = pendingNewer?.studio || job.studio;
+            const soft = softRefreshStudioFromServer({
+              local: localForRefresh,
+              server: serverStudio,
+              protectDocumentIds: protectIds,
+            });
+
+            if (pendingNewer && pendingNewer.projectId === job.projectId) {
+              pendingSaveRef.current = { ...pendingNewer, studio: soft.studio };
+            }
+
+            const merged: TakeoffProject = {
+              ...project,
+              studio: soft.studio,
+            };
             upsert(merged);
             writeTakeoffStudioLocalDraft(job.projectId, merged.studio || job.studio, {
               sourceTenderId: merged.sourceTenderId,
             });
             if (merged.updatedAt) baseUpdatedAtRef.current = merged.updatedAt;
+            baseStudioRef.current = merged.studio || serverStudio;
             setSavedAt(new Date().toISOString());
             setSaveState("saved");
             setError(null);
+            if (concurrentMerge?.adoptedFromServer?.length || soft.refreshedDocumentIds.length) {
+              show("Updated from server — teammate marks on other drawings kept", 4500);
+            }
             lastMerged = merged;
           } catch (err) {
             setSaveState("error");
@@ -810,11 +855,9 @@ export default function TakeoffStudioPage() {
         updatedAt: new Date().toISOString(),
       };
       upsert({ ...project, studio: nextStudio });
-      await apiFetch(`/api/takeoff-projects/${selected.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studio: nextStudio }),
-      });
+      if (project.updatedAt) baseUpdatedAtRef.current = project.updatedAt;
+      baseStudioRef.current = project.studio ?? nextStudio;
+      await persistStudio(nextStudio, {}, { skipHistory: true, immediate: true });
       show(`Uploaded ${files.length} drawing(s)`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
