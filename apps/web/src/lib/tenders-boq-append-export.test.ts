@@ -3,11 +3,17 @@ import { describe, it } from "node:test";
 
 import { writeServerStore } from "@/lib/server-store";
 import {
+  addBoqMeasuredLine,
+  addBoqSheetTab,
+  deleteBoqLines,
+  deleteBoqSheetTab,
   importBoqIntoTender,
   importBoqWorkbookIntoTender,
   mergeBoqImportLines,
+  renameBoqSheetTab,
   upsertTender,
 } from "@/lib/tenders-data";
+import { listBoqSheetTabs } from "@/lib/tender-boq-sections";
 import { buildTenderBoqXlsxBuffer, tenderBoqLinesToRows } from "@/lib/tenders-xlsx";
 import type { TenderBoqLine } from "@/lib/tenders-types";
 
@@ -181,5 +187,61 @@ describe("tender BoQ append / export", () => {
 
     const activeOnly = buildTenderBoqXlsxBuffer(lines, { sheetKey: "Supplier" });
     assert.ok(activeOnly.length > 50);
+  });
+
+  it("adds, renames, and removes sheet tabs plus manual lines", () => {
+    writeServerStore("tenders.json", { tenders: [] });
+    const tender = upsertTender({
+      id: "tender-boq-edit",
+      name: "Edit BoQ test",
+      client: "Test Client",
+      category: "Plumbing",
+      area: "Aberdeen",
+      status: "In Progress",
+      boqLines: [
+        {
+          id: "keep",
+          kind: "measured",
+          ref: "1/A",
+          description: "Basin",
+          quantity: 1,
+          unit: "nr",
+          rate: 50,
+          value: 50,
+        },
+      ],
+    });
+
+    const withSheet = addBoqSheetTab(tender.id, "Supplier quote");
+    assert.equal(withSheet.sheetKey, "Supplier quote");
+    const tabsAfterAdd = listBoqSheetTabs(withSheet.tender.boqLines);
+    assert.ok(tabsAfterAdd.some((tab) => tab.key === "Issued BoQ"));
+    assert.ok(tabsAfterAdd.some((tab) => tab.key === "Supplier quote"));
+
+    const withLine = addBoqMeasuredLine(tender.id, {
+      sheet: "Supplier quote",
+      ref: "SQ-1",
+      description: "Valve",
+      quantity: 2,
+      unit: "nr",
+    });
+    const added = withLine.boqLines.find((line) => line.ref === "SQ-1");
+    assert.ok(added);
+    assert.equal(added?.sheet, "Supplier quote");
+
+    const renamed = renameBoqSheetTab(tender.id, "Supplier quote", "Heating pack");
+    assert.equal(renamed.sheetKey, "Heating pack");
+    assert.ok(renamed.tender.boqLines.every((line) => line.sheet !== "Supplier quote"));
+    assert.ok(renamed.tender.boqLines.some((line) => line.ref === "SQ-1" && line.sheet === "Heating pack"));
+
+    const afterDeleteLine = deleteBoqLines(tender.id, [added!.id]);
+    assert.equal(afterDeleteLine.boqLines.some((line) => line.ref === "SQ-1"), false);
+
+    const clearedSheet = deleteBoqSheetTab(tender.id, "Heating pack");
+    assert.equal(
+      listBoqSheetTabs(clearedSheet.boqLines).some((tab) => tab.key === "Heating pack"),
+      false,
+    );
+    assert.ok(clearedSheet.boqLines.some((line) => line.id === "keep"));
   });
 });

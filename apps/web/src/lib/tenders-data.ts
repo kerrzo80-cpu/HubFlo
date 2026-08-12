@@ -916,6 +916,144 @@ export function clearBoqFromTender(id: string) {
   });
 }
 
+function usedBoqSheetNames(lines: TenderBoqLine[]): Set<string> {
+  const used = new Set<string>();
+  for (const line of lines) {
+    const sheet = line.sheet?.trim();
+    if (sheet) used.add(sheet);
+  }
+  return used;
+}
+
+function stampUnsheetedLines(lines: TenderBoqLine[], homeLabel: string): TenderBoqLine[] {
+  const used = usedBoqSheetNames(lines);
+  if (lines.some((line) => Boolean(line.sheet?.trim()))) return lines;
+  if (!lines.length) return lines;
+  const home = nextUniqueBoqSheetName(homeLabel, used);
+  return lines.map((line) => ({
+    ...line,
+    sheet: home,
+    section: line.section || home,
+  }));
+}
+
+function persistBoqLines(tenderId: string, boqLines: TenderBoqLine[]) {
+  const boqTotal = computeBoqTotal(boqLines);
+  return updateTender(tenderId, {
+    boqLines,
+    bidValue: boqTotal,
+  });
+}
+
+/** Append a blank measured line on a sheet (or the end of an unsheeted bill). */
+export function addBoqMeasuredLine(
+  tenderId: string,
+  options?: {
+    sheet?: string | null;
+    ref?: string;
+    description?: string;
+    quantity?: number | null;
+    unit?: string;
+  },
+) {
+  const existing = getTender(tenderId);
+  if (!existing) throw new Error("Tender not found.");
+
+  const sheetKey = options?.sheet?.trim() || "";
+  const line: TenderBoqLine = {
+    id: uid("boq"),
+    kind: "measured",
+    ref: options?.ref?.trim() || undefined,
+    description: options?.description?.trim() || "New item",
+    quantity: options?.quantity === undefined ? 1 : options.quantity,
+    unit: options?.unit?.trim() || "nr",
+    rate: null,
+    value: null,
+    sheet: sheetKey || undefined,
+    section: sheetKey || undefined,
+  };
+
+  return persistBoqLines(tenderId, [...existing.boqLines, line]);
+}
+
+/** Remove one or more BoQ lines by id (headers, notes, measured). */
+export function deleteBoqLines(tenderId: string, lineIds: string[]) {
+  const existing = getTender(tenderId);
+  if (!existing) throw new Error("Tender not found.");
+  const remove = new Set(lineIds.filter(Boolean));
+  if (!remove.size) throw new Error("No BoQ lines selected to delete.");
+  const boqLines = existing.boqLines.filter((line) => !remove.has(line.id));
+  return persistBoqLines(tenderId, boqLines);
+}
+
+/**
+ * Add an empty workbook sheet tab (echo header so the tab appears).
+ * Unsheeted existing lines are stamped onto “Issued BoQ” first when introducing tabs.
+ */
+export function addBoqSheetTab(tenderId: string, name?: string) {
+  const existing = getTender(tenderId);
+  if (!existing) throw new Error("Tender not found.");
+
+  let base = stampUnsheetedLines(existing.boqLines, "Issued BoQ");
+  const used = usedBoqSheetNames(base);
+  const sheet = nextUniqueBoqSheetName(name?.trim() || "Sheet", used);
+  const header: TenderBoqLine = {
+    id: uid("boq"),
+    kind: "header",
+    description: sheet,
+    sheet,
+    section: sheet,
+  };
+  const tender = persistBoqLines(tenderId, [...base, header]);
+  return { tender, sheetKey: sheet };
+}
+
+/** Rename a workbook sheet tab across all lines on that sheet. */
+export function renameBoqSheetTab(tenderId: string, fromKey: string, toName: string) {
+  const existing = getTender(tenderId);
+  if (!existing) throw new Error("Tender not found.");
+  const from = fromKey.trim();
+  if (!from) throw new Error("Sheet name required.");
+  const desired = toName.trim();
+  if (!desired) throw new Error("New sheet name required.");
+
+  const onSheet = existing.boqLines.filter((line) => (line.sheet || "").trim() === from);
+  if (!onSheet.length) throw new Error("Sheet not found.");
+
+  const used = usedBoqSheetNames(
+    existing.boqLines.filter((line) => (line.sheet || "").trim() !== from),
+  );
+  const nextName = nextUniqueBoqSheetName(desired, used);
+  if (nextName === from) {
+    return { tender: existing, sheetKey: from };
+  }
+
+  const boqLines = existing.boqLines.map((line) => {
+    if ((line.sheet || "").trim() !== from) return line;
+    const echoes =
+      line.kind === "header" &&
+      ((line.section || "").trim() === from || (line.description || "").trim() === from);
+    return {
+      ...line,
+      sheet: nextName,
+      section: echoes ? nextName : line.section === from ? nextName : line.section,
+      description: echoes ? nextName : line.description,
+    };
+  });
+  return { tender: persistBoqLines(tenderId, boqLines), sheetKey: nextName };
+}
+
+/** Remove every line on a workbook sheet tab. */
+export function deleteBoqSheetTab(tenderId: string, sheetKey: string) {
+  const existing = getTender(tenderId);
+  if (!existing) throw new Error("Tender not found.");
+  const key = sheetKey.trim();
+  if (!key) throw new Error("Sheet name required.");
+  const remaining = existing.boqLines.filter((line) => (line.sheet || "").trim() !== key);
+  if (remaining.length === existing.boqLines.length) throw new Error("Sheet not found.");
+  return persistBoqLines(tenderId, remaining);
+}
+
 function cell(row: string[], index: number) {
   return (row[index] || "").trim();
 }

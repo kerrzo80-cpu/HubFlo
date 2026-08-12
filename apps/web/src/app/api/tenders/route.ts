@@ -3,8 +3,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import {
+  addBoqMeasuredLine,
+  addBoqSheetTab,
   addTenderDocumentFolder,
   clearBoqFromTender,
+  deleteBoqLines,
+  deleteBoqSheetTab,
   deleteTender,
   deleteTenders,
   archiveTenders,
@@ -15,6 +19,7 @@ import {
   moveTenderDocument,
   removeTenderDocument,
   removeTenderDocumentFolder,
+  renameBoqSheetTab,
   updateBoqLine,
   updateTender,
   upsertTender,
@@ -58,6 +63,11 @@ export async function POST(request: NextRequest) {
       | "import-boq"
       | "clear-boq"
       | "update-boq-line"
+      | "add-boq-line"
+      | "delete-boq-lines"
+      | "add-boq-sheet"
+      | "rename-boq-sheet"
+      | "delete-boq-sheet"
       | "delete-document"
       | "create-document-folder"
       | "delete-document-folder"
@@ -74,12 +84,16 @@ export async function POST(request: NextRequest) {
     tender?: Partial<Tender> & { name?: string; client?: string };
     patch?: Partial<Tender>;
     lineId?: string;
+    lineIds?: string[];
     linePatch?: Partial<TenderBoqLine>;
     boqText?: string;
     boqTitle?: string;
     mode?: "replace" | "append" | "add";
     boqImportMode?: "replace" | "append" | "add";
     appendSheetLabel?: string;
+    sheetKey?: string;
+    sheetName?: string;
+    line?: Partial<TenderBoqLine>;
     tenderSum?: number;
     status?: TenderStatus;
   }>(request);
@@ -145,6 +159,56 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "id and lineId required" }, { status: 400 });
       }
       const tender = updateBoqLine(body.id, body.lineId, body.linePatch || {});
+      return NextResponse.json({ tender, tenders: listTenders() });
+    }
+
+    if (body?.action === "add-boq-line") {
+      if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const tender = addBoqMeasuredLine(body.id, {
+        sheet: body.sheetKey ?? body.line?.sheet,
+        ref: body.line?.ref,
+        description: body.line?.description,
+        quantity: body.line?.quantity,
+        unit: body.line?.unit,
+      });
+      return NextResponse.json({ tender, tenders: listTenders() });
+    }
+
+    if (body?.action === "delete-boq-lines") {
+      if (!body.id || !body.lineIds?.length) {
+        return NextResponse.json({ error: "id and lineIds required" }, { status: 400 });
+      }
+      const tender = deleteBoqLines(body.id, body.lineIds);
+      return NextResponse.json({ tender, tenders: listTenders() });
+    }
+
+    if (body?.action === "add-boq-sheet") {
+      if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const result = addBoqSheetTab(body.id, body.sheetName);
+      return NextResponse.json({
+        tender: result.tender,
+        tenders: listTenders(),
+        sheetKey: result.sheetKey,
+      });
+    }
+
+    if (body?.action === "rename-boq-sheet") {
+      if (!body.id || !body.sheetKey) {
+        return NextResponse.json({ error: "id and sheetKey required" }, { status: 400 });
+      }
+      const result = renameBoqSheetTab(body.id, body.sheetKey, body.sheetName || "");
+      return NextResponse.json({
+        tender: result.tender,
+        tenders: listTenders(),
+        sheetKey: result.sheetKey,
+      });
+    }
+
+    if (body?.action === "delete-boq-sheet") {
+      if (!body.id || !body.sheetKey) {
+        return NextResponse.json({ error: "id and sheetKey required" }, { status: 400 });
+      }
+      const tender = deleteBoqSheetTab(body.id, body.sheetKey);
       return NextResponse.json({ tender, tenders: listTenders() });
     }
 

@@ -279,6 +279,7 @@ export function TendersPanel({
         error?: string;
         tenders?: Tender[];
         tender?: Tender;
+        sheetKey?: string;
         job?: { id: string; ref: string } | null;
         alreadyConverted?: boolean;
       };
@@ -717,6 +718,116 @@ export function TendersPanel({
       });
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "Unable to update BoQ line");
+    }
+  }
+
+  async function addBoqLine() {
+    if (!selected) return;
+    try {
+      await postAction({
+        action: "add-boq-line",
+        id: selected.id,
+        sheetKey: activeBoqSheet || undefined,
+        line: { description: "New item", quantity: 1, unit: "nr" },
+      });
+      setTab("boq");
+      onNotice(activeBoqSheet ? `Line added on “${activeBoqSheet}”.` : "Line added.");
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to add BoQ line");
+    }
+  }
+
+  async function deleteBoqLinesByIds(lineIds: string[]) {
+    if (!selected || !lineIds.length) return;
+    const count = lineIds.length;
+    if (
+      !window.confirm(
+        `Delete ${count} BoQ line${count === 1 ? "" : "s"}?\n\nThis cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await postAction({
+        action: "delete-boq-lines",
+        id: selected.id,
+        lineIds,
+      });
+      setBoqBlakeLineIds((current) => current.filter((id) => !lineIds.includes(id)));
+      onNotice(`Deleted ${count} line${count === 1 ? "" : "s"}.`);
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to delete BoQ lines");
+    }
+  }
+
+  async function addBoqSheet() {
+    if (!selected) return;
+    const suggested = window.prompt("New sheet tab name", "Sheet");
+    if (suggested === null) return;
+    try {
+      const result = await postAction({
+        action: "add-boq-sheet",
+        id: selected.id,
+        sheetName: suggested.trim() || "Sheet",
+      });
+      const sheetKey = typeof result.sheetKey === "string" ? result.sheetKey : null;
+      if (sheetKey) setBoqSheetTab(sheetKey);
+      setTab("boq");
+      onNotice(sheetKey ? `Added sheet “${sheetKey}”.` : "Sheet added.");
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to add sheet");
+    }
+  }
+
+  async function renameActiveBoqSheet(sheetKeyOverride?: string) {
+    if (!selected) return;
+    const currentKey = sheetKeyOverride || activeBoqSheet;
+    if (!currentKey) return;
+    const next = window.prompt("Rename sheet tab", currentKey);
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === currentKey) return;
+    try {
+      const result = await postAction({
+        action: "rename-boq-sheet",
+        id: selected.id,
+        sheetKey: currentKey,
+        sheetName: trimmed,
+      });
+      const sheetKey = typeof result.sheetKey === "string" ? result.sheetKey : trimmed;
+      setBoqSheetTab(sheetKey);
+      onNotice(`Sheet renamed to “${sheetKey}”.`);
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to rename sheet");
+    }
+  }
+
+  async function deleteActiveBoqSheet() {
+    if (!selected || !activeBoqSheet) return;
+    const onSheet = filterBoqLinesBySheet(selected.boqLines, activeBoqSheet);
+    const measured = onSheet.filter((line) => line.kind === "measured").length;
+    const nonEmpty = onSheet.length > 0;
+    if (nonEmpty) {
+      const ok = window.confirm(
+        measured
+          ? `Remove sheet “${activeBoqSheet}” and delete its ${measured} measured line${measured === 1 ? "" : "s"}?\n\nThis cannot be undone.`
+          : `Remove sheet “${activeBoqSheet}” (${onSheet.length} row${onSheet.length === 1 ? "" : "s"})?\n\nThis cannot be undone.`,
+      );
+      if (!ok) return;
+    }
+    try {
+      await postAction({
+        action: "delete-boq-sheet",
+        id: selected.id,
+        sheetKey: activeBoqSheet,
+      });
+      setBoqBlakeLineIds((current) =>
+        current.filter((id) => !onSheet.some((line) => line.id === id)),
+      );
+      setBoqSheetTab(null);
+      onNotice(`Removed sheet “${activeBoqSheet}”.`);
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to remove sheet");
     }
   }
 
@@ -1297,10 +1408,10 @@ export function TendersPanel({
                   Price on their refs (e.g. 8/1/A). Excel sheets appear as workbook tabs below. Full bill wording is kept — leave Rate blank if not priced so they can see it was not priced (do not put £0 / NIL).
                 </p>
                 <p className="tenders-boq-blake-note">
-                  Supplier priced PDF/Excel as extra lines: keep Add to BoQ (default when lines exist), then drop the file below — it appends a new sheet tab. Documents → Supplier quotes only stores the file; it does not pull lines into the bill.
+                  Supplier priced PDF/Excel as extra lines: keep Add to BoQ (default when lines exist), then drop the file below — it appends new sheet tab(s) named from the file (PDF pages become Page 1, Page 2…; Excel keeps worksheet names; duplicates get “ (2)”). Documents → Supplier quotes only stores the file; it does not pull lines into the bill. Use Replace BoQ only when you intend to wipe current lines.
                 </p>
                 <p className="tenders-boq-blake-note">
-                  Tick measured lines (or a whole sheet/section header) then run Blake. Only ticked lines are budget-priced — use that to price Heating / Electrical packs separately. Library first, then UK trade ballpark for gaps. Guide rates only; unsure lines stay blank.
+                  Sheet tabs: + Sheet / Rename / Remove sheet (confirm if not empty). Lines: Add line on the active sheet, edit cells, trash a row, or tick lines and Delete selected. Tick measured lines (or a whole sheet/section header) then run Blake — only ticked lines are budget-priced. Library first, then UK trade ballpark for gaps. Guide rates only; unsure lines stay blank.
                 </p>
                 <div className="tenders-boq-blake-actions">
                   <button
@@ -1474,56 +1585,122 @@ export function TendersPanel({
             </div>
 
             <div className="tenders-boq-spreadsheet">
-              {boqSheetTabs.length ? (
-                <div className="tenders-boq-sheet-tabs" role="tablist" aria-label="BoQ workbook sheets">
-                  {boqSheetTabs.map((sheetTab) => {
-                    const selectedInSheet = sheetTab.measuredIds.filter((id) =>
-                      boqBlakeLineIds.includes(id),
-                    ).length;
-                    return (
-                      <button
-                        key={sheetTab.key}
-                        type="button"
-                        role="tab"
-                        aria-selected={activeBoqSheet === sheetTab.key}
-                        className={activeBoqSheet === sheetTab.key ? "active" : ""}
-                        onClick={() => setBoqSheetTab(sheetTab.key)}
-                      >
-                        <span>{sheetTab.label}</span>
-                        <em>
-                          {sheetTab.measuredIds.length}
-                          {selectedInSheet ? ` · ${selectedInSheet}` : ""}
-                        </em>
-                      </button>
-                    );
-                  })}
-                  {activeSheetMeasuredIds.length ? (
-                    <label className="tenders-boq-sheet-select-all">
-                      <input
-                        type="checkbox"
-                        checked={
-                          activeSheetMeasuredIds.length > 0 &&
-                          activeSheetMeasuredIds.every((id) => boqBlakeLineIds.includes(id))
-                        }
-                        ref={(el) => {
-                          if (!el) return;
-                          const selectedInSheet = activeSheetMeasuredIds.filter((id) =>
-                            boqBlakeLineIds.includes(id),
-                          ).length;
-                          el.indeterminate =
-                            selectedInSheet > 0 && selectedInSheet < activeSheetMeasuredIds.length;
-                        }}
-                        aria-label="Select all measured lines on this sheet for Blake"
-                        disabled={blakeBudgetBusy}
-                        onChange={(event) =>
-                          toggleBoqBlakeSection(activeSheetMeasuredIds, event.target.checked)
-                        }
-                      />
-                      Select sheet
-                    </label>
-                  ) : null}
-                </div>
-              ) : null}
+              <div className="tenders-boq-sheet-tabs" role="tablist" aria-label="BoQ workbook sheets">
+                {boqSheetTabs.map((sheetTab) => {
+                  const selectedInSheet = sheetTab.measuredIds.filter((id) =>
+                    boqBlakeLineIds.includes(id),
+                  ).length;
+                  return (
+                    <button
+                      key={sheetTab.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeBoqSheet === sheetTab.key}
+                      className={activeBoqSheet === sheetTab.key ? "active" : ""}
+                      title="Click to open · double-click to rename"
+                      onClick={() => setBoqSheetTab(sheetTab.key)}
+                      onDoubleClick={() => {
+                        setBoqSheetTab(sheetTab.key);
+                        void renameActiveBoqSheet(sheetTab.key);
+                      }}
+                    >
+                      <span>{sheetTab.label}</span>
+                      <em>
+                        {sheetTab.measuredIds.length}
+                        {selectedInSheet ? ` · ${selectedInSheet}` : ""}
+                      </em>
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  className="tenders-boq-sheet-add"
+                  disabled={saving || blakeBudgetBusy}
+                  onClick={() => void addBoqSheet()}
+                  title="Add a blank sheet tab"
+                >
+                  <Plus size={14} />
+                  Sheet
+                </button>
+                {activeBoqSheet ? (
+                  <>
+                    <button
+                      type="button"
+                      className="tenders-boq-sheet-tool"
+                      disabled={saving || blakeBudgetBusy}
+                      onClick={() => void renameActiveBoqSheet()}
+                      title="Rename active sheet tab"
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      className="tenders-boq-sheet-tool danger"
+                      disabled={saving || blakeBudgetBusy}
+                      onClick={() => void deleteActiveBoqSheet()}
+                      title="Remove active sheet tab and its lines"
+                    >
+                      Remove sheet
+                    </button>
+                  </>
+                ) : null}
+                {activeSheetMeasuredIds.length ? (
+                  <label className="tenders-boq-sheet-select-all">
+                    <input
+                      type="checkbox"
+                      checked={
+                        activeSheetMeasuredIds.length > 0 &&
+                        activeSheetMeasuredIds.every((id) => boqBlakeLineIds.includes(id))
+                      }
+                      ref={(el) => {
+                        if (!el) return;
+                        const selectedInSheet = activeSheetMeasuredIds.filter((id) =>
+                          boqBlakeLineIds.includes(id),
+                        ).length;
+                        el.indeterminate =
+                          selectedInSheet > 0 && selectedInSheet < activeSheetMeasuredIds.length;
+                      }}
+                      aria-label="Select all measured lines on this sheet for Blake"
+                      disabled={blakeBudgetBusy}
+                      onChange={(event) =>
+                        toggleBoqBlakeSection(activeSheetMeasuredIds, event.target.checked)
+                      }
+                    />
+                    Select sheet
+                  </label>
+                ) : null}
+              </div>
+
+              <div className="tenders-boq-line-toolbar">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={saving || blakeBudgetBusy}
+                  onClick={() => void addBoqLine()}
+                  title={
+                    activeBoqSheet
+                      ? `Add a measured line on “${activeBoqSheet}”`
+                      : "Add a measured line to this BoQ"
+                  }
+                >
+                  <Plus size={15} />
+                  Add line
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={saving || blakeBudgetBusy || !boqBlakeSelectedCount}
+                  onClick={() =>
+                    void deleteBoqLinesByIds(
+                      filterSelectedMeasuredLineIds(selected.boqLines, boqBlakeLineIds),
+                    )
+                  }
+                  title="Delete ticked measured lines"
+                >
+                  <Trash2 size={15} />
+                  Delete selected{boqBlakeSelectedCount ? ` (${boqBlakeSelectedCount})` : ""}
+                </button>
+              </div>
 
               <div className="tenders-boq-table-wrap">
                 <table className="tenders-boq-table tenders-boq-sheet-grid">
@@ -1539,13 +1716,16 @@ export function TendersPanel({
                       <th className="tenders-boq-rate-col">Rate</th>
                       <th className="tenders-boq-amount-col">Amount</th>
                       <th className="tenders-boq-check-status-col">Status</th>
+                      <th className="tenders-boq-row-actions-col">
+                        <span className="sr-only">Row actions</span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {boqVisibleLines.length ? (
                       boqVisibleLines.map((line) => {
                         if (line.kind === "header") {
-                          if (boqSheetTabs.length > 1 && isBoqSheetEchoHeader(line)) return null;
+                          if (boqSheetTabs.length > 0 && isBoqSheetEchoHeader(line)) return null;
                           const section = boqSections.find((group) => group.headerId === line.id);
                           const measuredIds = section?.measuredIds || [];
                           const selectedInSection = measuredIds.filter((id) =>
@@ -1584,6 +1764,18 @@ export function TendersPanel({
                                   ) : null}
                                 </span>
                               </td>
+                              <td className="tenders-boq-row-actions-col">
+                                <button
+                                  type="button"
+                                  className="tenders-boq-row-delete"
+                                  disabled={saving || blakeBudgetBusy}
+                                  aria-label={`Delete section heading ${line.description || line.section || ""}`}
+                                  title="Delete this section heading"
+                                  onClick={() => void deleteBoqLinesByIds([line.id])}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </td>
                             </tr>
                           );
                         }
@@ -1619,17 +1811,72 @@ export function TendersPanel({
                                 onChange={(event) => toggleBoqBlakeLine(line.id, event.target.checked)}
                               />
                             </td>
-                            <td className="tenders-boq-ref-col">{line.ref || "—"}</td>
+                            <td className="tenders-boq-ref-col">
+                              <input
+                                type="text"
+                                key={`${line.id}-ref-${line.ref || ""}`}
+                                defaultValue={line.ref || ""}
+                                placeholder="—"
+                                aria-label="Ref"
+                                disabled={blakeBudgetBusy}
+                                onBlur={(event) => {
+                                  const ref = event.target.value.trim();
+                                  if (ref === (line.ref || "")) return;
+                                  void patchBoqLine(line.id, { ref: ref || undefined });
+                                }}
+                              />
+                            </td>
                             <td className="tenders-boq-desc-col">
-                              <div className="tenders-boq-desc-text">{line.description}</div>
+                              <textarea
+                                key={`${line.id}-desc-${line.description}`}
+                                className="tenders-boq-desc-input"
+                                defaultValue={line.description}
+                                rows={2}
+                                aria-label="Description"
+                                disabled={blakeBudgetBusy}
+                                onBlur={(event) => {
+                                  const description = event.target.value.trim();
+                                  if (!description || description === line.description) return;
+                                  void patchBoqLine(line.id, { description });
+                                }}
+                              />
                               {line.note ? (
                                 <div className="tenders-boq-desc-note" title={line.note}>
                                   {line.note}
                                 </div>
                               ) : null}
                             </td>
-                            <td className="tenders-boq-qty-col">{line.quantity ?? ""}</td>
-                            <td className="tenders-boq-unit-col">{line.unit || ""}</td>
+                            <td className="tenders-boq-qty-col">
+                              <input
+                                type="number"
+                                step="any"
+                                key={`${line.id}-qty-${line.quantity ?? "blank"}`}
+                                defaultValue={line.quantity ?? ""}
+                                aria-label="Quantity"
+                                disabled={blakeBudgetBusy}
+                                onBlur={(event) => {
+                                  const raw = event.target.value.trim();
+                                  const quantity = raw === "" ? null : Number(raw);
+                                  const prev = line.quantity ?? null;
+                                  if (quantity === prev) return;
+                                  void patchBoqLine(line.id, { quantity });
+                                }}
+                              />
+                            </td>
+                            <td className="tenders-boq-unit-col">
+                              <input
+                                type="text"
+                                key={`${line.id}-unit-${line.unit || ""}`}
+                                defaultValue={line.unit || ""}
+                                aria-label="Unit"
+                                disabled={blakeBudgetBusy}
+                                onBlur={(event) => {
+                                  const unit = event.target.value.trim();
+                                  if (unit === (line.unit || "")) return;
+                                  void patchBoqLine(line.id, { unit: unit || undefined });
+                                }}
+                              />
+                            </td>
                             <td className="tenders-boq-rate-col">
                               <input
                                 type="number"
@@ -1654,15 +1901,27 @@ export function TendersPanel({
                             <td className="tenders-boq-check-status-col">
                               <span className={`tenders-line-status ${statusClass}`}>{statusLabel}</span>
                             </td>
+                            <td className="tenders-boq-row-actions-col">
+                              <button
+                                type="button"
+                                className="tenders-boq-row-delete"
+                                disabled={saving || blakeBudgetBusy}
+                                aria-label={`Delete ${line.ref || line.description}`}
+                                title="Delete this line"
+                                onClick={() => void deleteBoqLinesByIds([line.id])}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </td>
                           </tr>
                         );
                       })
                     ) : (
                       <tr>
-                        <td colSpan={8}>
+                        <td colSpan={9}>
                           {selected.boqLines.length
-                            ? "No lines on this sheet."
-                            : "No BoQ lines yet — import their issued Excel/CSV bill."}
+                            ? "No lines on this sheet — use Add line, or import with Add to BoQ."
+                            : "No BoQ lines yet — import their issued Excel/CSV bill, or Add line / Add sheet."}
                         </td>
                       </tr>
                     )}
