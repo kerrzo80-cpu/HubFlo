@@ -18,7 +18,13 @@ export async function POST(
 ) {
   const access = getAccessProfileFromHeaders(request.headers);
   if (!access.canCreateQuote) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    return NextResponse.json(
+      {
+        error:
+          "Your login cannot push Takeoff BoQ to a quote (needs quote-create permission). Use Push to tender if a tender is linked, or ask an office admin.",
+      },
+      { status: 403 },
+    );
   }
 
   const body = await parseJsonRequestBody<PushPayload>(request);

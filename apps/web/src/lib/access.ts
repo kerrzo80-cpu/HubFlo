@@ -279,6 +279,16 @@ export function canSaveTakeoff(access: AccessProfile): boolean {
   return Boolean(access.canCreateQuote || access.canEditJobs);
 }
 
+/** Core tenders BoQ edit — mirrors Heat Design push-to-tender gate. */
+export function canEditTenders(access: AccessProfile): boolean {
+  return Boolean(access.canCreateQuote || access.canEditJobs || access.showFinance || access.canCustomize);
+}
+
+/** Push Takeoff BoQ onto a linked tender — needs takeoff save + tender edit rights. */
+export function canPushTakeoffToTender(access: AccessProfile): boolean {
+  return canSaveTakeoff(access) && canEditTenders(access);
+}
+
 export const roleHeaderName = "x-hubflo-role";
 export const employeeHeaderName = "x-hubflo-employee-id";
 export const permissionHeaderName = "x-hubflo-permissions";

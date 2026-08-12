@@ -1613,6 +1613,134 @@ export default function TakeoffStudioPage() {
     setRateLibrary({ ...rateLibrary, assemblies });
   }
 
+  async function prepareBoqForPush(options: { allowPendingAiReview?: boolean } = {}): Promise<{
+    materials: ReturnType<typeof priceAndExpandTakeoffMaterials>;
+    priced: ReturnType<typeof summarisePricedMaterials>;
+  } | null> {
+    if (!selected) return null;
+    if (hasPendingAiReview && !options.allowPendingAiReview) {
+      const ok = window.confirm(
+        "Blake fixture pins are still pending review. Push the BOQ to Core anyway?",
+      );
+      if (!ok) {
+        setReviewOpen(true);
+        show("Confirm or reject Blake’s fixture pins, then Push — or override from Push again.", 12000);
+        return null;
+      }
+    }
+    if (unscaledLinearCount > 0) {
+      const detail = unscaledLinearSummary;
+      const where = detail.pageLabels.length ? ` on ${detail.pageLabels.join(", ")}` : "";
+      const ok = window.confirm(
+        `${detail.count} length run(s) still need Set scale${where} before they become metres. Push scaled BOQ only?`,
+      );
+      if (!ok) {
+        show("Set scale on those pages (or re-set on the open page — it copies across the drawing), then Push again.", 12000);
+        void persistStudio({ ...studio, tool: "scale" });
+        return null;
+      }
+    }
+    const baseMaterials = studioQuantitiesToMaterialAllowances(studio, selected.id);
+    const pipeMaterials = summariseStudioPipeBoq(studio).map((row) => ({
+      id: `studio-mat-${selected.id}-${row.id}`,
+      section: row.section,
+      description: `Takeoff · ${row.description}`,
+      quantity: row.quantity,
+      unit: row.unit,
+      unitCost: 0,
+      markupPercent: 0,
+      supplierRequired: false,
+    }));
+    const materials = priceAndExpandTakeoffMaterials([...pipeMaterials, ...baseMaterials]);
+    const priced = summarisePricedMaterials(materials);
+    const patch = await apiFetch(`/api/takeoff-projects/${selected.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        studio,
+        materialAllowances: [
+          ...selected.materialAllowances.filter((line) => !line.id.startsWith("studio-mat-")),
+          ...materials,
+        ],
+        status: "Approved",
+      }),
+    });
+    if (!patch.ok) {
+      const body = (await patch.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error || "Could not prepare BOQ");
+    }
+    return { materials, priced };
+  }
+
+  async function pushToTender(options: { allowPendingAiReview?: boolean } = {}) {
+    if (!selected) return;
+    const tenderId = selected.sourceTenderId;
+    if (!tenderId) {
+      setRailCollapsed(false);
+      show("Link a tender under Linked, then Push to tender.", 10000);
+      return;
+    }
+    if (hasPendingAiReview && !options.allowPendingAiReview) {
+      const ok = window.confirm(
+        "Blake fixture pins are still pending review. Push the BOQ to the tender anyway?",
+      );
+      if (!ok) {
+        setReviewOpen(true);
+        show("Confirm or reject Blake’s fixture pins, then Push — or override from Push again.", 12000);
+        return;
+      }
+      await pushToTender({ allowPendingAiReview: true });
+      return;
+    }
+    setBusy("push");
+    setError(null);
+    try {
+      const prepared = await prepareBoqForPush({ allowPendingAiReview: true });
+      if (!prepared) {
+        setBusy(null);
+        return;
+      }
+      const push = await apiFetch(`/api/takeoff-projects/${selected.id}/push-to-tender`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenderId,
+          actor: authName || "Office",
+          allowPendingAiReview: Boolean(options.allowPendingAiReview),
+        }),
+      });
+      if (!push.ok) {
+        const body = (await push.json().catch(() => ({}))) as { error?: string; code?: string };
+        if (body.code === "AI_REVIEW_PENDING") {
+          setReviewOpen(true);
+        }
+        throw new Error(body.error || `Push to tender failed (${push.status})`);
+      }
+      const result = (await push.json()) as {
+        project: TakeoffProject;
+        tender: { id: string; name: string };
+        lineCount?: number;
+        sheetCount?: number;
+        sellTotal?: number;
+        note?: string;
+      };
+      upsert(result.project);
+      show(
+        `Updated tender “${result.tender.name}” with ${result.lineCount ?? 0} BoQ line(s)`
+        + (result.sheetCount ? ` across ${result.sheetCount} layer sheet(s)` : "")
+        + (typeof result.sellTotal === "number" && result.sellTotal > 0
+          ? ` · ≈ £${result.sellTotal.toFixed(0)}`
+          : "")
+        + ". Open Core → Tenders → BoQ to review Takeoff · Hot & cold / Heating / Gas sheets.",
+        16000,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Push to tender failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function pushToCore(options: { allowPendingAiReview?: boolean; createNew?: boolean } = {}) {
     if (!selected) return;
     const createNew = Boolean(options.createNew) || !selected.linkedQuoteId;
@@ -1622,7 +1750,12 @@ export default function TakeoffStudioPage() {
       );
       if (!makeNew) {
         setRailCollapsed(false);
-        show("Link a quote under Core link, or tap New quote.", 10000);
+        show(
+          selected.sourceTenderId
+            ? "Use Push to tender for the linked tender, or link a quote / tap New quote."
+            : "Link a quote under Linked, or tap New quote.",
+          10000,
+        );
         return;
       }
     }
@@ -1638,47 +1771,15 @@ export default function TakeoffStudioPage() {
       await pushToCore({ allowPendingAiReview: true, createNew });
       return;
     }
-    if (unscaledLinearCount > 0) {
-      const detail = unscaledLinearSummary;
-      const where = detail.pageLabels.length ? ` on ${detail.pageLabels.join(", ")}` : "";
-      const ok = window.confirm(
-        `${detail.count} length run(s) still need Set scale${where} before they become metres. Push scaled BOQ only?`,
-      );
-      if (!ok) {
-        show("Set scale on those pages (or re-set on the open page — it copies across the drawing), then Push again.", 12000);
-        void persistStudio({ ...studio, tool: "scale" });
-        return;
-      }
-    }
     setBusy("push");
     setError(null);
     try {
-      const baseMaterials = studioQuantitiesToMaterialAllowances(studio, selected.id);
-      const pipeMaterials = summariseStudioPipeBoq(studio).map((row) => ({
-        id: `studio-mat-${selected.id}-${row.id}`,
-        section: row.section,
-        description: `Takeoff · ${row.description}`,
-        quantity: row.quantity,
-        unit: row.unit,
-        unitCost: 0,
-        markupPercent: 0,
-        supplierRequired: false,
-      }));
-      const materials = priceAndExpandTakeoffMaterials([...pipeMaterials, ...baseMaterials]);
-      const priced = summarisePricedMaterials(materials);
-      const patch = await apiFetch(`/api/takeoff-projects/${selected.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          studio,
-          materialAllowances: [
-            ...selected.materialAllowances.filter((line) => !line.id.startsWith("studio-mat-")),
-            ...materials,
-          ],
-          status: "Approved",
-        }),
-      });
-      if (!patch.ok) throw new Error("Could not prepare BOQ");
+      const prepared = await prepareBoqForPush({ allowPendingAiReview: true });
+      if (!prepared) {
+        setBusy(null);
+        return;
+      }
+      const { priced } = prepared;
       const push = await apiFetch(`/api/takeoff-projects/${selected.id}/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1694,7 +1795,7 @@ export default function TakeoffStudioPage() {
         if (body.code === "AI_REVIEW_PENDING") {
           setReviewOpen(true);
         }
-        throw new Error(body.error || "Push failed");
+        throw new Error(body.error || `Push failed (${push.status})`);
       }
       const result = (await push.json()) as { project: TakeoffProject; quote: { id: string; ref: string }; created?: boolean };
       upsert(result.project);
@@ -1718,6 +1819,21 @@ export default function TakeoffStudioPage() {
     }
   }
 
+  function primaryPushAction(): "tender" | "quote" | "new-quote" {
+    if (selected?.sourceTenderId) return "tender";
+    if (selected?.linkedQuoteId) return "quote";
+    return "new-quote";
+  }
+
+  function runPrimaryPush() {
+    const action = primaryPushAction();
+    if (action === "tender") {
+      void pushToTender();
+      return;
+    }
+    void pushToCore(action === "new-quote" ? { createNew: true } : undefined);
+  }
+
   const hasScale = Boolean(
     activeDoc && studio.scales.some((row) => row.documentId === activeDoc.id && row.page === (studio.activePage || 1)),
   );
@@ -1732,7 +1848,7 @@ export default function TakeoffStudioPage() {
       ? "scale"
       : !hasMarks
         ? "blake"
-        : selected?.linkedQuoteId
+        : selected?.sourceTenderId || selected?.linkedQuoteId
           ? "push"
           : "mark";
 
@@ -1794,7 +1910,7 @@ export default function TakeoffStudioPage() {
       return;
     }
     if (step === "push") {
-      void pushToCore();
+      runPrimaryPush();
     }
   }
 
@@ -2265,24 +2381,46 @@ export default function TakeoffStudioPage() {
                       </a>
                     ) : null}
                     <div className="nexa-studio-push-actions">
-                      <button
-                        type="button"
-                        className="nexa-studio-primary"
-                        disabled={busy === "push"}
-                        onClick={() => void pushToCore()}
-                      >
-                        {busy === "push" ? <Loader2 className="spin" size={14} /> : null}
-                        {selected.linkedQuoteId ? "Push BOQ + drawings" : "Push to new quote"}
-                      </button>
+                      {selected.sourceTenderId ? (
+                        <button
+                          type="button"
+                          className="nexa-studio-primary"
+                          disabled={busy === "push"}
+                          onClick={() => void pushToTender()}
+                        >
+                          {busy === "push" ? <Loader2 className="spin" size={14} /> : null}
+                          Push to tender
+                        </button>
+                      ) : null}
                       {selected.linkedQuoteId ? (
                         <button
                           type="button"
-                          className="ghost"
+                          className={selected.sourceTenderId ? "ghost" : "nexa-studio-primary"}
                           disabled={busy === "push"}
-                          onClick={() => void pushToCore({ createNew: true })}
+                          onClick={() => void pushToCore()}
                         >
-                          New quote instead
+                          {busy === "push" && !selected.sourceTenderId ? <Loader2 className="spin" size={14} /> : null}
+                          Push BOQ + drawings
                         </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className={
+                          selected.sourceTenderId || selected.linkedQuoteId ? "ghost" : "nexa-studio-primary"
+                        }
+                        disabled={busy === "push"}
+                        onClick={() => void pushToCore({ createNew: true })}
+                      >
+                        {busy === "push" && !selected.sourceTenderId && !selected.linkedQuoteId ? (
+                          <Loader2 className="spin" size={14} />
+                        ) : null}
+                        {selected.linkedQuoteId ? "New quote instead" : "Push to new quote"}
+                      </button>
+                      {selected.linkedJobId ? (
+                        <p className="muted">
+                          Job {linkedJob?.ref || selected.linkedJobRef} is linked for reference — push BoQ via tender or
+                          quote, then convert in Core.
+                        </p>
                       ) : null}
                     </div>
                   </div>
@@ -2858,9 +2996,18 @@ export default function TakeoffStudioPage() {
                   <button type="button" className="ghost" onClick={() => setBoqOpen(false)}>
                     Back to drawing
                   </button>
-                  <button type="button" className="nexa-studio-primary" disabled={busy === "push"} onClick={() => void pushToCore()}>
+                  <button
+                    type="button"
+                    className="nexa-studio-primary"
+                    disabled={busy === "push"}
+                    onClick={() => runPrimaryPush()}
+                  >
                     {busy === "push" ? <Loader2 className="spin" size={14} /> : null}
-                    {selected.linkedQuoteId ? "Push master BOQ" : "Push to new quote"}
+                    {selected.sourceTenderId
+                      ? "Push master BOQ to tender"
+                      : selected.linkedQuoteId
+                        ? "Push master BOQ"
+                        : "Push to new quote"}
                   </button>
                 </div>
               </header>
