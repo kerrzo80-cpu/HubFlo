@@ -357,6 +357,19 @@ export function FloorPlanCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [heatingLayout?.updatedAt]);
 
+  useEffect(() => {
+    if (!placeTool && !plantPlaceTool) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      if (roomEdit) return;
+      event.preventDefault();
+      setPlaceTool(null);
+      setPlantPlaceTool(null);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [placeTool, plantPlaceTool, roomEdit]);
+
   const anchors = useMemo(() => {
     const xs: number[] = [];
     const ys: number[] = [];
@@ -641,7 +654,7 @@ export function FloorPlanCanvas({
           rad ? { id: rad.id, model: rad.model, outputWatts: rad.outputWatts } : null,
         ),
       );
-      setPlaceTool(null);
+      // Sticky place: keep radiator tool active for another wall click.
       return;
     }
     const polygon = roomPolygon(room);
@@ -659,7 +672,7 @@ export function FloorPlanCanvas({
     };
     onPatchRoom(room.id, { openings: [...(room.openings ?? []), opening] });
     setSelectedOpeningId(opening.id);
-    setPlaceTool(null);
+    // Sticky place: keep window/door/rooflight tool active until Esc / right-click / another tool.
   }
 
   function patchSelectedOpening(patch: Partial<PlanOpening>) {
@@ -1094,7 +1107,7 @@ export function FloorPlanCanvas({
           <strong>{layoutSystemLabel || "Heating layout"}</strong>
           <span>
             {plantPlaceTool
-              ? `Click the plan to place ${plantPlaceTool.replace("_", " ")}. Then Generate UFH (or Route pipes) for the network.`
+              ? `Place ${plantPlaceTool.replace("_", " ")} — click the plan repeatedly. Esc or right-click to finish.`
               : emitterMode === "ufh"
                 ? "UFH loops (amber) · tails to manifolds · primary plant F/R secondary. Drag plant if needed."
                 : "Drag plant, radiators / UFH and pipe bends. Flow red · return blue · refrigerant purple · primary teal."}
@@ -1141,12 +1154,18 @@ export function FloorPlanCanvas({
       >
         <svg
           ref={svgRef}
-          className="hp-canvas"
+          className={`hp-canvas${placeTool || plantPlaceTool ? " is-placing" : ""}`}
           width={bounds.width}
           height={bounds.height}
           viewBox={`0 0 ${bounds.width} ${bounds.height}`}
           role="img"
           aria-label="Floor plan canvas"
+          onContextMenu={(event) => {
+            if (!placeTool && !plantPlaceTool) return;
+            event.preventDefault();
+            setPlaceTool(null);
+            setPlantPlaceTool(null);
+          }}
           onPointerDown={(event) => {
             if (scaleMode && onApplyPlanScale) {
               event.preventDefault();
@@ -1160,7 +1179,7 @@ export function FloorPlanCanvas({
               event.preventDefault();
               const point = clientToMetres(event.clientX, event.clientY);
               onPlacePlant(plantPlaceTool, Math.max(0, point.x), Math.max(0, point.y));
-              setPlantPlaceTool(null);
+              // Sticky plant place: stay in tool until Esc / right-click / another palette tool.
               return;
             }
             // Drawing / moving rooms must work even if Heating layout was left on.
@@ -1291,7 +1310,10 @@ export function FloorPlanCanvas({
                   points={pointsAttr}
                   fill={isSelected ? "#eef6fb" : "#f7f7f5"}
                   stroke="none"
-                  style={{ cursor: plantPlaceTool ? "crosshair" : placeRoomType ? "crosshair" : "grab" }}
+                  style={{
+                    cursor:
+                      plantPlaceTool || placeTool || placeRoomType ? "crosshair" : "grab",
+                  }}
                   onPointerDown={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -1310,7 +1332,8 @@ export function FloorPlanCanvas({
                     setSelectedEdge(null);
                     setSelectedPlantId(null);
                     setSelectedPipeId(null);
-                    if (plantPlaceTool) return;
+                    // Sticky opening/plant place: select another room without starting a move drag.
+                    if (plantPlaceTool || placeTool) return;
                     const grab = clientToMetres(event.clientX, event.clientY);
                     setDrag({ mode: "move", roomId: room.id, origin: polygon, grab });
                   }}
@@ -1412,6 +1435,7 @@ export function FloorPlanCanvas({
                           onSelectRoom(room.id);
                           setSelectedOpeningId(opening.id);
                           setSelectedEdge(wallIndex);
+                          // Grabbing an opening is select/move — exit sticky place.
                           setPlaceTool(null);
                           setPlaceRoomType(null);
                           setDrag({
@@ -1490,7 +1514,7 @@ export function FloorPlanCanvas({
                   );
                 })}
 
-                {isSelected && !plantPlaceTool
+                {isSelected && !plantPlaceTool && !placeTool
                   ? polygon.map((p, i) => {
                       const q = polygon[(i + 1) % polygon.length]!;
                       const mid = { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 };
@@ -1709,6 +1733,7 @@ export function FloorPlanCanvas({
                       if (!layoutMode || !heatingLayout) return;
                       event.preventDefault();
                       event.stopPropagation();
+                      setPlantPlaceTool(null);
                       setSelectedPlantId(plant.id);
                       setSelectedPipeId(null);
                       setSelectedEmitterId(null);
@@ -2023,8 +2048,8 @@ export function FloorPlanCanvas({
       ) : null}
       <p className="hp-canvas-hint">
         <strong>Floor plan:</strong> pick a room from the palette → click the canvas to place · snap rooms together for
-        internal walls · place Window / Door / Roof light on a selected wall · drag corners to resize · tap openings to
-        set size in the inspector.
+        internal walls · place Window / Door / Roof light on walls (sticky until Esc) · drag corners to resize · tap
+        openings to set size in the inspector.
         {" "}
         <strong>Plant:</strong> place boiler / cylinder / manifold, then <em>Generate UFH</em> (UFH mode) or Route pipes.
       </p>
@@ -2036,7 +2061,8 @@ export function FloorPlanCanvas({
       ) : null}
       {plantPlaceTool ? (
         <p className="hp-canvas-hint">
-          Place <strong>{plantPlaceTool.replace(/_/g, " ")}</strong> — click the plan.
+          Place <strong>{plantPlaceTool.replace(/_/g, " ")}</strong> — click the plan repeatedly. Esc or right-click to
+          finish.
         </p>
       ) : null}
       {placeRoomType ? (
@@ -2046,7 +2072,7 @@ export function FloorPlanCanvas({
       ) : null}
       {placeTool ? (
         <p className="hp-canvas-hint">
-          Placement mode: <strong>{placeTool}</strong> — click a wall on the selected room.
+          Placement mode: <strong>{placeTool}</strong> — click walls to place more. Esc or right-click to finish.
         </p>
       ) : null}
       {selected && selectedEdge != null && !layoutMode ? (

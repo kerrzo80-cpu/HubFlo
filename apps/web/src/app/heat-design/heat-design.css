@@ -1433,6 +1433,10 @@
   cursor: default;
 }
 
+.hp-canvas.is-placing {
+  cursor: crosshair;
+}
+
 .hp-canvas-hint {
   margin: 0;
   color: var(--hd-muted);
