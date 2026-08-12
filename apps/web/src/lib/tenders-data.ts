@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { loadServerStore, writeServerStore, getServerStoreDirectory } from "@/lib/server-store";
@@ -14,7 +14,10 @@ import {
   takeoffSourceTenderDocId,
   withSourceFolderNote,
 } from "@/lib/takeoff-drawing-labels";
-import { purgeStudioDocuments } from "@/lib/takeoff-studio";
+import {
+  restoreTenderStudioArchive,
+  stashTenderSourcedDrawings,
+} from "@/lib/takeoff-tender-archive";
 import { deleteRecordDocumentByFileUrl, readRecordDocumentFile } from "@/lib/record-documents";
 import {
   TENDER_DOCUMENT_FOLDER_MAX_DEPTH,
@@ -1220,55 +1223,75 @@ export type CopyTenderDrawingsResult = {
 };
 
 /**
- * Remove drawings synced from a Core tender (`sourceTenderDoc:` notes).
- * Keeps local uploads; purges markups/scales for removed sheets.
+ * Hide drawings synced from a Core tender (`sourceTenderDoc:` notes) and stash their markups.
+ * Keeps PDF files on disk and local uploads active. Restored when that tender is linked again.
  */
-export function clearTenderSourcedDrawingsFromTakeoff(takeoffId: string): {
+export function clearTenderSourcedDrawingsFromTakeoff(
+  takeoffId: string,
+  options?: { archiveTenderId?: string; archiveTenderRef?: string },
+): {
   removed: number;
   takeoff: ReturnType<typeof getTakeoffProject>;
 } {
   const project = getTakeoffProject(takeoffId);
-  if (!project) return { removed: 0, takeoff: null };
+  if (!project) return { removed: 0, takeoff: undefined };
 
-  const keep = [];
-  const removedIds = new Set<string>();
-  for (const doc of project.documents) {
-    if (takeoffSourceTenderDocId(doc.notes)) {
-      removedIds.add(doc.id);
-      if (doc.storageKey) {
-        try {
-          const fullPath = path.join(getServerStoreDirectory(), ...doc.storageKey.split("/"));
-          if (existsSync(fullPath)) unlinkSync(fullPath);
-        } catch {
-          // Best-effort file cleanup; store row is still dropped.
-        }
-      }
-    } else {
-      keep.push(doc);
-    }
-  }
-
-  if (!removedIds.size) {
+  const archiveTenderId = options?.archiveTenderId || project.sourceTenderId || "__unlinked__";
+  const beforeCount = project.documents.filter((doc) => takeoffSourceTenderDocId(doc.notes)).length;
+  if (!beforeCount) {
     return { removed: 0, takeoff: project };
   }
 
-  const fallbackActive = keep.find(
-    (doc) =>
-      doc.kind === "Drawing"
-      || doc.kind === "Marked-up drawing"
-      || (doc.mimeType || "").includes("pdf"),
-  )?.id;
-
-  const studio = project.studio
-    ? purgeStudioDocuments(project.studio, removedIds, fallbackActive)
-    : undefined;
+  const stashed = stashTenderSourcedDrawings(
+    project,
+    archiveTenderId,
+    options?.archiveTenderRef || project.sourceTenderRef,
+  );
 
   const takeoff = updateTakeoffProject(takeoffId, {
-    documents: keep,
-    ...(studio ? { studio } : {}),
+    documents: stashed.documents,
+    ...(stashed.studio ? { studio: stashed.studio } : {}),
+    studioTenderArchives: stashed.studioTenderArchives,
   });
 
-  return { removed: removedIds.size, takeoff: takeoff ?? project };
+  return {
+    removed: beforeCount,
+    takeoff: takeoff ?? stashed,
+  };
+}
+
+/** Restore a stashed tender’s drawings + markups onto a takeoff (no-op if none). */
+export function restoreTenderSourcedDrawingsToTakeoff(
+  takeoffId: string,
+  tenderId: string,
+): {
+  restored: boolean;
+  documentCount: number;
+  markupCount: number;
+  takeoff: ReturnType<typeof getTakeoffProject>;
+} {
+  const project = getTakeoffProject(takeoffId);
+  if (!project || !tenderId) {
+    return { restored: false, documentCount: 0, markupCount: 0, takeoff: project };
+  }
+
+  const result = restoreTenderStudioArchive(project, tenderId);
+  if (!result.restored) {
+    return { restored: false, documentCount: 0, markupCount: 0, takeoff: project };
+  }
+
+  const takeoff = updateTakeoffProject(takeoffId, {
+    documents: result.project.documents,
+    ...(result.project.studio ? { studio: result.project.studio } : {}),
+    studioTenderArchives: result.project.studioTenderArchives,
+  });
+
+  return {
+    restored: true,
+    documentCount: result.documentCount,
+    markupCount: result.markupCount,
+    takeoff: takeoff ?? result.project,
+  };
 }
 
 /** Copy tender drawing files into a takeoff project (skip ones already transferred). */

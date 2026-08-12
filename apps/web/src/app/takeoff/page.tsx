@@ -23,6 +23,12 @@ import {
   takeoffSourceFolderLabel,
   takeoffSourceTenderDocId,
 } from "@/lib/takeoff-drawing-labels";
+import { countMarkupsOnTenderDocuments } from "@/lib/takeoff-tender-archive";
+import {
+  readTakeoffStudioLocalDraft,
+  shouldRestoreTakeoffStudioLocalDraft,
+  writeTakeoffStudioLocalDraft,
+} from "@/lib/takeoff-studio-local-draft";
 import {
   classificationGroup,
   classificationLayer,
@@ -167,6 +173,7 @@ export default function TakeoffStudioPage() {
   const [newClassKind, setNewClassKind] = useState<StudioClassKind>("linear");
   const [newClassColour, setNewClassColour] = useState("#2878c8");
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
+  const [savedAt, setSavedAt] = useState<string | null>(null);
   const [blakeStep, setBlakeStep] = useState<string | null>(null);
   const [blakeAskOpen, setBlakeAskOpen] = useState(false);
   const [blakeAskScope, setBlakeAskScope] = useState<"current" | "project">("current");
@@ -411,6 +418,7 @@ export default function TakeoffStudioPage() {
     futureRef.current = [];
     setHistoryTick((value) => value + 1);
     setSaveState("saved");
+    setSavedAt(null);
     setReviewOpen(false);
     seededServicesRef.current = null;
     // Mark mode: Linked + Drawings + Draw as open; More stays collapsible.
@@ -433,13 +441,27 @@ export default function TakeoffStudioPage() {
 
   useEffect(() => {
     if (!selected || seededServicesRef.current === selected.id) return;
+    seededServicesRef.current = selected.id;
+
+    const draft = readTakeoffStudioLocalDraft(selected.id);
+    if (shouldRestoreTakeoffStudioLocalDraft(selected.studio, draft) && draft?.studio) {
+      const ok = window.confirm(
+        `This takeoff looks empty on the server, but this browser still has a local autosave from ${new Date(draft.savedAt).toLocaleString()} with ${draft.geometryCount} mark(s). Restore it?`,
+      );
+      if (ok) {
+        void persistStudio(draft.studio, {}, { skipHistory: true, immediate: true }).then((merged) => {
+          if (merged) show("Restored markups from local autosave");
+        });
+        return;
+      }
+    }
+
     const raw = selected.studio ?? createDefaultStudioState();
     const ensured = ensurePlantClassifications(ensureServiceClassifications(raw));
-    seededServicesRef.current = selected.id;
     if (ensured !== raw) {
       void persistStudio(ensured, {}, { skipHistory: true, immediate: true });
     }
-    // Seed service + plant classes once per project; persistStudio is defined below in this component.
+    // Seed service classes / optional local-draft recovery; persistStudio is defined below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id]);
 
@@ -549,6 +571,9 @@ export default function TakeoffStudioPage() {
       updatedAt: new Date().toISOString(),
     };
     upsert(optimistic);
+    writeTakeoffStudioLocalDraft(selected.id, nextStudio, {
+      sourceTenderId: (extras.sourceTenderId as string | undefined) ?? selected.sourceTenderId,
+    });
     setSaveState("saving");
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
 
@@ -566,6 +591,10 @@ export default function TakeoffStudioPage() {
       const project = (await response.json()) as TakeoffProject;
       const merged = { ...project, studio: project.studio ?? nextStudio };
       upsert(merged);
+      writeTakeoffStudioLocalDraft(selected.id, merged.studio || nextStudio, {
+        sourceTenderId: merged.sourceTenderId,
+      });
+      setSavedAt(new Date().toISOString());
       setSaveState("saved");
       return merged;
     };
@@ -1685,8 +1714,14 @@ export default function TakeoffStudioPage() {
         </nav>
         <div className="nexa-studio-top-actions">
           <Link href="/" className="nexa-studio-core-pill">Core</Link>
-          <span className={`pill save-${saveState}`}>
-            {saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Saved"}
+          <span className={`pill save-${saveState}`} title={savedAt ? `Last saved ${new Date(savedAt).toLocaleString()}` : undefined}>
+            {saveState === "saving"
+              ? "Saving…"
+              : saveState === "error"
+                ? "Save failed"
+                : savedAt
+                  ? `Saved ${new Date(savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                  : "Saved"}
           </span>
           {authName ? <span className="pill muted-pill">{authName}</span> : null}
           <button type="button" className="nexa-studio-ai" disabled={busy === "ai" || !selected} onClick={() => openBlakeAsk()}>
@@ -1930,6 +1965,19 @@ export default function TakeoffStudioPage() {
                         onChange={(e) => {
                           const sourceTenderId = e.target.value || undefined;
                           const previousTenderId = selected.sourceTenderId || undefined;
+                          const tenderChanged = previousTenderId !== sourceTenderId;
+                          if (tenderChanged) {
+                            const markupCount = countMarkupsOnTenderDocuments(studio, drawingDocs);
+                            if (markupCount > 0) {
+                              const ok = window.confirm(
+                                "Switch Linked tender? Markups on this tender’s drawings stay saved and come back when you switch back — they won’t stay visible on the other tender’s sheets.",
+                              );
+                              if (!ok) {
+                                e.target.value = previousTenderId || "";
+                                return;
+                              }
+                            }
+                          }
                           void (async () => {
                             const beforeLocal = drawingDocs.filter(
                               (doc) => !takeoffSourceTenderDocId(doc.notes),
@@ -1944,15 +1992,22 @@ export default function TakeoffStudioPage() {
                             );
                             const nextSourced = nextDocs.filter((doc) => takeoffSourceTenderDocId(doc.notes)).length;
                             const nextLocal = nextDocs.length - nextSourced;
-                            const tenderChanged = previousTenderId !== sourceTenderId;
                             if (sourceTenderId && tenderChanged) {
+                              const archiveRestored = Boolean(
+                                previousTenderId
+                                && (merged.studioTenderArchives?.[sourceTenderId]?.geometries?.length
+                                  || merged.studio?.geometries?.some((geo) =>
+                                    nextDocs.some((doc) => doc.id === geo.documentId && takeoffSourceTenderDocId(doc.notes)),
+                                  )),
+                              );
                               const keptLocal = nextLocal > 0 && beforeLocal > 0
                                 ? ` · kept ${nextLocal} local upload${nextLocal === 1 ? "" : "s"}`
                                 : "";
+                              const restoredNote = archiveRestored ? " · restored saved markups" : "";
                               show(
                                 nextSourced > 0
-                                  ? `Linked tender · ${nextSourced} drawing${nextSourced === 1 ? "" : "s"} from this tender${keptLocal}`
-                                  : `Linked tender${keptLocal || " · no drawings on tender"}`,
+                                  ? `Linked tender · ${nextSourced} drawing${nextSourced === 1 ? "" : "s"} from this tender${restoredNote}${keptLocal}`
+                                  : `Linked tender${restoredNote}${keptLocal || " · no drawings on tender"}`,
                               );
                             } else if (sourceTenderId) {
                               show("Linked tender");

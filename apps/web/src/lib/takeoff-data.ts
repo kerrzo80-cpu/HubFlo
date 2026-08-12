@@ -8,6 +8,7 @@ import {
   type TakeoffSkillWorkflow,
 } from "@/lib/takeoff-skill";
 import type { StudioState } from "@/lib/takeoff-studio";
+import type { TakeoffTenderStudioArchive } from "@/lib/takeoff-tender-archive";
 
 export type TakeoffStatus = "Draft" | "In review" | "Approved" | "Pushed";
 export type TakeoffDocumentKind = "Drawing" | "Marked-up drawing" | "Specification" | "Contractor BOQ" | "Survey note" | "Survey photo" | "LiDAR scan";
@@ -459,6 +460,11 @@ export type TakeoffProject = {
   skill?: TakeoffSkillWorkflow;
   /** NeXa Takeoff Studio (Togal-style area / linear / count canvas). */
   studio?: StudioState;
+  /**
+   * Per-linked-tender stash of synced drawings + studio markups.
+   * Switching Linked tender hides the previous tender’s sheets but keeps this so they restore.
+   */
+  studioTenderArchives?: Record<string, TakeoffTenderStudioArchive>;
   review: TakeoffReview;
   extraction?: TakeoffExtractionSummary;
   createdAt: string;

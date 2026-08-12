@@ -13,6 +13,7 @@ import {
   getTender,
   linkTakeoffToTender,
   clearTenderSourcedDrawingsFromTakeoff,
+  restoreTenderSourcedDrawingsToTakeoff,
   copyTenderDrawingsToTakeoff,
 } from "@/lib/tenders-data";
 
@@ -87,11 +88,25 @@ export async function PATCH(
 
     const previousTenderId = previous?.sourceTenderId || undefined;
     const nextTenderId = updated.sourceTenderId || undefined;
-    // Tender link change: replace tender-synced sheets (keep local uploads), then copy from the new link.
+    // Tender link change: stash previous tender sheets+markups (keep files), restore target archive, then sync any new drawings.
     if (previousTenderId !== nextTenderId) {
-      const cleared = clearTenderSourcedDrawingsFromTakeoff(updated.id);
-      if (cleared.takeoff) {
-        updated = cleared.takeoff;
+      const hadTenderSheets = (updated.documents || []).some((doc) =>
+        Array.isArray(doc.notes) && doc.notes.some((note) => note.startsWith("sourceTenderDoc:")),
+      );
+      if (previousTenderId || hadTenderSheets) {
+        const cleared = clearTenderSourcedDrawingsFromTakeoff(updated.id, {
+          archiveTenderId: previousTenderId || "__unlinked__",
+          archiveTenderRef: previous?.sourceTenderRef,
+        });
+        if (cleared.takeoff) {
+          updated = cleared.takeoff;
+        }
+      }
+      if (nextTenderId) {
+        const restored = restoreTenderSourcedDrawingsToTakeoff(updated.id, nextTenderId);
+        if (restored.takeoff) {
+          updated = restored.takeoff;
+        }
       }
     }
 
