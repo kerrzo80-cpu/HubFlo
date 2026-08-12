@@ -29,7 +29,6 @@ import {
   type StudioState,
   type StudioTool,
 } from "@/lib/takeoff-studio";
-import { buildIsoPreviewScene } from "@/lib/takeoff-studio-isometric";
 import {
   appendLinearWithAutoFittings,
   elbowPointsAlongRun,
@@ -40,6 +39,7 @@ import {
   updateLinearPointsWithFittings,
 } from "@/lib/takeoff-studio-pipe";
 import { recordTakeoffLearningClient } from "@/lib/takeoff-learning-client";
+import IsoPreviewPanel from "./IsoPreviewPanel";
 
 type Props = {
   projectId: string;
@@ -1074,15 +1074,6 @@ export default function StudioCanvas({
     ["measure", "scale"],
   ];
 
-  const isoScene =
-    showIsoPreview && document
-      ? buildIsoPreviewScene(studio, {
-          documentId: document.id,
-          page,
-          metresPerUnit: pageScale?.metresPerUnit || 0,
-        })
-      : null;
-
   return (
     <div className="nexa-studio-canvas-wrap">
       <div className="nexa-studio-toolbar" role="toolbar" aria-label="Drawing tools">
@@ -1212,56 +1203,13 @@ export default function StudioCanvas({
         </div>
       </div>
 
-      {showIsoPreview ? (
-        <aside className="nexa-studio-iso-panel" aria-label="Isometric route preview">
-          <header>
-            <strong>Isometric preview</strong>
-            <button type="button" onClick={() => setShowIsoPreview(false)} aria-label="Close isometric preview">
-              Close
-            </button>
-          </header>
-          {!isoScene ? (
-            <p className="nexa-studio-iso-empty">
-              No Length runs on this page yet. Use Mark up → Length, tap the run, Done run — then drops show here too.
-            </p>
-          ) : (
-            <>
-              <svg
-                className="nexa-studio-iso-svg"
-                viewBox={isoScene.viewBox}
-                role="img"
-                aria-label="Isometric view of completed pipe runs"
-              >
-                {isoScene.routes.map((route) => (
-                  <g key={route.id}>
-                    <path d={route.planPath} fill="none" stroke={route.colour} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
-                    {route.dropPaths.map((dropPath, index) => (
-                      <path
-                        key={`${route.id}-drop-${index}`}
-                        d={dropPath}
-                        fill="none"
-                        stroke={route.colour}
-                        strokeWidth={2}
-                        strokeLinecap="round"
-                        opacity={0.85}
-                        strokeDasharray="4 3"
-                      />
-                    ))}
-                  </g>
-                ))}
-              </svg>
-              <ul className="nexa-studio-iso-legend">
-                {isoScene.routes.map((route) => (
-                  <li key={route.id}>
-                    <span style={{ background: route.colour }} />
-                    {route.label} · {route.metres.toFixed(2)} m
-                    {route.dropCount > 0 ? ` · ${route.dropCount}× drop` : route.verticalM > 0 ? ` · ${route.verticalM.toFixed(1)} m vertical` : ""}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </aside>
+      {showIsoPreview && document ? (
+        <IsoPreviewPanel
+          studio={studio}
+          document={document}
+          page={page}
+          onClose={() => setShowIsoPreview(false)}
+        />
       ) : null}
 
       <div className="nexa-studio-statusbar">

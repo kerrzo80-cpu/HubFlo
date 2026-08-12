@@ -15,6 +15,12 @@ describe("takeoff-studio-isometric", () => {
     assert.ok(up.y < base.y);
   });
 
+  it("yaw orbit moves plan points in screen space", () => {
+    const facing = projectIso({ x: 40, y: 0, z: 0 }, { yawDeg: 0, pitchDeg: 0 });
+    const turned = projectIso({ x: 40, y: 0, z: 0 }, { yawDeg: 90, pitchDeg: 0 });
+    assert.ok(Math.abs(facing.x - turned.x) > 1 || Math.abs(facing.y - turned.y) > 1);
+  });
+
   it("spaces multiple drops along the run (not only at the end)", () => {
     assert.deepEqual(dropUnitOffsetsAlongRun(100, 1), [100]);
     assert.deepEqual(dropUnitOffsetsAlongRun(90, 3), [30, 60, 90]);

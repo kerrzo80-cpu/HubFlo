@@ -14,6 +14,13 @@ import { dropUnitOffsetsAlongRun, pointAtDistanceAlongRun } from "@/lib/takeoff-
 export type IsoVec3 = { x: number; y: number; z: number };
 export type IsoVec2 = { x: number; y: number };
 
+export type IsoOrbit = {
+  /** Degrees around vertical (Z). */
+  yawDeg: number;
+  /** Degrees tilt toward/away from camera. Clamped by callers. */
+  pitchDeg: number;
+};
+
 export type IsoRoutePreview = {
   id: string;
   label: string;
@@ -37,11 +44,27 @@ export type IsoPreviewScene = {
 const COS30 = Math.cos(Math.PI / 6);
 const SIN30 = Math.sin(Math.PI / 6);
 
-/** Classic isometric projection — X right, Y into page, Z up. */
-export function projectIso(point: IsoVec3): IsoVec2 {
+const DEFAULT_ORBIT: IsoOrbit = { yawDeg: 0, pitchDeg: 0 };
+
+/** Classic isometric projection — X right, Y into page, Z up — after optional orbit. */
+export function projectIso(point: IsoVec3, orbit: IsoOrbit = DEFAULT_ORBIT): IsoVec2 {
+  const yaw = (orbit.yawDeg * Math.PI) / 180;
+  const pitch = (orbit.pitchDeg * Math.PI) / 180;
+  const cosY = Math.cos(yaw);
+  const sinY = Math.sin(yaw);
+  const cosP = Math.cos(pitch);
+  const sinP = Math.sin(pitch);
+
+  // Yaw around Z, then pitch around X (tilt).
+  const x1 = point.x * cosY - point.y * sinY;
+  const y1 = point.x * sinY + point.y * cosY;
+  const z1 = point.z;
+  const y2 = y1 * cosP - z1 * sinP;
+  const z2 = y1 * sinP + z1 * cosP;
+
   return {
-    x: (point.x - point.y) * COS30,
-    y: (point.x + point.y) * SIN30 - point.z,
+    x: (x1 - y2) * COS30,
+    y: (x1 + y2) * SIN30 - z2,
   };
 }
 
@@ -73,6 +96,7 @@ export function buildIsoRoute(
   linear: Extract<StudioGeometry, { kind: "linear" }>,
   metresPerUnit: number,
   metresToPlanUnits: number,
+  orbit: IsoOrbit = DEFAULT_ORBIT,
 ): IsoRoutePreview | null {
   if (linear.points.length < 2) return null;
   const drop = resolveLinearDrop(linear);
@@ -87,7 +111,7 @@ export function buildIsoRoute(
     y: point.y,
     z: zCeiling,
   }));
-  const planPath = pathFromScreen(ceilingPlan.map(projectIso));
+  const planPath = pathFromScreen(ceilingPlan.map((p) => projectIso(p, orbit)));
 
   const dropPaths: string[] = [];
   const offsets = dropUnitOffsetsAlongRun(planUnits, drop.elbowCount);
@@ -96,7 +120,7 @@ export function buildIsoRoute(
     if (!at) continue;
     const top: IsoVec3 = { x: at.x, y: at.y, z: zCeiling };
     const bottom: IsoVec3 = { x: at.x, y: at.y, z: 0 };
-    dropPaths.push(pathFromScreen([projectIso(top), projectIso(bottom)]));
+    dropPaths.push(pathFromScreen([projectIso(top, orbit), projectIso(bottom, orbit)]));
   }
 
   // Total-override (single elbow, no count) still shows one vertical at the end.
@@ -104,7 +128,7 @@ export function buildIsoRoute(
     const end = linear.points[linear.points.length - 1]!;
     const top: IsoVec3 = { x: end.x, y: end.y, z: zCeiling || drop.verticalM * metresToPlanUnits };
     const bottom: IsoVec3 = { x: end.x, y: end.y, z: 0 };
-    dropPaths.push(pathFromScreen([projectIso(top), projectIso(bottom)]));
+    dropPaths.push(pathFromScreen([projectIso(top, orbit), projectIso(bottom, orbit)]));
   }
 
   return {
@@ -126,8 +150,10 @@ export function buildIsoPreviewScene(
     page: number;
     metresPerUnit: number;
     padding?: number;
+    orbit?: IsoOrbit;
   },
 ): IsoPreviewScene | null {
+  const orbit = options.orbit ?? DEFAULT_ORBIT;
   const linears = studio.geometries.filter(
     (geo): geo is Extract<StudioGeometry, { kind: "linear" }> =>
       geo.kind === "linear" &&
@@ -148,7 +174,7 @@ export function buildIsoPreviewScene(
     options.metresPerUnit > 0 ? 1 / options.metresPerUnit : Math.max(12, maxSpan * 0.08);
 
   const routes = linears
-    .map((linear) => buildIsoRoute(studio, linear, options.metresPerUnit, metresToPlanUnits))
+    .map((linear) => buildIsoRoute(studio, linear, options.metresPerUnit, metresToPlanUnits, orbit))
     .filter((row): row is IsoRoutePreview => Boolean(row));
   if (!routes.length) return null;
 
@@ -162,17 +188,22 @@ export function buildIsoPreviewScene(
   if (!allPoints.length) return null;
 
   const pad = options.padding ?? 24;
-  const minX = Math.min(...allPoints.map((p) => p.x)) - pad;
-  const minY = Math.min(...allPoints.map((p) => p.y)) - pad;
-  const maxX = Math.max(...allPoints.map((p) => p.x)) + pad;
-  const maxY = Math.max(...allPoints.map((p) => p.y)) + pad;
-  const width = Math.max(120, maxX - minX);
-  const height = Math.max(80, maxY - minY);
+  // Square, content-centred viewBox so orbiting does not re-aspect every frame.
+  const cx = allPoints.reduce((sum, p) => sum + p.x, 0) / allPoints.length;
+  const cy = allPoints.reduce((sum, p) => sum + p.y, 0) / allPoints.length;
+  let radius = 40;
+  for (const point of allPoints) {
+    radius = Math.max(radius, Math.hypot(point.x - cx, point.y - cy));
+  }
+  radius += pad;
+  const size = Math.max(120, radius * 2);
+  const minX = cx - size / 2;
+  const minY = cy - size / 2;
 
   return {
     routes,
-    viewBox: `${minX.toFixed(2)} ${minY.toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)}`,
-    width,
-    height,
+    viewBox: `${minX.toFixed(2)} ${minY.toFixed(2)} ${size.toFixed(2)} ${size.toFixed(2)}`,
+    width: size,
+    height: size,
   };
 }
