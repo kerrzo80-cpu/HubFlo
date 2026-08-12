@@ -203,6 +203,41 @@ export type StudioState = {
   updatedAt: string;
 };
 
+/** Drop markups / scales / AI pins for removed drawing document ids. */
+export function purgeStudioDocuments(
+  studio: StudioState,
+  removedDocumentIds: Iterable<string>,
+  fallbackActiveDocumentId?: string,
+): StudioState {
+  const removed = removedDocumentIds instanceof Set
+    ? removedDocumentIds
+    : new Set(removedDocumentIds);
+  if (!removed.size) return studio;
+
+  const geometries = studio.geometries.filter((geo) => !removed.has(geo.documentId));
+  const scales = studio.scales.filter((row) => !removed.has(row.documentId));
+  const aiReviewMeasured = (studio.aiReviewMeasured || []).map((row) => ({
+    ...row,
+    tagMatches: (row.tagMatches || []).filter((match) => !removed.has(match.documentId)),
+    sourceSheetIds: row.sourceSheetIds?.filter((id) => !removed.has(id)),
+  }));
+
+  const activeStillValid =
+    studio.activeDocumentId && !removed.has(studio.activeDocumentId)
+      ? studio.activeDocumentId
+      : fallbackActiveDocumentId || undefined;
+
+  return {
+    ...studio,
+    geometries,
+    scales,
+    aiReviewMeasured: studio.aiReviewMeasured ? aiReviewMeasured : studio.aiReviewMeasured,
+    activeDocumentId: activeStillValid,
+    activePage: activeStillValid === studio.activeDocumentId ? studio.activePage : 1,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 const COLOURS = ["#1998cf", "#2e8c7d", "#c45c26", "#7a4f9a", "#b43a3a", "#b36a16", "#14618c", "#5b6b7a"];
 
 export const STUDIO_SERVICE_LAYERS: Array<{ id: StudioServiceLayerId | "all"; label: string }> = [

@@ -9,7 +9,12 @@ import {
   updateTakeoffProject,
   type TakeoffProject,
 } from "@/lib/takeoff-data";
-import { getTender, linkTakeoffToTender, copyTenderDrawingsToTakeoff } from "@/lib/tenders-data";
+import {
+  getTender,
+  linkTakeoffToTender,
+  clearTenderSourcedDrawingsFromTakeoff,
+  copyTenderDrawingsToTakeoff,
+} from "@/lib/tenders-data";
 
 export async function GET(
   request: NextRequest,
@@ -65,7 +70,7 @@ export async function PATCH(
     }
   }
 
-  const updated = updateTakeoffProject(id, patch);
+  let updated = updateTakeoffProject(id, patch);
   if (!updated) {
     return NextResponse.json({ error: "Takeoff project not found" }, { status: 404 });
   }
@@ -79,14 +84,27 @@ export async function PATCH(
         { status: 400 },
       );
     }
-    if (updated.sourceTenderId) {
-      const tender = getTender(updated.sourceTenderId);
+
+    const previousTenderId = previous?.sourceTenderId || undefined;
+    const nextTenderId = updated.sourceTenderId || undefined;
+    // Tender link change: replace tender-synced sheets (keep local uploads), then copy from the new link.
+    if (previousTenderId !== nextTenderId) {
+      const cleared = clearTenderSourcedDrawingsFromTakeoff(updated.id);
+      if (cleared.takeoff) {
+        updated = cleared.takeoff;
+      }
+    }
+
+    if (nextTenderId) {
+      const tender = getTender(nextTenderId);
       if (tender) {
         const synced = copyTenderDrawingsToTakeoff(tender, updated.id);
         if (synced.takeoff) {
           return NextResponse.json(synced.takeoff);
         }
       }
+    } else if (previousTenderId !== nextTenderId) {
+      return NextResponse.json(updated);
     }
   }
 

@@ -1809,16 +1809,10 @@ export default function TakeoffStudioPage() {
         </div>
       ) : null}
 
-      {/* Banners overlay canvas — never steal body height from the rail scrollport. */}
+      {/* Notice/error + Blake review overlay canvas — scale alerts live in the rail (in-flow). */}
       <div className="nexa-studio-banner-stack" aria-live="polite">
         {(notice || error) ? (
           <div className={`nexa-studio-banner ${error ? "error" : "ok"}`}>{error || notice}</div>
-        ) : null}
-
-        {selected && activeDoc && !studio.scales.some((row) => row.documentId === activeDoc.id && row.page === (studio.activePage || 1)) ? (
-          <div className="nexa-studio-banner warn">
-            Set scale before measuring — 1:N chip or Scale tool → two points → metres.
-          </div>
         ) : null}
 
         {selected && hasPendingAiReview ? (
@@ -1935,23 +1929,39 @@ export default function TakeoffStudioPage() {
                         value={selected.sourceTenderId || ""}
                         onChange={(e) => {
                           const sourceTenderId = e.target.value || undefined;
+                          const previousTenderId = selected.sourceTenderId || undefined;
                           void (async () => {
-                            const before = drawingDocs.length;
+                            const beforeLocal = drawingDocs.filter(
+                              (doc) => !takeoffSourceTenderDocId(doc.notes),
+                            ).length;
                             const merged = await persistStudio(studio, { sourceTenderId }, { skipHistory: true, immediate: true });
                             if (!merged) return;
-                            const after = (merged.documents || []).filter(
+                            const nextDocs = (merged.documents || []).filter(
                               (doc) =>
                                 doc.kind === "Drawing"
                                 || doc.kind === "Marked-up drawing"
                                 || (doc.mimeType || "").includes("pdf"),
-                            ).length;
-                            const added = Math.max(0, after - before);
-                            if (sourceTenderId && added > 0) {
-                              show(`Linked tender · added ${added} drawing${added === 1 ? "" : "s"}`);
+                            );
+                            const nextSourced = nextDocs.filter((doc) => takeoffSourceTenderDocId(doc.notes)).length;
+                            const nextLocal = nextDocs.length - nextSourced;
+                            const tenderChanged = previousTenderId !== sourceTenderId;
+                            if (sourceTenderId && tenderChanged) {
+                              const keptLocal = nextLocal > 0 && beforeLocal > 0
+                                ? ` · kept ${nextLocal} local upload${nextLocal === 1 ? "" : "s"}`
+                                : "";
+                              show(
+                                nextSourced > 0
+                                  ? `Linked tender · ${nextSourced} drawing${nextSourced === 1 ? "" : "s"} from this tender${keptLocal}`
+                                  : `Linked tender${keptLocal || " · no drawings on tender"}`,
+                              );
                             } else if (sourceTenderId) {
                               show("Linked tender");
                             } else {
-                              show("Tender unlinked");
+                              show(
+                                tenderChanged && beforeLocal > 0
+                                  ? `Tender unlinked · kept ${beforeLocal} local upload${beforeLocal === 1 ? "" : "s"}`
+                                  : "Tender unlinked",
+                              );
                             }
                           })();
                         }}
@@ -2057,6 +2067,20 @@ export default function TakeoffStudioPage() {
               </section>
 
               {!boqOpen ? (
+                <>
+                {activeDoc && !hasScale ? (
+                  <p className="nexa-studio-rail-alert nexa-studio-boq-scale-warn" role="status">
+                    Set scale on this page before measuring — Scale tool or 1:N chip → two points → metres.
+                  </p>
+                ) : null}
+                {unscaledLinearCount > 0 ? (
+                  <p className="nexa-studio-rail-alert nexa-studio-boq-scale-warn" role="status">
+                    {unscaledLinearCount} run{unscaledLinearCount === 1 ? "" : "s"} need Set scale
+                    {unscaledLinearSummary.pageLabels.length
+                      ? ` — ${unscaledLinearSummary.pageLabels.join(", ")}`
+                      : ""}.
+                  </p>
+                ) : null}
                 <section className={`nexa-studio-rail-acc${railAccordions.drawings ? " is-open" : ""}`}>
                   <button
                     type="button"
@@ -2197,6 +2221,7 @@ export default function TakeoffStudioPage() {
                     </div>
                   ) : null}
                 </section>
+                </>
               ) : null}
 
 {!boqOpen ? (
@@ -2215,14 +2240,6 @@ export default function TakeoffStudioPage() {
                   </button>
                   {railAccordions.draw ? (
                     <div className="nexa-studio-rail-acc-body">
-                      {unscaledLinearCount > 0 ? (
-                        <p className="nexa-studio-boq-scale-warn">
-                          {unscaledLinearCount} run{unscaledLinearCount === 1 ? "" : "s"} need Set scale
-                          {unscaledLinearSummary.pageLabels.length
-                            ? ` — ${unscaledLinearSummary.pageLabels.join(", ")}`
-                            : ""}.
-                        </p>
-                      ) : null}
                       <div className="nexa-studio-class-list">
                         {drawAsGroups.map((section) => {
                           const groupOpen = Boolean(openClassGroups[section.key]);

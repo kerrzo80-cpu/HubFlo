@@ -12,6 +12,7 @@
  *    absolute-cover list names). Dropzone is position:relative; flex:0 0 auto.
  * 7. .nexa-studio-main = grid cell; min-width:0; min-height:0; height:100%.
  * 8. Banners: .nexa-studio-banner-stack absolute overlay — never steals body height.
+ *    Scale alerts are in-flow in .nexa-studio-rail-scroll (above Drawings), not overlays.
  * Guard: apps/web/src/lib/takeoff-studio-rail-layout.test.ts
  */
 .nexa-studio {
@@ -1441,6 +1442,14 @@
   font-size: 12px;
   font-weight: 600;
   line-height: 1.35;
+}
+
+/* In-flow rail alerts (above Drawings) — push content down, never overlay tools. */
+.nexa-studio-rail-scroll > .nexa-studio-rail-alert {
+  position: relative;
+  flex: 0 0 auto;
+  margin: 0;
+  box-shadow: none;
 }
 
 .nexa-studio-propose-panel {

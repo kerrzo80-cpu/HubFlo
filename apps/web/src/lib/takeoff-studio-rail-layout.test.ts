@@ -78,6 +78,22 @@ describe("Takeoff Studio left-rail layout contract", () => {
     assert.match(pageTsx, /Takeoff records/);
   });
 
+  it("keeps Set scale alerts in-flow above Drawings (not canvas overlay)", () => {
+    const linked = pageTsx.indexOf("<h2>Linked</h2>");
+    const drawings = pageTsx.indexOf("<h2>Drawings</h2>");
+    const railAlert = pageTsx.indexOf("nexa-studio-rail-alert");
+    assert.ok(railAlert > linked);
+    assert.ok(railAlert < drawings);
+    assert.match(pageTsx, /nexa-studio-rail-alert nexa-studio-boq-scale-warn/);
+    // Overlay stack must not include the page-scale prompt (that covered tools).
+    const bannerStack = pageTsx.slice(
+      pageTsx.indexOf("nexa-studio-banner-stack"),
+      pageTsx.indexOf("nexa-studio-body"),
+    );
+    assert.doesNotMatch(bannerStack, /Set scale before measuring/);
+    assert.doesNotMatch(studioCss, /\.nexa-studio-rail-alert[^{]*\{[^}]*position:\s*absolute/);
+  });
+
   it("keeps drawing dropzone in normal flow (no absolute cover)", () => {
     const drop = blockFor(".nexa-studio-drawing-drop", studioCss);
     assert.match(drop, /position:\s*relative/);

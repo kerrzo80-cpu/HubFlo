@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { loadServerStore, writeServerStore, getServerStoreDirectory } from "@/lib/server-store";
@@ -14,6 +14,7 @@ import {
   takeoffSourceTenderDocId,
   withSourceFolderNote,
 } from "@/lib/takeoff-drawing-labels";
+import { purgeStudioDocuments } from "@/lib/takeoff-studio";
 import { deleteRecordDocumentByFileUrl, readRecordDocumentFile } from "@/lib/record-documents";
 import {
   TENDER_DOCUMENT_FOLDER_MAX_DEPTH,
@@ -1217,6 +1218,58 @@ export type CopyTenderDrawingsResult = {
   tenderDrawingCount: number;
   takeoff: ReturnType<typeof getTakeoffProject>;
 };
+
+/**
+ * Remove drawings synced from a Core tender (`sourceTenderDoc:` notes).
+ * Keeps local uploads; purges markups/scales for removed sheets.
+ */
+export function clearTenderSourcedDrawingsFromTakeoff(takeoffId: string): {
+  removed: number;
+  takeoff: ReturnType<typeof getTakeoffProject>;
+} {
+  const project = getTakeoffProject(takeoffId);
+  if (!project) return { removed: 0, takeoff: null };
+
+  const keep = [];
+  const removedIds = new Set<string>();
+  for (const doc of project.documents) {
+    if (takeoffSourceTenderDocId(doc.notes)) {
+      removedIds.add(doc.id);
+      if (doc.storageKey) {
+        try {
+          const fullPath = path.join(getServerStoreDirectory(), ...doc.storageKey.split("/"));
+          if (existsSync(fullPath)) unlinkSync(fullPath);
+        } catch {
+          // Best-effort file cleanup; store row is still dropped.
+        }
+      }
+    } else {
+      keep.push(doc);
+    }
+  }
+
+  if (!removedIds.size) {
+    return { removed: 0, takeoff: project };
+  }
+
+  const fallbackActive = keep.find(
+    (doc) =>
+      doc.kind === "Drawing"
+      || doc.kind === "Marked-up drawing"
+      || (doc.mimeType || "").includes("pdf"),
+  )?.id;
+
+  const studio = project.studio
+    ? purgeStudioDocuments(project.studio, removedIds, fallbackActive)
+    : undefined;
+
+  const takeoff = updateTakeoffProject(takeoffId, {
+    documents: keep,
+    ...(studio ? { studio } : {}),
+  });
+
+  return { removed: removedIds.size, takeoff: takeoff ?? project };
+}
 
 /** Copy tender drawing files into a takeoff project (skip ones already transferred). */
 export function copyTenderDrawingsToTakeoff(tender: Tender, takeoffId: string): CopyTenderDrawingsResult {
