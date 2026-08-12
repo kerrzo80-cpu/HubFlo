@@ -40032,9 +40032,12 @@ button.nexa-kpi-card,
 }
 
 .tenders-boq-import-mode {
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 16px;
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 8px;
   margin: 0 0 10px;
 }
 
@@ -40042,9 +40045,21 @@ button.nexa-kpi-card,
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  width: auto;
+  max-width: 100%;
+  white-space: normal;
   font-weight: 500;
   color: var(--ink);
   cursor: pointer;
+}
+
+/* Radios must not inherit .tenders-inline-add input { width: 100% } */
+.tenders-boq-import-mode input[type="radio"] {
+  width: auto;
+  min-width: 1rem;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: #0b6e99;
 }
 
 .tenders-client-field {

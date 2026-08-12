@@ -44,6 +44,7 @@ export function pushTakeoffProjectToTender(
   const takeoffLines = buildTakeoffTenderBoqLines(project.studio, {
     library: getTakeoffRateLibrary(),
     projectRef: project.reference,
+    documents: project.documents.map((doc) => ({ id: doc.id, fileName: doc.fileName })),
   });
   if (!takeoffLines.length) return null;
 

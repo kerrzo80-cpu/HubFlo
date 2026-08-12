@@ -7,6 +7,7 @@ import {
   addBoqSheetTab,
   deleteBoqLines,
   deleteBoqSheetTab,
+  getTender,
   importBoqIntoTender,
   importBoqWorkbookIntoTender,
   mergeBoqImportLines,
@@ -187,6 +188,35 @@ describe("tender BoQ append / export", () => {
 
     const activeOnly = buildTenderBoqXlsxBuffer(lines, { sheetKey: "Supplier" });
     assert.ok(activeOnly.length > 50);
+  });
+
+  it("rejects empty BoQ imports instead of silently wiping", () => {
+    writeServerStore("nexa-tenders-v1", { tenders: [] });
+    const tender = upsertTender({
+      id: "tender-boq-empty-import",
+      name: "Empty import guard",
+      client: "Burns",
+      category: "Plumbing",
+      area: "Aberdeen",
+      status: "In Progress",
+      boqLines: [
+        {
+          id: "keep",
+          kind: "measured",
+          ref: "1",
+          description: "Keep me",
+          quantity: 1,
+          unit: "nr",
+          rate: 10,
+          value: 10,
+        },
+      ],
+    });
+    assert.throws(
+      () => importBoqIntoTender(tender.id, "Ref,Description,Quantity,Units\n", undefined, { mode: "replace" }),
+      /No BoQ lines found/i,
+    );
+    assert.equal(getTender(tender.id)?.boqLines.some((line) => line.id === "keep"), true);
   });
 
   it("adds, renames, and removes sheet tabs plus manual lines", () => {

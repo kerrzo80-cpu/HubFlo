@@ -439,11 +439,75 @@ export type StudioBoqRow = {
   id: string;
   layerId: StudioServiceLayerId;
   layerLabel: string;
+  /** Floor / level inferred from drawing file name when available. */
+  floorLabel?: string;
   section: StudioBoqSection;
   description: string;
   quantity: number;
   unit: string;
 };
+
+export type SummariseStudioBoqOptions = {
+  /** Map of drawing documentId → file name (used to split quantities by floor/level). */
+  documentNames?: Record<string, string> | Map<string, string>;
+};
+
+/** Infer Lower ground / Ground / First / Second… from a drawing file name. */
+export function inferFloorLabelFromDrawingName(fileName: string | undefined | null): string {
+  const raw = String(fileName || "")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .toLowerCase();
+  if (!raw) return "Unspecified floor";
+
+  if (
+    /\blower\s*ground\b/.test(raw) ||
+    /\blg\b/.test(raw) ||
+    /\bbasement\b/.test(raw) ||
+    /\blevel\s*-?1\b/.test(raw) ||
+    /\b-1\b/.test(raw)
+  ) {
+    return "Lower ground";
+  }
+  if (/\bground\b/.test(raw) || /\bgnd\b/.test(raw) || /\blevel\s*0\b/.test(raw) || /\bgf\b/.test(raw)) {
+    return "Ground";
+  }
+  if (/\bfirst\b/.test(raw) || /\b1st\b/.test(raw) || /\blevel\s*1\b/.test(raw) || /\bff\b/.test(raw)) {
+    return "First";
+  }
+  if (/\bsecond\b/.test(raw) || /\b2nd\b/.test(raw) || /\blevel\s*2\b/.test(raw) || /\bsf\b/.test(raw)) {
+    return "Second";
+  }
+  if (/\bthird\b/.test(raw) || /\b3rd\b/.test(raw) || /\blevel\s*3\b/.test(raw)) {
+    return "Third";
+  }
+  if (/\bfourth\b/.test(raw) || /\b4th\b/.test(raw) || /\blevel\s*4\b/.test(raw)) {
+    return "Fourth";
+  }
+  if (/\bflat\s*([a-z0-9]+)\b/.test(raw)) {
+    const match = raw.match(/\bflat\s*([a-z0-9]+)\b/);
+    return match ? `Flat ${match[1]!.toUpperCase()}` : "Unspecified floor";
+  }
+  return "Unspecified floor";
+}
+
+export function floorLabelSortKey(label: string): number {
+  const order = ["Lower ground", "Ground", "First", "Second", "Third", "Fourth"];
+  const idx = order.indexOf(label);
+  if (idx >= 0) return idx;
+  if (label.startsWith("Flat ")) return 50;
+  return 100;
+}
+
+function documentNameLookup(
+  documentNames: SummariseStudioBoqOptions["documentNames"] | undefined,
+  documentId: string,
+): string {
+  if (!documentNames) return "";
+  if (documentNames instanceof Map) return documentNames.get(documentId) || "";
+  return documentNames[documentId] || "";
+}
 
 function layerLabelFor(layerId: StudioServiceLayerId, studio?: StudioState) {
   if (studio) {
@@ -468,10 +532,12 @@ function layerForGeometry(studio: StudioState, geo: StudioGeometry): StudioServi
 /**
  * Full takeoff BOQ: pipe metres by size/service, fittings by size, plus counts/areas.
  * Pass a service layer to get that layer only; `all` = master total.
+ * When documentNames are provided, quantities are split by floor inferred from drawing names.
  */
 export function summariseStudioBoq(
   studio: StudioState,
   layerFilter: StudioServiceLayerId | "all" = "all",
+  options?: SummariseStudioBoqOptions,
 ): StudioBoqRow[] {
   type Acc = {
     description: string;
@@ -479,14 +545,17 @@ export function summariseStudioBoq(
     verticalM: number;
     dropNotes: string[];
     layerId: StudioServiceLayerId;
+    floorLabel: string;
     section: StudioBoqSection;
     unit: string;
   };
   const groups = new Map<string, Acc>();
+  const splitByFloor = Boolean(options?.documentNames);
 
   const bump = (
     key: string,
     layerId: StudioServiceLayerId,
+    floorLabel: string,
     section: StudioBoqSection,
     description: string,
     quantity: number,
@@ -502,6 +571,7 @@ export function summariseStudioBoq(
       verticalM: 0,
       dropNotes: [],
       layerId,
+      floorLabel,
       section,
       unit,
     };
@@ -516,6 +586,9 @@ export function summariseStudioBoq(
     const scale = scaleForPage(studio, geo.documentId, geo.page);
     const mpu = scale?.metresPerUnit || 0;
     const cls = studio.classifications.find((row) => row.id === geo.classificationId);
+    const floorLabel = splitByFloor
+      ? inferFloorLabelFromDrawingName(documentNameLookup(options?.documentNames, geo.documentId))
+      : "";
 
     if (geo.kind === "linear") {
       const drop = resolveLinearDrop(geo);
@@ -525,8 +598,8 @@ export function summariseStudioBoq(
         ? `${geo.diameter || ""} ${geo.material || "Pipe"} · ${cls?.name || "Pipe run"}`.replace(/\s+/g, " ").trim()
         : (cls?.name || "Pipe run");
       if (metres > 0) {
-        const key = `pipe|${layerId}|${geo.material || ""}|${geo.diameter || ""}|${cls?.id || "run"}`;
-        bump(key, layerId, "Pipework", baseDescription, metres, "m", drop.verticalM, drop.noteLabel);
+        const key = `pipe|${layerId}|${floorLabel}|${geo.material || ""}|${geo.diameter || ""}|${cls?.id || "run"}`;
+        bump(key, layerId, floorLabel, "Pipework", baseDescription, metres, "m", drop.verticalM, drop.noteLabel);
       }
       // Unscaled runs with no rise are not BOQ lines. Call out via countUnscaledStudioLinears.
       continue;
@@ -535,15 +608,15 @@ export function summariseStudioBoq(
     if (geo.kind === "count" && geo.autoGenerated && geo.fittingKind) {
       const label = geo.fittingKind === "90-elbow" ? "90° elbow" : "Coupling";
       const description = `${geo.diameter || ""} ${geo.material || ""} ${label}`.replace(/\s+/g, " ").trim();
-      const key = `fit|${layerId}|${geo.material || ""}|${geo.diameter || ""}|${geo.fittingKind}`;
-      bump(key, layerId, "Fittings", description, 1, "nr");
+      const key = `fit|${layerId}|${floorLabel}|${geo.material || ""}|${geo.diameter || ""}|${geo.fittingKind}`;
+      bump(key, layerId, floorLabel, "Fittings", description, 1, "nr");
       continue;
     }
 
     if (geo.kind === "count") {
       const description = cls?.name || "Count";
-      const key = `count|${layerId}|${cls?.id || geo.classificationId}`;
-      bump(key, layerId, "Counts", description, 1, "nr");
+      const key = `count|${layerId}|${floorLabel}|${cls?.id || geo.classificationId}`;
+      bump(key, layerId, floorLabel, "Counts", description, 1, "nr");
       continue;
     }
 
@@ -551,8 +624,8 @@ export function summariseStudioBoq(
       const area = polygonArea(geo.points) * mpu * mpu;
       if (!(area > 0)) continue;
       const description = cls?.name || "Area";
-      const key = `area|${layerId}|${cls?.id || geo.classificationId}`;
-      bump(key, layerId, "Areas", description, area, "m2");
+      const key = `area|${layerId}|${floorLabel}|${cls?.id || geo.classificationId}`;
+      bump(key, layerId, floorLabel, "Areas", description, area, "m2");
     }
   }
 
@@ -569,6 +642,7 @@ export function summariseStudioBoq(
         id: key,
         layerId: row.layerId,
         layerLabel: layerLabelFor(row.layerId, studio),
+        floorLabel: row.floorLabel || undefined,
         section: row.section,
         description: `${row.description}${dropNote}`,
         quantity: row.unit === "nr" ? row.quantity : Number(row.quantity.toFixed(2)),
@@ -576,6 +650,8 @@ export function summariseStudioBoq(
       };
     })
     .sort((a, b) => {
+      const floorDiff = floorLabelSortKey(a.floorLabel || "") - floorLabelSortKey(b.floorLabel || "");
+      if (floorDiff !== 0) return floorDiff;
       const sectionDiff = sectionOrder.indexOf(a.section) - sectionOrder.indexOf(b.section);
       if (sectionDiff !== 0) return sectionDiff;
       if (a.layerLabel !== b.layerLabel) return a.layerLabel.localeCompare(b.layerLabel);

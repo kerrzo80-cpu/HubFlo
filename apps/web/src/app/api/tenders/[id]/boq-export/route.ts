@@ -3,6 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { getTender } from "@/lib/tenders-data";
 import {
+  buildTenderBoqPdfBuffer,
+  tenderBoqPdfFilename,
+} from "@/lib/tender-boq-export-pdf";
+import {
   buildTenderBoqXlsxBuffer,
   rowsToDelimitedText,
   tenderBoqExportFilename,
@@ -32,6 +36,29 @@ export async function GET(
   const scope = (request.nextUrl.searchParams.get("scope") || "all").trim().toLowerCase();
   const activeOnly = scope === "active" || scope === "sheet";
   const exportSheet = activeOnly ? sheetKey : null;
+
+  if (format === "pdf") {
+    try {
+      const buffer = await buildTenderBoqPdfBuffer(tender.boqLines, {
+        sheetKey: exportSheet,
+        title: tender.boqTitle || "BoQ",
+        tenderName: tender.name,
+      });
+      const filename = tenderBoqPdfFilename(tender.name, exportSheet);
+      return new NextResponse(new Uint8Array(buffer), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${filename}"`,
+        },
+      });
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Unable to export BoQ PDF." },
+        { status: 400 },
+      );
+    }
+  }
 
   if (format === "csv") {
     const lines = exportSheet

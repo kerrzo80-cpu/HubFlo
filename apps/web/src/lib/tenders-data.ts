@@ -862,6 +862,12 @@ function applyBoqImport(
 ) {
   const existing = getTender(id);
   if (!existing) throw new Error("Tender not found.");
+  const measuredCount = (parsed.lines || []).filter((line) => line.kind === "measured").length;
+  if (!measuredCount) {
+    throw new Error(
+      "No BoQ lines found in this import (0 measured items). Check the file is a text BoQ / supplier quote with Qty, Description and Rate columns — scanned PDFs need Excel/CSV instead.",
+    );
+  }
   const mode: BoqImportMode = options?.mode === "append" ? "append" : "replace";
   const boqLines =
     mode === "append"

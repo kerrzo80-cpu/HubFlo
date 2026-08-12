@@ -115,14 +115,16 @@ export async function POST(request: NextRequest) {
         );
       }
       const added = tender.boqLines.length;
+      const measured = tender.boqLines.filter((line) => line.kind === "measured").length;
       return NextResponse.json({
         tender,
         tenders: listTenders(),
         mode,
+        measured,
         message:
           mode === "append"
-            ? `Added lines to BoQ (${added} total line${added === 1 ? "" : "s"}).`
-            : `BoQ replaced (${added} line${added === 1 ? "" : "s"}).`,
+            ? `Added lines to BoQ (${measured} measured · ${added} total line${added === 1 ? "" : "s"}).`
+            : `BoQ replaced (${measured} measured · ${added} total line${added === 1 ? "" : "s"}).`,
       });
     }
 

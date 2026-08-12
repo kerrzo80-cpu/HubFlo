@@ -2,6 +2,7 @@
  * PDF BoQ → sheet matrix adapter.
  * Reuses takeoff PDF text extraction, then rebuilds table-like rows for parseBoqFromRows.
  * Text-based PDFs only (no OCR) — scanned bills fail with a clear message.
+ * Also handles supplier sales-order / quotation layouts (Qty / Product Code / Description / Unit Price).
  */
 
 import {
@@ -16,9 +17,20 @@ const LINE_Y_TOLERANCE = 4;
 const COLUMN_GAP_MIN = 12;
 const COLUMN_ALIGN_TOLERANCE = 8;
 
+const SUPPLIER_QUOTE_HEADER = ["Ref", "Description", "Quantity", "Units", "Rate", "Value"] as const;
+
 type LineCluster = {
   y: number;
   items: ExtractedPdfTextItem[];
+};
+
+type SupplierColumnBands = {
+  qty: number;
+  code: number;
+  description: number;
+  unitPrice: number;
+  netPrice: number;
+  vat: number;
 };
 
 function clusterItemsIntoLines(items: ExtractedPdfTextItem[]): LineCluster[] {
@@ -117,7 +129,210 @@ function gapSplitLine(items: ExtractedPdfTextItem[]): string[] {
   return cells.filter(Boolean);
 }
 
+function lineJoinedText(line: LineCluster): string {
+  return line.items
+    .map((item) => item.text)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseMoneyCell(raw: string): number | null {
+  const cleaned = String(raw || "")
+    .replace(/[£$€,\s]/g, "")
+    .replace(/^\((.*)\)$/, "-$1")
+    .trim();
+  if (!cleaned || !/^-?\d+(\.\d+)?$/.test(cleaned)) return null;
+  const value = Number(cleaned);
+  return Number.isFinite(value) ? value : null;
+}
+
+function looksLikeSupplierQuotePage(page: ExtractedPdfPage): boolean {
+  const hay = `${page.fullText || ""} ${page.textItems.map((item) => item.text).join(" ")}`.toLowerCase();
+  const hasQty = /\bqty\b/.test(hay) && /\bordered\b/.test(hay);
+  const hasProduct =
+    (/product\s*code/.test(hay) || /\bcode\b/.test(hay)) &&
+    (/product\s*description/.test(hay) || /\bdescription\b/.test(hay));
+  const hasPrice = /unit\s*price/.test(hay) || /net\s*price/.test(hay);
+  const looksLikeQuote =
+    /\bquotation\b/.test(hay) ||
+    /\bsales\s*order\b/.test(hay) ||
+    /\bfilpumps\b/.test(hay) ||
+    /\border\s*total\b/.test(hay);
+  return (hasQty && hasProduct && hasPrice) || (looksLikeQuote && hasProduct && hasPrice);
+}
+
+function findSupplierHeaderLine(lines: LineCluster[]): LineCluster | null {
+  for (const line of lines) {
+    const text = lineJoinedText(line).toLowerCase();
+    if (!text.includes("qty") && !text.includes("quantity")) continue;
+    if (!text.includes("product") && !text.includes("description")) continue;
+    if (!text.includes("price") && !text.includes("rate")) continue;
+    return line;
+  }
+  return null;
+}
+
+function findTokenX(items: ExtractedPdfTextItem[], matcher: RegExp): number | null {
+  for (const item of items) {
+    if (matcher.test(item.text)) return item.x;
+  }
+  // Multi-token headers: "Unit" then "Price"
+  for (let i = 0; i < items.length - 1; i += 1) {
+    const pair = `${items[i]!.text} ${items[i + 1]!.text}`;
+    if (matcher.test(pair)) return items[i]!.x;
+  }
+  return null;
+}
+
+function inferSupplierColumnBands(header: LineCluster): SupplierColumnBands {
+  const items = header.items;
+  const qty = findTokenX(items, /^qty$/i) ?? findTokenX(items, /quantity/i) ?? 27;
+  // Prefer the multi-word header starts so code stays a narrow band.
+  const code =
+    findTokenX(items, /product\s*code/i) ??
+    findTokenX(items, /^code$/i) ??
+    findTokenX(items, /^product$/i) ??
+    94;
+  const description =
+    findTokenX(items, /product\s*description/i) ??
+    findTokenX(items, /^description$/i) ??
+    176;
+  const unitPrice =
+    findTokenX(items, /unit\s*price/i) ?? findTokenX(items, /^unit$/i) ?? 394;
+  const netPrice = findTokenX(items, /net\s*price/i) ?? findTokenX(items, /^net$/i) ?? 454;
+  const vat = findTokenX(items, /vat\s*amount/i) ?? findTokenX(items, /^vat$/i) ?? 499;
+  return { qty, code, description, unitPrice, netPrice, vat };
+}
+
+function bandForX(x: number, bands: SupplierColumnBands): keyof SupplierColumnBands {
+  // Use the next column's left edge as the hard split — Filpumps qty values sit
+  // under "Ordered", to the right of the "Qty" label midpoint.
+  if (x < bands.code - 4) return "qty";
+  if (x < bands.description - 4) return "code";
+  if (x < bands.unitPrice - 4) return "description";
+  if (x < bands.netPrice - 4) return "unitPrice";
+  if (x < bands.vat - 4) return "netPrice";
+  return "vat";
+}
+
+function assignSupplierCells(
+  items: ExtractedPdfTextItem[],
+  bands: SupplierColumnBands,
+): Record<keyof SupplierColumnBands, string> {
+  const cells: Record<keyof SupplierColumnBands, string> = {
+    qty: "",
+    code: "",
+    description: "",
+    unitPrice: "",
+    netPrice: "",
+    vat: "",
+  };
+  for (const item of items) {
+    const key = bandForX(item.x, bands);
+    cells[key] = cells[key] ? `${cells[key]} ${item.text}` : item.text;
+  }
+  for (const key of Object.keys(cells) as Array<keyof SupplierColumnBands>) {
+    cells[key] = cells[key].replace(/\s+/g, " ").trim();
+  }
+  // Spill overflow: product codes are short tokens; longer words belong in description.
+  if (cells.code) {
+    const parts = cells.code.split(/\s+/).filter(Boolean);
+    if (parts.length > 1) {
+      const kept: string[] = [];
+      const spilled: string[] = [];
+      for (const part of parts) {
+        if (kept.length === 0 && part.length <= 24 && !/\s/.test(part)) kept.push(part);
+        else spilled.push(part);
+      }
+      cells.code = kept.join(" ");
+      if (spilled.length) {
+        cells.description = [spilled.join(" "), cells.description].filter(Boolean).join(" ").trim();
+      }
+    }
+  }
+  return cells;
+}
+
+function isSupplierFooterLine(text: string): boolean {
+  const lower = text.toLowerCase();
+  return (
+    /\btotal\s+net\b/.test(lower) ||
+    /\btotal\s+vat\b/.test(lower) ||
+    /\border\s+total\b/.test(lower) ||
+    /\bbank\s+details\b/.test(lower) ||
+    /\ball\s+prices\s+quoted\b/.test(lower) ||
+    /\bsubject\s+to\s+our\s+terms\b/.test(lower) ||
+    /\blegal\s+title\b/.test(lower)
+  );
+}
+
+/**
+ * Supplier sales-order / quotation line table → BoQ-shaped rows.
+ * Skips memo rows (qty 0 / code M) and keeps priced supply lines + carriage.
+ */
+export function pdfPageToSupplierQuoteRows(page: ExtractedPdfPage): string[][] | null {
+  if (!looksLikeSupplierQuotePage(page)) return null;
+  const lines = clusterItemsIntoLines(page.textItems);
+  const header = findSupplierHeaderLine(lines);
+  if (!header) return null;
+
+  const bands = inferSupplierColumnBands(header);
+  const rows: string[][] = [SUPPLIER_QUOTE_HEADER.slice()];
+  let headerSeen = false;
+
+  for (const line of lines) {
+    if (line === header) {
+      headerSeen = true;
+      continue;
+    }
+    if (!headerSeen) continue;
+
+    const joined = lineJoinedText(line);
+    if (!joined) continue;
+    if (isSupplierFooterLine(joined)) break;
+
+    const cells = assignSupplierCells(line.items, bands);
+    const qty = parseMoneyCell(cells.qty);
+    const rate = parseMoneyCell(cells.unitPrice);
+    const net = parseMoneyCell(cells.netPrice);
+    const code = cells.code.trim();
+    const description = cells.description.trim();
+
+    // Memo / comment rows on Filpumps-style quotes use qty 0 and code "M".
+    if ((qty === 0 || qty === null) && /^m$/i.test(code)) continue;
+    if (!description && !code) continue;
+    if (qty === null && rate === null && net === null) continue;
+    if ((qty === 0 || qty === null) && (rate === 0 || rate === null) && (net === 0 || net === null)) {
+      continue;
+    }
+
+    const quantity = qty !== null && qty > 0 ? qty : 1;
+    const unitRate = rate ?? net;
+    const value =
+      net !== null && net > 0
+        ? net
+        : unitRate !== null
+          ? Math.round(unitRate * quantity * 100) / 100
+          : null;
+
+    rows.push([
+      code || "",
+      description || code || "Supplier item",
+      String(quantity),
+      "nr",
+      unitRate !== null ? String(unitRate) : "",
+      value !== null ? String(value) : "",
+    ]);
+  }
+
+  return rows.length > 1 ? rows : null;
+}
+
 export function pdfPageToBoqRows(page: ExtractedPdfPage): string[][] {
+  const supplierRows = pdfPageToSupplierQuoteRows(page);
+  if (supplierRows?.length) return supplierRows;
+
   const lines = clusterItemsIntoLines(page.textItems);
   if (!lines.length) return [];
 
@@ -136,6 +351,12 @@ export function pdfPageToBoqRows(page: ExtractedPdfPage): string[][] {
   return rows;
 }
 
+function sheetNameForPdfPage(doc: ExtractedPdfDocument, page: ExtractedPdfPage): string {
+  const base = (doc.fileName || "boq.pdf").replace(/\.[^.]+$/, "").trim() || "PDF";
+  if (doc.pageCount <= 1) return base;
+  return `${base} · Page ${page.pageNumber}`;
+}
+
 export function workbookBoqSheetsFromPdfDocument(doc: ExtractedPdfDocument): WorkbookSheetRows[] {
   const selectable = doc.pages.filter((page) => page.hasSelectableText);
   if (!selectable.length) {
@@ -149,7 +370,7 @@ export function workbookBoqSheetsFromPdfDocument(doc: ExtractedPdfDocument): Wor
     const rows = pdfPageToBoqRows(page);
     if (!rows.length) continue;
     sheets.push({
-      name: `Page ${page.pageNumber}`,
+      name: sheetNameForPdfPage(doc, page),
       rows,
     });
   }

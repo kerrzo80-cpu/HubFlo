@@ -1,11 +1,16 @@
 /**
  * Takeoff → Core tender BoQ export.
  * One workbook sheet per Draw-as service layer (Hot & cold, Heating, Gas, …);
+ * within each sheet, group by floor/level when drawing names are available;
  * re-push replaces the prior Takeoff block only.
  */
 
 import { STUDIO_SERVICE_LAYERS, type StudioState } from "@/lib/takeoff-studio";
-import { summariseStudioBoq, type StudioBoqRow } from "@/lib/takeoff-studio-pipe";
+import {
+  floorLabelSortKey,
+  summariseStudioBoq,
+  type StudioBoqRow,
+} from "@/lib/takeoff-studio-pipe";
 import {
   priceAndExpandTakeoffMaterials,
   type TakeoffRateLine,
@@ -84,7 +89,20 @@ function sectionRef(section: string): string {
   return "TO";
 }
 
-type LayeredRateLine = TakeoffRateLine & { layerId: string; layerLabel: string };
+function moneyLabel(value: number) {
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+    minimumFractionDigits: 2,
+  }).format(value);
+}
+
+type LayeredRateLine = TakeoffRateLine & {
+  layerId: string;
+  layerLabel: string;
+  floorLabel?: string;
+  sourceId: string;
+};
 
 function groupRowsByLayer(rows: StudioBoqRow[]): Array<{ layerId: string; layerLabel: string; rows: StudioBoqRow[] }> {
   const map = new Map<string, { layerId: string; layerLabel: string; rows: StudioBoqRow[] }>();
@@ -108,15 +126,33 @@ function groupRowsByLayer(rows: StudioBoqRow[]): Array<{ layerId: string; layerL
   });
 }
 
+function floorsInLayer(rows: StudioBoqRow[]): string[] {
+  const floors = new Set<string>();
+  for (const row of rows) {
+    if (row.floorLabel?.trim()) floors.add(row.floorLabel.trim());
+  }
+  return [...floors].sort((a, b) => floorLabelSortKey(a) - floorLabelSortKey(b) || a.localeCompare(b));
+}
+
 /**
  * Build tender BoQ lines from Studio markups, split into one sheet per Draw-as layer.
- * Within each sheet: layer header, then Pipework / Fittings / Counts / … section headers.
+ * Within each sheet: optional floor headers (from drawing names), then Pipework / Fittings / …,
+ * then a floor subtotal when floors are present.
  */
 export function buildTakeoffTenderBoqLines(
   studio: StudioState,
-  options?: { library?: TakeoffRateLibrary | null; projectRef?: string },
+  options?: {
+    library?: TakeoffRateLibrary | null;
+    projectRef?: string;
+    /** Drawing document id → file name for floor/level grouping. */
+    documents?: Array<{ id: string; fileName: string }>;
+  },
 ): TenderBoqLine[] {
-  const master = summariseStudioBoq(studio, "all");
+  const documentNames =
+    options?.documents?.length ?
+      Object.fromEntries(options.documents.map((doc) => [doc.id, doc.fileName]))
+    : undefined;
+  const master = summariseStudioBoq(studio, "all", documentNames ? { documentNames } : undefined);
   const layers = groupRowsByLayer(master);
   if (!layers.length) return [];
 
@@ -127,6 +163,7 @@ export function buildTakeoffTenderBoqLines(
     const sheet = takeoffBoqSheetName(layer.layerLabel);
     const seed: LayeredRateLine[] = layer.rows.map((row) => ({
       id: row.id,
+      sourceId: row.id,
       section: row.section,
       description: `Takeoff · ${row.description}`,
       quantity: row.quantity,
@@ -134,10 +171,17 @@ export function buildTakeoffTenderBoqLines(
       unitCost: 0,
       markupPercent: 0,
       supplierRequired: false,
-      layerId: layer.layerId,
-      layerLabel: layer.layerLabel,
+      layerId: row.layerId,
+      layerLabel: row.layerLabel,
+      floorLabel: row.floorLabel,
     }));
     const priced = priceAndExpandTakeoffMaterials(seed, options?.library) as LayeredRateLine[];
+    // Preserve floor labels after rate expansion (expanded lines keep source id prefix).
+    for (const line of priced) {
+      if (line.floorLabel) continue;
+      const source = seed.find((row) => row.id === line.id || line.id.startsWith(`${row.id}-`));
+      if (source?.floorLabel) line.floorLabel = source.floorLabel;
+    }
 
     out.push({
       id: `takeoff-boq-header-${layer.layerId}`,
@@ -147,39 +191,72 @@ export function buildTakeoffTenderBoqLines(
       section: layer.layerLabel,
     });
 
-    for (const section of SECTION_ORDER) {
-      const sectionLines = priced.filter((line) => line.section === section && line.quantity > 0);
-      if (!sectionLines.length) continue;
+    const floors = floorsInLayer(layer.rows);
+    const floorBlocks = floors.length ? floors : [""];
 
-      out.push({
-        id: `takeoff-boq-sec-${layer.layerId}-${slugId(section)}`,
-        kind: "header",
-        description: section,
-        sheet,
-        section,
-      });
+    for (const floor of floorBlocks) {
+      const floorPriced = floor
+        ? priced.filter((line) => (line.floorLabel || "") === floor)
+        : priced;
+      if (!floorPriced.length) continue;
 
-      for (const line of sectionLines) {
-        const unitCost = Math.round((line.unitCost || 0) * 100) / 100;
-        const rate = lineSell(unitCost, line.markupPercent || 0);
-        const quantity = Math.round(line.quantity * 1000) / 1000;
-        const value =
-          Number.isFinite(quantity) && Number.isFinite(rate)
-            ? Math.round(quantity * rate * 100) / 100
-            : null;
+      if (floor) {
         out.push({
-          id: `takeoff-boq-${layer.layerId}-${slugId(line.id)}`,
-          kind: "measured",
-          ref: sectionRef(section),
-          description: line.description.replace(/^Takeoff ·\s*/i, ""),
-          quantity,
-          unit: line.unit || "nr",
-          rate: rate > 0 ? rate : null,
-          value: rate > 0 ? value : null,
-          note: line.pricingNote || undefined,
-          pricingSource: line.unitCost > 0 ? "rate-library" : undefined,
+          id: `takeoff-boq-floor-${layer.layerId}-${slugId(floor)}`,
+          kind: "header",
+          description: floor,
+          sheet,
+          section: floor,
+        });
+      }
+
+      let floorValue = 0;
+      for (const section of SECTION_ORDER) {
+        const sectionLines = floorPriced.filter((line) => line.section === section && line.quantity > 0);
+        if (!sectionLines.length) continue;
+
+        out.push({
+          id: `takeoff-boq-sec-${layer.layerId}-${slugId(floor || "all")}-${slugId(section)}`,
+          kind: "header",
+          description: section,
           sheet,
           section,
+        });
+
+        for (const line of sectionLines) {
+          const unitCost = Math.round((line.unitCost || 0) * 100) / 100;
+          const rate = lineSell(unitCost, line.markupPercent || 0);
+          const quantity = Math.round(line.quantity * 1000) / 1000;
+          const value =
+            Number.isFinite(quantity) && Number.isFinite(rate)
+              ? Math.round(quantity * rate * 100) / 100
+              : null;
+          if (typeof value === "number") floorValue += value;
+          out.push({
+            id: `takeoff-boq-${layer.layerId}-${slugId(floor || "all")}-${slugId(line.id)}`,
+            kind: "measured",
+            ref: sectionRef(section),
+            description: line.description.replace(/^Takeoff ·\s*/i, ""),
+            quantity,
+            unit: line.unit || "nr",
+            rate: rate > 0 ? rate : null,
+            value: rate > 0 ? value : null,
+            note: [floor || undefined, line.pricingNote || undefined].filter(Boolean).join(" · ") || undefined,
+            pricingSource: line.unitCost > 0 ? "rate-library" : undefined,
+            sheet,
+            section,
+          });
+        }
+      }
+
+      if (floor && floorValue > 0) {
+        out.push({
+          id: `takeoff-boq-subtotal-${layer.layerId}-${slugId(floor)}`,
+          kind: "note",
+          description: `${floor} subtotal ${moneyLabel(floorValue)}`,
+          note: moneyLabel(floorValue),
+          sheet,
+          section: floor,
         });
       }
     }

@@ -111,3 +111,64 @@ test("mergeTakeoffBoqLines replaces prior Takeoff sheets only", () => {
   assert.equal(merged.some((line) => line.id === "takeoff-boq-old"), false);
   assert.ok(merged.some((line) => line.id.startsWith("takeoff-boq-") && line.kind === "measured"));
 });
+
+test("buildTakeoffTenderBoqLines groups quantities by floor from drawing names", () => {
+  const base = studioWithTwoLayers();
+  const hotClsId = base.geometries.find((geo) => geo.kind === "linear")!.classificationId;
+  const studio: StudioState = {
+    ...base,
+    scales: [
+      {
+        documentId: "doc-ground",
+        page: 1,
+        metresPerUnit: 0.01,
+        label: "1:100",
+      },
+      {
+        documentId: "doc-first",
+        page: 1,
+        metresPerUnit: 0.01,
+        label: "1:100",
+      },
+    ],
+    geometries: [
+      {
+        id: "geo-ground",
+        kind: "linear",
+        classificationId: hotClsId,
+        documentId: "doc-ground",
+        page: 1,
+        points: [
+          { x: 0, y: 0 },
+          { x: 100, y: 0 },
+        ],
+        material: "Copper",
+        diameter: "15mm",
+      },
+      {
+        id: "geo-first",
+        kind: "linear",
+        classificationId: hotClsId,
+        documentId: "doc-first",
+        page: 1,
+        points: [
+          { x: 0, y: 0 },
+          { x: 50, y: 0 },
+        ],
+        material: "Copper",
+        diameter: "15mm",
+      },
+    ],
+  };
+
+  const lines = buildTakeoffTenderBoqLines(studio, {
+    documents: [
+      { id: "doc-ground", fileName: "Ground floor - gas.pdf" },
+      { id: "doc-first", fileName: "First floor - gas.pdf" },
+    ],
+  });
+  assert.ok(lines.some((line) => line.kind === "header" && line.description === "Ground"));
+  assert.ok(lines.some((line) => line.kind === "header" && line.description === "First"));
+  assert.ok(lines.some((line) => line.kind === "measured" && (line.note || "").includes("Ground")));
+  assert.ok(lines.some((line) => line.kind === "measured" && (line.note || "").includes("First")));
+});

@@ -673,7 +673,10 @@ export function TendersPanel({
     setBoqImportText(text);
   }
 
-  async function downloadBoqSpreadsheet(scope: "all" | "active", format: "xlsx" | "csv" = "xlsx") {
+  async function downloadBoqSpreadsheet(
+    scope: "all" | "active",
+    format: "xlsx" | "csv" | "pdf" = "xlsx",
+  ) {
     if (!selected || !selected.boqLines.length) return;
     const params = new URLSearchParams({ format, scope });
     if (scope === "active" && activeBoqSheet) params.set("sheet", activeBoqSheet);
@@ -682,7 +685,7 @@ export function TendersPanel({
     });
     if (!response.ok) {
       const payload = (await response.json().catch(() => ({}))) as { error?: string };
-      onNotice(payload.error || "Unable to export BoQ spreadsheet.");
+      onNotice(payload.error || "Unable to export BoQ.");
       return;
     }
     const blob = await response.blob();
@@ -690,16 +693,17 @@ export function TendersPanel({
     const anchor = document.createElement("a");
     const disposition = response.headers.get("Content-Disposition") || "";
     const matched = /filename="([^"]+)"/i.exec(disposition);
+    const ext = format === "csv" ? "csv" : format === "pdf" ? "pdf" : "xlsx";
     anchor.href = url;
     anchor.download =
-      matched?.[1] ||
-      `BoQ_${selected.name.replace(/[^a-z0-9]+/gi, "_")}.${format === "csv" ? "csv" : "xlsx"}`;
+      matched?.[1] || `BoQ_${selected.name.replace(/[^a-z0-9]+/gi, "_")}.${ext}`;
     anchor.click();
     URL.revokeObjectURL(url);
+    const label = format === "pdf" ? "PDF" : format.toUpperCase();
     onNotice(
       scope === "active"
-        ? `Exported active sheet${activeBoqSheet ? ` (${activeBoqSheet})` : ""} as ${format.toUpperCase()}.`
-        : `Exported full BoQ as ${format.toUpperCase()}.`,
+        ? `Exported active sheet${activeBoqSheet ? ` (${activeBoqSheet})` : ""} as ${label}.`
+        : `Exported full BoQ as ${label}.`,
     );
   }
 
@@ -1465,7 +1469,7 @@ export function TendersPanel({
                     title="Download the full BoQ as Excel (all sheet tabs)"
                   >
                     <Download size={15} />
-                    Export Excel
+                    Export Excel (all)
                   </button>
                   <button
                     type="button"
@@ -1479,16 +1483,32 @@ export function TendersPanel({
                     }
                   >
                     <FileSpreadsheet size={15} />
-                    {boqSheetTabs.length ? "Export sheet" : "Export"}
+                    Export sheet
                   </button>
                   <button
                     type="button"
                     className="secondary-button"
                     disabled={saving || blakeBudgetBusy || !selected.boqLines.length}
                     onClick={() => void downloadBoqSpreadsheet(boqSheetTabs.length ? "active" : "all", "csv")}
-                    title="Download as CSV"
+                    title="Download active sheet as CSV"
                   >
                     Export CSV
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={saving || blakeBudgetBusy || !selected.boqLines.length}
+                    onClick={() => {
+                      const scope = window.confirm(
+                        "Export PDF for the full BoQ (all sheet tabs)?\n\nOK = all sheets · Cancel = active sheet only",
+                      )
+                        ? "all"
+                        : "active";
+                      void downloadBoqSpreadsheet(boqSheetTabs.length && scope === "active" ? "active" : "all", "pdf");
+                    }}
+                    title="Download BoQ as PDF (prompt chooses all sheets or active sheet)"
+                  >
+                    Export PDF
                   </button>
                   <button
                     type="button"
@@ -1540,7 +1560,7 @@ export function TendersPanel({
                 />
               </label>
               {selected.boqLines.length ? (
-                <div className="tenders-inline-add tenders-boq-import-mode" role="group" aria-label="BoQ import mode">
+                <div className="tenders-boq-import-mode" role="group" aria-label="BoQ import mode">
                   <label>
                     <input
                       type="radio"
@@ -1548,7 +1568,7 @@ export function TendersPanel({
                       checked={boqImportMode === "append"}
                       onChange={() => setBoqImportMode("append")}
                     />
-                    Add to BoQ (keep existing {selected.boqLines.length} lines)
+                    <span>Add to BoQ (keep existing {selected.boqLines.length} lines)</span>
                   </label>
                   <label>
                     <input
@@ -1557,7 +1577,7 @@ export function TendersPanel({
                       checked={boqImportMode === "replace"}
                       onChange={() => setBoqImportMode("replace")}
                     />
-                    Replace BoQ (wipe current lines)
+                    <span>Replace BoQ (wipe current lines)</span>
                   </label>
                 </div>
               ) : null}
@@ -1771,6 +1791,33 @@ export function TendersPanel({
                                   disabled={saving || blakeBudgetBusy}
                                   aria-label={`Delete section heading ${line.description || line.section || ""}`}
                                   title="Delete this section heading"
+                                  onClick={() => void deleteBoqLinesByIds([line.id])}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        }
+                        if (line.kind === "note") {
+                          return (
+                            <tr key={line.id} className="tenders-boq-header-row tenders-boq-note-row">
+                              <td className="tenders-boq-check-col" />
+                              <td colSpan={7}>
+                                <span className="tenders-boq-section-label">
+                                  {line.description}
+                                  {line.note && line.note !== line.description ? (
+                                    <em> · {line.note}</em>
+                                  ) : null}
+                                </span>
+                              </td>
+                              <td className="tenders-boq-row-actions-col">
+                                <button
+                                  type="button"
+                                  className="tenders-boq-row-delete"
+                                  disabled={saving || blakeBudgetBusy}
+                                  aria-label={`Delete note ${line.description || ""}`}
+                                  title="Delete this note"
                                   onClick={() => void deleteBoqLinesByIds([line.id])}
                                 >
                                   <Trash2 size={14} />
