@@ -7,6 +7,9 @@ import {
   pickRadiatorForRoom,
   calculateRoomHeatLoss,
   wattsLabel,
+  summariseHeatingFittings,
+  ufhCircuitsFromLayout,
+  type FloorLevel,
   type HeatDesignProject,
   type SystemDesignResult,
   type SystemOptionResult,
@@ -20,6 +23,12 @@ type DesignReportProps = {
   className?: string;
   companyName?: string;
 };
+
+const FLOOR_ORDER: FloorLevel[] = ["cellar", "ground", "first", "second"];
+
+function floorLabel(floor: FloorLevel) {
+  return `${floor.charAt(0).toUpperCase()}${floor.slice(1)} floor`;
+}
 
 export function DesignReport({ project, design, options, className, companyName }: DesignReportProps) {
   const recommended = options.find((row) => row.recommended) ?? options[0] ?? null;
@@ -37,6 +46,31 @@ export function DesignReport({ project, design, options, className, companyName 
     minute: "2-digit",
   });
   const revisionCount = project.revisions?.length ?? 0;
+  const layout = project.heatingLayout ?? null;
+  const fittings = layout?.pipes?.length ? summariseHeatingFittings(layout) : null;
+  const ufhCircuits = ufhCircuitsFromLayout(layout);
+  const plants = layout?.plants ?? [];
+  const scaleCalibrated = Boolean(project.planUnderlay?.scale?.calibrated);
+  const hasUnderlay = Boolean(project.planUnderlay);
+  const emitterMode =
+    project.emitterMode === "ufh"
+      ? "Underfloor heating"
+      : project.emitterMode === "mixed"
+        ? "Mixed radiators / UFH"
+        : "Radiators";
+
+  const floorsWithContent = FLOOR_ORDER.filter((floor) => {
+    const rooms = project.rooms.some((room) => (room.floorLevel ?? "ground") === floor);
+    const plant = plants.some((item) => (item.floorLevel ?? "ground") === floor);
+    const pipes = (layout?.pipes ?? []).some((pipe) => (pipe.floorLevel ?? "ground") === floor);
+    const emitters = (layout?.emitters ?? []).some((item) => (item.floorLevel ?? "ground") === floor);
+    return rooms || plant || pipes || emitters;
+  });
+  const planFloors = floorsWithContent.length ? floorsWithContent : (["ground"] as FloorLevel[]);
+
+  const pexMetres = fittings?.bySize.filter((row) => /pex/i.test(row.material || "")).reduce((s, r) => s + r.metres, 0) ?? 0;
+  const copperMetres =
+    fittings?.bySize.filter((row) => !/pex/i.test(row.material || "")).reduce((s, r) => s + r.metres, 0) ?? 0;
 
   return (
     <article className={`ewg-report ${className ?? ""}`.trim()} id="hd-print-report">
@@ -49,42 +83,34 @@ export function DesignReport({ project, design, options, className, companyName 
               {ewgCompany.address}
               <br />
               {ewgCompany.phone} · {ewgCompany.email}
-              <br />
-              VAT {ewgCompany.vatNumber} · Co. {ewgCompany.companyNumber}
             </p>
           </div>
         </div>
         <div className="ewg-report-docmeta">
-          <p className="ewg-report-doctype">Design pack — not an MCS certificate</p>
+          <p className="ewg-report-doctype">Heating design report</p>
+          <p className="ewg-report-project-title">{project.name || "Untitled project"}</p>
           <p>Prepared {prepared}</p>
-          <p>Saved {savedAt}</p>
-          <p>Project ID: {project.id}</p>
           <p>
-            Ref: {project.id.slice(-8).toUpperCase()} · Revision{revisionCount === 1 ? "" : "s"} {revisionCount}
+            Ref {project.id.slice(-8).toUpperCase()}
+            {revisionCount ? ` · Rev ${revisionCount}` : ""}
           </p>
         </div>
       </header>
 
       <div className="ewg-report-cert-banner">
-        Design pack only — this is not an MCS certificate, formal quotation or DNO application.
+        Design pack only — not an MCS certificate, formal quotation or DNO application.
       </div>
 
-      <section className="ewg-report-section">
-        <h2>Client & property</h2>
+      <section className="ewg-report-section ewg-report-section--keep">
+        <h2>Project summary</h2>
         <div className="ewg-report-kv">
           <div>
             <span>Client</span>
             <strong>{project.customerName || "TBC"}</strong>
           </div>
           <div>
-            <span>Project</span>
-            <strong>{project.name || "Untitled"}</strong>
-          </div>
-          <div>
             <span>Address</span>
-            <strong>
-              {[project.address, project.postcode].filter(Boolean).join(", ") || "TBC"}
-            </strong>
+            <strong>{[project.address, project.postcode].filter(Boolean).join(", ") || "TBC"}</strong>
           </div>
           <div>
             <span>Property</span>
@@ -93,16 +119,23 @@ export function DesignReport({ project, design, options, className, companyName 
             </strong>
           </div>
           <div>
-            <span>Current heating</span>
+            <span>Design load</span>
             <strong>
-              {project.currentFuel} · {project.currentAnnualKwh.toLocaleString("en-GB")} kWh/yr
+              {kw(design.designLoadKw)} · {project.designExternalTemp}°C ext · {project.flowTemperature}°C flow
             </strong>
           </div>
           <div>
-            <span>Design basis</span>
+            <span>Emitters</span>
+            <strong>{emitterMode}</strong>
+          </div>
+          <div>
+            <span>Drawing scale</span>
             <strong>
-              {project.designExternalTemp}°C external · {project.flowTemperature}°C flow ·{" "}
-              {kw(design.designLoadKw)} design load
+              {!hasUnderlay
+                ? "Drawn plan (metres)"
+                : scaleCalibrated
+                  ? "Calibrated — lengths in real metres"
+                  : "Not calibrated — metre totals indicative only"}
             </strong>
           </div>
         </div>
@@ -110,44 +143,78 @@ export function DesignReport({ project, design, options, className, companyName 
 
       <section className="ewg-report-section">
         <h2>Floor plan</h2>
-        <ReportFloorPlan
-          rooms={project.rooms.filter(
-            (room) => (room.floorLevel ?? "ground") === (project.activeFloor ?? "ground"),
-          )}
-          title={`${(project.activeFloor ?? "ground").replace(/^./, (c) => c.toUpperCase())} floor · ${project.rooms.length} rooms · space heat loss ${kw(design.totalHeatLossKw)}`}
-          layout={project.heatingLayout}
-        />
+        <div className="ewg-report-plans">
+          {planFloors.map((floor) => {
+            const rooms = project.rooms.filter((room) => (room.floorLevel ?? "ground") === floor);
+            return (
+              <ReportFloorPlan
+                key={floor}
+                rooms={rooms}
+                floorLevel={floor}
+                title={`${floorLabel(floor)} · ${rooms.length} room${rooms.length === 1 ? "" : "s"} · space heat loss ${kw(design.totalHeatLossKw)}`}
+                layout={layout}
+              />
+            );
+          })}
+        </div>
       </section>
 
+      {plants.length ? (
+        <section className="ewg-report-section ewg-report-section--keep">
+          <h2>Plant schedule</h2>
+          <table className="ewg-report-table ewg-report-table--compact">
+            <thead>
+              <tr>
+                <th>Plant</th>
+                <th>Type</th>
+                <th>Floor</th>
+                <th>Size</th>
+              </tr>
+            </thead>
+            <tbody>
+              {plants.map((plant) => (
+                <tr key={plant.id}>
+                  <td>{plant.label}</td>
+                  <td>{plant.kind.replace(/_/g, " ")}</td>
+                  <td>{floorLabel(plant.floorLevel ?? "ground")}</td>
+                  <td>
+                    {(plant.widthM ?? 0.5).toFixed(2)} × {(plant.depthM ?? 0.35).toFixed(2)} m
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
+
       <section className="ewg-report-section">
-        <h2>System options compared</h2>
+        <h2>System options</h2>
         <p className="ewg-report-intro">
-          The options below were selected for this property. Figures are indicative lab estimates for discussion — not a
-          formal quotation.
+          Indicative lab estimates for discussion — not a formal quotation. Figures use the design load and current
+          fuel profile above.
         </p>
         {recommended ? (
           <div className="ewg-report-recommend">
-            <span>Recommended for this home</span>
+            <span>Recommended</span>
             <strong>
               {recommended.option.label}
               {recommended.pump ? ` · ${recommended.pump.model}` : ""}
             </strong>
             <p>
-              Est. running cost {money(recommended.annualCost)}/yr · saving{" "}
-              {money(recommended.annualSavingVsCurrent)} vs current · install from{" "}
-              {money(recommended.option.installedFrom)}
-              {recommended.paybackYears ? ` · ~${recommended.paybackYears} yr simple payback` : ""}
+              Est. {money(recommended.annualCost)}/yr · saving {money(recommended.annualSavingVsCurrent)} vs current ·
+              install from {money(recommended.option.installedFrom)}
+              {recommended.paybackYears ? ` · ~${recommended.paybackYears} yr payback` : ""}
             </p>
           </div>
         ) : null}
 
-        <table className="ewg-report-table">
+        <table className="ewg-report-table ewg-report-table--options">
           <thead>
             <tr>
               <th>Option</th>
               <th>Fuel</th>
               <th>Efficiency</th>
-              <th>Running cost / yr</th>
+              <th>Running / yr</th>
               <th>vs current</th>
               <th>CO₂e / yr</th>
               <th>Install (ex VAT)</th>
@@ -181,10 +248,7 @@ export function DesignReport({ project, design, options, className, companyName 
             ))}
           </tbody>
         </table>
-      </section>
 
-      <section className="ewg-report-section">
-        <h2>Option details</h2>
         <div className="ewg-option-cards">
           {options.map((row) => (
             <div key={row.option.id} className={`ewg-option-card${row.recommended ? " is-recommended" : ""}`}>
@@ -201,33 +265,31 @@ export function DesignReport({ project, design, options, className, companyName 
                   </li>
                 ) : null}
                 <li>
-                  Annual energy {Math.round(row.annualFuelKwh).toLocaleString("en-GB")} kWh · {money(row.annualCost)} / yr
+                  Annual energy {Math.round(row.annualFuelKwh).toLocaleString("en-GB")} kWh · {money(row.annualCost)} /
+                  yr
                 </li>
                 <li>CO₂e {Math.round(row.co2Kg).toLocaleString("en-GB")} kg / yr</li>
                 <li>
                   Installed allowance {money(row.option.installedFrom)}–{money(row.option.installedTo)} ex VAT
                 </li>
               </ul>
-              <p className="ewg-option-notes">{row.option.notes.join(" · ")}</p>
+              {row.option.notes.length ? (
+                <p className="ewg-option-notes">{row.option.notes.join(" · ")}</p>
+              ) : null}
             </div>
           ))}
         </div>
       </section>
 
       <section className="ewg-report-section">
-        <h2>Room heat-loss & emitter schedule</h2>
+        <h2>Room heat-loss & emitters</h2>
         <p className="ewg-report-intro">
-          Emitter mode:{" "}
-          {project.emitterMode === "ufh"
-            ? "underfloor heating"
-            : project.emitterMode === "mixed"
-              ? "mixed radiators / UFH"
-              : "radiators"}
-          {project.heatingLayout?.emitters?.length
-            ? " — sizes below match the designed floor-plan layout."
+          Emitter mode: {emitterMode.toLowerCase()}
+          {layout?.emitters?.length
+            ? " — sizes match the designed floor-plan layout."
             : " — radiator sizes from heat-loss pick until you Design on plan."}
         </p>
-        <table className="ewg-report-table">
+        <table className="ewg-report-table ewg-report-table--rooms">
           <thead>
             <tr>
               <th>Room</th>
@@ -248,7 +310,7 @@ export function DesignReport({ project, design, options, className, companyName 
                 { ...room, meanWaterTemperature: String(project.flowTemperature) },
                 project.designExternalTemp,
               );
-              const layoutEmitter = (project.heatingLayout?.emitters ?? []).find((item) => item.roomId === room.id);
+              const layoutEmitter = (layout?.emitters ?? []).find((item) => item.roomId === room.id);
               const rad = pickRadiatorForRoom(
                 { ...room, meanWaterTemperature: String(project.flowTemperature) },
                 project.designExternalTemp,
@@ -270,7 +332,9 @@ export function DesignReport({ project, design, options, className, companyName 
                   <td>{wattsLabel(loss.floorLoss)}</td>
                   <td>{wattsLabel(loss.ceilingLoss)}</td>
                   <td>{wattsLabel(loss.ventilationLoss)}</td>
-                  <td>{wattsLabel(loss.watts)}</td>
+                  <td>
+                    <strong>{wattsLabel(loss.watts)}</strong>
+                  </td>
                   <td>{emitterLabel}</td>
                 </tr>
               );
@@ -279,9 +343,93 @@ export function DesignReport({ project, design, options, className, companyName 
         </table>
       </section>
 
+      {ufhCircuits.length ? (
+        <section className="ewg-report-section">
+          <h2>UFH circuits</h2>
+          <p className="ewg-report-intro">
+            {ufhCircuits.length} circuit{ufhCircuits.length === 1 ? "" : "s"} · loop{" "}
+            {ufhCircuits.reduce((s, r) => s + r.loopLengthM, 0).toFixed(1)} m PEX · tails{" "}
+            {ufhCircuits.reduce((s, r) => s + r.tailLengthM, 0).toFixed(1)} m PEX
+          </p>
+          <table className="ewg-report-table ewg-report-table--compact">
+            <thead>
+              <tr>
+                <th>Circuit</th>
+                <th>Floor</th>
+                <th>Loop</th>
+                <th>Tails</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ufhCircuits.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.roomName}</td>
+                  <td>{floorLabel(row.floorLevel)}</td>
+                  <td>{row.loopLengthM.toFixed(1)} m</td>
+                  <td>{row.tailLengthM.toFixed(1)} m</td>
+                  <td>{(row.loopLengthM + row.tailLengthM).toFixed(1)} m</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
+
+      {fittings?.bySize.length ? (
+        <section className="ewg-report-section ewg-report-section--keep">
+          <h2>Pipe metres by material</h2>
+          <p className="ewg-report-intro">
+            Copper primary / radiator network vs 16 mm PEX UFH. PEX coils do not count copper elbows or couplings.
+            {copperMetres || pexMetres
+              ? ` Totals: ${copperMetres.toFixed(1)} m copper · ${pexMetres.toFixed(1)} m PEX.`
+              : ""}
+          </p>
+          <table className="ewg-report-table ewg-report-table--compact">
+            <thead>
+              <tr>
+                <th>Material</th>
+                <th>Size</th>
+                <th>Metres</th>
+                <th>Elbows</th>
+                <th>Couplings</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fittings.bySize.map((row) => (
+                <tr key={`${row.material}-${row.diameterMm}`}>
+                  <td>{row.material || (row.diameterMm === 16 ? "PEX" : "Copper")}</td>
+                  <td>{row.diameterMm} mm</td>
+                  <td>{row.metres.toFixed(1)} m</td>
+                  <td>{row.elbows || "—"}</td>
+                  <td>{row.couplings || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={2}>Network total</td>
+                <td>{fittings.totalMetres.toFixed(1)} m</td>
+                <td>{fittings.totalElbows || "—"}</td>
+                <td>{fittings.totalCouplings || "—"}</td>
+              </tr>
+            </tfoot>
+          </table>
+          {fittings.reducers.length ? (
+            <p className="ewg-report-note">
+              Reducers:{" "}
+              {fittings.reducers.map((row) => `${row.fromMm}→${row.toMm} mm ×${row.count}`).join(" · ")}
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
       <section className="ewg-report-section">
-        <h2>Materials allowance</h2>
-        <table className="ewg-report-table">
+        <h2>Kit / BoQ</h2>
+        <p className="ewg-report-intro">
+          Materials allowance for discussion and Takeoff push — budget until Firm pricing is applied.
+        </p>
+        <table className="ewg-report-table ewg-report-table--kit">
           <thead>
             <tr>
               <th>Item</th>
@@ -314,12 +462,11 @@ export function DesignReport({ project, design, options, className, companyName 
 
       <footer className="ewg-report-footer">
         <p>
-          Project ID {project.id} · Saved {savedAt} · Revision count {revisionCount}
+          {project.name || "Untitled"} · ID {project.id} · Saved {savedAt} · Revisions {revisionCount}
         </p>
         <p>
-          This document is an indicative design options report prepared by {reportCompanyName}. It is not an MCS
-          certificate, formal quotation or DNO application. Final proposals require site survey, accurate tariffs and
-          manufacturer data.
+          Indicative design options report by {reportCompanyName}. Not an MCS certificate, formal quotation or DNO
+          application. Final proposals need site survey, accurate tariffs and manufacturer data.
         </p>
         <p>
           {reportCompanyName} · {ewgCompany.website} · {ewgCompany.email} · {ewgCompany.phone}

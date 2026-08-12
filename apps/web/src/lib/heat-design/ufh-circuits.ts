@@ -555,3 +555,36 @@ export function ufhWorkflowStatus(project: HeatDesignProject): {
   ];
   return { scale: scaleDone, rooms, plant, circuits, kit, steps };
 }
+
+/** Lightweight circuit rows for the printable report (from existing layout pipes). */
+export type UfhReportCircuitRow = {
+  id: string;
+  roomName: string;
+  floorLevel: FloorLevel;
+  loopLengthM: number;
+  tailLengthM: number;
+};
+
+/**
+ * Read UFH loop / tail pipes already on the layout — does not regenerate circuits.
+ */
+export function ufhCircuitsFromLayout(layout: HeatingSystemLayout | null | undefined): UfhReportCircuitRow[] {
+  if (!layout?.pipes?.length) return [];
+  const loops = layout.pipes.filter((pipe) => /ufh\s*loop/i.test(pipe.label || ""));
+  return loops.map((loop) => {
+    const roomName = (loop.label || "").replace(/^ufh\s*loop\s*·\s*/i, "").trim() || "Room";
+    const escaped = roomName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const roomRe = new RegExp(escaped, "i");
+    const tailLengthM = layout.pipes
+      .filter((pipe) => /ufh\s*tail/i.test(pipe.label || "") && roomRe.test(pipe.label || ""))
+      .reduce((sum, pipe) => sum + polylineLengthM(pipe.points), 0);
+    return {
+      id: loop.id,
+      roomName,
+      floorLevel: loop.floorLevel ?? "ground",
+      loopLengthM: Number(polylineLengthM(loop.points).toFixed(1)),
+      tailLengthM: Number(tailLengthM.toFixed(1)),
+    };
+  });
+}
+

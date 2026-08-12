@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { applyBlakePipeSizing, summariseHeatingFittings } from "./blake-route";
 import { isUfhCircuitPipe, sizeTierForPipe } from "./pipe-sizing";
 import { heatingLayoutToStudio } from "./takeoff-export";
+import { ufhCircuitsFromLayout } from "./ufh-circuits";
 import type { HeatingSystemLayout } from "./types";
 
 function sampleMixedLayout(): HeatingSystemLayout {
@@ -94,6 +95,14 @@ describe("heat-design UFH pipe materials", () => {
     assert.equal(pex!.elbows, 0);
     assert.equal(pex!.couplings, 0);
     assert.ok(summary.bySize.some((row) => row.diameterMm === 28 && row.material === "Copper"));
+  });
+
+  it("reads UFH circuit rows from layout for the PDF report", () => {
+    const rows = ufhCircuitsFromLayout(sampleMixedLayout());
+    assert.equal(rows.length, 1);
+    assert.match(rows[0]!.roomName, /Living/i);
+    assert.ok(rows[0]!.loopLengthM > 0);
+    assert.ok(rows[0]!.tailLengthM > 0);
   });
 
   it("exports UFH loops to takeoff as PEX / UFH class, not copper", () => {

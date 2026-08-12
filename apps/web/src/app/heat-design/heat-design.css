@@ -985,6 +985,11 @@
   }
 }
 
+@page {
+  size: A4;
+  margin: 12mm 11mm 14mm 11mm;
+}
+
 @media print {
   .hd-lab {
     background: #fff !important;
@@ -1039,6 +1044,13 @@
     clip: auto !important;
   }
 
+  html,
+  body {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
   body * {
     visibility: hidden;
   }
@@ -1052,18 +1064,15 @@
     position: absolute;
     left: 0;
     top: 0;
+    right: 0;
     width: 100%;
-    color: #111 !important;
+    max-width: 100%;
+    color: #14211c !important;
     background: #fff !important;
+    box-sizing: border-box;
   }
 
   .hd-report-block {
-    break-inside: avoid;
-  }
-
-  .hd-report-plan,
-  .hd-report-table,
-  .hd-report-grid div {
     break-inside: avoid;
   }
 }
@@ -1986,8 +1995,18 @@
   font-size: 0.9rem;
 }
 
+.hd-report-plan-frame {
+  width: 100%;
+  max-height: 420px;
+  overflow: hidden;
+  background: #f3f4f6;
+}
+
 .hd-report-plan svg {
   display: block;
+  width: 100%;
+  height: auto;
+  max-height: 420px;
 }
 
 .hd-report.is-print-source {
@@ -2094,7 +2113,9 @@
   color: #14211c;
   border: 1px solid #d7e2db;
   border-radius: 0.75rem;
-  padding: 1.25rem 1.35rem 1.5rem;
+  padding: 1.35rem 1.45rem 1.6rem;
+  font-family: Figtree, "Avenir Next", "Segoe UI", sans-serif;
+  line-height: 1.45;
 }
 
 .ewg-report.is-print-source {
@@ -2108,27 +2129,30 @@
 .ewg-report-letterhead {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
-  padding-bottom: 0.85rem;
+  gap: 1.25rem;
+  align-items: flex-start;
+  padding-bottom: 0.9rem;
   border-bottom: 3px solid #157fa8;
-  margin-bottom: 1rem;
+  margin-bottom: 0.85rem;
 }
 
 .ewg-report-brand {
   display: flex;
   gap: 0.85rem;
   align-items: flex-start;
+  min-width: 0;
 }
 
 .ewg-report-logo {
-  width: 140px;
+  width: 128px;
   height: auto;
   object-fit: contain;
+  flex-shrink: 0;
 }
 
 .ewg-report-brand strong {
   display: block;
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   color: #0f5f7d;
 }
 
@@ -2136,71 +2160,92 @@
 .ewg-report-docmeta p {
   margin: 0.2rem 0 0;
   color: #5c6b64;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   line-height: 1.4;
 }
 
 .ewg-report-doctype {
   margin: 0 !important;
-  font-size: 0.95rem !important;
+  font-size: 0.72rem !important;
   font-weight: 800 !important;
   color: #0f5f7d !important;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
+}
+
+.ewg-report-project-title {
+  margin: 0.15rem 0 0.35rem !important;
+  font-size: 1.2rem !important;
+  font-weight: 750 !important;
+  color: #14211c !important;
+  line-height: 1.25 !important;
+  max-width: 16rem;
 }
 
 .ewg-report-docmeta {
   text-align: right;
+  flex-shrink: 0;
 }
 
 .ewg-report-cert-banner {
   background: #fff4ee;
   border: 1px solid #f0d0c0;
-  border-radius: 0.6rem;
+  border-radius: 0.45rem;
   color: #9a3412;
-  font-size: 0.86rem;
-  font-weight: 850;
+  font-size: 0.78rem;
+  font-weight: 750;
   letter-spacing: 0.02em;
-  margin: 0 0 1rem;
-  padding: 0.6rem 0.75rem;
-  text-transform: uppercase;
+  margin: 0 0 0.85rem;
+  padding: 0.5rem 0.7rem;
 }
 
 .ewg-report-section {
-  margin-top: 1rem;
-  padding-top: 0.75rem;
+  margin-top: 0.95rem;
+  padding-top: 0.7rem;
   border-top: 1px solid #e5eeea;
 }
 
 .ewg-report-section h2 {
-  margin: 0 0 0.55rem;
-  font-size: 1rem;
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
   color: #0f5f7d;
   letter-spacing: 0.02em;
+  font-weight: 750;
 }
 
 .ewg-report-intro {
-  margin: 0 0 0.65rem;
+  margin: 0 0 0.55rem;
   color: #5c6b64;
-  font-size: 0.9rem;
+  font-size: 0.84rem;
+}
+
+.ewg-report-note {
+  margin: 0.45rem 0 0;
+  color: #5c6b64;
+  font-size: 0.78rem;
+}
+
+.ewg-report-plans {
+  display: grid;
+  gap: 0.75rem;
 }
 
 .ewg-report-kv {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.55rem;
+  gap: 0.5rem;
 }
 
 .ewg-report-kv div {
   border: 1px solid #e5eeea;
-  border-radius: 0.55rem;
-  padding: 0.55rem 0.65rem;
+  border-radius: 0.45rem;
+  padding: 0.5rem 0.6rem;
   background: #f8fbfa;
 }
 
 .ewg-report-kv span {
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: #5c6b64;
@@ -2210,20 +2255,22 @@
 .ewg-report-kv strong {
   display: block;
   margin-top: 0.15rem;
-  font-size: 0.92rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  word-break: break-word;
 }
 
 .ewg-report-recommend {
-  margin: 0 0 0.75rem;
-  padding: 0.75rem 0.85rem;
-  border-radius: 0.65rem;
+  margin: 0 0 0.7rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: 0.5rem;
   background: #e8f6fb;
   border: 1px solid #b6e0ef;
 }
 
 .ewg-report-recommend span {
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #0f5f7d;
@@ -2232,46 +2279,70 @@
 
 .ewg-report-recommend strong {
   display: block;
-  margin: 0.15rem 0;
-  font-size: 1.1rem;
+  margin: 0.12rem 0;
+  font-size: 1.02rem;
 }
 
 .ewg-report-recommend p {
   margin: 0;
   color: #5c6b64;
-  font-size: 0.88rem;
+  font-size: 0.84rem;
 }
 
 .ewg-report-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.84rem;
+  font-size: 0.8rem;
+  table-layout: auto;
 }
 
 .ewg-report-table th,
 .ewg-report-table td {
   border-bottom: 1px solid #dde8e2;
   text-align: left;
-  padding: 0.42rem 0.3rem;
+  padding: 0.4rem 0.35rem;
   vertical-align: top;
+  word-break: break-word;
 }
 
 .ewg-report-table th {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: #5c6b64;
   background: #f4faf8;
+  font-weight: 750;
+}
+
+.ewg-report-table--compact {
+  font-size: 0.82rem;
+}
+
+.ewg-report-table--rooms {
+  font-size: 0.74rem;
+}
+
+.ewg-report-table--rooms th,
+.ewg-report-table--rooms td,
+.ewg-report-table--options th,
+.ewg-report-table--options td {
+  padding: 0.35rem 0.28rem;
+}
+
+.ewg-report-table--kit td:first-child {
+  width: 48%;
 }
 
 .ewg-report-table td strong {
-  display: block;
+  display: inline;
+  font-weight: 750;
 }
 
 .ewg-report-table td small {
   display: block;
   color: #5c6b64;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
+  margin-top: 0.1rem;
 }
 
 .ewg-report-table tr.is-recommended {
@@ -2291,13 +2362,15 @@
 .ewg-report-table tfoot td {
   font-weight: 750;
   border-bottom: 0;
-  padding-top: 0.65rem;
+  padding-top: 0.55rem;
+  border-top: 2px solid #cfe0d8;
 }
 
 .ewg-option-cards {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.65rem;
+  margin-top: 0.75rem;
 }
 
 .ewg-option-card {
@@ -2853,22 +2926,22 @@
 
 .hd-report-plan-key {
   margin: 0;
-  padding: 0.45rem 0.75rem 0.65rem;
+  padding: 0.4rem 0.7rem 0.55rem;
   border-top: 1px solid var(--hd-line);
   color: #64748b;
-  font-size: 0.78rem;
+  font-size: 0.74rem;
 }
 
 .ewg-report-footer {
-  margin-top: 1.1rem;
-  padding-top: 0.75rem;
+  margin-top: 1.15rem;
+  padding-top: 0.7rem;
   border-top: 2px solid #157fa8;
   color: #5c6b64;
-  font-size: 0.78rem;
+  font-size: 0.74rem;
 }
 
 .ewg-report-footer p {
-  margin: 0 0 0.35rem;
+  margin: 0 0 0.3rem;
 }
 
 @media (max-width: 900px) {
@@ -2884,6 +2957,10 @@
   .ewg-report-docmeta {
     text-align: left;
   }
+
+  .ewg-report-project-title {
+    max-width: none;
+  }
 }
 
 @media print {
@@ -2898,21 +2975,146 @@
     position: static !important;
     left: auto !important;
     width: auto !important;
+    height: auto !important;
+    overflow: visible !important;
+    pointer-events: auto !important;
   }
 
   .ewg-report {
     border: 0 !important;
     border-radius: 0 !important;
     padding: 0 !important;
+    box-shadow: none !important;
+    font-size: 10.5pt;
+    color: #14211c !important;
+    background: #fff !important;
   }
 
-  .ewg-report-section,
-  .ewg-option-card,
-  .ewg-report-table tr {
-    break-inside: avoid;
+  .ewg-report-letterhead {
+    break-after: avoid;
+    page-break-after: avoid;
+    margin-bottom: 0.55rem;
+    padding-bottom: 0.55rem;
   }
 
   .ewg-report-logo {
+    width: 110px;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .ewg-report-project-title {
+    font-size: 14pt !important;
+    max-width: none;
+  }
+
+  .ewg-report-cert-banner {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 0.55rem;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .ewg-report-section {
+    break-inside: auto;
+    page-break-inside: auto;
+    margin-top: 0.7rem;
+    padding-top: 0.55rem;
+  }
+
+  .ewg-report-section--keep,
+  .ewg-report-recommend,
+  .ewg-option-card,
+  .hd-report-plan {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .ewg-report-section h2 {
+    break-after: avoid;
+    page-break-after: avoid;
+    font-size: 11pt;
+  }
+
+  .ewg-report-kv {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.35rem;
+  }
+
+  .ewg-report-kv div {
+    background: #f8fbfa !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .ewg-option-cards {
+    grid-template-columns: 1fr;
+    gap: 0.45rem;
+  }
+
+  .ewg-report-table {
+    font-size: 8.5pt;
+    width: 100%;
+  }
+
+  .ewg-report-table--rooms,
+  .ewg-report-table--options {
+    font-size: 7.5pt;
+  }
+
+  .ewg-report-table--compact,
+  .ewg-report-table--kit {
+    font-size: 8.5pt;
+  }
+
+  .ewg-report-table thead {
+    display: table-header-group;
+  }
+
+  .ewg-report-table tfoot {
+    display: table-footer-group;
+  }
+
+  .ewg-report-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .ewg-report-table th {
+    background: #f4faf8 !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .ewg-report-table tr.is-recommended {
+    background: #f0f9fc !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .hd-report-plan {
+    border-radius: 0.35rem;
+    margin: 0 0 0.45rem;
+  }
+
+  .hd-report-plan-frame {
+    max-height: 145mm;
+  }
+
+  .hd-report-plan svg {
+    max-height: 145mm;
+  }
+
+  .ewg-report-footer {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-top: 0.85rem;
+  }
+
+  .ewg-recommend,
+  .ewg-report-recommend,
+  .ewg-pill {
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
