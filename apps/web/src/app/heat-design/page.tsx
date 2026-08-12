@@ -82,7 +82,7 @@ const LEGACY_STORAGE_KEYS = [
 ] as const;
 
 type LabTab = "project" | "plan" | "materials" | "rooms" | "system" | "options" | "kit" | "forms" | "report";
-type LinkTarget = "job" | "quote";
+type LinkTarget = "job" | "quote" | "tender";
 type SaveStatus = "loading" | "saving" | "saved" | "offline" | "error";
 
 function readCachedProject(): HeatDesignProject | null {
@@ -147,13 +147,17 @@ export default function HeatDesignLabPage() {
   const [fittingsSummary, setFittingsSummary] = useState<HeatingFittingsSummary | null>(null);
   const [ufhSummary, setUfhSummary] = useState<UfhDesignSummary | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
-  const [linkTarget, setLinkTarget] = useState<LinkTarget>("job");
+  const [linkTarget, setLinkTarget] = useState<LinkTarget>("quote");
   const [jobOptions, setJobOptions] = useState<Array<{ id: string; ref: string; customer: string; site: string }>>([]);
   const [quoteOptions, setQuoteOptions] = useState<Array<{ id: string; ref: string; customer: string; status: string }>>(
     [],
   );
+  const [tenderOptions, setTenderOptions] = useState<
+    Array<{ id: string; name: string; client: string; status: string }>
+  >([]);
   const [selectedJobId, setSelectedJobId] = useState("");
   const [selectedQuoteId, setSelectedQuoteId] = useState("");
+  const [selectedTenderId, setSelectedTenderId] = useState("");
   const [, startTransition] = useTransition();
   const hydratedRef = useRef(false);
   const applyingServerSaveRef = useRef(false);
@@ -167,14 +171,16 @@ export default function HeatDesignLabPage() {
     const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
     const jobId = params?.get("jobId") || "";
     const quoteId = params?.get("quoteId") || "";
+    const tenderId = params?.get("tenderId") || "";
     const projectId = params?.get("projectId") || "";
 
     function applyIncomingLinks(input: HeatDesignProject) {
-      if (!jobId && !quoteId) return input;
+      if (!jobId && !quoteId && !tenderId) return input;
       return {
         ...input,
         linkedJobId: jobId || input.linkedJobId,
         linkedQuoteId: quoteId || input.linkedQuoteId,
+        linkedTenderId: tenderId || input.linkedTenderId,
         updatedAt: new Date().toISOString(),
       };
     }
@@ -187,8 +193,9 @@ export default function HeatDesignLabPage() {
       setSelectedRoomId(linked.rooms[0]?.id ?? null);
       setSelectedJobId(linked.linkedJobId || "");
       setSelectedQuoteId(linked.linkedQuoteId || "");
+      setSelectedTenderId(linked.linkedTenderId || "");
       setSaveStatus(status);
-      skipNextProjectSaveRef.current = status === "saved" && !jobId && !quoteId;
+      skipNextProjectSaveRef.current = status === "saved" && !jobId && !quoteId && !tenderId;
       if (jobId) {
         setLinkTarget("job");
         setSelectedJobId(jobId);
@@ -196,6 +203,10 @@ export default function HeatDesignLabPage() {
       } else if (quoteId) {
         setLinkTarget("quote");
         setSelectedQuoteId(quoteId);
+        setTab("kit");
+      } else if (tenderId) {
+        setLinkTarget("tender");
+        setSelectedTenderId(tenderId);
         setTab("kit");
       }
       hydratedRef.current = true;
@@ -352,8 +363,9 @@ export default function HeatDesignLabPage() {
     Promise.all([
       fetch("/api/jobs").then((res) => (res.ok ? res.json() : [])),
       fetch("/api/quotes").then((res) => (res.ok ? res.json() : [])),
+      fetch("/api/tenders").then((res) => (res.ok ? res.json() : { tenders: [] })),
     ])
-      .then(([jobs, quotes]) => {
+      .then(([jobs, quotes, tendersPayload]) => {
         if (cancelled) return;
         if (Array.isArray(jobs)) {
           setJobOptions(
@@ -375,6 +387,15 @@ export default function HeatDesignLabPage() {
             })),
           );
         }
+        const tenders = Array.isArray(tendersPayload?.tenders) ? tendersPayload.tenders : [];
+        setTenderOptions(
+          tenders.map((row: { id: string; name: string; client: string; status: string }) => ({
+            id: row.id,
+            name: row.name,
+            client: row.client,
+            status: row.status,
+          })),
+        );
       })
       .catch(() => {
         /* signed-out users can still design locally */
@@ -393,6 +414,11 @@ export default function HeatDesignLabPage() {
     if (!project?.linkedQuoteId) return;
     setSelectedQuoteId(project.linkedQuoteId);
   }, [project?.linkedQuoteId]);
+
+  useEffect(() => {
+    if (!project?.linkedTenderId) return;
+    setSelectedTenderId(project.linkedTenderId);
+  }, [project?.linkedTenderId]);
 
   useEffect(() => {
     if (!pendingPrint || tab !== "report") return;
@@ -425,6 +451,7 @@ export default function HeatDesignLabPage() {
     setSelectedRoomId(normalised.rooms[0]?.id ?? null);
     setSelectedJobId(normalised.linkedJobId || "");
     setSelectedQuoteId(normalised.linkedQuoteId || "");
+    setSelectedTenderId(normalised.linkedTenderId || "");
   }
 
   function selectProject(id: string) {
@@ -589,7 +616,7 @@ export default function HeatDesignLabPage() {
         activateProject(created);
         setLayoutMode(false);
         setTab("plan");
-        setNotice("New project — draw the floor plan, then link materials to a quote or job.");
+        setNotice("New project — draw the floor plan, then link materials to a quote, tender, or job.");
         setSaveStatus("saved");
       });
     } catch {
@@ -805,9 +832,73 @@ export default function HeatDesignLabPage() {
     }
   }
 
+  async function linkKitToTender() {
+    if (!project || !design) return;
+    setLinkBusy(true);
+    try {
+      const option = heatingSystemOptions.find((item) => item.id === project.chosenSystemId);
+      const createNew = !selectedTenderId;
+      const res = await fetch("/api/heat-design/push-to-tender", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenderId: selectedTenderId || undefined,
+          createNew,
+          projectId: project.id,
+          customerName: project.customerName,
+          projectName: project.name,
+          address: [project.address, project.postcode].filter(Boolean).join(", "),
+          chosenSystemLabel: option?.label,
+          flowTemperature: project.flowTemperature,
+          emitterMode: project.emitterMode,
+          kit: design.kit,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        setNotice("Sign in to Core to link this design to a tender.");
+        return;
+      }
+      if (!res.ok) {
+        setNotice(data.error || "Could not link to tender — check tender permissions.");
+        return;
+      }
+      const tenderLabel = data.tender?.name || "Tender";
+      patchProject({ linkedTenderId: data.tender?.id, linkedTenderRef: tenderLabel });
+      setSelectedTenderId(data.tender?.id || "");
+      if (data.tender?.id) {
+        setTenderOptions((current) => {
+          if (current.some((row) => row.id === data.tender.id)) return current;
+          return [
+            {
+              id: data.tender.id,
+              name: data.tender.name,
+              client: data.tender.client,
+              status: data.tender.status || "In Progress",
+            },
+            ...current,
+          ];
+        });
+      }
+      setNotice(
+        data.created
+          ? `Created tender “${tenderLabel}” and pushed ${data.lineCount} BoQ lines into Heating design.`
+          : `Updated tender “${tenderLabel}” with ${data.lineCount} BoQ lines in Heating design.`,
+      );
+    } catch {
+      setNotice("Could not reach tenders API — check you are signed in to Core.");
+    } finally {
+      setLinkBusy(false);
+    }
+  }
+
   async function pushKitToCore() {
     if (linkTarget === "quote") {
       await linkKitToQuote();
+      return;
+    }
+    if (linkTarget === "tender") {
+      await linkKitToTender();
       return;
     }
     await linkKitToJob();
@@ -1282,11 +1373,12 @@ export default function HeatDesignLabPage() {
             <div className="hd-brand">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img className="hd-brand-logo" src={resolveBrandLogoUrl(brand, "heat-design")} alt={brand.companyName} />
-              <div className="hd-brand-kicker">Live · links to Core quotes & jobs</div>
+              <div className="hd-brand-kicker">Live · links to Core quotes, tenders & jobs</div>
               <h1>{brand.heatDesignAppName}</h1>
               {tab !== "plan" ? (
                 <p className="hd-brand-lead">
-                  Draw the house, size the system, then push materials into a Core quote or job — or create a new one.
+                  Draw the house, size the system, then push materials into a Core quote, tender, or job — or create a
+                  new one.
                 </p>
               ) : null}
             </div>
@@ -2191,7 +2283,7 @@ export default function HeatDesignLabPage() {
                 <p className="hd-lead">
                   Built for{" "}
                   <strong>{chosenOption?.label || "the design system"}</strong> at {project.flowTemperature}°C flow.
-                  Push materials into an existing Core quote or job, or create a new one.
+                  Push materials into an existing Core quote, tender, or job — or create a new one.
                 </p>
                 <div className={`hd-banner${design.materialsComplete ? "" : " warn"}`} style={{ marginBottom: 12 }}>
                   {design.materialsComplete
@@ -2254,10 +2346,11 @@ export default function HeatDesignLabPage() {
                 <div className="hd-job-link-panel">
                   <strong>Link to Core</strong>
                   <p>
-                    Materials land in a <em>Heating design</em> cost centre. Quote lines convert to job materials when
-                    the quote is accepted.
+                    Pick a quote, tender, or job, then push the Defined kit. Quotes/jobs get a{" "}
+                    <em>Heating design</em> cost centre; tenders get a <em>Heating design</em> BoQ sheet (PEX UFH and
+                    copper plant stay separate).
                   </p>
-                  {(project.linkedJobRef || project.linkedQuoteRef) && (
+                  {(project.linkedJobRef || project.linkedQuoteRef || project.linkedTenderRef) && (
                     <div className="hd-banner" style={{ marginBottom: 10 }}>
                       {project.linkedQuoteRef ? (
                         <>
@@ -2268,6 +2361,19 @@ export default function HeatDesignLabPage() {
                             </a>
                           ) : (
                             <strong>{project.linkedQuoteRef}</strong>
+                          )}
+                          {project.linkedTenderRef || project.linkedJobRef ? " · " : null}
+                        </>
+                      ) : null}
+                      {project.linkedTenderRef ? (
+                        <>
+                          Tender{" "}
+                          {project.linkedTenderId ? (
+                            <a href="/tenders">
+                              <strong>{project.linkedTenderRef}</strong>
+                            </a>
+                          ) : (
+                            <strong>{project.linkedTenderRef}</strong>
                           )}
                           {project.linkedJobRef ? " · " : null}
                         </>
@@ -2296,6 +2402,13 @@ export default function HeatDesignLabPage() {
                     </button>
                     <button
                       type="button"
+                      className={`hd-btn${linkTarget === "tender" ? " hd-btn-primary" : " hd-btn-ghost"}`}
+                      onClick={() => setLinkTarget("tender")}
+                    >
+                      Tender
+                    </button>
+                    <button
+                      type="button"
                       className={`hd-btn${linkTarget === "job" ? " hd-btn-primary" : " hd-btn-ghost"}`}
                       onClick={() => setLinkTarget("job")}
                     >
@@ -2312,6 +2425,19 @@ export default function HeatDesignLabPage() {
                             <option key={quote.id} value={quote.id}>
                               {quote.ref} — {quote.customer}
                               {quote.status ? ` · ${quote.status}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : linkTarget === "tender" ? (
+                      <label className="hd-field">
+                        Tender
+                        <select value={selectedTenderId} onChange={(event) => setSelectedTenderId(event.target.value)}>
+                          <option value="">Create new tender</option>
+                          {tenderOptions.map((tender) => (
+                            <option key={tender.id} value={tender.id}>
+                              {tender.name} — {tender.client}
+                              {tender.status ? ` · ${tender.status}` : ""}
                             </option>
                           ))}
                         </select>
@@ -2344,14 +2470,18 @@ export default function HeatDesignLabPage() {
                       onClick={() => void pushKitToCore()}
                     >
                       {linkBusy
-                        ? "Linking…"
+                        ? "Pushing…"
                         : linkTarget === "quote"
                           ? selectedQuoteId
-                            ? "Link materials to quote"
+                            ? "Push materials to quote"
                             : "Create quote + push materials"
-                          : selectedJobId
-                            ? "Link materials to job"
-                            : "Create job + push materials"}
+                          : linkTarget === "tender"
+                            ? selectedTenderId
+                              ? "Push materials to tender"
+                              : "Create tender + push materials"
+                            : selectedJobId
+                              ? "Push materials to job"
+                              : "Create job + push materials"}
                     </button>
                   </div>
                   {!linkBusy && !project.chosenSystemId ? (
@@ -2366,7 +2496,7 @@ export default function HeatDesignLabPage() {
                   ) : null}
                   {!project.customerName.trim() ? (
                     <p className="hd-lead" style={{ marginTop: 8 }}>
-                      Tip: fill customer name on the Project tab before creating a new quote or job.
+                      Tip: fill customer name on the Project tab before creating a new quote, tender, or job.
                     </p>
                   ) : null}
                 </div>
@@ -2651,9 +2781,10 @@ export default function HeatDesignLabPage() {
             <section className="hd-panel">
               <h2>Design snapshot</h2>
               <p className="hd-lead">
-                {project.linkedQuoteRef || project.linkedJobRef
+                {project.linkedQuoteRef || project.linkedTenderRef || project.linkedJobRef
                   ? [
                       project.linkedQuoteRef ? `Quote ${project.linkedQuoteRef}` : null,
+                      project.linkedTenderRef ? `Tender ${project.linkedTenderRef}` : null,
                       project.linkedJobRef ? `Job ${project.linkedJobRef}` : null,
                     ]
                       .filter(Boolean)
@@ -2683,7 +2814,9 @@ export default function HeatDesignLabPage() {
                 </div>
                 <div className="hd-stat warm">
                   <span>Core link</span>
-                  <strong>{project.linkedQuoteRef || project.linkedJobRef || "Not linked"}</strong>
+                  <strong>
+                    {project.linkedQuoteRef || project.linkedTenderRef || project.linkedJobRef || "Not linked"}
+                  </strong>
                 </div>
               </div>
               {chosenOption?.kind === "ashp" || chosenOption?.kind === "hybrid" ? (
@@ -2729,7 +2862,7 @@ export default function HeatDesignLabPage() {
 
         <p className="hd-lab-note">
           Open at <code>/heat-design</code> or from Core → Quick access. Push materials from{" "}
-          <strong>Kit &amp; link</strong> into a quote or job (existing or new). They appear under{" "}
+          <strong>Kit &amp; link</strong> into a quote, tender, or job (existing or new). They appear under{" "}
           <em>Heating design</em>.
         </p>
       </div>

@@ -435,6 +435,10 @@ export function normaliseProject(project: HeatDesignProject): HeatDesignProject 
     linkedJobRef: project.linkedJobRef,
     linkedQuoteId: project.linkedQuoteId,
     linkedQuoteRef: project.linkedQuoteRef,
+    linkedTenderId: project.linkedTenderId,
+    linkedTenderRef: project.linkedTenderRef,
+    linkedTakeoffId: project.linkedTakeoffId,
+    linkedTakeoffRef: project.linkedTakeoffRef,
     heatingLayout: project.heatingLayout
       ? {
           ...project.heatingLayout,

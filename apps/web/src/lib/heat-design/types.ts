@@ -226,6 +226,9 @@ export type HeatDesignProject = {
   /** Linked Core quote (materials pushed into Heating design cost centre) */
   linkedQuoteId?: string;
   linkedQuoteRef?: string;
+  /** Linked Core tender (materials pushed into Heating design BoQ sheet) */
+  linkedTenderId?: string;
+  linkedTenderRef?: string;
   /** Linked Takeoff studio project (routes + fittings BOQ) */
   linkedTakeoffId?: string;
   linkedTakeoffRef?: string;
