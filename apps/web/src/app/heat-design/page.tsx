@@ -14,6 +14,9 @@ import {
   heatPumpCatalogue,
   heatingSystemOptions,
   isDecimalDraft,
+  isSignedDecimalDraft,
+  clampDesignExternalTemp,
+  numberFromInput,
   kitExtraOptions,
   kw,
   makeBlankRoom,
@@ -158,6 +161,8 @@ export default function HeatDesignLabPage() {
   const [selectedJobId, setSelectedJobId] = useState("");
   const [selectedQuoteId, setSelectedQuoteId] = useState("");
   const [selectedTenderId, setSelectedTenderId] = useState("");
+  /** Local draft so users can type `-` / `-5` before a finite number commits. */
+  const [designExternalTempDraft, setDesignExternalTempDraft] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const hydratedRef = useRef(false);
   const applyingServerSaveRef = useRef(false);
@@ -448,6 +453,7 @@ export default function HeatDesignLabPage() {
   function activateProject(next: HeatDesignProject) {
     const normalised = normaliseProject(next);
     setProject(normalised);
+    setDesignExternalTempDraft(null);
     setSelectedRoomId(normalised.rooms[0]?.id ?? null);
     setSelectedJobId(normalised.linkedJobId || "");
     setSelectedQuoteId(normalised.linkedQuoteId || "");
@@ -1523,10 +1529,26 @@ export default function HeatDesignLabPage() {
                     Design external temp °C
                     <input
                       inputMode="decimal"
-                      value={project.designExternalTemp}
+                      value={designExternalTempDraft ?? String(project.designExternalTemp)}
+                      onFocus={() => setDesignExternalTempDraft(String(project.designExternalTemp))}
                       onChange={(event) => {
-                        const value = Number(event.target.value);
-                        if (Number.isFinite(value)) patchProject({ designExternalTemp: value });
+                        const raw = event.target.value;
+                        if (raw !== "" && !isSignedDecimalDraft(raw)) return;
+                        setDesignExternalTempDraft(raw);
+                        if (raw === "" || raw === "-" || /[.,]$/.test(raw)) return;
+                        const value = numberFromInput(raw);
+                        if (Number.isFinite(value)) {
+                          patchProject({ designExternalTemp: clampDesignExternalTemp(value) });
+                        }
+                      }}
+                      onBlur={() => {
+                        const raw = designExternalTempDraft;
+                        setDesignExternalTempDraft(null);
+                        if (raw == null || raw === "" || raw === "-") return;
+                        const value = numberFromInput(raw, project.designExternalTemp);
+                        if (Number.isFinite(value)) {
+                          patchProject({ designExternalTemp: clampDesignExternalTemp(value) });
+                        }
                       }}
                     />
                   </label>

@@ -34,7 +34,12 @@ import type {
   SystemDesignResult,
 } from "./types";
 
-export { numberFromInput, isDecimalDraft } from "./calc-number";
+export {
+  numberFromInput,
+  isDecimalDraft,
+  isSignedDecimalDraft,
+  clampDesignExternalTemp,
+} from "./calc-number";
 
 function selectedOption<T extends { id: string }>(items: readonly T[], id: string, fallbackIndex = 0) {
   return items.find((item) => item.id === id) ?? items[fallbackIndex];
