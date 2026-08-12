@@ -5,34 +5,29 @@
 | Check | How | Pages? |
 |-------|-----|--------|
 | Local / CI | `pnpm smoke:live:once` or `pnpm smoke:live` | No |
-| GitHub Actions | `.github/workflows/live-deploy-smoke.yml` on live branch push + every 6h | GitHub only (full path smoke) |
+| GitHub Actions | `.github/workflows/live-deploy-smoke.yml` on live branch push + every 6h | GitHub only (full path smoke). **Does not** require live commit == push SHA while Auto-Deploy is off. |
+| GitHub Actions (promote) | `workflow_dispatch` with optional `expect_commit` | Fail if Manual Deploy did not land that commit |
 | Render cron `nexa-live-deploy-smoke` | Hourly **liveness** → `GET /api/health` only | Render email **only** if health returns `ok: false` for several retries |
 
-### Why the old Render emails were misleading
+### Why failure emails were misleading
 
-Render emails **“server failure”** whenever the **cron job** exits non-zero — not when the main `nexa-live` web service crashes.
+1. **Render cron** emails “server failure” when the cron exits non-zero — not when the web app crashes. Fixed: liveness-only soft-pass.
+2. **GitHub Live deploy smoke** was requiring `NEXA_SMOKE_EXPECT_COMMIT=${{ github.sha }}` on every push. With **Auto-Deploy Off**, live stays on the last Manual Deploy (`b25fa1f…` etc.), so every new push waited 10 minutes then emailed “stale commit / Render build likely failed” even though the office site was healthy. Fixed: commit match only on manual `workflow_dispatch`.
 
-The previous hourly cron called secret-gated `/api/health/smoke`. That failed often during:
-
-- rapid auto-deploys / cutover 502s
-- missing or mismatched `NEXA_IMPORT_TICK_SECRET` on the cron (immediate exit 1 / 403)
-
-…while the office app was still up. That destroyed confidence.
-
-**Current policy:** Render cron = quiet liveness. Full module smoke = GitHub Actions.
-
-- Soft-pass (exit 0) on deploy/proxy/inconclusive windows.
-- Exit 1 only when `/api/health` repeatedly returns `ok: false`.
+**Current policy**
+- Render cron = quiet liveness
+- Push/schedule smoke = “is live still healthy?” (paths + `/api/health`)
+- After Manual Deploy / promote, run workflow_dispatch with `expect_commit` set to the promoted SHA
 
 Quick check: open https://nexa-live.onrender.com/api/health — if `ok: true`, the app is up.
 
 Health flag: `deploySmoke: health-liveness-no-false-alarm-v1`.
 
-### Apply this on Render
+### Apply / operate on Render
 
-1. Confirm **Auto-Deploy is Off** for `nexa-live` in the Render dashboard (`render-live.yaml` already has `autoDeploy: false`).
-2. After merging this change, **Manual Deploy** `nexa-live` or **Blueprint Sync** so the cron `startCommand` updates (yaml alone does not change a frozen service).
-3. Ship product WIP to **nexa-pilot**; promote to live only when asked or for a blocking fault.
+1. Keep **Auto-Deploy = Off** for `nexa-live`.
+2. Ship product WIP to **nexa-pilot**; promote to live only when asked or for a blocking fault.
+3. After Manual Deploy, optionally re-run **Live deploy smoke** via Actions → Run workflow → set `expect_commit`.
 
 ## Core URL modules (Phase 1)
 

@@ -5,6 +5,11 @@ on:
     branches:
       - codex/ai-surveyor-estimator-takeoff
   workflow_dispatch:
+    inputs:
+      expect_commit:
+        description: "Optional — require live /api/health commit to match (use after Manual Deploy / promote)"
+        required: false
+        default: ""
   schedule:
     # Catch silent overnight breakage (UTC).
     - cron: "15 */6 * * *"
@@ -21,7 +26,8 @@ jobs:
           NEXA_SMOKE_BASE_URL: https://nexa-live.onrender.com
           # Wait up to 10 minutes for Render cutover 502s to clear.
           NEXA_SMOKE_SETTLE_SECONDS: "600"
-          # Fail (after settle) if Render is still on an older commit — catches failed builds
-          # that leave the previous instance up while autoDeploy reports "failed".
-          NEXA_SMOKE_EXPECT_COMMIT: ${{ github.sha }}
+          # Live autoDeploy is frozen. Do NOT require github.sha on every push — that
+          # emails "failed" when live intentionally stays on the last Manual Deploy.
+          # Only enforce commit match on manual promote (workflow_dispatch input).
+          NEXA_SMOKE_EXPECT_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.expect_commit || '' }}
         run: node scripts/deploy-smoke.mjs --hold-seconds 90
