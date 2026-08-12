@@ -26,6 +26,31 @@ describe("takeoff studio service colours and layers", () => {
     assert.equal(SERVICE_CLASS_DEFS.length >= 6, true);
   });
 
+  it("seeds countable valves and fittings on each major service layer", () => {
+    const studio = createDefaultStudioState();
+    const byLayer = (layer: string) =>
+      studio.classifications.filter((cls) => classificationLayer(cls) === layer && cls.kind === "count");
+
+    const hotCold = byLayer("hot-cold").map((cls) => cls.name);
+    assert.ok(hotCold.includes("Isolation valve"));
+    assert.ok(hotCold.includes("Check valve (NRV)"));
+    assert.ok(hotCold.includes("TMV"));
+    assert.ok(hotCold.includes("Stopcock"));
+
+    const heating = byLayer("heating").map((cls) => cls.name);
+    assert.ok(heating.includes("TRV"));
+    assert.ok(heating.includes("Magnetic filter"));
+    assert.ok(heating.includes("Zone / motorised valve"));
+
+    const waste = byLayer("sanitary-waste").map((cls) => cls.name);
+    assert.ok(waste.includes("Bottle trap"));
+    assert.ok(waste.includes("Air admittance valve"));
+    assert.ok(waste.includes("Rodding eye"));
+
+    const gas = byLayer("gas").map((cls) => cls.name);
+    assert.ok(gas.includes("Gas cock"));
+  });
+
   it("ensureServiceClassifications adds missing presets without overwriting colours", () => {
     const base = createDefaultStudioState();
     const stripped = {

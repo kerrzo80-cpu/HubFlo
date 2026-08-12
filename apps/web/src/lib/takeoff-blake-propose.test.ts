@@ -11,6 +11,9 @@ describe("blake route & equipment proposer", () => {
     assert.ok(studio.classifications.some((cls) => cls.id === "cls-ai-P-ASHP"));
     assert.ok(studio.classifications.some((cls) => cls.id === "cls-ai-P-CYL"));
     assert.ok(studio.classifications.some((cls) => cls.id === "cls-ai-P-MANIFOLD"));
+    assert.ok(studio.classifications.some((cls) => cls.id === "cls-count-flue-terminal"));
+    assert.ok(studio.classifications.some((cls) => cls.id === "cls-count-condensate-pump"));
+    assert.ok(studio.classifications.some((cls) => cls.id === "cls-count-outdoor-sensor"));
   });
 
   it("proposes boiler + radiators plant, stubs, and follow-up questions", () => {

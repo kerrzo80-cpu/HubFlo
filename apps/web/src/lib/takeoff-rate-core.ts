@@ -65,9 +65,34 @@ export function defaultTakeoffRateLibrary(): TakeoffRateLibrary {
       { id: "rate-stopcock", label: "Stopcock", match: "stop(?: )?cock|stop valve|\\bstoptap\\b", unit: "nr", unitCost: 14, category: "fitting" },
       { id: "rate-trv", label: "TRV", match: "\\btrv\\b|thermostatic radiator valve", unit: "nr", unitCost: 18, category: "fitting" },
       { id: "rate-lockshield", label: "Lockshield", match: "lockshield|lock shield", unit: "nr", unitCost: 9, category: "fitting" },
-      { id: "rate-isolator", label: "Isolation valve", match: "isolation valve|isolating valve|\\bisovalve\\b", unit: "nr", unitCost: 6.5, category: "fitting" },
+      { id: "rate-isolator", label: "Isolation valve", match: "isolation valve|isolating valve|\\bisovalve\\b|boiler isolation", unit: "nr", unitCost: 6.5, category: "fitting" },
+      { id: "rate-check-valve", label: "Check valve (NRV)", match: "check valve|non-?return|\\bnrv\\b", unit: "nr", unitCost: 8.5, category: "fitting" },
+      { id: "rate-double-check", label: "Double check valve", match: "double check", unit: "nr", unitCost: 22, category: "fitting" },
+      { id: "rate-prv", label: "PRV", match: "\\bprv\\b|pressure reducing valve", unit: "nr", unitCost: 45, category: "fitting" },
+      { id: "rate-ball-valve", label: "Ball valve", match: "ball valve|lever ball", unit: "nr", unitCost: 9.5, category: "fitting" },
+      { id: "rate-gate-valve", label: "Gate valve", match: "gate valve|gate cock", unit: "nr", unitCost: 12, category: "fitting" },
+      { id: "rate-tmv", label: "TMV", match: "\\btmv\\b|thermostatic mixing", unit: "nr", unitCost: 65, category: "fitting" },
+      { id: "rate-zone-valve", label: "Zone / motorised valve", match: "zone.?valve|motorised valve|2-?port|3-?port", unit: "nr", unitCost: 55, category: "fitting" },
+      { id: "rate-auto-air-vent", label: "Auto air vent", match: "auto(?:matic)? air vent|\\baav\\b(?!.*admittance)", unit: "nr", unitCost: 6.5, category: "fitting" },
+      { id: "rate-mag-filter", label: "Magnetic filter", match: "magnetic filter|magnaclean|system filter", unit: "nr", unitCost: 85, category: "fitting" },
+      { id: "rate-filling-loop", label: "Filling loop", match: "filling loop", unit: "nr", unitCost: 18, category: "fitting" },
+      { id: "rate-pressure-gauge", label: "Pressure gauge", match: "pressure gauge", unit: "nr", unitCost: 12, category: "fitting" },
+      { id: "rate-circ-pump", label: "Circulating pump", match: "circulating pump|boiler pump|ch pump", unit: "nr", unitCost: 95, category: "fitting" },
+      { id: "rate-booster-pump", label: "Booster / secondary pump", match: "booster.?pump|secondary.?pump|secondary return pump", unit: "nr", unitCost: 185, category: "fitting" },
+      { id: "rate-manifold-actuator", label: "Manifold actuator", match: "manifold actuator|ufh actuator", unit: "nr", unitCost: 28, category: "fitting" },
+      { id: "rate-exp-vessel", label: "Expansion vessel", match: "expansion vessel|\\bdhw\\b.*expansion|expansion vessel \\(ch\\)|expansion vessel \\(dhw\\)", unit: "nr", unitCost: 55, category: "fitting" },
+      { id: "rate-bottle-trap", label: "Bottle trap", match: "bottle trap|basin trap|sink trap", unit: "nr", unitCost: 8.5, category: "fitting" },
+      { id: "rate-pan-connector", label: "WC pan connector", match: "pan connector|wc connector", unit: "nr", unitCost: 8.5, category: "fitting" },
+      { id: "rate-soil-fitting", label: "Soil fitting", match: "soil fitting|soil boss|strap boss|soil branch", unit: "nr", unitCost: 6.5, category: "fitting" },
+      { id: "rate-gas-cock", label: "Gas cock", match: "gas cock|gas isolation|boiler gas cock", unit: "nr", unitCost: 18, category: "fitting" },
+      { id: "rate-flue-terminal", label: "Flue terminal", match: "flue terminal|plume kit|flue kit", unit: "nr", unitCost: 95, category: "fitting" },
+      { id: "rate-condensate-pump", label: "Condensate pump", match: "condensate pump|condensate lift", unit: "nr", unitCost: 85, category: "fitting" },
+      { id: "rate-condensate-trap", label: "Condensate trap", match: "condensate trap|condensate neutral", unit: "nr", unitCost: 28, category: "fitting" },
+      { id: "rate-prv-discharge", label: "PRV discharge / tundish", match: "prv discharge|tundish", unit: "nr", unitCost: 22, category: "fitting" },
+      { id: "rate-outdoor-sensor", label: "Outdoor sensor", match: "outdoor sensor|weather (?:comp|sensor)", unit: "nr", unitCost: 35, category: "fitting" },
+      { id: "rate-gas-meter", label: "Gas meter", match: "gas meter", unit: "nr", unitCost: 0, category: "fixture" },
       { id: "rate-wc", label: "WC", match: "P-WC|WC pan|doc m toilet|\\bWC\\b|toilet pack", unit: "nr", unitCost: 185, category: "fixture" },
-      { id: "rate-whb", label: "WHB / basin", match: "P-WHB|Wash hand basin|\\bbasin\\b|\\bwhb\\b", unit: "nr", unitCost: 95, category: "fixture" },
+      { id: "rate-whb", label: "WHB / basin", match: "P-WHB|Wash hand basin|\\bbasin\\b|\\bwhb\\b|WHB / basin", unit: "nr", unitCost: 95, category: "fixture" },
       { id: "rate-bath", label: "Bath", match: "P-BATH|\\bbath\\b", unit: "nr", unitCost: 220, category: "fixture" },
       { id: "rate-shower", label: "Shower", match: "P-SHR|\\bshower\\b", unit: "nr", unitCost: 160, category: "fixture" },
       { id: "rate-rad", label: "Radiator", match: "P-RAD|\\bradiator\\b|panel rad", unit: "nr", unitCost: 95, category: "fixture" },
@@ -78,7 +103,7 @@ export function defaultTakeoffRateLibrary(): TakeoffRateLibrary {
       { id: "rate-cylinder", label: "Cylinder", match: "P-CYL|\\bCylinder\\b|unvented cylinder|hot water cylinder", unit: "nr", unitCost: 780, category: "fixture" },
       { id: "rate-manifold", label: "UFH manifold", match: "P-MANIFOLD|UFH manifold|\\bmanifold\\b", unit: "nr", unitCost: 320, category: "fixture" },
       // Drainage / UG ancillaries
-      { id: "rate-gully", label: "Yard gully", match: "yard gully|bottle gully|\\bgully\\b", unit: "nr", unitCost: 28, category: "fixture" },
+      { id: "rate-gully", label: "Yard gully", match: "yard gully|bottle gully|\\bgully\\b|\\bGulley\\b", unit: "nr", unitCost: 28, category: "fixture" },
       { id: "rate-ic", label: "Inspection chamber", match: "inspection chamber|\\bmanhole\\b|\\bic\\b cover", unit: "nr", unitCost: 95, category: "fixture" },
       { id: "rate-svk", label: "Soil vent terminal", match: "soil vent|vent terminal|\\bavt\\b|air admittance", unit: "nr", unitCost: 18, category: "fitting" },
       { id: "rate-rodding", label: "Rodding eye", match: "rodding eye|access eye|\\bre\\b fitting", unit: "nr", unitCost: 12, category: "fitting" },
@@ -147,10 +172,13 @@ export function defaultTakeoffRateLibrary(): TakeoffRateLibrary {
         match: "P-BOILER|\\bBoiler\\b",
         enabled: true,
         lines: [
-          { code: "P-BOILER-FLUE", description: "Flue kit", unit: "nr", qtyPerPrimary: 1, unitCost: 95 },
-          { code: "P-BOILER-MAG", description: "System filter / magnaclean", unit: "nr", qtyPerPrimary: 1, unitCost: 85 },
+          { code: "P-BOILER-FLUE", description: "Flue terminal / kit", unit: "nr", qtyPerPrimary: 1, unitCost: 95 },
+          { code: "P-BOILER-MAG", description: "Magnetic filter / MagnaClean", unit: "nr", qtyPerPrimary: 1, unitCost: 85 },
           { code: "P-BOILER-VALVES", description: "Boiler isolation / filling loop set", unit: "nr", qtyPerPrimary: 1, unitCost: 48 },
-          { code: "P-BOILER-COND", description: "Condensate pipe / neutraliser", unit: "nr", qtyPerPrimary: 1, unitCost: 35 },
+          { code: "P-BOILER-GAS", description: "Boiler gas cock", unit: "nr", qtyPerPrimary: 1, unitCost: 18 },
+          { code: "P-BOILER-COND", description: "Condensate pipe / trap / neutraliser", unit: "nr", qtyPerPrimary: 1, unitCost: 35 },
+          { code: "P-BOILER-PRV", description: "PRV discharge / tundish", unit: "nr", qtyPerPrimary: 1, unitCost: 22 },
+          { code: "P-BOILER-SENSOR", description: "Outdoor weather sensor", unit: "nr", qtyPerPrimary: 1, unitCost: 35 },
         ],
       },
       {
@@ -240,13 +268,18 @@ export function expandTradeSynonymsForLookup(raw: string): string {
   if (/\bwash\s*hand\s*basin\b|\bwashbasin\b|\bwhb\b/i.test(base)) extras.push("basin");
   if (/\bthermostatic\s*radiator\s*valve\b/i.test(base)) extras.push("trv");
   if (/\block\s*shield\b/i.test(base)) extras.push("lockshield");
+  if (/\bnon-?return\b|\bnrv\b/i.test(base)) extras.push("check valve");
+  if (/\bthermostatic\s*mixing\b/i.test(base)) extras.push("TMV");
+  if (/\bmagnaclean\b|\bsystem\s*filter\b/i.test(base)) extras.push("magnetic filter");
+  if (/\bbottle\s*gully\b|\byard\s*gully\b/i.test(base)) extras.push("gulley");
+  if (/\bair\s*admittance\b/i.test(base)) extras.push("AVT", "air admittance valve");
+  if (/\bweather\s*comp/i.test(base)) extras.push("outdoor sensor");
   if (/\bcopper\s*(?:tube|tubing|pipe|piping)\b/i.test(base)) extras.push("copper");
   if (/\bdoc\s*m\s*(?:toilet|wc|pack)\b/i.test(base)) extras.push("WC", "toilet pack");
   if (/\bmdpe\b|\bblue\s*poly\b/i.test(base)) extras.push("MDPE");
   if (/\bfoul\s*(?:drain|drainage|water)\b|\bug\s*drain/i.test(base)) extras.push("underground drain");
   if (/\btwin\s*(?:&|and)\s*earth\b|\bt&e\b/i.test(base)) extras.push("T&E", "cable");
   if (/\bfused\s*(?:spur|connection)\b/i.test(base)) extras.push("FCU");
-  if (/\bair\s*admittance\b/i.test(base)) extras.push("AVT");
   if (/\bpipe\s*lagging\b|\blagging\b/i.test(base)) extras.push("pipe insulation");
   if (/\bmake\s*good\b|\bchase\b|\bcore\s*(?:drill|hole)\b/i.test(base)) extras.push("builders work");
   if (/\bextractor\b|\bextract\s*fan\b/i.test(base)) extras.push("extract fan");
