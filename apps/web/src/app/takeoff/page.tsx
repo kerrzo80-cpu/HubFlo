@@ -25,6 +25,7 @@ import {
 } from "@/lib/takeoff-drawing-labels";
 import { countMarkupsOnTenderDocuments } from "@/lib/takeoff-tender-archive";
 import {
+  downloadTakeoffStudioLocalDraft,
   readTakeoffStudioLocalDraft,
   shouldRestoreTakeoffStudioLocalDraft,
   writeTakeoffStudioLocalDraft,
@@ -148,12 +149,14 @@ function sortDrawingDocs(docs: TakeoffDocument[]) {
   });
 }
 
-async function apiFetch(input: string, init: RequestInit = {}) {
-  const headers = new Headers(init.headers || {});
+async function apiFetch(input: string, init: RequestInit & { skipAuthRedirect?: boolean } = {}) {
+  const { skipAuthRedirect, ...fetchInit } = init;
+  const headers = new Headers(fetchInit.headers || {});
   if (!headers.has(roleHeaderName)) headers.set(roleHeaderName, "Office");
   if (!headers.has(employeeHeaderName)) headers.set(employeeHeaderName, sessionActor);
-  const response = await fetch(input, { ...init, credentials: "include", headers });
-  if (response.status === 401 && typeof window !== "undefined") {
+  const response = await fetch(input, { ...fetchInit, credentials: "include", headers });
+  // Never bounce to /login mid-save — that wipes in-memory marks (localStorage still has them).
+  if (response.status === 401 && typeof window !== "undefined" && !skipAuthRedirect) {
     const next = `${window.location.pathname}${window.location.search}`;
     window.location.assign(`/login?next=${encodeURIComponent(next || "/takeoff")}`);
   }
@@ -618,17 +621,20 @@ export default function TakeoffStudioPage() {
         code?: string;
       } | null;
       if (payload?.error?.trim()) return payload.error.trim();
-      if (response.status === 401) return "Session expired — sign in again, then keep working (this browser still has an autosave).";
+      if (response.status === 401) return "Session expired — sign in again in another tab, then keep working here (this browser still has an autosave).";
       if (response.status === 403) {
-        return "Your login cannot save Takeoffs. Sign in with an Office account, or ask an admin for quote-create permission.";
+        return "Your login cannot save Takeoffs. Sign in with an Office account, or ask an admin for quote-create / job-edit permission.";
       }
       if (response.status === 409) {
         return "Someone else saved this takeoff on the same drawing. Reload that sheet to see their marks — your work stays in this browser's autosave.";
       }
       if (response.status === 413 || response.status === 400) {
-        return `Could not save studio takeoff (${response.status}) — payload may be too large or invalid. Try again; if it keeps failing, reduce drawings or reload.`;
+        return `Could not save studio takeoff (${response.status}) — payload may be too large or invalid. Try again; if it keeps failing, Download local backup below.`;
       }
-      return `Could not save studio takeoff (${response.status})`;
+      if (response.status >= 500) {
+        return `Could not save studio takeoff (server ${response.status}). Marks stay in this browser — use Download local backup, then retry Save.`;
+      }
+      return `Could not save studio takeoff (${response.status}) — marks stay in this browser's autosave.`;
     };
 
     const flushSave = async (): Promise<TakeoffProject | null> => {
@@ -641,15 +647,28 @@ export default function TakeoffStudioPage() {
           pendingSaveRef.current = null;
           const touchedDocumentIds = documentIdsTouchedSinceBase(baseStudioRef.current, job.studio);
           try {
+            const { studioTenderArchives: _dropArchives, ...safeExtras } = job.extras as Partial<TakeoffProject> & {
+              studioTenderArchives?: unknown;
+            };
+            const bodyText = JSON.stringify({
+              studio: job.studio,
+              ...safeExtras,
+              touchedDocumentIds,
+              ...(baseUpdatedAtRef.current ? { expectedUpdatedAt: baseUpdatedAtRef.current } : {}),
+            });
+            if (bodyText.length > 12_000_000) {
+              setSaveState("error");
+              setError(
+                `Could not save studio takeoff — payload is ${(bodyText.length / 1_000_000).toFixed(1)}MB (too large). Download local backup, then ask admin to clear unused tender archives.`,
+              );
+              pendingSaveRef.current = null;
+              return null;
+            }
             const response = await apiFetch(`/api/takeoff-projects/${job.projectId}`, {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                studio: job.studio,
-                ...job.extras,
-                touchedDocumentIds,
-                ...(baseUpdatedAtRef.current ? { expectedUpdatedAt: baseUpdatedAtRef.current } : {}),
-              }),
+              body: bodyText,
+              skipAuthRedirect: true,
             });
             if (!response.ok) {
               setSaveState("error");
@@ -1967,7 +1986,36 @@ export default function TakeoffStudioPage() {
       {/* Notice/error + Blake review overlay canvas — scale alerts live in the rail (in-flow). */}
       <div className="nexa-studio-banner-stack" aria-live="polite">
         {(notice || error) ? (
-          <div className={`nexa-studio-banner ${error ? "error" : "ok"}`}>{error || notice}</div>
+          <div className={`nexa-studio-banner ${error ? "error" : "ok"}`}>
+            <span>{error || notice}</span>
+            {error && selectedId ? (
+              <span className="nexa-studio-banner-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ok = downloadTakeoffStudioLocalDraft(selectedId);
+                    show(
+                      ok
+                        ? "Downloaded local autosave JSON — keep that file safe."
+                        : "No local autosave found yet — keep marking so one is written.",
+                      8000,
+                    );
+                  }}
+                >
+                  Download local backup
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!selected) return;
+                    void persistStudio(studio, {}, { skipHistory: true, immediate: true });
+                  }}
+                >
+                  Retry save
+                </button>
+              </span>
+            ) : null}
+          </div>
         ) : null}
 
         {selected && hasPendingAiReview ? (

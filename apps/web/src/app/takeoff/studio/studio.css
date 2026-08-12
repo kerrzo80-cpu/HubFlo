@@ -419,6 +419,34 @@
   background: #fff5f4;
   border-color: #f0b4b0;
   color: #9b2c2c;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.nexa-studio-banner-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.nexa-studio-banner-actions button {
+  appearance: none;
+  border: 1px solid #e0a09a;
+  background: #fff;
+  color: #9b2c2c;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.nexa-studio-banner-actions button:hover {
+  background: #ffe9e7;
 }
 
 .nexa-studio-banner.ok {

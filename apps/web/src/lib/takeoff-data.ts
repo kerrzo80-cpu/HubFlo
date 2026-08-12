@@ -906,7 +906,12 @@ function clone<T>(value: T): T {
 }
 
 function persistTakeoffStore() {
-  writeServerStore("takeoff-store", takeoffStore);
+  const ok = writeServerStore("takeoff-store", takeoffStore);
+  if (!ok) {
+    throw new Error(
+      "Could not write takeoff store to disk (SQLite/JSON). Disk may be full, or the takeoff payload is too large — keep the browser tab open (local autosave still has your marks).",
+    );
+  }
 }
 
 function refreshTakeoffStore() {

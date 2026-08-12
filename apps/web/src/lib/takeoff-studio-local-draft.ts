@@ -76,3 +76,24 @@ export function shouldRestoreTakeoffStudioLocalDraft(
   const draftCount = draft.geometryCount + draft.scaleCount;
   return draftCount > 0 && draftCount > serverCount;
 }
+
+/** Download the browser autosave JSON so markups survive even if the tab is lost. */
+export function downloadTakeoffStudioLocalDraft(projectId: string, fileName?: string): boolean {
+  if (typeof window === "undefined") return false;
+  const draft = readTakeoffStudioLocalDraft(projectId);
+  if (!draft) return false;
+  try {
+    const blob = new Blob([JSON.stringify(draft, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download =
+      fileName ||
+      `takeoff-autosave-${projectId.slice(0, 12)}-${draft.savedAt.replace(/[:.]/g, "-")}.json`;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+    return true;
+  } catch {
+    return false;
+  }
+}

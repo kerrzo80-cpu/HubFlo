@@ -274,6 +274,11 @@ export function getAccessProfileFromHeaders(headers: Headers): AccessProfile {
   return getAccessProfile(role, overrides);
 }
 
+/** Takeoff Studio PATCH/create — Office quotes or job editors (e.g. Chris marking drawings). */
+export function canSaveTakeoff(access: AccessProfile): boolean {
+  return Boolean(access.canCreateQuote || access.canEditJobs);
+}
+
 export const roleHeaderName = "x-hubflo-role";
 export const employeeHeaderName = "x-hubflo-employee-id";
 export const permissionHeaderName = "x-hubflo-permissions";
