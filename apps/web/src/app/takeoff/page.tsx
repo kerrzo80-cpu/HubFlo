@@ -206,6 +206,14 @@ export default function TakeoffStudioPage() {
     more: false,
   });
   const saveTimer = useRef<number | null>(null);
+  const saveInFlightRef = useRef(false);
+  const pendingSaveRef = useRef<{
+    projectId: string;
+    studio: StudioState;
+    extras: Partial<TakeoffProject>;
+  } | null>(null);
+  /** Server `updatedAt` we last successfully loaded/saved — used to detect another user saving the same project. */
+  const baseUpdatedAtRef = useRef<string | null>(null);
   const historyRef = useRef<StudioState[]>([]);
   const futureRef = useRef<StudioState[]>([]);
   const [historyTick, setHistoryTick] = useState(0);
@@ -421,6 +429,8 @@ export default function TakeoffStudioPage() {
     setSavedAt(null);
     setReviewOpen(false);
     seededServicesRef.current = null;
+    pendingSaveRef.current = null;
+    baseUpdatedAtRef.current = null;
     // Mark mode: Linked + Drawings + Draw as open; More stays collapsible.
     setRailAccordions((prev) => ({
       ...prev,
@@ -430,6 +440,14 @@ export default function TakeoffStudioPage() {
       more: !selectedId,
     }));
   }, [selectedId]);
+
+  useEffect(() => {
+    if (!selected) return;
+    // Seed concurrency token once per open (don't chase every optimistic local updatedAt).
+    if (baseUpdatedAtRef.current === null && selected.updatedAt) {
+      baseUpdatedAtRef.current = selected.updatedAt;
+    }
+  }, [selected]);
 
   const toggleRailAccordion = useCallback((key: keyof typeof railAccordions) => {
     setRailAccordions((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -577,33 +595,92 @@ export default function TakeoffStudioPage() {
     setSaveState("saving");
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
 
-    const write = async () => {
-      const response = await apiFetch(`/api/takeoff-projects/${selected.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studio: nextStudio, ...extras }),
-      });
-      if (!response.ok) {
-        setSaveState("error");
-        setError("Could not save studio takeoff");
-        return null;
+    pendingSaveRef.current = {
+      projectId: selected.id,
+      studio: nextStudio,
+      extras,
+    };
+
+    const formatSaveError = async (response: Response) => {
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+        code?: string;
+      } | null;
+      if (payload?.error?.trim()) return payload.error.trim();
+      if (response.status === 401) return "Session expired — sign in again, then keep working (this browser still has an autosave).";
+      if (response.status === 403) {
+        return "Your login cannot save Takeoffs. Sign in with an Office account, or ask an admin for quote-create permission.";
       }
-      const project = (await response.json()) as TakeoffProject;
-      const merged = { ...project, studio: project.studio ?? nextStudio };
-      upsert(merged);
-      writeTakeoffStudioLocalDraft(selected.id, merged.studio || nextStudio, {
-        sourceTenderId: merged.sourceTenderId,
-      });
-      setSavedAt(new Date().toISOString());
-      setSaveState("saved");
-      return merged;
+      if (response.status === 409) {
+        return "Someone else saved this takeoff. Reload to see their changes — your marks are still in this browser's autosave.";
+      }
+      if (response.status === 413 || response.status === 400) {
+        return `Could not save studio takeoff (${response.status}) — payload may be too large or invalid. Try again; if it keeps failing, reduce drawings or reload.`;
+      }
+      return `Could not save studio takeoff (${response.status})`;
+    };
+
+    const flushSave = async (): Promise<TakeoffProject | null> => {
+      if (saveInFlightRef.current) return null;
+      saveInFlightRef.current = true;
+      let lastMerged: TakeoffProject | null = null;
+      try {
+        while (pendingSaveRef.current) {
+          const job = pendingSaveRef.current;
+          pendingSaveRef.current = null;
+          try {
+            const response = await apiFetch(`/api/takeoff-projects/${job.projectId}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                studio: job.studio,
+                ...job.extras,
+                ...(baseUpdatedAtRef.current ? { expectedUpdatedAt: baseUpdatedAtRef.current } : {}),
+              }),
+            });
+            if (!response.ok) {
+              setSaveState("error");
+              setError(await formatSaveError(response));
+              // Stop the queue on conflict/auth — later coalesced writes would also fail.
+              pendingSaveRef.current = null;
+              return null;
+            }
+            const project = (await response.json()) as TakeoffProject;
+            const merged = { ...project, studio: project.studio ?? job.studio };
+            upsert(merged);
+            writeTakeoffStudioLocalDraft(job.projectId, merged.studio || job.studio, {
+              sourceTenderId: merged.sourceTenderId,
+            });
+            if (merged.updatedAt) baseUpdatedAtRef.current = merged.updatedAt;
+            setSavedAt(new Date().toISOString());
+            setSaveState("saved");
+            setError(null);
+            lastMerged = merged;
+          } catch (err) {
+            setSaveState("error");
+            setError(
+              err instanceof Error && err.message
+                ? `Could not save studio takeoff — ${err.message}`
+                : "Could not save studio takeoff — network error. Check connection; marks stay in this browser until Saved shows again.",
+            );
+            pendingSaveRef.current = null;
+            return null;
+          }
+        }
+        return lastMerged;
+      } finally {
+        saveInFlightRef.current = false;
+        if (pendingSaveRef.current) {
+          void flushSave();
+        }
+      }
     };
 
     if (options?.immediate) {
-      return write();
+      return flushSave();
     }
     saveTimer.current = window.setTimeout(() => {
-      void write();
+      void flushSave();
     }, 450);
     return optimistic;
   }

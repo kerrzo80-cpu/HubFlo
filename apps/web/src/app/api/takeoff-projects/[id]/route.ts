@@ -9,6 +9,7 @@ import {
   updateTakeoffProject,
   type TakeoffProject,
 } from "@/lib/takeoff-data";
+import { takeoffStudioSaveConflicts } from "@/lib/takeoff-studio-save-conflict";
 import {
   getTender,
   linkTakeoffToTender,
@@ -41,10 +42,16 @@ export async function PATCH(
 ) {
   const access = getAccessProfileFromHeaders(request.headers);
   if (!access.canCreateQuote) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    return NextResponse.json(
+      {
+        error:
+          "Your login cannot save Takeoffs (needs quote-create permission). Ask an office admin, or sign in with an Office account.",
+      },
+      { status: 403 },
+    );
   }
 
-  const body = await parseJsonRequestBody<Partial<TakeoffProject>>(request);
+  const body = await parseJsonRequestBody<Partial<TakeoffProject> & { expectedUpdatedAt?: string }>(request);
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
@@ -52,7 +59,22 @@ export async function PATCH(
   const { id } = await params;
   const previous = getTakeoffProject(id);
 
+  // Optional optimistic concurrency: same project open in two browsers must not silently clobber.
+  const expectedUpdatedAt = typeof body.expectedUpdatedAt === "string" ? body.expectedUpdatedAt : undefined;
+  if (takeoffStudioSaveConflicts(previous?.updatedAt, expectedUpdatedAt)) {
+    return NextResponse.json(
+      {
+        error:
+          "Someone else saved this takeoff. Reload to see their changes, then continue — your marks are still in this browser's autosave.",
+        code: "conflict",
+        serverUpdatedAt: previous?.updatedAt,
+      },
+      { status: 409 },
+    );
+  }
+
   const patch: Partial<TakeoffProject> = { ...body };
+  delete (patch as { expectedUpdatedAt?: string }).expectedUpdatedAt;
   if (body.sourceTenderId !== undefined) {
     const tenderId = body.sourceTenderId || undefined;
     if (tenderId) {
