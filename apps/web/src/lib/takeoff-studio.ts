@@ -583,6 +583,7 @@ export function syncLinearDropFields<T extends LinearDropFields>(fields: T): T &
 
 /**
  * Measured pipe metres for a Length run: plan polyline × scale + rise/drop.
+ * Rise/drop is always real metres (N × height) — never multiply vertical by metresPerUnit.
  * Rise/drop alone still counts when scale is missing (absolute metres).
  */
 export function linearMeasuredMetres(

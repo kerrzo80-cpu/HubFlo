@@ -1332,18 +1332,33 @@ export default function StudioCanvas({
                 />
               </label>
             ) : null}
-            <span className="nexa-studio-rise-metres">
-              {selectedDrop.dropCount > 0 ? (
+            <span
+              className="nexa-studio-rise-metres"
+              title="Drop metres are real height (N × H). Run total = plan length × scale + drops — scale is not applied to drop height."
+            >
+              {selectedDrop.verticalM > 0 ? (
                 <>
-                  Vert <strong>{selectedDrop.verticalM.toFixed(1)} m</strong>
+                  {selectedDrop.dropCount > 0 ? (
+                    <>
+                      {selectedDrop.dropCount} × {Number(selectedDrop.dropHeightM.toFixed(1))} m ={" "}
+                      <strong>+{selectedDrop.verticalM.toFixed(1)} m</strong>
+                    </>
+                  ) : (
+                    <>
+                      Vert <strong>+{selectedDrop.verticalM.toFixed(1)} m</strong>
+                    </>
+                  )}
                   {" · "}
+                  run ≈{" "}
+                  <strong>{(selectedLinearMetres ?? 0).toFixed(2)} m</strong>
+                  {selectedDrop.noteLabel ? ` (${selectedDrop.noteLabel})` : ""}
                 </>
-              ) : null}
-              ≈{" "}
-              <strong>
-                {(selectedLinearMetres ?? 0).toFixed(2)} m
-              </strong>
-              {selectedDrop.noteLabel ? ` (${selectedDrop.noteLabel})` : ""}
+              ) : (
+                <>
+                  run ≈{" "}
+                  <strong>{(selectedLinearMetres ?? 0).toFixed(2)} m</strong>
+                </>
+              )}
             </span>
           </form>
         ) : pageLinearCount > 0 ? (

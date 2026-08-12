@@ -330,6 +330,52 @@ describe("studio rise / drop metres", () => {
     assert.equal(synced.riseDropM, 3);
   });
 
+  it("1 drop × 3m adds exactly +3.0m vertical (never × plan scale)", () => {
+    // Bug regression: status showed ~5.74 next to Vert when plan was ~2.74m + 3m drop.
+    // Vertical allowance must stay N×H in real metres — do not multiply height by metresPerUnit.
+    const drop = resolveLinearDrop({ dropCount: 1, dropHeightM: 3 });
+    assert.equal(drop.verticalM, 3);
+    assert.equal(drop.noteLabel, "3 m drop");
+
+    // Calibration-style scale label from the bug report (~2.777 m known length).
+    const mpu = 2.777;
+    const points = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+    ];
+    const planM = 1 * mpu;
+    const totalM = linearMeasuredMetres(points, mpu, drop.verticalM);
+    assert.equal(planM, 2.777);
+    assert.equal(totalM, 5.777); // plan + 3 — looks like the old confusing "5.74" total
+    assert.equal(drop.verticalM, 3); // not 5.777, not 3×2.777
+    assert.notEqual(drop.verticalM, 3 * mpu);
+
+    let studio = createDefaultStudioState();
+    studio = {
+      ...studio,
+      scales: [{ documentId: "doc-1", page: 1, metresPerUnit: mpu }],
+    };
+    studio = appendLinearWithAutoFittings(studio, {
+      id: "run-1x3-drop",
+      classificationId: "cls-ai-P-PIPE-C",
+      kind: "linear",
+      documentId: "doc-1",
+      page: 1,
+      points,
+      material: "Copper",
+      diameter: "22mm",
+      stockLengthM: 3,
+      pipeSpecId: "cu-22",
+      dropCount: 1,
+      dropHeightM: 3,
+    });
+    const pipeRow = summariseStudioPipeBoq(studio).find((row) => row.unit === "m");
+    assert.equal(pipeRow?.quantity, 5.78); // Number((2.777 + 3).toFixed(2))
+    assert.match(pipeRow?.description || "", /incl\. 3 m drop/);
+    // BoQ metres = plan×scale + N×H; vertical piece is still exactly 3.0 before qty rounding
+    assert.equal(linearMeasuredMetres(points, mpu, drop.verticalM) - planM, 3);
+  });
+
   it("BOQ uses count × height with plural drop note and one elbow per drop", () => {
     let studio = createDefaultStudioState();
     studio = {
