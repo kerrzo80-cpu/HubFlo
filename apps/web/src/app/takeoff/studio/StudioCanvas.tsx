@@ -445,7 +445,17 @@ export default function StudioCanvas({
         setRectStart(null);
         setRectCurrent(null);
         setSelectedId(null);
-        if (studio.tool === "measure") patchStudio({ tool: "pan" });
+        // Sticky Draw-as (Heat Design place): Esc exits mark-up; class + pipe size stay selected.
+        if (studio.tool === "measure") {
+          patchStudio({ tool: "pan" });
+        } else if (
+          studio.tool === "count"
+          || studio.tool === "linear"
+          || studio.tool === "area"
+          || studio.tool === "rect"
+        ) {
+          patchStudio({ tool: "select" });
+        }
       }
       if ((event.key === "Backspace" || event.key === "Delete") && selectedId) {
         event.preventDefault();
@@ -857,7 +867,9 @@ export default function StudioCanvas({
     };
     setDraftPoints([]);
     const next = appendLinearWithAutoFittings(studio, geo);
-    onChange({ ...next, tool: "select", updatedAt: new Date().toISOString() });
+    // Sticky Length place: keep service class + pipe size / Length tool so the next run starts immediately.
+    // Esc or View → Move / Edit (or another tool) exits; picking another size/item switches.
+    onChange({ ...next, tool: "linear", updatedAt: new Date().toISOString() });
     setSelectedId(geo.id);
     const preview = previewFittingsForDraft(points, {
       metresPerUnit: scaleForPage(studio, document.id, page)?.metresPerUnit,
@@ -976,7 +988,7 @@ export default function StudioCanvas({
     count: {
       label: "Count",
       title: "Tap once for each fixture (WC, basin, socket, etc.).",
-      hint: "Tap each fixture once to count it. Use Ask Blake first if tags are on the PDF.",
+      hint: "Tap each fixture once to count it (stays on until Esc / Edit). Use Ask Blake first if tags are on the PDF.",
     },
     linear: {
       label: "Length",
@@ -990,7 +1002,7 @@ export default function StudioCanvas({
         ];
         if (spec.autoElbows) bits.push("auto elbows");
         if (spec.autoCouplings) bits.push(`couplings / ${spec.stockLengthM}m`);
-        return `${bits.join(" · ")} — tap run, then Done.`;
+        return `${bits.join(" · ")} — tap run, Done (size stays on). Esc / Edit to exit.`;
       })(),
     },
     area: {
