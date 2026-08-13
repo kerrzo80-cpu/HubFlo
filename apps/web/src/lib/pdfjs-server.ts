@@ -9,6 +9,11 @@
  * stays external (see also `serverExternalPackages` in next.config.ts).
  *
  * Never import this module from client components — it uses Node createRequire.
+ *
+ * Important: do not write `pathToFileURL(req.resolve("pdfjs-dist/…"))` with a
+ * string-literal specifier. Turbopack constant-folds that resolve into a numeric
+ * module id, producing `pathToFileURL(1454)` and:
+ *   The "path" argument must be of type string. Received type number (1454)
  */
 
 import { createRequire } from "node:module";
@@ -18,6 +23,7 @@ import { pathToFileURL } from "node:url";
 export { friendlyPdfEngineError } from "@/lib/pdf-engine-errors";
 
 type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
+type NodeRequire = ReturnType<typeof createRequire>;
 
 let cached: Promise<PdfJsModule> | null = null;
 
@@ -26,7 +32,8 @@ function createPdfRequire() {
   // via path.join(process.cwd(), …)). Walks up to apps/web/node_modules on Render.
   try {
     const req = createRequire(import.meta.url);
-    req.resolve("pdfjs-dist/legacy/build/pdf.mjs");
+    // Existence check only — keep the literal here; do not feed this result to pathToFileURL.
+    req.resolve("pdfjs-dist/package.json");
     return req;
   } catch {
     // Fallback when the compiled chunk lives somewhere unexpected.
@@ -38,7 +45,7 @@ function createPdfRequire() {
   for (const candidate of candidates) {
     try {
       const req = createRequire(candidate);
-      req.resolve("pdfjs-dist/legacy/build/pdf.mjs");
+      req.resolve("pdfjs-dist/package.json");
       return req;
     } catch {
       // try next
@@ -47,21 +54,32 @@ function createPdfRequire() {
   return createRequire(import.meta.url);
 }
 
+/** Runtime-only path resolve — argument must not be a static string literal. */
+function resolvePdfJsFile(req: NodeRequire, ...parts: string[]): string {
+  const pkgJson = req.resolve(["pdfjs-dist", "package.json"].join("/"));
+  if (typeof pkgJson !== "string") {
+    throw new Error(`pdfjs-dist package.json resolve returned ${typeof pkgJson}, expected a filesystem path`);
+  }
+  const absolute = path.join(path.dirname(pkgJson), ...parts);
+  if (typeof absolute !== "string" || !absolute) {
+    throw new Error("pdfjs-dist path join failed");
+  }
+  return absolute;
+}
+
 export async function loadPdfJsServer(): Promise<PdfJsModule> {
   if (!cached) {
     cached = (async () => {
       const req = createPdfRequire();
-      const pdfPath = req.resolve("pdfjs-dist/legacy/build/pdf.mjs");
-      const workerPath = req.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
+      const pdfPath = resolvePdfJsFile(req, "legacy", "build", "pdf.mjs");
       // webpackIgnore / turbopackIgnore: keep this as a real Node ESM import.
       const mod = (await import(
         /* webpackIgnore: true */
         /* turbopackIgnore: true */
         pathToFileURL(pdfPath).href
       )) as PdfJsModule;
-      if (mod?.GlobalWorkerOptions) {
-        mod.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
-      }
+      // Node disables real PDF workers (#isWorkerDisabled). Do not set workerSrc to a
+      // resolved path — Turbopack previously rewrote that into pathToFileURL(<moduleId>).
       return mod;
     })().catch((error) => {
       cached = null;

@@ -6,6 +6,8 @@ export function friendlyPdfEngineError(error: unknown, fallback = "Could not rea
     || /ERR_MODULE_NOT_FOUND/i.test(msg)
     || /depth_pdf/i.test(msg)
     || /pdf\.worker/i.test(msg)
+    // Turbopack folded req.resolve("pdfjs-dist/…") into a module id → pathToFileURL(1454).
+    || /"path" argument must be of type string/i.test(msg)
   ) {
     return "Could not open this PDF (server PDF reader failed to load). Try again, or import Excel/CSV instead.";
   }
