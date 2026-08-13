@@ -21,8 +21,12 @@ export async function GET(request: Request) {
   } catch {
     // Best-effort backfill of Daywork variation cards from Field evidence.
   }
-  // Poll responses omit base64 signatures — PDF/valuation routes still load full sheets from disk.
-  return NextResponse.json(stripDayworkBlobsForPoll(getHubDetailState()));
+  // Poll responses omit base64 signatures and lean job cost centres — never echo BoQ dumps.
+  const state = stripDayworkBlobsForPoll(getHubDetailState());
+  if (state.jobCostCentres && typeof state.jobCostCentres === "object") {
+    leanJobCostCentresMap(state.jobCostCentres);
+  }
+  return NextResponse.json(state);
 }
 
 export async function PUT(request: Request) {

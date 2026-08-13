@@ -288,6 +288,16 @@ test("rebuild from a large BoQ stays lean and does not dump line arrays onto the
   const hub = getHubDetailState();
   const stored = ((hub.jobCostCentres as Record<string, Array<{ materials?: unknown[] }>>)?.[job.id] || []);
   assert.ok(stored.every((centre) => (centre.materials?.length || 0) <= 1));
+
+  // Meta store must not retain the 2500-line Bill after upsert/rebuild.
+  const { loadServerStore } = await import("./server-store");
+  const meta = loadServerStore<{ tenders?: Array<{ id?: string; boqLines?: unknown[] }> }>("nexa-tenders-v1", {
+    tenders: [],
+  });
+  const metaRow = (meta.tenders || []).find((row) => row.id === tender.id);
+  assert.equal(metaRow?.boqLines?.length || 0, 0, "tender meta must not store BoQ lines");
+  const side = loadServerStore<{ lines?: unknown[] }>(`nexa-tender-boq-v1:${tender.id}`, { lines: [] });
+  assert.equal(side.lines?.length || 0, 2500, "BoQ must live in the side store");
 });
 
 test("Won convert copies tender drawings onto the job documents hub", async (t) => {

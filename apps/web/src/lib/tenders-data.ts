@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { loadServerStore, writeServerStore, getServerStoreDirectory } from "@/lib/server-store";
+import {
+  deleteServerStore,
+  loadServerStore,
+  writeServerStore,
+  getServerStoreDirectory,
+} from "@/lib/server-store";
 import {
   looksLikeSupplierQuoteSheetName,
   looksLikeTakeoffPipeMetreLine,
@@ -296,12 +301,46 @@ function healTenderInMemory(tender: Tender): Tender {
   return { ...tender, boqLines, bidValue: boqTotal, tenderSum: boqTotal };
 }
 
-/** Raw store — no per-tender BoQ heal (rebuild/hot paths must not walk every Bill). */
+/** Per-tender BoQ side store — keeps Bills out of the meta JSON that rebuild/patch rewrite. */
+function tenderBoqStoreName(tenderId: string) {
+  return `nexa-tender-boq-v1:${tenderId}`;
+}
+
+function readBoqLines(tenderId: string): TenderBoqLine[] {
+  const stored = loadServerStore<{ lines?: TenderBoqLine[] }>(tenderBoqStoreName(tenderId), { lines: [] });
+  return Array.isArray(stored.lines) ? stored.lines : [];
+}
+
+function writeBoqLines(tenderId: string, lines: TenderBoqLine[]) {
+  writeServerStore(tenderBoqStoreName(tenderId), {
+    lines: Array.isArray(lines) ? lines : [],
+    updatedAt: nowIso(),
+  });
+}
+
+function deleteBoqLinesStore(tenderId: string) {
+  deleteServerStore(tenderBoqStoreName(tenderId));
+}
+
+/** Attach BoQ from side store; migrate legacy inline lines once. */
+function attachBoq(tender: Tender): Tender {
+  let lines = readBoqLines(tender.id);
+  if (!lines.length && Array.isArray(tender.boqLines) && tender.boqLines.length) {
+    lines = tender.boqLines;
+    writeBoqLines(tender.id, lines);
+  }
+  return healTenderInMemory({ ...tender, boqLines: lines });
+}
+
+/** Raw meta store — BoQ arrays must be empty here after writeStore. */
 function readStoreRaw(): TenderStore {
   const stored = loadServerStore<Partial<TenderStore>>(STORE, { tenders: [] });
   const tenders = Array.isArray(stored.tenders) ? (stored.tenders as Tender[]) : [];
   if (!tenders.length) {
-    const seeded = { tenders: seedTenders() };
+    const seeded = { tenders: seedTenders().map((tender) => {
+      if (tender.boqLines?.length) writeBoqLines(tender.id, tender.boqLines);
+      return { ...tender, boqLines: [] };
+    }) };
     writeServerStore(STORE, seeded);
     return seeded;
   }
@@ -309,13 +348,13 @@ function readStoreRaw(): TenderStore {
 }
 
 function readStore(): TenderStore {
-  // Heal in memory only — never persist on read (multi-MB BoQ rewrite OOMed rebuild).
-  return { tenders: readStoreRaw().tenders.map(healTenderInMemory) };
+  // Attach BoQ only when callers need full tenders (rare). Prefer getTender / listTendersLean.
+  return { tenders: readStoreRaw().tenders.map(attachBoq) };
 }
 
 /**
- * Patch tender job-link / status / sums without re-normalising or cloning BoQ lines.
- * Rebuild must use this — upsertTender() rewrote the entire BoQ blob and OOMed Render.
+ * Patch tender job-link / status / sums without touching BoQ side stores.
+ * Meta JSON stays lean — this is what rebuild/heal must use.
  */
 export function patchTenderJobLink(
   tenderId: string,
@@ -342,18 +381,26 @@ export function patchTenderJobLink(
     ...(typeof patch.bidValue === "number" && Number.isFinite(patch.bidValue)
       ? { bidValue: patch.bidValue }
       : {}),
-    // Keep the same boqLines array reference — do not normalize/copy.
-    boqLines: existing.boqLines,
+    boqLines: [],
     updatedAt: nowIso(),
   };
   store.tenders[index] = next;
   writeStore(store);
-  return next;
+  return attachBoq(next);
 }
 
 function writeStore(store: TenderStore) {
-  writeServerStore(STORE, store);
-  return store;
+  // Always externalise inline Bills, then persist lean meta only.
+  const leanTenders = store.tenders.map((tender) => {
+    if (Array.isArray(tender.boqLines) && tender.boqLines.length > 0) {
+      writeBoqLines(tender.id, tender.boqLines);
+      tender.boqLines = [];
+    }
+    return { ...tender, boqLines: [] as TenderBoqLine[] };
+  });
+  const lean = { tenders: leanTenders };
+  writeServerStore(STORE, lean);
+  return lean;
 }
 
 export function listTenders() {
@@ -376,7 +423,7 @@ export function listTendersLean() {
 
 export function getTender(id: string) {
   const raw = readStoreRaw().tenders.find((tender) => tender.id === id);
-  return raw ? healTenderInMemory(raw) : null;
+  return raw ? attachBoq(raw) : null;
 }
 
 function normalizeTenderDocument(input: Partial<TenderDocument> | null | undefined): TenderDocument {
@@ -440,21 +487,24 @@ function normalizeTender(input: Partial<Tender> & { name: string; client: string
 }
 
 export function upsertTender(input: Partial<Tender> & { name: string; client: string }) {
-  const store = readStore();
   const next = normalizeTender(input);
   if (!next.name) throw new Error("Opportunity name is required.");
   if (!next.client) throw new Error("Client is required.");
 
+  // BoQ lives in a side store — never bake line arrays into the meta JSON again.
+  writeBoqLines(next.id, next.boqLines);
+  const store = readStoreRaw();
+  const meta: Tender = { ...next, boqLines: [] };
   const existingIndex = store.tenders.findIndex((tender) => tender.id === next.id);
   if (existingIndex >= 0) {
     const previous = store.tenders[existingIndex]!;
-    next.createdAt = previous.createdAt;
-    store.tenders[existingIndex] = next;
+    meta.createdAt = previous.createdAt;
+    store.tenders[existingIndex] = meta;
   } else {
-    store.tenders.unshift(next);
+    store.tenders.unshift(meta);
   }
   writeStore(store);
-  return next;
+  return { ...meta, boqLines: next.boqLines };
 }
 
 export function updateTender(id: string, patch: Partial<Tender>) {
@@ -474,11 +524,12 @@ export function updateTender(id: string, patch: Partial<Tender>) {
 }
 
 export function deleteTender(id: string) {
-  const store = readStore();
+  const store = readStoreRaw();
   const before = store.tenders.length;
   store.tenders = store.tenders.filter((tender) => tender.id !== id);
   if (store.tenders.length === before) throw new Error("Tender not found.");
   writeStore(store);
+  deleteBoqLinesStore(id);
   return true;
 }
 
@@ -1818,19 +1869,27 @@ export function rebuildTenderJobCostCentres(tenderId: string) {
   if (!job) {
     throw new Error("Linked job is missing — recreate the job from this tender first.");
   }
-  // Cost centres only — never copy tender PDFs / never upsertTender (BoQ rewrite OOMs).
+  // Cost centres only — BoQ stays in the side store; meta patch is lean.
   const structure = applyTenderBoqStructureToJob(job, tender.boqLines, { replace: true });
   const nextValue = structure.totalSell || computeBoqTotal(tender.boqLines) || tender.bidValue || job.value;
-  const updatedTender = patchTenderJobLink(tender.id, {
-    status: "Won",
-    convertedJobId: structure.job.id,
-    convertedJobRef: structure.job.ref,
-    tenderSum: nextValue,
-    bidValue: nextValue,
-  });
   if (structure.job.value !== nextValue) {
     updateJob(structure.job.id, { value: nextValue });
   }
+  const linkOk =
+    tender.convertedJobId === structure.job.id &&
+    tender.convertedJobRef === structure.job.ref &&
+    tender.status === "Won" &&
+    moneyClose(tender.tenderSum, nextValue) &&
+    moneyClose(tender.bidValue, nextValue);
+  const updatedTender = linkOk
+    ? tender
+    : patchTenderJobLink(tender.id, {
+        status: "Won",
+        convertedJobId: structure.job.id,
+        convertedJobRef: structure.job.ref,
+        tenderSum: nextValue,
+        bidValue: nextValue,
+      });
   return {
     // Keep BoQ out of the JSON response — large Bills OOMed Render / crashed the job UI.
     tender: leanTenderForClient(updatedTender),
@@ -2082,19 +2141,28 @@ export function rebuildJobCostCentresFromSourceTender(jobIdOrRef: string) {
   if (!tender) {
     throw new Error("Linked tender is missing — reopen the tender or clear the job link.");
   }
-  // Cost centres only — drawings stay on Sync drawings; never upsertTender (BoQ rewrite OOMs).
+  // Cost centres only — never rewrite the BoQ side store on rebuild.
   const structure = applyTenderBoqStructureToJob(job, tender.boqLines, { replace: true });
   const nextValue = structure.totalSell || computeBoqTotal(tender.boqLines) || tender.bidValue || job.value;
-  const updatedTender = patchTenderJobLink(tender.id, {
-    status: tender.status === "Lost" ? tender.status : "Won",
-    convertedJobId: structure.job.id,
-    convertedJobRef: structure.job.ref,
-    tenderSum: nextValue,
-    bidValue: nextValue,
-  });
   if (structure.job.value !== nextValue) {
     updateJob(structure.job.id, { value: nextValue });
   }
+  // Meta patch only when the job link / sums actually need it (lean meta JSON).
+  const linkOk =
+    tender.convertedJobId === structure.job.id &&
+    tender.convertedJobRef === structure.job.ref &&
+    (tender.status === "Won" || tender.status === "Lost") &&
+    moneyClose(tender.tenderSum, nextValue) &&
+    moneyClose(tender.bidValue, nextValue);
+  const updatedTender = linkOk
+    ? tender
+    : patchTenderJobLink(tender.id, {
+        status: tender.status === "Lost" ? tender.status : "Won",
+        convertedJobId: structure.job.id,
+        convertedJobRef: structure.job.ref,
+        tenderSum: nextValue,
+        bidValue: nextValue,
+      });
   return {
     tender: leanTenderForClient(updatedTender),
     job: getJob(structure.job.id) || structure.job,
