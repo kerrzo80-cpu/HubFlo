@@ -215,6 +215,10 @@ export function writeJobCostCentresAndSections(
 export function saveHubDetailState(nextState: HubDetailState): HubDetailState {
   rehydrateDayworkFieldsFromDisk();
   const liveSheets = mergeDayworkSheets(readDayworkSheetsStore(), hubDetailState.dayworkSheets);
+  // Lean inbound centres before merge so a fat browser tab cannot re-inflate the store.
+  if (nextState.jobCostCentres && typeof nextState.jobCostCentres === "object") {
+    leanJobCostCentresMap(nextState.jobCostCentres);
+  }
   const nextJobCostCentres = mergeCentresPreserveDaywork(hubDetailState.jobCostCentres, nextState.jobCostCentres);
   leanJobCostCentresMap(nextJobCostCentres);
   const updated: HubDetailState = {

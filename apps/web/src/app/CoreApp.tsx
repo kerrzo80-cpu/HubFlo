@@ -11641,7 +11641,8 @@ export default function CoreApp() {
       jobSchedulePlans,
       customQuoteCatalog,
       catalogFolders,
-      jobCostCentres: jobEstimateCostCentres,
+      // Never autosave full BoQ dumps — lean packages only (same as localStorage).
+      jobCostCentres: leanJobCostCentresMapForUi(jobEstimateCostCentres),
       jobSections,
       jobReviews: jobReviewApprovals,
       jobDeliveryEvents,
@@ -21019,19 +21020,24 @@ export default function CoreApp() {
           Array.isArray(centre?.materials) &&
           centre.materials.length > 1,
       );
-    const needsHeal =
-      missingArrays ||
-      materialCount > JOB_UI_MAX_MATERIALS_PER_JOB ||
-      tenderHeavy ||
-      materialCount > JOB_UI_MAX_MATERIALS_PER_CENTRE;
+    const perCentreOver = Array.isArray(centres)
+      ? centres.some(
+          (centre) =>
+            Array.isArray(centre?.materials) && centre.materials.length > JOB_UI_MAX_MATERIALS_PER_CENTRE,
+        )
+      : false;
+    // Client collapse is cheap; server heal hits the hub store — only for corrupt / tender dumps / huge jobs.
+    const needsServerHeal =
+      missingArrays || tenderHeavy || materialCount > JOB_UI_MAX_MATERIALS_PER_JOB;
+    const needsClientCollapse = needsServerHeal || perCentreOver;
     // Sync lean strip before paint — never wait for the heal API with a huge materials dump in React state.
-    if (Array.isArray(centres) && centres.length && (needsHeal || tenderHeavy)) {
+    if (Array.isArray(centres) && centres.length && needsClientCollapse) {
       setJobEstimateCostCentres((current) => ({
         ...current,
         [jobId]: collapseOversizedJobCostCentresForUi(jobId, centres as EstimateCostCentre[]),
       }));
     }
-    if (!needsHeal) return;
+    if (!needsServerHeal) return;
     try {
       const response = await fetch("/api/tenders", {
         method: "POST",

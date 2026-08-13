@@ -5,6 +5,7 @@ import { ensureGasCertTrialInCore } from "@/lib/gas-cert-trial-core";
 import { reconcileDayworkVariationsFromEvidence } from "@/lib/engineer-flow";
 import { getHubDetailState, saveHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
 import { mergeHubDetailState } from "@/lib/hub-state-merge";
+import { leanJobCostCentresMap } from "@/lib/job-cost-centres-lean";
 import { parseJsonRequestBody } from "@/lib/http";
 import { stripDayworkBlobsForPoll } from "@/lib/daywork-poll-strip";
 
@@ -35,13 +36,22 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  // Collapse tender BoQ dumps in the inbound payload before merge/clone.
+  if (payload.jobCostCentres && typeof payload.jobCostCentres === "object") {
+    leanJobCostCentresMap(payload.jobCostCentres);
+  }
+
   const current = getHubDetailState();
   const merged = mergeHubDetailState(current, payload);
-  saveHubDetailState(merged);
+  const saved = saveHubDetailState(merged);
   try {
     reconcileDayworkVariationsFromEvidence();
   } catch {
     // Best-effort: rebuild Daywork variation cards if Core omitted them.
   }
-  return NextResponse.json(stripDayworkBlobsForPoll(getHubDetailState()));
+  // Autosave callers only check ok — never echo the full hub (that OOMed Render on volume jobs).
+  return NextResponse.json({
+    ok: true,
+    updatedAt: saved.updatedAt || new Date().toISOString(),
+  });
 }
