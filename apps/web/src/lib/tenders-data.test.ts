@@ -104,4 +104,100 @@ describe("tenders-data BoQ parse", () => {
     assert.deepEqual(tabs[0]?.measuredIds.length, 1);
     assert.deepEqual(tabs[1]?.measuredIds.length, 1);
   });
+
+  it("uses Line Total (not Item Total) and skips section TOTAL rows so Bid value is not double-counted", () => {
+    // Mirrors priced flat BoQs: materials Item Total + labour Line Total, with
+    // Section=TOTAL summary rows that would inflate Bid value if imported.
+    const parsed = parseBoqFromRows([
+      [
+        "Section",
+        "Ref",
+        "Description",
+        "Qty",
+        "Unit",
+        "Rate",
+        "Item Total",
+        "Labour Hours",
+        "Labour Rate",
+        "Labour Total",
+        "Line Total",
+      ],
+      ["Heating", "A1", "Boiler package", "1", "nr", "1000", "1000", "2", "70", "140", "1140"],
+      ["Heating", "A2", "Controls", "2", "nr", "50", "100", "1", "70", "70", "170"],
+      ["TOTAL", "", "Materials and clip costs", "", "", "", "1100", "", "", "", "1100"],
+      ["TOTAL", "", "Labour", "", "", "", "", "3", "70", "210", "210"],
+      ["TOTAL", "", "FLAT TOTAL", "", "", "", "", "3", "70", "210", "1310"],
+      ["", "", "PAGE TOTAL", "", "", "", "", "", "", "", "1310"],
+      ["", "", "SUBTOTAL", "", "", "", "9999", "", "", "", "9999"],
+    ]);
+
+    const measured = parsed.lines.filter((line) => line.kind === "measured");
+    assert.equal(measured.length, 2);
+    assert.equal(measured[0]?.value, 1140);
+    assert.equal(measured[0]?.rate, 1000);
+    assert.equal(measured[1]?.value, 170);
+    // Naive sum of Item Total + TOTAL rows would be 1000+100+1100+9999 = 12199 (or worse).
+    // Correct Bid value is Line Total of measured lines only.
+    assert.equal(computeBoqTotal(parsed.lines), 1310);
+  });
+
+  it("prefers Amount column over qty×rate and does not double-count both", () => {
+    const parsed = parseBoqFromRows([
+      ["Ref", "Description", "Quantity", "Units", "Rate", "Amount"],
+      // Amount disagrees with qty×rate on purpose — Bid value must use Amount once.
+      ["1", "Priced item", "10", "nr", "5", "40"],
+      ["2", "Another", "2", "nr", "100", "250"],
+    ]);
+
+    assert.equal(parsed.lines[0]?.value, 40);
+    assert.equal(parsed.lines[1]?.value, 250);
+    assert.equal(computeBoqTotal(parsed.lines), 290);
+    assert.notEqual(computeBoqTotal(parsed.lines), 10 * 5 + 40 + 2 * 100 + 250);
+  });
+
+  it("when Line Total bill sheets exist, skips Client/Heating restatement tabs", () => {
+    const parsed = parseBoqFromWorkbookSheets([
+      {
+        name: "Flat - Ground",
+        rows: [
+          [
+            "Section",
+            "Ref",
+            "Description",
+            "Qty",
+            "Unit",
+            "Rate",
+            "Item Total",
+            "Labour Hours",
+            "Labour Rate",
+            "Labour Total",
+            "Line Total",
+          ],
+          ["Works", "1", "Boiler", "1", "nr", "1000", "1000", "2", "70", "140", "1140"],
+          ["TOTAL", "", "FLAT TOTAL", "", "", "", "", "", "", "", "1140"],
+        ],
+      },
+      {
+        name: "Client - Ground",
+        rows: [
+          ["Work Package", "Summary of Works", "", "", "", "", "Amount"],
+          ["Heating", "Supply and install heating", "", "", "", "", "1140"],
+          ["TOTAL PRICE FOR THIS FLAT", "", "", "", "", "", "1140"],
+        ],
+      },
+      {
+        name: "Ground Floor Heating",
+        rows: [
+          ["Ref", "Description", "Quantity", "Units", "Rate", "Value"],
+          ["B1", "Boiler materials only", "1", "nr", "1000", "1000"],
+          ["", "PAGE TOTAL", "", "", "", "1000"],
+        ],
+      },
+    ]);
+
+    const measured = parsed.lines.filter((line) => line.kind === "measured");
+    assert.equal(measured.length, 1);
+    assert.equal(measured[0]?.sheet, "Flat - Ground");
+    assert.equal(computeBoqTotal(parsed.lines), 1140);
+  });
 });

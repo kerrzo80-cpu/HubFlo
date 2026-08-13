@@ -484,6 +484,96 @@ function defaultBoqColumnMap(width: number): BoqColumnMap {
   };
 }
 
+/** Prefer material/unit rate columns; avoid Labour Rate when both exist. */
+function pickBoqRateColumn(labels: string[]): number {
+  const candidates: number[] = [];
+  labels.forEach((label, index) => {
+    if (headerMatches(label, ["unit rate", "rate", "price"])) candidates.push(index);
+  });
+  const nonLabour = candidates.find((index) => !/\blabou?r\b/.test(labels[index] || ""));
+  return nonLabour ?? candidates[0] ?? -1;
+}
+
+/**
+ * Prefer the extended line amount (Line Total / Amount / Value) over Item Total /
+ * Labour Total — otherwise Bid value under-counts labour or double-counts summaries.
+ */
+function pickBoqValueColumn(labels: string[]): number {
+  const candidates: number[] = [];
+  labels.forEach((label, index) => {
+    if (headerMatches(label, ["amount", "value", "extended", "total", "sum"])) candidates.push(index);
+  });
+  if (!candidates.length) return -1;
+
+  const rank = (label: string) => {
+    if (/^line total$/.test(label) || /^amount$/.test(label) || /^value$/.test(label)) return 0;
+    if (/^net (value|amount)$/.test(label) || /^extended/.test(label)) return 1;
+    if (/\bline total\b/.test(label) || /\bnet value\b/.test(label)) return 2;
+    if (/^item total$/.test(label) || /\bitem total\b/.test(label)) return 80;
+    if (/\blabou?r\b/.test(label)) return 90;
+    if (/^total$/.test(label) || /^sum$/.test(label) || /^£/.test(label)) return 10;
+    if (/\btotal\b/.test(label) || /\bsum\b/.test(label)) return 40;
+    return 50;
+  };
+
+  return [...candidates].sort((a, b) => {
+    const diff = rank(labels[a] || "") - rank(labels[b] || "");
+    return diff !== 0 ? diff : a - b;
+  })[0]!;
+}
+
+/**
+ * Skip collection / summary / carried-forward rows so Bid value does not re-add
+ * section totals on top of measured lines.
+ */
+function isBoqSummaryOrTotalRow(ref: string, description: string, leadingCell = "") {
+  const firstLine = (description.split("\n")[0] || "").trim();
+  // Ref / Section often hold "TOTAL" while description is "Materials and clip costs".
+  const markers = [ref, leadingCell]
+    .map((text) => String(text || "").trim())
+    .filter(Boolean);
+  for (const text of markers) {
+    if (
+      /^(sub[- ]?totals?|grand[- ]?totals?|page[- ]?totals?|project[- ]?totals?|flat[- ]?totals?|totals?)\b/i.test(
+        text,
+      )
+    ) {
+      return true;
+    }
+    if (
+      /^(to collection|amount to collection|carried (forward|to)|collection from)\b/i.test(text)
+    ) {
+      return true;
+    }
+    if (/\btotal price for this flat\b/i.test(text)) return true;
+  }
+
+  if (!firstLine) return false;
+  if (
+    /^(sub[- ]?totals?|grand[- ]?totals?|page[- ]?totals?|project[- ]?totals?|flat[- ]?totals?|totals?)$/i.test(
+      firstLine,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /^(to collection|amount to collection|carried (forward|to)|collection from|page totals?|cost summary)\b/i.test(
+      firstLine,
+    )
+  ) {
+    return true;
+  }
+  // Keep product names like "Total isolation valve"; skip clear summary phrases.
+  if (
+    /\b(total (labour|materials?|price|goods|net|vat|cost|shared|pc)|material subtotals?|consolidated material total|total price for this flat)\b/i.test(
+      firstLine,
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function mapBoqColumnsFromHeader(header: string[]): BoqColumnMap | null {
   const labels = header.map(normalizeHeaderLabel);
   const ref = labels.findIndex((label) =>
@@ -519,10 +609,8 @@ function mapBoqColumnsFromHeader(header: string[]): BoqColumnMap | null {
 
   const quantity = labels.findIndex((label) => headerMatches(label, ["quantity", "qty"]));
   const unit = labels.findIndex((label) => headerMatches(label, ["units", "unit", "uom"]));
-  const rate = labels.findIndex((label) => headerMatches(label, ["unit rate", "rate", "price"]));
-  const value = labels.findIndex((label) =>
-    headerMatches(label, ["amount", "value", "extended", "total", "sum"]),
-  );
+  const rate = pickBoqRateColumn(labels);
+  const value = pickBoqValueColumn(labels);
   const note = labels.findIndex((label) =>
     headerMatches(label, ["remarks", "remark", "notes", "note", "comments", "comment"]),
   );
@@ -715,9 +803,11 @@ export function parseBoqFromRows(
     const rate = parseNumber(cellAt(cols, map.rate));
     const value = parseNumber(cellAt(cols, map.value));
     const note = cellAt(cols, map.note);
+    // Section / leading cell often holds "TOTAL" while Ref is blank (priced flat BoQs).
+    const leadingCell = cellAt(cols, 0);
 
     if (!description && !ref) continue;
-    if (/^total$/i.test(ref) || /^total$/i.test(description.split("\n")[0] || "")) continue;
+    if (isBoqSummaryOrTotalRow(ref, description, leadingCell)) continue;
 
     if (!ref && quantity === null && rate === null && value === null) {
       const headerText = (description || ref).trim();
@@ -797,14 +887,41 @@ export function parseBoqDelimitedText(raw: string, title?: string): { title: str
   return parseBoqFromRows(splitDelimitedBoqText(raw), title);
 }
 
+/** True when a sheet looks like a fully priced bill (Line Total / similar), not a takeoff build-up. */
+function sheetHasLineTotalHeader(rows: string[][]) {
+  const limit = Math.min(rows.length, 40);
+  for (let i = 0; i < limit; i += 1) {
+    const labels = (rows[i] || []).map((cell) => normalizeHeaderLabel(String(cell ?? "")));
+    if (labels.some((label) => label === "line total" || /\bline total\b/.test(label))) return true;
+  }
+  return false;
+}
+
+/**
+ * When a workbook mixes complete flat bills (Line Total) with Client / Heating / Takeoff
+ * restatements of the same money, keep the Line Total bill sheets only.
+ */
+function preferPrimaryBoqSheets(sheets: WorkbookSheetRows[]): WorkbookSheetRows[] {
+  const usable = (sheets || []).filter((sheet) =>
+    sheet.rows?.some((row) => row.some((cell) => String(cell || "").trim())),
+  );
+  if (usable.length <= 1) return usable;
+
+  const lineTotalSheets = usable.filter((sheet) => sheetHasLineTotalHeader(sheet.rows));
+  if (!lineTotalSheets.length) return usable;
+
+  const primary = lineTotalSheets.filter(
+    (sheet) => !/^(project summary|client\b)/i.test(String(sheet.name || "").trim()),
+  );
+  return primary.length ? primary : lineTotalSheets;
+}
+
 /** Parse each Excel worksheet as its own sheet tab (stamps `sheet` on every line). */
 export function parseBoqFromWorkbookSheets(
   sheets: WorkbookSheetRows[],
   title?: string,
 ): { title: string; lines: TenderBoqLine[] } {
-  const usable = (sheets || []).filter((sheet) =>
-    sheet.rows?.some((row) => row.some((cell) => String(cell || "").trim())),
-  );
+  const usable = preferPrimaryBoqSheets(sheets);
   if (!usable.length) return { title: title || "", lines: [] };
 
   let resolvedTitle = title || "";
