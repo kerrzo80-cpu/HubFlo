@@ -228,12 +228,11 @@ export function writeJobCostCentresAndSections(
   jobId: string,
   centres: unknown[],
   sections: unknown[],
-  options?: { preserveDaywork?: boolean; skipRehydrate?: boolean },
+  options?: { preserveDaywork?: boolean; skipRehydrate?: boolean; sideStoreOnly?: boolean },
 ): void {
-  if (!options?.skipRehydrate) {
+  if (!options?.skipRehydrate && !options?.sideStoreOnly) {
     rehydrateDayworkFieldsFromDisk();
   }
-  leanJobCostCentresMap(hubDetailState.jobCostCentres);
   const centresMap = asCentres(hubDetailState.jobCostCentres);
   const sectionsMap = asCentres(hubDetailState.jobSections);
   const existing = Array.isArray(centresMap[jobId]) ? centresMap[jobId] : [];
@@ -264,6 +263,11 @@ export function writeJobCostCentresAndSections(
   hubDetailState.jobCostCentres = centresMap;
   hubDetailState.jobSections = sectionsMap;
   hubDetailState.updatedAt = new Date().toISOString();
+  // Rebuild/heal: never stringify the whole hub — side store + in-memory is enough.
+  // getHubDetailState overlays side stores on read.
+  if (options?.sideStoreOnly) {
+    return;
+  }
   // Collapse EVERY job's centres before stringify — leftover fat dumps on other jobs
   // were still large enough to kill Render when rebuild rewrote the hub.
   prepareHubCostCentresForPersist(hubDetailState);

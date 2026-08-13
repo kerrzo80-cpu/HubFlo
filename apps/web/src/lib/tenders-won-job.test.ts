@@ -65,15 +65,9 @@ test("Won tender creates Pending Core job and can reopen without deleting it", a
   assert.match(converted.job?.site || "", /Aberdeen/);
   assert.equal(converted.tender.status, "Won");
   assert.equal(converted.tender.convertedJobId, converted.job?.id);
-  assert.ok(converted.jobCostCentres.length >= 1);
-  assert.equal(
-    converted.jobCostCentres.reduce(
-      (sum, centre) =>
-        sum + centre.materials.reduce((inner, line) => inner + line.quantity * line.unitCost, 0),
-      0,
-    ),
-    300,
-  );
+  // Quote-like convert: job + link only — centres come from Rebuild, not Mark Won.
+  assert.equal(converted.jobCostCentres.length, 0);
+  assert.equal(converted.documentsCopied, 0);
 
   const viaStatus = updateTender(seedTender("tender-won-2").id, { status: "Won" });
   assert.equal(viaStatus.status, "Won");
@@ -378,7 +372,7 @@ test("rebuild stays job-only even when tenders meta store is wiped", async (t) =
   assert.ok((sideCc.centres || []).length >= 1, "rebuild must write per-job side store");
 });
 
-test("Won convert copies tender drawings onto the job documents hub", async (t) => {
+test("Won convert is quote-like; Sync drawings copies tender PDFs afterwards", async (t) => {
   const storeDir = mkdtempSync(path.join(tmpdir(), "hubflo-tender-docs-"));
   process.env.NEXA_STORE_DIR = storeDir;
   process.env.NEXA_STORE_PATH = "";
@@ -446,7 +440,11 @@ test("Won convert copies tender drawings onto the job documents hub", async (t) 
 
   const converted = convertTenderToPendingJob(tender.id);
   assert.ok(converted.job);
-  assert.equal(converted.documentsCopied, 1);
+  assert.equal(converted.documentsCopied, 0, "Mark Won must not copy PDFs (OOM path)");
+  assert.equal(listRecordDocuments("job", converted.job!.ref).length, 0);
+
+  const synced = syncTenderDocumentsToLinkedJob(tender.id);
+  assert.equal(synced.copied, 1);
   const jobDocs = listRecordDocuments("job", converted.job!.ref);
   assert.equal(jobDocs.length, 1);
   assert.match(jobDocs[0]!.name, /Heating/);
@@ -455,4 +453,55 @@ test("Won convert copies tender drawings onto the job documents hub", async (t) 
   const syncedAgain = syncTenderDocumentsToLinkedJob(tender.id);
   assert.equal(syncedAgain.copied, 0);
   assert.equal(syncedAgain.skippedDuplicate, 1);
+});
+
+test("Mark Won never loads BoQ line arrays even when side store is huge", async (t) => {
+  const storeDir = mkdtempSync(path.join(tmpdir(), "hubflo-tender-won-light-"));
+  process.env.NEXA_STORE_DIR = storeDir;
+  process.env.NEXA_STORE_PATH = "";
+  process.env.NEXA_WORKSPACE_MODE = "live";
+  t.after(() => rmSync(storeDir, { recursive: true, force: true }));
+
+  const { writeServerStore } = await import("./server-store");
+  writeServerStore("nexa-tenders-v1", { tenders: [] });
+  writeServerStore("workflow-store", { jobs: [], quotes: [], purchaseRequests: [] });
+  writeServerStore("hub-detail-store", { invoices: [], jobCostCentres: {}, jobSections: {} });
+  writeServerStore("people-store", {
+    clients: [],
+    clientSites: [],
+    employees: [],
+    contacts: [],
+    contractors: [],
+    auditEvents: [],
+  });
+
+  const { upsertTender, convertTenderToPendingJob } = await import("./tenders-data");
+
+  const boqLines = Array.from({ length: 3000 }, (_, index) => ({
+    id: `line-${index}`,
+    kind: "measured" as const,
+    description: `Heavy BoQ line ${index}`,
+    quantity: 1,
+    rate: 10,
+    value: 10,
+  }));
+  const tender = upsertTender({
+    id: "tender-light-won",
+    name: "Heavy",
+    client: "Matt",
+    category: "Heating",
+    area: "Aberdeen",
+    status: "In Progress",
+    owner: "Office",
+    tenderSum: 30000,
+    bidValue: 30000,
+    boqLines,
+  });
+
+  const converted = convertTenderToPendingJob(tender.id);
+  assert.ok(converted.job);
+  assert.equal(converted.job?.status, "Pending");
+  assert.equal(converted.job?.value, 30000);
+  assert.equal(converted.jobCostCentres.length, 0);
+  assert.equal(converted.tender.boqLines.length, 0);
 });

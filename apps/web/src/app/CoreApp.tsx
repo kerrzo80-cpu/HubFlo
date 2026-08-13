@@ -21130,7 +21130,7 @@ export default function CoreApp() {
     }
     if (
       !window.confirm(
-        `Rebuild cost centres for ${selectedJob.ref} from the linked tender BoQ?\n\nFloor sections and service centres will replace the current structure. Daywork centres are kept.\n\nDrawings are not copied here — use Sync drawings from tender if you need them.`,
+        `Build lean cost centres for ${selectedJob.ref} from the tender summary?\n\nUses the saved floor/service packages (or the job value) — does not reload the Bill. Daywork centres are kept.\n\nDrawings: use Sync drawings from tender.`,
       )
     ) {
       return;
