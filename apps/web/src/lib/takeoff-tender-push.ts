@@ -48,7 +48,6 @@ export function pushTakeoffProjectToTender(
   });
   if (!takeoffLines.length) return null;
 
-  const previousSell = previousTakeoffBoqSell(tender.boqLines);
   const takeoffSell = previousTakeoffBoqSell(takeoffLines);
   const boqLines = mergeTakeoffBoqLines(tender.boqLines, takeoffLines);
   const boqTotal = computeBoqTotal(boqLines);
@@ -66,10 +65,7 @@ export function pushTakeoffProjectToTender(
     boqLines,
     materialsNote: nextMaterialsNote,
     status: tender.status === "Not Started" ? "In Progress" : tender.status,
-    tenderSum:
-      tender.tenderSum && tender.tenderSum > 0 && Math.abs(tender.tenderSum - previousSell) > 0.01
-        ? Math.max(0, Math.round((tender.tenderSum - previousSell + takeoffSell) * 100) / 100)
-        : boqTotal,
+    tenderSum: boqTotal,
     bidValue: boqTotal,
   });
 

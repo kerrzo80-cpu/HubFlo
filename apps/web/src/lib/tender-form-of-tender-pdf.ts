@@ -45,7 +45,8 @@ export async function createFormOfTenderPdf(input: {
   const signatoryName = input.signatoryName?.trim() || "Brian Kerr";
   const signatoryTitle = input.signatoryTitle?.trim() || "Commercial Manager";
   const boqTotal = computeBoqTotal(tender.boqLines);
-  const tenderSum = Number.isFinite(tender.tenderSum) ? Number(tender.tenderSum) : boqTotal;
+  // FoT figure always matches priced BoQ total (same as Bid value).
+  const tenderSum = boqTotal;
   const submittedDate =
     input.submittedDate ||
     (tender.submittedAt ? tender.submittedAt.slice(0, 10) : new Date().toISOString().slice(0, 10));

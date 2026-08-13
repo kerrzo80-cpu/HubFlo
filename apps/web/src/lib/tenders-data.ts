@@ -142,7 +142,7 @@ function seedTenders(): Tender[] {
       status: "Sent",
       owner: "Brian Kerr",
       bidValue: 64385,
-      tenderSum: 61810,
+      tenderSum: 64385,
       winProbability: 40,
       materialsNote: "Supplier quotes received",
       qualifications: [
@@ -271,6 +271,10 @@ function seedTenders(): Tender[] {
   ];
 }
 
+function moneyClose(a: number | undefined, b: number) {
+  return Math.abs((Number.isFinite(a) ? Number(a) : 0) - b) < 0.005;
+}
+
 function readStore(): TenderStore {
   const stored = loadServerStore<Partial<TenderStore>>(STORE, { tenders: [] });
   const tenders = Array.isArray(stored.tenders) ? stored.tenders : [];
@@ -279,14 +283,17 @@ function readStore(): TenderStore {
     writeServerStore(STORE, seeded);
     return seeded;
   }
-  // One-shot heal: duplicate BoQ ids / untrimmed sheet labels reshuffle tabs after reload.
+  // Heal BoQ line ids/sheets and keep Bid value / Tender sum (FoT) locked to priced BoQ total.
   let healed = false;
   const nextTenders = tenders.map((raw) => {
     const tender = raw as Tender;
     const boqLines = normalizeBoqLines(tender.boqLines);
-    if (boqLines === tender.boqLines) return tender;
+    const boqTotal = computeBoqTotal(boqLines);
+    const linesChanged = boqLines !== tender.boqLines;
+    const sumsOutOfSync = !moneyClose(tender.bidValue, boqTotal) || !moneyClose(tender.tenderSum, boqTotal);
+    if (!linesChanged && !sumsOutOfSync) return tender;
     healed = true;
-    return { ...tender, boqLines };
+    return { ...tender, boqLines, bidValue: boqTotal, tenderSum: boqTotal };
   });
   if (healed) {
     const store = { tenders: nextTenders };
@@ -349,8 +356,9 @@ function normalizeTender(input: Partial<Tender> & { name: string; client: string
     submissionDeadline: input.submissionDeadline || undefined,
     status: (TENDER_STATUSES.includes(input.status as TenderStatus) ? input.status : "Not Started") as TenderStatus,
     owner: input.owner?.trim() || "",
-    bidValue: Number.isFinite(input.bidValue) ? Number(input.bidValue) : boqTotal,
-    tenderSum: Number.isFinite(input.tenderSum) ? Number(input.tenderSum) : boqTotal,
+    // Bid value and Tender sum (FoT) always follow the priced BoQ — no manual FoT override.
+    bidValue: boqTotal,
+    tenderSum: boqTotal,
     winProbability: Number.isFinite(input.winProbability) ? Number(input.winProbability) : undefined,
     materialsNote: input.materialsNote || "",
     qualifications: Array.isArray(input.qualifications) && input.qualifications.length
@@ -415,8 +423,9 @@ export function markTenderSubmitted(id: string, options?: { tenderSum?: number; 
   return updateTender(id, {
     status: "Sent",
     submittedAt: options?.submittedAt || nowIso(),
-    tenderSum: options?.tenderSum ?? existing.tenderSum ?? boqTotal,
-    bidValue: existing.bidValue || boqTotal,
+    // FoT / bid always track BoQ; ignore any stale client-supplied tenderSum.
+    tenderSum: boqTotal,
+    bidValue: boqTotal,
   });
 }
 
@@ -951,8 +960,8 @@ function applyBoqImport(
         ? existing.boqTitle || parsed.title || existing.boqTitle
         : parsed.title || existing.boqTitle,
     boqLines,
-    bidValue: boqTotal || existing.bidValue,
-    tenderSum: existing.tenderSum && existing.tenderSum > 0 ? existing.tenderSum : boqTotal,
+    bidValue: boqTotal,
+    tenderSum: boqTotal,
     status: existing.status === "Not Started" ? "In Progress" : existing.status,
   });
   const addedSheets = [
@@ -1032,7 +1041,7 @@ export function clearBoqFromTender(id: string) {
     boqTitle: "",
     boqLines: [],
     bidValue: 0,
-    tenderSum: existing.status === "Sent" || existing.status === "Won" ? existing.tenderSum : 0,
+    tenderSum: 0,
   });
 }
 
@@ -1063,6 +1072,7 @@ function persistBoqLines(tenderId: string, boqLines: TenderBoqLine[]) {
   return updateTender(tenderId, {
     boqLines: normalized,
     bidValue: boqTotal,
+    tenderSum: boqTotal,
   });
 }
 
@@ -1346,6 +1356,7 @@ export function updateBoqLine(tenderId: string, lineId: string, patch: Partial<T
   return updateTender(tenderId, {
     boqLines,
     bidValue: boqTotal,
+    tenderSum: boqTotal,
   });
 }
 
@@ -1386,7 +1397,7 @@ export async function applyBlakeBudgetPricesToTender(
   const tender = updateTender(tenderId, {
     boqLines: priced.lines,
     bidValue: boqTotal,
-    tenderSum: existing.tenderSum && existing.tenderSum > 0 ? existing.tenderSum : boqTotal,
+    tenderSum: boqTotal,
   });
 
   return { tender, priced };
@@ -1559,7 +1570,7 @@ export function convertTenderToPendingJob(tenderId: string) {
   if (tender.convertedJobId) {
     return { tender, job: null as ReturnType<typeof createJob> | null, alreadyConverted: true as const };
   }
-  const value = Number.isFinite(tender.tenderSum) ? Number(tender.tenderSum) : computeBoqTotal(tender.boqLines) || tender.bidValue || 0;
+  const value = computeBoqTotal(tender.boqLines) || tender.bidValue || 0;
   const job = createJob({
     clientId: tender.clientId,
     customer: tender.client,
@@ -1578,7 +1589,7 @@ export function convertTenderToPendingJob(tenderId: string) {
     convertedJobId: job.id,
     convertedJobRef: job.ref,
     tenderSum: value,
-    bidValue: value || tender.bidValue,
+    bidValue: value,
   });
   return { tender: updated, job, alreadyConverted: false as const };
 }

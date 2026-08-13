@@ -4,7 +4,6 @@ import { getAccessProfileFromHeaders } from "@/lib/access";
 import {
   kitLinesToTenderBoqLines,
   mergeHeatDesignBoqLines,
-  previousHeatDesignBoqSell,
   type KitLine,
 } from "@/lib/heat-design";
 import { parseJsonRequestBody } from "@/lib/http";
@@ -86,7 +85,6 @@ export async function POST(request: Request) {
       tenderSum: heatSell,
     });
   } else {
-    const previousSell = previousHeatDesignBoqSell(tender.boqLines);
     const boqLines = mergeHeatDesignBoqLines(tender.boqLines, heatLines);
     const boqTotal = computeBoqTotal(boqLines);
     const nextMaterialsNote = tender.materialsNote?.includes("Heat design")
@@ -97,11 +95,7 @@ export async function POST(request: Request) {
       boqTitle: tender.boqTitle || "Heating design",
       materialsNote: nextMaterialsNote,
       status: tender.status === "Not Started" ? "In Progress" : tender.status,
-      // Keep office tender sum if they set one; otherwise track BoQ total after heat swap.
-      tenderSum:
-        tender.tenderSum && tender.tenderSum > 0 && Math.abs(tender.tenderSum - previousSell) > 0.01
-          ? Math.max(0, Math.round((tender.tenderSum - previousSell + heatSell) * 100) / 100)
-          : boqTotal,
+      tenderSum: boqTotal,
       bidValue: boqTotal,
     });
   }

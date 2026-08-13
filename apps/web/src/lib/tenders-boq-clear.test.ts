@@ -54,6 +54,7 @@ describe("tender BoQ clear and document remove", () => {
     assert.equal(cleared.boqLines.length, 0);
     assert.equal(cleared.boqTitle, "");
     assert.equal(cleared.bidValue, 0);
+    assert.equal(cleared.tenderSum, 0);
     assert.equal(cleared.documents.length, 1, "clearing BoQ must not wipe document uploads");
 
     const withoutDoc = removeTenderDocument(tender.id, "tdoc-boq-1");

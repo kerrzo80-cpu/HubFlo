@@ -1040,7 +1040,7 @@ export function TendersPanel({
       await postAction({
         action: "submit",
         id: selected.id,
-        tenderSum: selected.tenderSum ?? computeBoqTotal(selected.boqLines),
+        tenderSum: computeBoqTotal(selected.boqLines),
       });
       await downloadFormOfTender();
       onNotice("Tender marked Sent — attach the FoT PDF + priced BoQ for return.");
@@ -1315,20 +1315,8 @@ export function TendersPanel({
               <input value={money(boqTotal)} readOnly />
             </label>
             <label>
-              Tender sum (FoT)
-              <input
-                type="number"
-                step="0.01"
-                value={selected.tenderSum ?? ""}
-                onChange={(event) =>
-                  setTenders((current) =>
-                    current.map((row) =>
-                      row.id === selected.id ? { ...row, tenderSum: Number(event.target.value) || 0 } : row,
-                    ),
-                  )
-                }
-                onBlur={(event) => void saveSelected({ tenderSum: Number(event.target.value) || 0 })}
-              />
+              Tender sum (FoT) = BoQ total
+              <input value={money(boqTotal)} readOnly title="Always matches the priced Bill of Quantities total" />
             </label>
             <label>
               Win probability %
@@ -1548,8 +1536,8 @@ export function TendersPanel({
                   <strong>{money(boqTotal)}</strong>
                 </article>
                 <article>
-                  <span>FoT sum</span>
-                  <strong>{money(selected.tenderSum ?? boqTotal)}</strong>
+                  <span>FoT sum (= BoQ)</span>
+                  <strong>{money(boqTotal)}</strong>
                 </article>
                 <article>
                   <span>Progress</span>
@@ -2203,8 +2191,8 @@ export function TendersPanel({
                   <strong>{selected.submittedAt ? selected.submittedAt.slice(0, 10) : "Not yet"}</strong>
                 </article>
                 <article>
-                  <span>FoT sum</span>
-                  <strong>{money(selected.tenderSum ?? boqTotal)}</strong>
+                  <span>FoT sum (= BoQ)</span>
+                  <strong>{money(boqTotal)}</strong>
                 </article>
               </div>
               <div className="tenders-toolbar-actions" style={{ marginTop: 16 }}>
