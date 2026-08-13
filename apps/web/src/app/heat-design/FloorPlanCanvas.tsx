@@ -71,6 +71,8 @@ type FloorPlanCanvasProps = {
   onRegenerateLayout?: () => void;
   /** Place boiler / cylinder / manifold / outdoor unit by clicking the plan */
   onPlacePlant?: (kind: HeatingPlantKind, x: number, y: number) => void;
+  /** Create a heating layout when none exists yet (shows Heating layout / Draw pipe). */
+  onDesignHeating?: () => void;
   layoutSystemLabel?: string;
   emitterMode?: HeatingEmitterMode;
   onEmitterModeChange?: (mode: HeatingEmitterMode) => void;
@@ -196,6 +198,7 @@ export function FloorPlanCanvas({
   onPatchLayout,
   onRegenerateLayout,
   onPlacePlant,
+  onDesignHeating,
   layoutSystemLabel,
   emitterMode = "mixed",
   onEmitterModeChange,
@@ -1081,12 +1084,22 @@ export function FloorPlanCanvas({
               Add room
             </button>
           ) : null}
+          {!heatingLayout && onDesignHeating ? (
+            <button
+              type="button"
+              className="hd-btn hd-btn-primary"
+              onClick={onDesignHeating}
+              title="Create plant + pipe layout on this plan (needed before Draw pipe)"
+            >
+              Design heating
+            </button>
+          ) : null}
           {heatingLayout && onLayoutModeChange ? (
             <button
               type="button"
               className={`hd-btn hd-btn-ghost${layoutMode ? " is-on" : ""}`}
               onClick={() => onLayoutModeChange(!layoutMode)}
-              title="Show and move plant + pipework"
+              title="Show Draw pipe, plant place, and drag plant/pipes"
             >
               Heating layout
             </button>

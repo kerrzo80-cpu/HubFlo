@@ -714,11 +714,11 @@ export default function HeatDesignLabPage() {
       heatingLayout: layout,
     });
     setFittingsSummary(summariseHeatingFittings(layout));
-    // Keep plan-edit mode so walls/rooms stay draggable; user can turn Heating layout on to move plant/pipes.
-    setLayoutMode(false);
+    // Open Heating layout so Draw pipe / plant tools are visible immediately on Plan.
+    setLayoutMode(true);
     setTab("plan");
     setNotice(
-      `Designed ${option?.label ?? "system"} at ${nextFlow}°C flow with ${emitterMode === "ufh" ? "underfloor heating" : emitterMode === "mixed" ? "mixed radiators / UFH" : "radiators"}${project.heatingLayout?.plants?.length ? " — kept your plant positions" : ""}. Turn on Heating layout to nudge plant/pipes. Ask Blake for kit + sizing, then Send to Takeoff.`,
+      `Designed ${option?.label ?? "system"} at ${nextFlow}°C flow with ${emitterMode === "ufh" ? "underfloor heating" : emitterMode === "mixed" ? "mixed radiators / UFH" : "radiators"}${project.heatingLayout?.plants?.length ? " — kept your plant positions" : ""}. Use Draw pipe or drag plant. Ask Blake for kit + sizing, then Send to Takeoff.`,
     );
   }
 
@@ -1669,6 +1669,9 @@ export default function HeatDesignLabPage() {
                   layoutMode={layoutMode}
                   onLayoutModeChange={setLayoutMode}
                   onPatchLayout={patchLayout}
+                  onDesignHeating={() =>
+                    designSystemOnPlan(project.chosenSystemId || project.reportOptionIds?.[0] || "opt-ashp")
+                  }
                   onRegenerateLayout={
                     project.heatingLayout || project.chosenSystemId
                       ? () => {
