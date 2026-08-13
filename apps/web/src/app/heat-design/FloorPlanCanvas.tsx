@@ -13,12 +13,14 @@ import {
   insertVertexOnEdge,
   isPlanScaleCalibrated,
   lShapePolygon,
+  appendManualPipeRun,
   moveEmitter,
   movePipePoint,
   movePlant,
   numberFromInput,
   openingOnEdge,
   pickRadiatorForRoom,
+  pipeLengthM,
   pipeStroke,
   placeSurveyedRadiatorOnWall,
   plantFill,
@@ -36,6 +38,8 @@ import {
   type FloorLevel,
   type HeatDesignRoom,
   type HeatingEmitterMode,
+  type HeatingPipeDiameterMm,
+  type HeatingPipeKind,
   type HeatingPlantKind,
   type HeatingSystemLayout,
   type PlanOpening,
@@ -91,6 +95,7 @@ const SNAP_M = 0.15;
 
 type PlaceTool = "window" | "door" | "rooflight" | "radiator" | null;
 type PlantPlaceTool = HeatingPlantKind | null;
+type PipeDrawKind = Extract<HeatingPipeKind, "flow" | "return" | "primary" | "dhw" | "gas">;
 
 const PLANT_PLACE_OPTIONS: Array<{ kind: HeatingPlantKind; label: string }> = [
   { kind: "boiler", label: "Boiler" },
@@ -98,6 +103,16 @@ const PLANT_PLACE_OPTIONS: Array<{ kind: HeatingPlantKind; label: string }> = [
   { kind: "manifold", label: "Manifold" },
   { kind: "outdoor_unit", label: "Outdoor unit" },
 ];
+
+const PIPE_DRAW_KINDS: Array<{ kind: PipeDrawKind; label: string }> = [
+  { kind: "flow", label: "Flow" },
+  { kind: "return", label: "Return" },
+  { kind: "primary", label: "Primary" },
+  { kind: "dhw", label: "DHW" },
+  { kind: "gas", label: "Gas" },
+];
+
+const PIPE_DRAW_DIAMETERS: HeatingPipeDiameterMm[] = [15, 22, 28, 16];
 
 type DragState =
   | { mode: "move"; roomId: string; origin: PlanPoint[]; grab: PlanPoint }
@@ -203,6 +218,12 @@ export function FloorPlanCanvas({
   const [placeTool, setPlaceTool] = useState<PlaceTool>(null);
   const [placeRoomType, setPlaceRoomType] = useState<string | null>(null);
   const [plantPlaceTool, setPlantPlaceTool] = useState<PlantPlaceTool>(null);
+  const [pipeDrawActive, setPipeDrawActive] = useState(false);
+  const [pipeDrawKind, setPipeDrawKind] = useState<PipeDrawKind>("flow");
+  const [pipeDrawExisting, setPipeDrawExisting] = useState(false);
+  const [pipeDrawDiameterMm, setPipeDrawDiameterMm] = useState<HeatingPipeDiameterMm>(22);
+  const [pipeDrawDraft, setPipeDrawDraft] = useState<PlanPoint[]>([]);
+  const [pipeDrawDisableSnap, setPipeDrawDisableSnap] = useState(false);
   const [scaleMode, setScaleMode] = useState(false);
   const [scaleDraft, setScaleDraft] = useState<PlanPoint[]>([]);
   const [scaleMetres, setScaleMetres] = useState("5");
@@ -357,18 +378,65 @@ export function FloorPlanCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [heatingLayout?.updatedAt]);
 
+  function finishPipeDraw() {
+    if (!heatingLayout || !onPatchLayout || pipeDrawDraft.length < 2) {
+      setPipeDrawDraft([]);
+      return;
+    }
+    const next = appendManualPipeRun(heatingLayout, {
+      kind: pipeDrawKind,
+      points: pipeDrawDraft,
+      floorLevel: activeFloor,
+      existing: pipeDrawExisting,
+      diameterMm: pipeDrawDiameterMm,
+    });
+    onPatchLayout(next);
+    setPipeDrawDraft([]);
+    setSelectedPipeId(next.pipes[next.pipes.length - 1]?.id || null);
+  }
+
   useEffect(() => {
-    if (!placeTool && !plantPlaceTool) return;
+    if (!placeTool && !plantPlaceTool && !pipeDrawActive) return;
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
       if (roomEdit) return;
-      event.preventDefault();
-      setPlaceTool(null);
-      setPlantPlaceTool(null);
+      if (event.key === "Shift") {
+        setPipeDrawDisableSnap(event.type === "keydown");
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setPlaceTool(null);
+        setPlantPlaceTool(null);
+        if (pipeDrawActive) {
+          setPipeDrawDraft([]);
+          setPipeDrawActive(false);
+        }
+        return;
+      }
+      if (pipeDrawActive && (event.key === "Enter" || event.key === "Done")) {
+        event.preventDefault();
+        finishPipeDraw();
+      }
     }
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [placeTool, plantPlaceTool, roomEdit]);
+    window.addEventListener("keyup", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyDown);
+    };
+  }, [
+    placeTool,
+    plantPlaceTool,
+    pipeDrawActive,
+    pipeDrawDraft,
+    pipeDrawKind,
+    pipeDrawExisting,
+    pipeDrawDiameterMm,
+    heatingLayout,
+    onPatchLayout,
+    activeFloor,
+    roomEdit,
+  ]);
 
   const anchors = useMemo(() => {
     const xs: number[] = [];
@@ -872,6 +940,8 @@ export function FloorPlanCanvas({
                 onClick={() => {
                   setPlaceTool(null);
                   setPlaceRoomType(null);
+                  setPipeDrawActive(false);
+                  setPipeDrawDraft([]);
                   // Plant click-place must not sticky-lock rooms (layout mode stays optional).
                   setPlantPlaceTool((current) => (current === item.kind ? null : item.kind));
                 }}
@@ -1106,12 +1176,85 @@ export function FloorPlanCanvas({
         <div className="hp-layout-banner">
           <strong>{layoutSystemLabel || "Heating layout"}</strong>
           <span>
-            {plantPlaceTool
-              ? `Place ${plantPlaceTool.replace("_", " ")} — click the plan repeatedly. Esc or right-click to finish.`
-              : emitterMode === "ufh"
-                ? "UFH loops (amber) · tails to manifolds · primary plant F/R secondary. Drag plant if needed."
-                : "Drag plant, radiators / UFH and pipe bends. Flow red · return blue · refrigerant purple · primary teal."}
+            {pipeDrawActive
+              ? `Drawing ${pipeDrawExisting ? "existing " : ""}${pipeDrawKind} — click points, Done / Enter to finish, Esc to cancel. Hold Shift to disable snap.`
+              : plantPlaceTool
+                ? `Place ${plantPlaceTool.replace("_", " ")} — click the plan repeatedly. Esc or right-click to finish.`
+                : emitterMode === "ufh"
+                  ? "UFH loops (amber) · tails to manifolds · primary plant F/R secondary. Drag plant if needed."
+                  : "Drag plant, radiators / UFH and pipe bends — or Draw pipe for new/existing runs."}
           </span>
+          <div className="hp-pipe-draw-tools" role="group" aria-label="Draw pipe">
+            <button
+              type="button"
+              className={`hd-btn hd-btn-ghost${pipeDrawActive ? " is-on" : ""}`}
+              onClick={() => {
+                setPlantPlaceTool(null);
+                setPlaceTool(null);
+                setPipeDrawActive((on) => !on);
+                setPipeDrawDraft([]);
+              }}
+            >
+              Draw pipe
+            </button>
+            {pipeDrawActive ? (
+              <>
+                <select
+                  value={pipeDrawKind}
+                  aria-label="Pipe kind"
+                  onChange={(event) => setPipeDrawKind(event.target.value as PipeDrawKind)}
+                >
+                  {PIPE_DRAW_KINDS.map((row) => (
+                    <option key={row.kind} value={row.kind}>
+                      {row.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={pipeDrawDiameterMm}
+                  aria-label="Pipe diameter"
+                  onChange={(event) => setPipeDrawDiameterMm(Number(event.target.value) as HeatingPipeDiameterMm)}
+                >
+                  {PIPE_DRAW_DIAMETERS.map((mm) => (
+                    <option key={mm} value={mm}>
+                      {mm} mm
+                    </option>
+                  ))}
+                </select>
+                <label className="hp-pipe-draw-existing">
+                  <input
+                    type="checkbox"
+                    checked={pipeDrawExisting}
+                    onChange={(event) => setPipeDrawExisting(event.target.checked)}
+                  />
+                  Existing
+                </label>
+                <button
+                  type="button"
+                  className="hd-btn hd-btn-primary"
+                  disabled={pipeDrawDraft.length < 2}
+                  onClick={() => finishPipeDraw()}
+                >
+                  Done
+                </button>
+                <button
+                  type="button"
+                  className="hd-btn hd-btn-ghost"
+                  onClick={() => {
+                    setPipeDrawDraft([]);
+                    setPipeDrawActive(false);
+                  }}
+                >
+                  Cancel
+                </button>
+                {pipeDrawDraft.length ? (
+                  <em>
+                    {pipeDrawDraft.length} pts · {pipeLengthM(pipeDrawDraft).toFixed(2)} m
+                  </em>
+                ) : null}
+              </>
+            ) : null}
+          </div>
           {selectedPlant ? <em>Selected: {selectedPlant.label}</em> : null}
           {selectedEmitter ? <em>Selected: {selectedEmitter.label}</em> : null}
           {selectedPipe ? <em>Selected pipe: {selectedPipe.label}</em> : null}
@@ -1154,17 +1297,21 @@ export function FloorPlanCanvas({
       >
         <svg
           ref={svgRef}
-          className={`hp-canvas${placeTool || plantPlaceTool ? " is-placing" : ""}`}
+          className={`hp-canvas${placeTool || plantPlaceTool || pipeDrawActive ? " is-placing" : ""}`}
           width={bounds.width}
           height={bounds.height}
           viewBox={`0 0 ${bounds.width} ${bounds.height}`}
           role="img"
           aria-label="Floor plan canvas"
           onContextMenu={(event) => {
-            if (!placeTool && !plantPlaceTool) return;
+            if (!placeTool && !plantPlaceTool && !pipeDrawActive) return;
             event.preventDefault();
             setPlaceTool(null);
             setPlantPlaceTool(null);
+            if (pipeDrawActive) {
+              setPipeDrawDraft([]);
+              setPipeDrawActive(false);
+            }
           }}
           onPointerDown={(event) => {
             if (scaleMode && onApplyPlanScale) {
@@ -1173,6 +1320,23 @@ export function FloorPlanCanvas({
               setScaleDraft((current) => [...current, point].slice(0, 2));
               setPlaceRoomType(null);
               setPlantPlaceTool(null);
+              setPipeDrawActive(false);
+              setPipeDrawDraft([]);
+              return;
+            }
+            if (pipeDrawActive) {
+              event.preventDefault();
+              event.stopPropagation();
+              setPlantPlaceTool(null);
+              setPlaceTool(null);
+              let point = clientToMetres(event.clientX, event.clientY);
+              if (!pipeDrawDisableSnap && !event.shiftKey) {
+                point = {
+                  x: snap(point.x, anchors.xs),
+                  y: snap(point.y, anchors.ys),
+                };
+              }
+              setPipeDrawDraft((current) => [...current, { x: Math.max(0, point.x), y: Math.max(0, point.y) }]);
               return;
             }
             if (plantPlaceTool && onPlacePlant) {
@@ -1644,7 +1808,7 @@ export function FloorPlanCanvas({
                         setDrag({ mode: "pipe-move", pipeId: pipe.id, origin: pipe.points, grab });
                       }}
                     />
-                    {mid && pipe.diameterMm && !isUfhLoop ? (
+                    {mid && !isUfhLoop && (pipe.diameterMm || pipe.flowLpm != null) ? (
                       <text
                         x={px(mid.x)}
                         y={py(mid.y) - 6}
@@ -1654,7 +1818,10 @@ export function FloorPlanCanvas({
                         fill={style.stroke}
                         style={{ pointerEvents: "none" }}
                       >
-                        {pipe.diameterMm}
+                        {pipe.diameterMm ? `${pipe.diameterMm} ø` : ""}
+                        {pipe.diameterMm && pipe.flowLpm != null ? " " : ""}
+                        {pipe.flowLpm != null ? `${pipe.flowLpm.toFixed(1)} l/min` : ""}
+                        {pipe.existing ? " · ex" : ""}
                       </text>
                     ) : null}
                     {showHandles
@@ -1683,6 +1850,32 @@ export function FloorPlanCanvas({
                 );
               })
             : null}
+
+          {pipeDrawActive && pipeDrawDraft.length ? (
+            <g className="hp-pipe-draw-draft" style={{ pointerEvents: "none" }}>
+              <polyline
+                points={pipeDrawDraft.map((p) => `${px(p.x)},${py(p.y)}`).join(" ")}
+                fill="none"
+                stroke={pipeStroke(pipeDrawKind, pipeDrawDiameterMm).stroke}
+                strokeWidth={pipeStroke(pipeDrawKind, pipeDrawDiameterMm).width + 1}
+                strokeDasharray={pipeDrawExisting ? "6 4" : undefined}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity={0.9}
+              />
+              {pipeDrawDraft.map((p, index) => (
+                <circle
+                  key={`draft-pt-${index}`}
+                  cx={px(p.x)}
+                  cy={py(p.y)}
+                  r={5}
+                  fill="#fff"
+                  stroke={pipeStroke(pipeDrawKind, pipeDrawDiameterMm).stroke}
+                  strokeWidth={2}
+                />
+              ))}
+            </g>
+          ) : null}
 
           {scaleDraft.length
             ? (

@@ -9,6 +9,7 @@ import type {
   HeatDesignRoom,
   HeatingEmitterItem,
   HeatingEmitterMode,
+  HeatingPipeDiameterMm,
   HeatingPipeKind,
   HeatingPipeRun,
   HeatingPlantItem,
@@ -910,6 +911,84 @@ export function translatePipe(layout: HeatingSystemLayout, pipeId: string, dx: n
         points: pipe.points.map((point) => ({ x: point.x + dx, y: point.y + dy })),
       };
     }),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/** Polyline length in metres. */
+export function pipeLengthM(points: PlanPoint[]) {
+  let total = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    const a = points[i - 1];
+    const b = points[i];
+    if (!a || !b) continue;
+    total += dist(a, b);
+  }
+  return total;
+}
+
+/** Append a user-drawn pipe run (Spruce-style click path). Survives Route pipes regen. */
+export function appendManualPipeRun(
+  layout: HeatingSystemLayout,
+  input: {
+    kind: HeatingPipeKind;
+    points: PlanPoint[];
+    floorLevel: FloorLevel;
+    existing?: boolean;
+    diameterMm?: HeatingPipeDiameterMm;
+    flowLpm?: number;
+    label?: string;
+  },
+): HeatingSystemLayout {
+  const points = input.points.map((p) => ({ x: p.x, y: p.y }));
+  if (points.length < 2) return layout;
+  const kindLabel =
+    input.kind === "flow"
+      ? "Flow"
+      : input.kind === "return"
+        ? "Return"
+        : input.kind === "dhw"
+          ? "DHW"
+          : input.kind === "primary"
+            ? "Primary"
+            : input.kind === "gas"
+              ? "Gas"
+              : input.kind;
+  const pipe = makePipe(
+    input.kind,
+    input.label || `${input.existing ? "Existing " : ""}${kindLabel} (drawn)`,
+    points,
+    input.floorLevel,
+    input.diameterMm
+      ? {
+          diameterMm: input.diameterMm,
+          pipeSpecId: input.diameterMm === 16 ? "pex-16" : `cu-${input.diameterMm}`,
+          material: input.diameterMm === 16 ? "PEX" : "Copper",
+        }
+      : undefined,
+  );
+  pipe.placedByUser = true;
+  pipe.existing = Boolean(input.existing) || undefined;
+  pipe.flowLpm = typeof input.flowLpm === "number" && Number.isFinite(input.flowLpm) ? input.flowLpm : undefined;
+  return {
+    ...layout,
+    pipes: [...layout.pipes, pipe],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/** Keep engineer-drawn pipes when auto-route rebuilds the network. */
+export function mergeUserDrawnPipes(
+  layout: HeatingSystemLayout,
+  previous?: HeatingPipeRun[] | null,
+): HeatingSystemLayout {
+  const keep = (previous || []).filter((pipe) => pipe.placedByUser && pipe.points.length >= 2);
+  if (!keep.length) return layout;
+  const keptIds = new Set(keep.map((pipe) => pipe.id));
+  const auto = layout.pipes.filter((pipe) => !keptIds.has(pipe.id));
+  return {
+    ...layout,
+    pipes: [...auto, ...keep],
     updatedAt: new Date().toISOString(),
   };
 }
