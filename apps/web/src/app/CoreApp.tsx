@@ -21119,7 +21119,7 @@ export default function CoreApp() {
     }
     if (
       !window.confirm(
-        `Rebuild cost centres for ${selectedJob.ref} from the linked tender BoQ?\n\nFloor sections and service centres will replace the current structure. Daywork centres are kept. Tender drawings are synced to Documents.`,
+        `Rebuild cost centres for ${selectedJob.ref} from the linked tender BoQ?\n\nFloor sections and service centres will replace the current structure. Daywork centres are kept.\n\nDrawings are not copied here — use Sync drawings from tender if you need them.`,
       )
     ) {
       return;
@@ -21164,9 +21164,7 @@ export default function CoreApp() {
         );
       }
       showNotice(
-        `Rebuilt ${payload?.jobCostCentres?.length || 0} cost centre(s) from BoQ${
-          payload?.documentsCopied ? ` · ${payload.documentsCopied} document(s) synced` : ""
-        }.`,
+        `Rebuilt ${payload?.jobCostCentres?.length || 0} cost centre(s) from BoQ. Use Sync drawings from tender for Documents.`,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to rebuild cost centres";

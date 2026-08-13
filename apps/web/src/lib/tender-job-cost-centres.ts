@@ -3,7 +3,7 @@
  * Sections = floors / flats; cost centres = services (Heating, Hot & cold, …).
  */
 
-import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
+import { getHubDetailState, writeJobCostCentresAndSections } from "@/lib/hub-detail-store";
 import {
   LEAN_MAX_MATERIALS_PER_CENTRE,
   LEAN_MAX_MATERIALS_PER_JOB,
@@ -435,27 +435,21 @@ export function applyTenderBoqStructureToJob(
     costCentres: sanitizeJobCostCentres(leanCentres, job.id),
     totalSell: built.totalSell,
   };
-  const hub = getHubDetailState();
-  const jobCostCentres = { ...asMap(hub.jobCostCentres) };
-  const jobSections = { ...asMap(hub.jobSections) };
 
-  const existingCentres = Array.isArray(jobCostCentres[job.id])
-    ? (jobCostCentres[job.id] as Array<Record<string, unknown>>)
-    : [];
-  const dayworkKept = existingCentres.filter((centre) => isDayworkCentre(centre));
   const replace = options?.replace !== false;
-  if (replace || existingCentres.length === 0) {
-    jobCostCentres[job.id] = [...structure.costCentres, ...dayworkKept];
-    jobSections[job.id] = structure.sections;
-  } else {
-    return { ...structure, job };
+  if (!replace) {
+    // Peek without cloning the whole hub when possible — still lean first.
+    const hub = getHubDetailState();
+    const existingCentres = Array.isArray(asMap(hub.jobCostCentres)[job.id])
+      ? (asMap(hub.jobCostCentres)[job.id] as Array<Record<string, unknown>>)
+      : [];
+    if (existingCentres.length) {
+      return { ...structure, job };
+    }
   }
 
-  saveHubDetailState({
-    ...hub,
-    jobCostCentres,
-    jobSections,
-  });
+  // Targeted write — never JSON.stringify the entire hub for BoQ rebuild/heal.
+  writeJobCostCentresAndSections(job.id, structure.costCentres, structure.sections);
 
   const nextValue = structure.totalSell > 0 ? structure.totalSell : job.value;
   const updated =
@@ -484,10 +478,9 @@ export function healStoredJobCostCentres(jobId: string): {
   const nonDaywork = existingList.filter((centre) => !isDayworkCentre(centre));
   const result = healJobCostCentresShape(jobId, nonDaywork);
   const sections = sanitizeJobSections(existingSections, jobId);
-  const nextCentres = [
-    ...sanitizeJobCostCentres(leanCentresForTransport(jobId, result.centres), jobId),
-    ...sanitizeJobCostCentres(dayworkKept, jobId),
-  ];
+  const leanNonDaywork = sanitizeJobCostCentres(leanCentresForTransport(jobId, result.centres), jobId);
+  const leanDaywork = sanitizeJobCostCentres(dayworkKept, jobId);
+  const nextCentres = [...leanNonDaywork, ...leanDaywork];
   // Avoid JSON.stringify on huge dumps — that alone OOM'd Render when opening bad jobs.
   const needsPersist =
     result.healed ||
@@ -497,22 +490,13 @@ export function healStoredJobCostCentres(jobId: string): {
   if (!needsPersist) {
     return {
       healed: false,
-      centres: nextCentres.length ? nextCentres : sanitizeJobCostCentres(existingList),
+      centres: nextCentres.length ? nextCentres : sanitizeJobCostCentres(existingList, jobId),
       sections,
     };
   }
 
-  saveHubDetailState({
-    ...hub,
-    jobCostCentres: {
-      ...asMap(hub.jobCostCentres),
-      [jobId]: nextCentres,
-    },
-    jobSections: {
-      ...asMap(hub.jobSections),
-      [jobId]: sections,
-    },
-  });
+  // Persist lean centres only — do not clone/merge the rest of the hub on heal.
+  writeJobCostCentresAndSections(jobId, nextCentres, sections, { preserveDaywork: false });
 
   return {
     healed: true,

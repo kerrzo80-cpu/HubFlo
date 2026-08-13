@@ -476,7 +476,7 @@ export function TendersPanel({
     if (!selected?.convertedJobId) return;
     if (
       !window.confirm(
-        `Rebuild job cost centres for “${selected.name}” from the current BoQ?\n\nFloor sections and service centres (Heating, Hot & cold, …) will replace the current structure. Daywork centres are kept. Tender drawings/documents are synced onto the job.`,
+        `Rebuild job cost centres for “${selected.name}” from the current BoQ?\n\nFloor sections and service centres (Heating, Hot & cold, …) will replace the current structure. Daywork centres are kept.\n\nDrawings are not copied here — use Sync drawings if you need them on the job.`,
       )
     ) {
       return;
@@ -485,11 +485,8 @@ export function TendersPanel({
       const result = await postAction({ action: "rebuild-job-cost-centres", id: selected.id });
       applyJobStructureFromResult(result);
       const centreCount = result.jobCostCentres?.length || 0;
-      const docs = result.documentsCopied || 0;
       onNotice(
-        `Rebuilt ${centreCount} cost centre(s) from BoQ onto job ${result.job?.ref || selected.convertedJobRef || ""}${
-          docs ? ` · ${docs} document(s) synced` : ""
-        }.`,
+        `Rebuilt ${centreCount} cost centre(s) from BoQ onto job ${result.job?.ref || selected.convertedJobRef || ""}. Use Sync drawings for Documents.`,
       );
       if (result.job?.id || selected.convertedJobId) {
         onOpenPendingJob?.(result.job?.id || selected.convertedJobId!);

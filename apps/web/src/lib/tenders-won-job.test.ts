@@ -208,6 +208,7 @@ test("rebuild from job works when tender.convertedJobId is stale or missing", as
     rebuilt.jobCostCentres.every((centre) => centre.materials.length <= 1),
     "rebuild response must not dump BoQ line arrays",
   );
+  assert.equal(rebuilt.documentsCopied, 0, "rebuild must not copy tender PDFs (OOM path)");
   assert.equal(getTender(tender.id)?.convertedJobId, job.id);
   assert.equal(getJob(job.id)?.value, 300);
   const hub = getHubDetailState();

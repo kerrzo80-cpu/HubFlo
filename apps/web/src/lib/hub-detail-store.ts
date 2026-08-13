@@ -138,6 +138,80 @@ function rehydrateDayworkFieldsFromDisk() {
  * Persist hub detail state without letting a concurrent Core save wipe
  * Field daywork sheets / evidence / events written moments earlier.
  */
+function safeCloneHub(state: HubDetailState): HubDetailState {
+  try {
+    return clone(state);
+  } catch {
+    // Huge / circular payloads can throw or OOM mid-stringify — return a shallow lean view.
+    leanJobCostCentresMap(state.jobCostCentres);
+    return {
+      jobCostCentres: state.jobCostCentres,
+      jobSections: state.jobSections,
+      quoteCostCentres: state.quoteCostCentres,
+      quoteSections: state.quoteSections,
+      invoices: state.invoices,
+      communications: state.communications,
+      jobDeliveryEvents: state.jobDeliveryEvents,
+      dayworkSheets: state.dayworkSheets,
+      updatedAt: state.updatedAt,
+    };
+  }
+}
+
+function isDayworkCentreRecord(centre: Record<string, unknown>) {
+  const id = String(centre.id || "");
+  return (
+    id.includes("daywork") ||
+    /daywork/i.test(String(centre.name || "")) ||
+    /daywork/i.test(String(centre.templateName || ""))
+  );
+}
+
+/**
+ * Replace one job's sections/centres without cloning the whole hub (rebuild/heal hot path).
+ * By default keeps daywork centres that are not already present in `centres`.
+ */
+export function writeJobCostCentresAndSections(
+  jobId: string,
+  centres: unknown[],
+  sections: unknown[],
+  options?: { preserveDaywork?: boolean },
+): void {
+  rehydrateDayworkFieldsFromDisk();
+  leanJobCostCentresMap(hubDetailState.jobCostCentres);
+  const centresMap = asCentres(hubDetailState.jobCostCentres);
+  const sectionsMap = asCentres(hubDetailState.jobSections);
+  const existing = Array.isArray(centresMap[jobId]) ? centresMap[jobId] : [];
+  const incoming = Array.isArray(centres) ? centres : [];
+  const incomingIds = new Set(
+    incoming
+      .map((row) =>
+        row && typeof row === "object" && typeof (row as { id?: unknown }).id === "string"
+          ? (row as { id: string }).id
+          : "",
+      )
+      .filter(Boolean),
+  );
+  const preserveDaywork = options?.preserveDaywork !== false;
+  const dayworkKept = preserveDaywork
+    ? existing.filter((row) => {
+        if (!row || typeof row !== "object") return false;
+        const record = row as Record<string, unknown>;
+        const id = typeof record.id === "string" ? record.id : "";
+        return isDayworkCentreRecord(record) && (!id || !incomingIds.has(id));
+      })
+    : [];
+  const nextCentres = [...incoming, ...dayworkKept];
+  const leaned = { jobCostCentres: { [jobId]: nextCentres } };
+  leanJobCostCentresMap(leaned.jobCostCentres);
+  centresMap[jobId] = (leaned.jobCostCentres[jobId] as unknown[]) || nextCentres;
+  sectionsMap[jobId] = Array.isArray(sections) ? sections : [];
+  hubDetailState.jobCostCentres = centresMap;
+  hubDetailState.jobSections = sectionsMap;
+  hubDetailState.updatedAt = new Date().toISOString();
+  writeServerStore("hub-detail-store", hubDetailState);
+}
+
 export function saveHubDetailState(nextState: HubDetailState): HubDetailState {
   rehydrateDayworkFieldsFromDisk();
   const liveSheets = mergeDayworkSheets(readDayworkSheetsStore(), hubDetailState.dayworkSheets);
@@ -166,7 +240,7 @@ export function saveHubDetailState(nextState: HubDetailState): HubDetailState {
   if (updated.dayworkSheets) {
     mergeDayworkSheetsIntoStore(updated.dayworkSheets);
   }
-  return clone(hubDetailState);
+  return safeCloneHub(hubDetailState);
 }
 
 export function getHubDetailState(): HubDetailState {
@@ -177,7 +251,7 @@ export function getHubDetailState(): HubDetailState {
     writeServerStore("hub-detail-store", hubDetailState);
   }
   const sheets = mergeDayworkSheets(readDayworkSheetsStore(), hubDetailState.dayworkSheets);
-  return clone({
+  return safeCloneHub({
     ...hubDetailState,
     dayworkSheets: sheets as Record<string, unknown>,
   });

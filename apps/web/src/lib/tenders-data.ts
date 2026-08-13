@@ -1783,8 +1783,8 @@ export function rebuildTenderJobCostCentres(tenderId: string) {
   if (!job) {
     throw new Error("Linked job is missing — recreate the job from this tender first.");
   }
+  // Cost centres only — never copy tender PDFs here (that OOMed Render on rebuild).
   const structure = applyTenderBoqStructureToJob(job, tender.boqLines, { replace: true });
-  const documentsSync = copyTenderDocumentsToJob(tender, structure.job);
   const nextValue = structure.totalSell || computeBoqTotal(tender.boqLines) || tender.bidValue || job.value;
   const updatedTender = upsertTender({
     ...tender,
@@ -1804,8 +1804,8 @@ export function rebuildTenderJobCostCentres(tenderId: string) {
     job: getJob(structure.job.id) || structure.job,
     jobSections: structure.sections,
     jobCostCentres: leanCentresForTransport(structure.job.id, structure.costCentres) as typeof structure.costCentres,
-    documentsCopied: documentsSync.copied,
-    documentsSkipped: documentsSync.skipped,
+    documentsCopied: 0,
+    documentsSkipped: 0,
   };
 }
 
@@ -1856,6 +1856,11 @@ export type CopyTenderDocumentsToJobResult = {
   tenderDocumentCount: number;
 };
 
+/** Soft caps so Mark Won / Sync drawings cannot load every PDF into RAM at once. */
+const TENDER_DOC_COPY_MAX_FILE_BYTES = 8 * 1024 * 1024;
+const TENDER_DOC_COPY_MAX_TOTAL_BYTES = 24 * 1024 * 1024;
+const TENDER_DOC_COPY_MAX_FILES = 20;
+
 /** Copy tender Documents (drawings, specs, BoQs) onto the linked job record-documents hub. */
 export function copyTenderDocumentsToJob(
   tender: Tender,
@@ -1885,8 +1890,13 @@ export function copyTenderDocumentsToJob(
   let copied = 0;
   let skippedMissing = 0;
   let skippedDuplicate = 0;
+  let totalBytes = 0;
 
   for (const doc of tender.documents) {
+    if (copied >= TENDER_DOC_COPY_MAX_FILES) {
+      skippedMissing += 1;
+      continue;
+    }
     if (existingBySource.has(doc.id)) {
       skippedDuplicate += 1;
       continue;
@@ -1894,6 +1904,14 @@ export function copyTenderDocumentsToJob(
     const recordId = recordDocumentIdFromUrl(doc.url);
     const file = recordId ? readRecordDocumentFile(recordId) : null;
     if (!file?.bytes?.length) {
+      skippedMissing += 1;
+      continue;
+    }
+    if (file.bytes.length > TENDER_DOC_COPY_MAX_FILE_BYTES) {
+      skippedMissing += 1;
+      continue;
+    }
+    if (totalBytes + file.bytes.length > TENDER_DOC_COPY_MAX_TOTAL_BYTES) {
       skippedMissing += 1;
       continue;
     }
@@ -1929,6 +1947,7 @@ export function copyTenderDocumentsToJob(
       linkedTo,
     });
     copied += 1;
+    totalBytes += file.bytes.length;
     existingNames.add(displayName);
     existingBySource.add(doc.id);
     if (file.record.checksum) existingChecksum.add(file.record.checksum);
@@ -2032,8 +2051,8 @@ export function rebuildJobCostCentresFromSourceTender(jobIdOrRef: string) {
   if (!tender) {
     throw new Error("Linked tender is missing — reopen the tender or clear the job link.");
   }
+  // Cost centres only — drawings stay on Sync drawings (binary copy OOMed rebuild).
   const structure = applyTenderBoqStructureToJob(job, tender.boqLines, { replace: true });
-  const documentsSync = copyTenderDocumentsToJob(tender, structure.job);
   const nextValue = structure.totalSell || computeBoqTotal(tender.boqLines) || tender.bidValue || job.value;
   const updatedTender = upsertTender({
     ...tender,
@@ -2052,8 +2071,8 @@ export function rebuildJobCostCentresFromSourceTender(jobIdOrRef: string) {
     job: getJob(structure.job.id) || structure.job,
     jobSections: structure.sections,
     jobCostCentres: leanCentresForTransport(structure.job.id, structure.costCentres) as typeof structure.costCentres,
-    documentsCopied: documentsSync.copied,
-    documentsSkipped: documentsSync.skipped,
+    documentsCopied: 0,
+    documentsSkipped: 0,
   };
 }
 

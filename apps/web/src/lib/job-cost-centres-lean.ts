@@ -153,7 +153,8 @@ export function leanJobCostCentresMap(jobCostCentres: unknown): boolean {
 export function leanCentresForTransport(jobId: string, centres: unknown): Array<Record<string, unknown>> {
   const result = leanJobCostCentresList(jobId, centres, {
     maxPerCentre: 1,
-    maxPerJob: 1,
+    // Cap is per centre; allow many lean centres on one job (floors × services).
+    maxPerJob: Number.MAX_SAFE_INTEGER,
     forceTenderLump: true,
   });
   return result.centres.map((centre) => {
