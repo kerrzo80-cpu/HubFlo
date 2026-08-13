@@ -7,22 +7,33 @@
  *
  * Resolve the real node_modules files and import by file URL so the package
  * stays external (see also `serverExternalPackages` in next.config.ts).
+ *
+ * Never import this module from client components — it uses Node createRequire.
  */
 
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+export { friendlyPdfEngineError } from "@/lib/pdf-engine-errors";
+
 type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 
 let cached: Promise<PdfJsModule> | null = null;
 
 function createPdfRequire() {
+  // Prefer resolving from this module (avoids Turbopack NFT-tracing the whole repo
+  // via path.join(process.cwd(), …)). Walks up to apps/web/node_modules on Render.
+  try {
+    const req = createRequire(import.meta.url);
+    req.resolve("pdfjs-dist/legacy/build/pdf.mjs");
+    return req;
+  } catch {
+    // Fallback when the compiled chunk lives somewhere unexpected.
+  }
   const candidates = [
-    // Render / monorepo: start from repo root with `next start apps/web`.
-    path.join(process.cwd(), "apps/web/package.json"),
-    // Local `pnpm --filter @hubflo/web` / cwd already apps/web.
-    path.join(process.cwd(), "package.json"),
+    path.join(/*turbopackIgnore: true*/ process.cwd(), "apps/web/package.json"),
+    path.join(/*turbopackIgnore: true*/ process.cwd(), "package.json"),
   ];
   for (const candidate of candidates) {
     try {
@@ -58,18 +69,4 @@ export async function loadPdfJsServer(): Promise<PdfJsModule> {
     });
   }
   return cached;
-}
-
-/** Map engine / bundling failures to a short office-facing message. */
-export function friendlyPdfEngineError(error: unknown, fallback = "Could not read this PDF."): string {
-  const msg = error instanceof Error ? error.message : String(error || fallback);
-  if (
-    /Cannot find module/i.test(msg)
-    || /ERR_MODULE_NOT_FOUND/i.test(msg)
-    || /depth_pdf/i.test(msg)
-    || /pdf\.worker/i.test(msg)
-  ) {
-    return "Could not open this PDF (server PDF reader failed to load). Try again, or import Excel/CSV instead.";
-  }
-  return msg.trim() || fallback;
 }

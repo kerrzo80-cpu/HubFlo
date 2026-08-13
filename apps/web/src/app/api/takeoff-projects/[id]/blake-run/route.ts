@@ -15,8 +15,8 @@ import {
   type ExtractedPdfDocument,
   type ExtractedPdfPage,
 } from "@/lib/takeoff-pdf-extract";
+import { extractPdfStrokeRuns } from "@/lib/takeoff-pdf-strokes-server";
 import {
-  extractPdfStrokeRuns,
   summariseStrokeRunsByRole,
   type PdfStrokeRun,
 } from "@/lib/takeoff-pdf-strokes";

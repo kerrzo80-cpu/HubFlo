@@ -267,17 +267,29 @@ export function summariseStrokeRunsByRole(runs: PdfStrokeRun[]) {
   };
 }
 
-async function loadPdfJs() {
-  const { loadPdfJsServer } = await import("@/lib/pdfjs-server");
-  return loadPdfJsServer();
-}
+type PdfJsLike = {
+  OPS: Record<string, number>;
+  getDocument: (options: Record<string, unknown>) => { promise: Promise<{
+    numPages: number;
+    getPage: (pageNumber: number) => Promise<{
+      getViewport: (opts: { scale: number }) => { width: number; height: number };
+      getOperatorList: () => Promise<{ fnArray: number[]; argsArray: unknown[] }>;
+    }>;
+  }> };
+};
 
-export async function extractPdfStrokeRuns(
+/**
+ * Extract coloured strokes using a caller-supplied pdfjs module.
+ * Server routes should use `extractPdfStrokeRuns` from takeoff-pdf-strokes-server
+ * (loads pdfjs via Node). Do not import pdfjs-server from this file — it breaks
+ * the client Takeoff bundle.
+ */
+export async function extractPdfStrokeRunsWithEngine(
+  pdfjs: PdfJsLike,
   buffer: Buffer | Uint8Array,
   fileName: string,
   options?: { maxPages?: number },
 ): Promise<PdfStrokeExtractResult> {
-  const pdfjs = await loadPdfJs();
   const OPS = pdfjs.OPS;
   const loadingTask = pdfjs.getDocument({
     data: buffer instanceof Buffer ? new Uint8Array(buffer) : buffer,

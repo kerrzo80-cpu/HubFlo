@@ -5,7 +5,7 @@
  * Also handles supplier sales-order / quotation layouts (Qty / Product Code / Description / Unit Price).
  */
 
-import { friendlyPdfEngineError } from "@/lib/pdfjs-server";
+import { friendlyPdfEngineError } from "@/lib/pdf-engine-errors";
 import {
   extractPdfDocument,
   type ExtractedPdfDocument,

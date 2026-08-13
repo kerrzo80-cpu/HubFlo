@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { friendlyPdfEngineError } from "@/lib/pdfjs-server";
+import { friendlyPdfEngineError } from "@/lib/pdf-engine-errors";
 
-describe("pdfjs-server", () => {
+describe("pdf-engine-errors", () => {
   it("rewrites Cannot find module / depth_pdf bundling errors", () => {
     const msg = friendlyPdfEngineError(
       new Error(

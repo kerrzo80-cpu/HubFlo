@@ -12,7 +12,7 @@ import {
   type TenderDocumentKind,
 } from "@/lib/tenders-data";
 import { isTenderDocumentKind } from "@/lib/tender-document-folders";
-import { friendlyPdfEngineError } from "@/lib/pdfjs-server";
+import { friendlyPdfEngineError } from "@/lib/pdf-engine-errors";
 import { workbookBoqSheetsFromPdfBuffer } from "@/lib/tender-boq-pdf";
 import {
   sheetRowsFromWorkbookBuffer,

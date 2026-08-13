@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { friendlyPdfEngineError, loadPdfJsServer } from "@/lib/pdfjs-server";
+import { friendlyPdfEngineError } from "@/lib/pdf-engine-errors";
+import { loadPdfJsServer } from "@/lib/pdfjs-server";
 
 export type ExtractedPdfTextItem = {
   text: string;
