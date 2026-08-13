@@ -126,7 +126,9 @@ export function loadServerStore<T>(name: string, fallback: T): T {
 
 export function writeServerStore<T>(name: string, value: T): boolean {
   const database = getSqliteStore();
-  const payload = JSON.stringify(value, null, 2);
+  // Compact JSON — pretty-print nearly doubles peak memory on large BoQ / hub payloads
+  // and was contributing to Render OOM during tender rebuild / heal.
+  const payload = JSON.stringify(value);
   if (database) {
     try {
       database

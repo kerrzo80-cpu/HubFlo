@@ -287,32 +287,68 @@ function moneyClose(a: number | undefined, b: number) {
   return Math.abs((Number.isFinite(a) ? Number(a) : 0) - b) < 0.005;
 }
 
-function readStore(): TenderStore {
+function healTenderInMemory(tender: Tender): Tender {
+  const boqLines = normalizeBoqLines(tender.boqLines);
+  const boqTotal = computeBoqTotal(boqLines);
+  const linesChanged = boqLines !== tender.boqLines;
+  const sumsOutOfSync = !moneyClose(tender.bidValue, boqTotal) || !moneyClose(tender.tenderSum, boqTotal);
+  if (!linesChanged && !sumsOutOfSync) return tender;
+  return { ...tender, boqLines, bidValue: boqTotal, tenderSum: boqTotal };
+}
+
+/** Raw store — no per-tender BoQ heal (rebuild/hot paths must not walk every Bill). */
+function readStoreRaw(): TenderStore {
   const stored = loadServerStore<Partial<TenderStore>>(STORE, { tenders: [] });
-  const tenders = Array.isArray(stored.tenders) ? stored.tenders : [];
+  const tenders = Array.isArray(stored.tenders) ? (stored.tenders as Tender[]) : [];
   if (!tenders.length) {
     const seeded = { tenders: seedTenders() };
     writeServerStore(STORE, seeded);
     return seeded;
   }
-  // Heal BoQ line ids/sheets and keep Bid value / Tender sum (FoT) locked to priced BoQ total.
-  let healed = false;
-  const nextTenders = tenders.map((raw) => {
-    const tender = raw as Tender;
-    const boqLines = normalizeBoqLines(tender.boqLines);
-    const boqTotal = computeBoqTotal(boqLines);
-    const linesChanged = boqLines !== tender.boqLines;
-    const sumsOutOfSync = !moneyClose(tender.bidValue, boqTotal) || !moneyClose(tender.tenderSum, boqTotal);
-    if (!linesChanged && !sumsOutOfSync) return tender;
-    healed = true;
-    return { ...tender, boqLines, bidValue: boqTotal, tenderSum: boqTotal };
-  });
-  if (healed) {
-    const store = { tenders: nextTenders };
-    writeServerStore(STORE, store);
-    return store;
-  }
-  return { tenders: nextTenders };
+  return { tenders };
+}
+
+function readStore(): TenderStore {
+  // Heal in memory only — never persist on read (multi-MB BoQ rewrite OOMed rebuild).
+  return { tenders: readStoreRaw().tenders.map(healTenderInMemory) };
+}
+
+/**
+ * Patch tender job-link / status / sums without re-normalising or cloning BoQ lines.
+ * Rebuild must use this — upsertTender() rewrote the entire BoQ blob and OOMed Render.
+ */
+export function patchTenderJobLink(
+  tenderId: string,
+  patch: {
+    status?: TenderStatus;
+    convertedJobId?: string;
+    convertedJobRef?: string;
+    tenderSum?: number;
+    bidValue?: number;
+  },
+): Tender {
+  const store = readStoreRaw();
+  const index = store.tenders.findIndex((tender) => tender.id === tenderId);
+  if (index < 0) throw new Error("Tender not found.");
+  const existing = store.tenders[index]!;
+  const next: Tender = {
+    ...existing,
+    ...(patch.status ? { status: patch.status } : {}),
+    ...(patch.convertedJobId !== undefined ? { convertedJobId: patch.convertedJobId } : {}),
+    ...(patch.convertedJobRef !== undefined ? { convertedJobRef: patch.convertedJobRef } : {}),
+    ...(typeof patch.tenderSum === "number" && Number.isFinite(patch.tenderSum)
+      ? { tenderSum: patch.tenderSum }
+      : {}),
+    ...(typeof patch.bidValue === "number" && Number.isFinite(patch.bidValue)
+      ? { bidValue: patch.bidValue }
+      : {}),
+    // Keep the same boqLines array reference — do not normalize/copy.
+    boqLines: existing.boqLines,
+    updatedAt: nowIso(),
+  };
+  store.tenders[index] = next;
+  writeStore(store);
+  return next;
 }
 
 function writeStore(store: TenderStore) {
@@ -333,13 +369,14 @@ export function leanTenderForClient(tender: Tender): Tender {
   };
 }
 
-/** Tracker-safe list — BoQ lines stripped so POST responses cannot OOM Render. */
+/** Tracker-safe list — BoQ lines stripped; does not heal/walk every Bill. */
 export function listTendersLean() {
-  return listTenders().map(leanTenderForClient);
+  return sortTendersByDueDate(readStoreRaw().tenders.map(leanTenderForClient));
 }
 
 export function getTender(id: string) {
-  return readStore().tenders.find((tender) => tender.id === id) ?? null;
+  const raw = readStoreRaw().tenders.find((tender) => tender.id === id);
+  return raw ? healTenderInMemory(raw) : null;
 }
 
 function normalizeTenderDocument(input: Partial<TenderDocument> | null | undefined): TenderDocument {
@@ -1750,15 +1787,13 @@ export function convertTenderToPendingJob(tenderId: string) {
   const recreated = Boolean(tender.convertedJobId);
   const structure = applyTenderBoqStructureToJob(job, tender.boqLines, { replace: true });
   const documentsSync = copyTenderDocumentsToJob(tender, structure.job);
-  // Use upsert directly so we do not re-enter the Won auto-convert branch in updateTender.
-  const updated = upsertTender({
-    ...tender,
+  // Patch link only — do not re-normalise / rewrite the BoQ blob (OOM on large Bills).
+  const updated = patchTenderJobLink(tender.id, {
     status: "Won",
     convertedJobId: structure.job.id,
     convertedJobRef: structure.job.ref,
     tenderSum: structure.totalSell || value,
     bidValue: structure.totalSell || value,
-    id: tender.id,
   });
   return {
     tender: updated,
@@ -1783,17 +1818,15 @@ export function rebuildTenderJobCostCentres(tenderId: string) {
   if (!job) {
     throw new Error("Linked job is missing — recreate the job from this tender first.");
   }
-  // Cost centres only — never copy tender PDFs here (that OOMed Render on rebuild).
+  // Cost centres only — never copy tender PDFs / never upsertTender (BoQ rewrite OOMs).
   const structure = applyTenderBoqStructureToJob(job, tender.boqLines, { replace: true });
   const nextValue = structure.totalSell || computeBoqTotal(tender.boqLines) || tender.bidValue || job.value;
-  const updatedTender = upsertTender({
-    ...tender,
+  const updatedTender = patchTenderJobLink(tender.id, {
     status: "Won",
     convertedJobId: structure.job.id,
     convertedJobRef: structure.job.ref,
     tenderSum: nextValue,
     bidValue: nextValue,
-    id: tender.id,
   });
   if (structure.job.value !== nextValue) {
     updateJob(structure.job.id, { value: nextValue });
@@ -1999,12 +2032,10 @@ export function syncJobDocumentsFromSourceTender(jobIdOrRef: string) {
     throw new Error("Linked tender is missing — reopen the tender or clear the job link.");
   }
   if (tender.convertedJobId !== job.id) {
-    upsertTender({
-      ...tender,
+    patchTenderJobLink(tender.id, {
       convertedJobId: job.id,
       convertedJobRef: job.ref,
       status: tender.status === "Lost" ? tender.status : "Won",
-      id: tender.id,
     });
   }
   const linked = getTender(tender.id) || tender;
@@ -2051,17 +2082,15 @@ export function rebuildJobCostCentresFromSourceTender(jobIdOrRef: string) {
   if (!tender) {
     throw new Error("Linked tender is missing — reopen the tender or clear the job link.");
   }
-  // Cost centres only — drawings stay on Sync drawings (binary copy OOMed rebuild).
+  // Cost centres only — drawings stay on Sync drawings; never upsertTender (BoQ rewrite OOMs).
   const structure = applyTenderBoqStructureToJob(job, tender.boqLines, { replace: true });
   const nextValue = structure.totalSell || computeBoqTotal(tender.boqLines) || tender.bidValue || job.value;
-  const updatedTender = upsertTender({
-    ...tender,
+  const updatedTender = patchTenderJobLink(tender.id, {
     status: tender.status === "Lost" ? tender.status : "Won",
     convertedJobId: structure.job.id,
     convertedJobRef: structure.job.ref,
     tenderSum: nextValue,
     bidValue: nextValue,
-    id: tender.id,
   });
   if (structure.job.value !== nextValue) {
     updateJob(structure.job.id, { value: nextValue });

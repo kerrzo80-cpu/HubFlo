@@ -20,8 +20,8 @@ import {
   syncJobDocumentsFromSourceTender,
   importBoqIntoTender,
   leanTenderForClient,
-  listTenders,
   listTendersLean,
+  getTender,
   markTenderSubmitted,
   moveTenderDocument,
   removeTenderDocument,
@@ -46,12 +46,29 @@ function canEdit(access: ReturnType<typeof getAccessProfileFromHeaders>) {
   return access.canCreateQuote || access.canEditJobs || access.showFinance || access.canCustomize;
 }
 
+/** Always strip BoQ dumps from list payloads — full Bills OOMed Render. */
+function leanList() {
+  return listTendersLean();
+}
+
+function leanOne(tender: Tender) {
+  return leanTenderForClient(tender);
+}
+
 export async function GET(request: NextRequest) {
   const access = getAccessProfileFromHeaders(request.headers);
   if (!canView(access)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  return NextResponse.json({ tenders: listTenders() });
+  const id = request.nextUrl.searchParams.get("id")?.trim();
+  if (id) {
+    const tender = getTender(id);
+    if (!tender) return NextResponse.json({ error: "Tender not found" }, { status: 404 });
+    // Single tender may include BoQ for the open editor.
+    return NextResponse.json({ tender });
+  }
+  // Tracker list must never include BoQ line arrays.
+  return NextResponse.json({ tenders: leanList() });
 }
 
 export async function POST(request: NextRequest) {
@@ -62,6 +79,7 @@ export async function POST(request: NextRequest) {
 
   const body = await parseJsonRequestBody<{
     action?:
+      | "get"
       | "upsert"
       | "update"
       | "delete"
@@ -112,6 +130,13 @@ export async function POST(request: NextRequest) {
   }>(request);
 
   try {
+    if (body?.action === "get") {
+      if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const tender = getTender(body.id);
+      if (!tender) return NextResponse.json({ error: "Tender not found" }, { status: 404 });
+      return NextResponse.json({ tender });
+    }
+
     if (body?.action === "upsert") {
       if (!body.tender?.name || !body.tender?.client) {
         return NextResponse.json({ error: "name and client required" }, { status: 400 });
@@ -121,31 +146,39 @@ export async function POST(request: NextRequest) {
         name: body.tender.name,
         client: body.tender.client,
       });
-      return NextResponse.json({ tender, tenders: listTenders() });
+      return NextResponse.json({ tender, tenders: leanList() });
     }
 
     if (body?.action === "update") {
       if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
       const tender = updateTender(body.id, body.patch || {});
-      return NextResponse.json({ tender, tenders: listTenders() });
+      return NextResponse.json({ tender: leanOne(tender), tenders: leanList() });
     }
 
     if (body?.action === "delete") {
       if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
       deleteTender(body.id);
-      return NextResponse.json({ ok: true, tenders: listTenders() });
+      return NextResponse.json({ ok: true, tenders: leanList() });
     }
 
     if (body?.action === "delete-bulk") {
       if (!body.ids?.length) return NextResponse.json({ error: "ids required" }, { status: 400 });
       const result = deleteTenders(body.ids);
-      return NextResponse.json({ ok: true, ...result });
+      return NextResponse.json({
+        ok: true,
+        ...result,
+        tenders: Array.isArray(result.tenders) ? leanList() : leanList(),
+      });
     }
 
     if (body?.action === "archive-bulk") {
       if (!body.ids?.length) return NextResponse.json({ error: "ids required" }, { status: 400 });
       const result = archiveTenders(body.ids);
-      return NextResponse.json({ ok: true, ...result });
+      return NextResponse.json({
+        ok: true,
+        ...result,
+        tenders: leanList(),
+      });
     }
 
     if (body?.action === "import-boq") {
@@ -161,13 +194,14 @@ export async function POST(request: NextRequest) {
       const addedSheets = Array.isArray((tender as { addedSheets?: string[] }).addedSheets)
         ? (tender as { addedSheets: string[] }).addedSheets
         : [];
-      return NextResponse.json({ tender, tenders: listTenders(), mode, addedSheets });
+      // Return this tender's BoQ (editor needs it) but never dump every tender's Bill.
+      return NextResponse.json({ tender, tenders: leanList(), mode, addedSheets });
     }
 
     if (body?.action === "clear-boq") {
       if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
       const tender = clearBoqFromTender(body.id);
-      return NextResponse.json({ tender, tenders: listTenders() });
+      return NextResponse.json({ tender, tenders: leanList() });
     }
 
     if (body?.action === "update-boq-line") {
@@ -175,7 +209,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "id and lineId required" }, { status: 400 });
       }
       const tender = updateBoqLine(body.id, body.lineId, body.linePatch || {});
-      return NextResponse.json({ tender, tenders: listTenders() });
+      return NextResponse.json({ tender, tenders: leanList() });
     }
 
     if (body?.action === "add-boq-line") {
@@ -187,7 +221,7 @@ export async function POST(request: NextRequest) {
         quantity: body.line?.quantity,
         unit: body.line?.unit,
       });
-      return NextResponse.json({ tender, tenders: listTenders() });
+      return NextResponse.json({ tender, tenders: leanList() });
     }
 
     if (body?.action === "delete-boq-lines") {
@@ -195,7 +229,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "id and lineIds required" }, { status: 400 });
       }
       const tender = deleteBoqLines(body.id, body.lineIds);
-      return NextResponse.json({ tender, tenders: listTenders() });
+      return NextResponse.json({ tender, tenders: leanList() });
     }
 
     if (body?.action === "add-boq-sheet") {
@@ -203,7 +237,7 @@ export async function POST(request: NextRequest) {
       const result = addBoqSheetTab(body.id, body.sheetName);
       return NextResponse.json({
         tender: result.tender,
-        tenders: listTenders(),
+        tenders: leanList(),
         sheetKey: result.sheetKey,
       });
     }
@@ -215,7 +249,7 @@ export async function POST(request: NextRequest) {
       const result = renameBoqSheetTab(body.id, body.sheetKey, body.sheetName || "");
       return NextResponse.json({
         tender: result.tender,
-        tenders: listTenders(),
+        tenders: leanList(),
         sheetKey: result.sheetKey,
       });
     }
@@ -225,7 +259,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "id and sheetKey required" }, { status: 400 });
       }
       const tender = deleteBoqSheetTab(body.id, body.sheetKey);
-      return NextResponse.json({ tender, tenders: listTenders() });
+      return NextResponse.json({ tender, tenders: leanList() });
     }
 
     if (body?.action === "delete-document") {
@@ -233,7 +267,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "id and documentId required" }, { status: 400 });
       }
       const tender = removeTenderDocument(body.id, body.documentId);
-      return NextResponse.json({ tender, tenders: listTenders() });
+      return NextResponse.json({ tender: leanOne(tender), tenders: leanList() });
     }
 
     if (body?.action === "create-document-folder") {
@@ -244,7 +278,7 @@ export async function POST(request: NextRequest) {
         name: body.folderName,
         parentId: body.parentId,
       });
-      return NextResponse.json({ tender, tenders: listTenders() });
+      return NextResponse.json({ tender: leanOne(tender), tenders: leanList() });
     }
 
     if (body?.action === "delete-document-folder") {
@@ -252,7 +286,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "id and folderId required" }, { status: 400 });
       }
       const tender = removeTenderDocumentFolder(body.id, body.folderId);
-      return NextResponse.json({ tender, tenders: listTenders() });
+      return NextResponse.json({ tender: leanOne(tender), tenders: leanList() });
     }
 
     if (body?.action === "move-document") {
@@ -263,13 +297,13 @@ export async function POST(request: NextRequest) {
         kind: body.kind,
         folderId: body.folderId,
       });
-      return NextResponse.json({ tender, tenders: listTenders() });
+      return NextResponse.json({ tender: leanOne(tender), tenders: leanList() });
     }
 
     if (body?.action === "submit") {
       if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
       const tender = markTenderSubmitted(body.id, { tenderSum: body.tenderSum });
-      return NextResponse.json({ tender, tenders: listTenders() });
+      return NextResponse.json({ tender: leanOne(tender), tenders: leanList() });
     }
 
     if (body?.action === "convert-won") {
@@ -277,21 +311,26 @@ export async function POST(request: NextRequest) {
       const result = convertTenderToPendingJob(body.id);
       return NextResponse.json({
         ...result,
-        tender: result.tender ? leanTenderForClient(result.tender) : result.tender,
-        tenders: listTendersLean(),
+        tender: result.tender ? leanOne(result.tender) : result.tender,
+        tenders: leanList(),
       });
     }
 
     if (body?.action === "rebuild-job-cost-centres") {
       if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
-      const result = rebuildTenderJobCostCentres(body.id);
-      return NextResponse.json({ ...result, tenders: listTendersLean() });
+      try {
+        const result = rebuildTenderJobCostCentres(body.id);
+        return NextResponse.json({ ...result, tenders: leanList() });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to rebuild cost centres";
+        return NextResponse.json({ error: message }, { status: 503 });
+      }
     }
 
     if (body?.action === "sync-job-documents") {
       if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
       const result = syncTenderDocumentsToLinkedJob(body.id);
-      return NextResponse.json({ ...result, tenders: listTendersLean() });
+      return NextResponse.json({ ...result, tenders: leanList() });
     }
 
     if (body?.action === "sync-job-documents-from-job") {
@@ -312,8 +351,13 @@ export async function POST(request: NextRequest) {
     if (body?.action === "rebuild-job-cost-centres-from-job") {
       const jobKey = body.jobId || body.id;
       if (!jobKey) return NextResponse.json({ error: "jobId required" }, { status: 400 });
-      const result = rebuildJobCostCentresFromSourceTender(jobKey);
-      return NextResponse.json(result);
+      try {
+        const result = rebuildJobCostCentresFromSourceTender(jobKey);
+        return NextResponse.json(result);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to rebuild cost centres";
+        return NextResponse.json({ error: message }, { status: 503 });
+      }
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });

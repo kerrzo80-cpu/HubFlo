@@ -262,11 +262,40 @@ export function TendersPanel({
       const response = await fetch("/api/tenders", { headers: requestHeaders });
       if (!response.ok) throw new Error("Unable to load tenders");
       const payload = (await response.json()) as { tenders?: Tender[] };
-      setTenders(Array.isArray(payload.tenders) ? payload.tenders : []);
+      // List is lean (no BoQ arrays) — preserve any BoQ already loaded for the open tender.
+      setTenders((current) => {
+        const previousById = new Map(current.map((row) => [row.id, row]));
+        const next = Array.isArray(payload.tenders) ? payload.tenders : [];
+        return next.map((row) => {
+          const previous = previousById.get(row.id);
+          if (previous?.boqLines?.length && !(row.boqLines && row.boqLines.length)) {
+            return { ...row, boqLines: previous.boqLines, boqTitle: row.boqTitle || previous.boqTitle };
+          }
+          return row;
+        });
+      });
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "Unable to load tenders");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadSelectedTenderBoq(tenderId: string) {
+    try {
+      const response = await fetch(`/api/tenders?id=${encodeURIComponent(tenderId)}`, {
+        headers: requestHeaders,
+      });
+      if (!response.ok) return;
+      const payload = (await response.json()) as { tender?: Tender };
+      if (!payload.tender?.id) return;
+      setTenders((current) => {
+        const exists = current.some((row) => row.id === payload.tender!.id);
+        if (!exists) return [...current, payload.tender!];
+        return current.map((row) => (row.id === payload.tender!.id ? payload.tender! : row));
+      });
+    } catch {
+      // Non-fatal — tracker still works without the open Bill.
     }
   }
 
@@ -277,6 +306,14 @@ export function TendersPanel({
 
   useEffect(() => {
     setClientSuggestionsOpen(false);
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const open = tenders.find((row) => row.id === selectedId);
+    if (open && Array.isArray(open.boqLines) && open.boqLines.length > 0) return;
+    void loadSelectedTenderBoq(selectedId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
   useEffect(() => {

@@ -21127,6 +21127,14 @@ export default function CoreApp() {
     const jobId = selectedJob.id;
     setJobTenderActionBusy(true);
     setJobTenderActionError(null);
+    // Collapse any oversized dump in the UI immediately so a server blip cannot white-screen the job.
+    setJobEstimateCostCentres((current) => ({
+      ...current,
+      [jobId]: collapseOversizedJobCostCentresForUi(
+        jobId,
+        (current[jobId] ?? []) as EstimateCostCentre[],
+      ),
+    }));
     try {
       const response = await fetch("/api/tenders", {
         method: "POST",

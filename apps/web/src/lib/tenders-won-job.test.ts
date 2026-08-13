@@ -215,6 +215,81 @@ test("rebuild from job works when tender.convertedJobId is stale or missing", as
   assert.ok(((hub.jobCostCentres as Record<string, unknown[]>)?.[job.id] || []).length >= 1);
 });
 
+test("rebuild from a large BoQ stays lean and does not dump line arrays onto the job", async (t) => {
+  const storeDir = mkdtempSync(path.join(tmpdir(), "hubflo-tender-rebuild-large-"));
+  process.env.NEXA_STORE_DIR = storeDir;
+  process.env.NEXA_STORE_PATH = "";
+  process.env.NEXA_WORKSPACE_MODE = "live";
+  t.after(() => rmSync(storeDir, { recursive: true, force: true }));
+
+  const { writeServerStore } = await import("./server-store");
+  writeServerStore("nexa-tenders-v1", { tenders: [] });
+  writeServerStore("workflow-store", { jobs: [], quotes: [], purchaseRequests: [] });
+  writeServerStore("hub-detail-store", { invoices: [], jobCostCentres: {}, jobSections: {} });
+  writeServerStore("people-store", {
+    clients: [],
+    clientSites: [],
+    employees: [],
+    contacts: [],
+    contractors: [],
+    auditEvents: [],
+  });
+
+  const { upsertTender, rebuildJobCostCentresFromSourceTender, listTendersLean } = await import("./tenders-data");
+  const { createJob } = await import("./workflow-data");
+  const { getHubDetailState } = await import("./hub-detail-store");
+
+  const boqLines = Array.from({ length: 2500 }, (_, index) => ({
+    id: `line-${index}`,
+    kind: "measured" as const,
+    description: `BoQ measured item ${index} with longer wording for realism`,
+    quantity: 2,
+    unit: "nr",
+    rate: 12.5,
+    value: 25,
+    sheet: index % 2 === 0 ? "Ground Floor Heating" : "First Floor Hot & cold",
+    note: index % 2 === 0 ? "Ground · guide" : "First · guide",
+  }));
+
+  const tender = upsertTender({
+    id: "tender-large-boq",
+    name: "Large BoQ",
+    client: "Matt",
+    category: "Heating",
+    area: "Aberdeen",
+    status: "Won",
+    owner: "Office",
+    boqLines,
+  });
+
+  const job = createJob({
+    customer: "Matt",
+    site: "Site",
+    description: "Heating",
+    manager: "Office",
+    status: "Pending",
+    value: 1,
+    next: "Schedule",
+    due: "2026-08-13",
+    sourceTenderId: tender.id,
+    sourceTenderName: tender.name,
+  });
+
+  const rebuilt = rebuildJobCostCentresFromSourceTender(job.id);
+  assert.ok(rebuilt.jobCostCentres.length >= 1);
+  assert.ok(
+    rebuilt.jobCostCentres.every((centre) => centre.materials.length <= 1),
+    "large rebuild must stay lean",
+  );
+  const materialCount = rebuilt.jobCostCentres.reduce((sum, centre) => sum + centre.materials.length, 0);
+  assert.ok(materialCount <= rebuilt.jobCostCentres.length);
+  assert.equal(listTendersLean().every((row) => row.boqLines.length === 0), true);
+
+  const hub = getHubDetailState();
+  const stored = ((hub.jobCostCentres as Record<string, Array<{ materials?: unknown[] }>>)?.[job.id] || []);
+  assert.ok(stored.every((centre) => (centre.materials?.length || 0) <= 1));
+});
+
 test("Won convert copies tender drawings onto the job documents hub", async (t) => {
   const storeDir = mkdtempSync(path.join(tmpdir(), "hubflo-tender-docs-"));
   process.env.NEXA_STORE_DIR = storeDir;
