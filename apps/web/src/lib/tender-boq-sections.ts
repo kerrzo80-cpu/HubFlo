@@ -38,14 +38,16 @@ export function looksLikeTakeoffPipeMetreLine(ref: string, description: string):
   return false;
 }
 
-/** Sheet tabs named like supplier sales orders / quotations. */
+/** Sheet tabs named like supplier sales orders / quotations / flat heating packs. */
 export function looksLikeSupplierQuoteSheetName(sheet: string): boolean {
   const key = (sheet || "").toLowerCase();
   return (
     /\bsales\s*order\b/.test(key) ||
     /\bquotation\b/.test(key) ||
     /\bfilpumps\b/.test(key) ||
-    /\bquote\b/.test(key)
+    /\bquote\b/.test(key) ||
+    /\bwilliam\s*wilson\b/.test(key) ||
+    /\bheating\b/.test(key)
   );
 }
 

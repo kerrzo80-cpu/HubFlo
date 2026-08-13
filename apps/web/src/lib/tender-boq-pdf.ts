@@ -2,7 +2,9 @@
  * PDF BoQ → sheet matrix adapter.
  * Reuses takeoff PDF text extraction, then rebuilds table-like rows for parseBoqFromRows.
  * Text-based PDFs only (no OCR) — scanned bills fail with a clear message.
- * Also handles supplier sales-order / quotation layouts (Qty / Product Code / Description / Unit Price).
+ * Handles supplier quotation layouts:
+ * - Filpumps sales-order (Qty Ordered / Product Code / Unit Price / Net Price)
+ * - William Wilson merchant quotes (LINE / PRODUCT CODE / QTY. / PRICE / NET VALUE)
  */
 
 import { friendlyPdfEngineError } from "@/lib/pdf-engine-errors";
@@ -35,6 +37,16 @@ type SupplierColumnBands = {
   unitPrice: number;
   netPrice: number;
   vat: number;
+};
+
+/** William Wilson FOP quote columns (LINE · CODE · DESC · QTY · PRICE · … · NET VALUE). */
+type WwColumnBands = {
+  lineNo: number;
+  code: number;
+  description: number;
+  qty: number;
+  price: number;
+  netValue: number;
 };
 
 function clusterItemsIntoLines(items: ExtractedPdfTextItem[]): LineCluster[] {
@@ -151,8 +163,13 @@ function parseMoneyCell(raw: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-function looksLikeSupplierQuotePage(page: ExtractedPdfPage): boolean {
-  const hay = `${page.fullText || ""} ${page.textItems.map((item) => item.text).join(" ")}`.toLowerCase();
+function pageHaystack(page: ExtractedPdfPage): string {
+  return `${page.fullText || ""} ${page.textItems.map((item) => item.text).join(" ")}`.toLowerCase();
+}
+
+/** Filpumps-style sales order / quotation with Qty Ordered + Unit/Net Price. */
+function looksLikeFilpumpsQuotePage(page: ExtractedPdfPage): boolean {
+  const hay = pageHaystack(page);
   const hasQty = /\bqty\b/.test(hay) && /\bordered\b/.test(hay);
   const hasProduct =
     (/product\s*code/.test(hay) || /\bcode\b/.test(hay)) &&
@@ -164,6 +181,24 @@ function looksLikeSupplierQuotePage(page: ExtractedPdfPage): boolean {
     /\bfilpumps\b/.test(hay) ||
     /\border\s*total\b/.test(hay);
   return (hasQty && hasProduct && hasPrice) || (looksLikeQuote && hasProduct && hasPrice);
+}
+
+/**
+ * William Wilson merchant quotations (FOP PDF) — LINE / PRODUCT CODE / QTY. / PRICE / NET VALUE.
+ * Deliberately distinct from Filpumps: no "Ordered", uses NET VALUE not Net Price.
+ */
+function looksLikeWilliamWilsonQuotePage(page: ExtractedPdfPage): boolean {
+  const hay = pageHaystack(page);
+  const hasWwTable =
+    /\bproduct\s*code\b/.test(hay) &&
+    /\bproduct\s*description\b/.test(hay) &&
+    /\bqty\.?\b/.test(hay) &&
+    (/\bnet\s*value\b/.test(hay) || /\bprice\b/.test(hay));
+  const hasWwBrand =
+    /\bwilliam\s*wilson\b/.test(hay) ||
+    /\bnot\s+a\s+sales\s+order\b/.test(hay) ||
+    /\btotal\s+goods\b/.test(hay);
+  return hasWwTable && (hasWwBrand || /\bquotation\b/.test(hay) || /\bline\b/.test(hay));
 }
 
 function findSupplierHeaderLine(lines: LineCluster[]): LineCluster | null {
@@ -264,19 +299,130 @@ function isSupplierFooterLine(text: string): boolean {
     /\btotal\s+net\b/.test(lower) ||
     /\btotal\s+vat\b/.test(lower) ||
     /\border\s+total\b/.test(lower) ||
+    /\btotal\s+goods\b/.test(lower) ||
     /\bbank\s+details\b/.test(lower) ||
     /\ball\s+prices\s+quoted\b/.test(lower) ||
     /\bsubject\s+to\s+our\s+terms\b/.test(lower) ||
-    /\blegal\s+title\b/.test(lower)
+    /\blegal\s+title\b/.test(lower) ||
+    /\bterms\s+and\s+conditions\s+of\s+sale\b/.test(lower) ||
+    /\bthis\s+quote\s+will\s+earn\b/.test(lower) ||
+    /^text$/i.test(text.trim())
   );
 }
 
+function findWwHeaderLine(lines: LineCluster[]): LineCluster | null {
+  for (const line of lines) {
+    const text = lineJoinedText(line).toLowerCase();
+    if (!/\bline\b/.test(text) && !findTokenX(line.items, /^line$/i)) continue;
+    if (!text.includes("product") && !text.includes("description")) continue;
+    if (!/\bqty\.?\b/.test(text) && !text.includes("quantity")) continue;
+    if (!text.includes("price") && !text.includes("value")) continue;
+    return line;
+  }
+  return null;
+}
+
+function inferWwColumnBands(header: LineCluster): WwColumnBands {
+  const items = header.items;
+  const lineNo = findTokenX(items, /^line$/i) ?? 17;
+  // PRODUCT CODE / DESCRIPTION labels sit to the right of the value cells on WW FOP
+  // quotes — anchor bands on value-column starts, not the wide header label left edges.
+  const codeHeader =
+    findTokenX(items, /product\s*code/i) ??
+    findTokenX(items, /^product$/i) ??
+    82;
+  const descriptionHeader =
+    findTokenX(items, /product\s*description/i) ??
+    findTokenX(items, /^description$/i) ??
+    354;
+  const qty = findTokenX(items, /^qty\.?$/i) ?? findTokenX(items, /quantity/i) ?? 624;
+  const price = findTokenX(items, /^price$/i) ?? 664;
+  const netValue =
+    findTokenX(items, /net\s*value/i) ?? findTokenX(items, /^net$/i) ?? findTokenX(items, /^value$/i) ?? 778;
+  const code = lineNo + 22;
+  const description = Math.min(codeHeader, Math.max(code + 36, descriptionHeader - 160));
+  return { lineNo, code, description, qty, price, netValue };
+}
+
+type WwCellKey = keyof WwColumnBands | "skip";
+
+function wwBandForX(x: number, bands: WwColumnBands): WwCellKey {
+  if (x < bands.code - 4) return "lineNo";
+  if (x < bands.description - 4) return "code";
+  if (x < bands.qty - 4) return "description";
+  if (x < bands.price - 4) return "qty";
+  // Absorb %DISC / PER / VAT between unit price and net value.
+  const mid = (bands.price + bands.netValue) / 2;
+  if (x < bands.netValue - 24) {
+    return x < mid ? "price" : "skip";
+  }
+  return "netValue";
+}
+
+function assignWwCells(
+  items: ExtractedPdfTextItem[],
+  bands: WwColumnBands,
+): Record<keyof WwColumnBands, string> {
+  const cells: Record<keyof WwColumnBands, string> = {
+    lineNo: "",
+    code: "",
+    description: "",
+    qty: "",
+    price: "",
+    netValue: "",
+  };
+  for (const item of items) {
+    const key = wwBandForX(item.x, bands);
+    if (key === "skip") continue;
+    cells[key] = cells[key] ? `${cells[key]} ${item.text}` : item.text;
+  }
+  for (const key of Object.keys(cells) as Array<keyof WwColumnBands>) {
+    cells[key] = cells[key].replace(/\s+/g, " ").trim();
+  }
+  return cells;
+}
+
+function pushSupplierMeasuredRow(
+  rows: string[][],
+  opts: { code: string; description: string; qty: number | null; rate: number | null; net: number | null },
+): void {
+  const { code, description } = opts;
+  if (!description && !code) return;
+  if (looksLikeTakeoffPipeMetreLine(code, description)) return;
+
+  const qty = opts.qty;
+  const rate = opts.rate;
+  const net = opts.net;
+  if (qty === null && rate === null && net === null) return;
+  if ((qty === 0 || qty === null) && (rate === 0 || rate === null) && (net === 0 || net === null)) {
+    return;
+  }
+
+  const quantity = qty !== null && qty > 0 ? qty : 1;
+  const unitRate = rate ?? net;
+  const value =
+    net !== null && net > 0
+      ? net
+      : unitRate !== null
+        ? Math.round(unitRate * quantity * 100) / 100
+        : null;
+
+  rows.push([
+    code || "",
+    description || code || "Supplier item",
+    String(quantity),
+    "nr",
+    unitRate !== null ? String(unitRate) : "",
+    value !== null ? String(value) : "",
+  ]);
+}
+
 /**
- * Supplier sales-order / quotation line table → BoQ-shaped rows.
+ * Filpumps sales-order / quotation line table → BoQ-shaped rows.
  * Skips memo rows (qty 0 / code M) and keeps priced supply lines + carriage.
  */
-export function pdfPageToSupplierQuoteRows(page: ExtractedPdfPage): string[][] | null {
-  if (!looksLikeSupplierQuotePage(page)) return null;
+function pdfPageToFilpumpsQuoteRows(page: ExtractedPdfPage): string[][] | null {
+  if (!looksLikeFilpumpsQuotePage(page)) return null;
   const lines = clusterItemsIntoLines(page.textItems);
   const header = findSupplierHeaderLine(lines);
   if (!header) return null;
@@ -305,34 +451,80 @@ export function pdfPageToSupplierQuoteRows(page: ExtractedPdfPage): string[][] |
 
     // Memo / comment rows on Filpumps-style quotes use qty 0 and code "M".
     if ((qty === 0 || qty === null) && /^m$/i.test(code)) continue;
-    if (!description && !code) continue;
-    if (qty === null && rate === null && net === null) continue;
-    if ((qty === 0 || qty === null) && (rate === 0 || rate === null) && (net === 0 || net === null)) {
-      continue;
-    }
-    // Never invent takeoff pipe-metre lines on a supplier sales-order sheet.
-    if (looksLikeTakeoffPipeMetreLine(code, description)) continue;
 
-    const quantity = qty !== null && qty > 0 ? qty : 1;
-    const unitRate = rate ?? net;
-    const value =
-      net !== null && net > 0
-        ? net
-        : unitRate !== null
-          ? Math.round(unitRate * quantity * 100) / 100
-          : null;
-
-    rows.push([
-      code || "",
-      description || code || "Supplier item",
-      String(quantity),
-      "nr",
-      unitRate !== null ? String(unitRate) : "",
-      value !== null ? String(value) : "",
-    ]);
+    pushSupplierMeasuredRow(rows, { code, description, qty, rate, net });
   }
 
   return rows.length > 1 ? rows : null;
+}
+
+/**
+ * William Wilson quotation line table → BoQ-shaped rows.
+ * ZTEXT / zero-net rows become section headers; priced SKUs become measured lines.
+ */
+export function pdfPageToWilliamWilsonQuoteRows(page: ExtractedPdfPage): string[][] | null {
+  if (!looksLikeWilliamWilsonQuotePage(page)) return null;
+  const lines = clusterItemsIntoLines(page.textItems);
+  const header = findWwHeaderLine(lines);
+  if (!header) return null;
+
+  const bands = inferWwColumnBands(header);
+  const rows: string[][] = [SUPPLIER_QUOTE_HEADER.slice()];
+  let headerSeen = false;
+
+  for (const line of lines) {
+    if (line === header) {
+      headerSeen = true;
+      continue;
+    }
+    if (!headerSeen) continue;
+
+    const joined = lineJoinedText(line);
+    if (!joined) continue;
+    if (isSupplierFooterLine(joined)) break;
+
+    // Skip letterhead / address blocks that share the page below the table break.
+    if (/^\*{0,3}\s*not\s+a\s+sales\s+order/i.test(joined)) break;
+    if (/^quotation$/i.test(joined.trim())) break;
+    if (/william\s*wilson/i.test(joined) && !/\b(vlt|htm|yz|dn-|exc|exd|arg|hs\d)/i.test(joined)) {
+      // Brand/footer lines after the table — stop once we leave product rows.
+      if (!/^\d+\s+\S+/.test(joined) && !findTokenX(line.items, /^\d+$/)) break;
+    }
+
+    const cells = assignWwCells(line.items, bands);
+    const lineNo = cells.lineNo.trim();
+    const code = cells.code.trim();
+    const description = cells.description.trim();
+    const qty = parseMoneyCell(cells.qty);
+    const rate = parseMoneyCell(cells.price);
+    const net = parseMoneyCell(cells.netValue);
+
+    if (!description && !code) continue;
+    // Require a numeric LINE marker so address noise is ignored.
+    if (lineNo && !/^\d+$/.test(lineNo)) continue;
+    if (!lineNo && !code) continue;
+
+    // Section banners (Apartment / Control Suggestion / UFH Kit Option…).
+    if (/^ztext$/i.test(code) || ((rate === 0 || rate === null) && (net === 0 || net === null))) {
+      const label = (
+        /^ztext$/i.test(code) ? description : description.replace(/^ztext\s+/i, "")
+      ).trim();
+      if (label) rows.push(["", label, "", "", "", ""]);
+      continue;
+    }
+
+    pushSupplierMeasuredRow(rows, { code, description, qty, rate, net });
+  }
+
+  return rows.length > 1 ? rows : null;
+}
+
+/**
+ * Supplier sales-order / quotation line table → BoQ-shaped rows.
+ * Tries Filpumps first, then William Wilson merchant quotes.
+ */
+export function pdfPageToSupplierQuoteRows(page: ExtractedPdfPage): string[][] | null {
+  return pdfPageToFilpumpsQuoteRows(page) || pdfPageToWilliamWilsonQuoteRows(page);
 }
 
 export function pdfPageToBoqRows(page: ExtractedPdfPage): string[][] {
@@ -357,19 +549,45 @@ export function pdfPageToBoqRows(page: ExtractedPdfPage): string[][] {
   return rows;
 }
 
+function sheetNameFromPdfFile(doc: ExtractedPdfDocument): string {
+  return (doc.fileName || "boq.pdf").replace(/\.[^.]+$/, "").trim() || "PDF";
+}
+
 function sheetNameForPdfPage(doc: ExtractedPdfDocument, page: ExtractedPdfPage): string {
-  const base = (doc.fileName || "boq.pdf").replace(/\.[^.]+$/, "").trim() || "PDF";
+  const base = sheetNameFromPdfFile(doc);
   if (doc.pageCount <= 1) return base;
   return `${base} · Page ${page.pageNumber}`;
+}
+
+function mergeSupplierQuoteSheets(
+  doc: ExtractedPdfDocument,
+  pages: ExtractedPdfPage[],
+): WorkbookSheetRows[] | null {
+  const pageRows = pages.map((page) => pdfPageToSupplierQuoteRows(page));
+  if (!pageRows.some((rows) => rows && rows.length > 1)) return null;
+
+  const merged: string[][] = [SUPPLIER_QUOTE_HEADER.slice()];
+  for (const rows of pageRows) {
+    if (!rows?.length) continue;
+    for (let i = 1; i < rows.length; i += 1) {
+      merged.push(rows[i]!);
+    }
+  }
+  if (merged.length <= 1) return null;
+  // One tab per PDF file (not per page) — Add-to-BoQ names tabs from the filename.
+  return [{ name: sheetNameFromPdfFile(doc), rows: merged }];
 }
 
 export function workbookBoqSheetsFromPdfDocument(doc: ExtractedPdfDocument): WorkbookSheetRows[] {
   const selectable = doc.pages.filter((page) => page.hasSelectableText);
   if (!selectable.length) {
     throw new Error(
-      "This PDF has no selectable text (likely a scan). Export the BoQ as Excel/CSV, or use a text-based PDF.",
+      "This PDF has no selectable text (likely a scan). Export the BoQ as Excel/CSV, or use a text-based PDF / OCR, then re-import.",
     );
   }
+
+  const supplierSheets = mergeSupplierQuoteSheets(doc, selectable);
+  if (supplierSheets?.length) return supplierSheets;
 
   const sheets: WorkbookSheetRows[] = [];
   for (const page of selectable) {
