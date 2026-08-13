@@ -305,6 +305,8 @@ export function TendersPanel({
         recreated?: boolean;
         jobSections?: Array<{ id: string; name: string; description: string }>;
         jobCostCentres?: Array<Record<string, unknown>>;
+        notice?: string;
+        documentsCopied?: number;
       };
       if (!response.ok) throw new Error(payload.error || "Request failed");
       if (Array.isArray(payload.tenders)) {
@@ -476,7 +478,7 @@ export function TendersPanel({
     if (!selected?.convertedJobId) return;
     if (
       !window.confirm(
-        `Rebuild job cost centres for “${selected.name}” from the current BoQ?\n\nFloor sections and service centres (Heating, Hot & cold, …) will replace the current structure. Daywork centres are kept. Tender drawings/documents are synced onto the job.`,
+        `Rebuild lean cost centres for “${selected.name}” from tender sheet totals?\n\nFloor/service stubs replace the current structure (no BoQ line dump). Daywork centres are kept. Use Sync documents separately for drawings.`,
       )
     ) {
       return;
@@ -484,13 +486,7 @@ export function TendersPanel({
     try {
       const result = await postAction({ action: "rebuild-job-cost-centres", id: selected.id });
       applyJobStructureFromResult(result);
-      const centreCount = result.jobCostCentres?.length || 0;
-      const docs = result.documentsCopied || 0;
-      onNotice(
-        `Rebuilt ${centreCount} cost centre(s) from BoQ onto job ${result.job?.ref || selected.convertedJobRef || ""}${
-          docs ? ` · ${docs} document(s) synced` : ""
-        }.`,
-      );
+      onNotice(result.notice || "Rebuilt lean centres (no line dump)");
       if (result.job?.id || selected.convertedJobId) {
         onOpenPendingJob?.(result.job?.id || selected.convertedJobId!);
       }

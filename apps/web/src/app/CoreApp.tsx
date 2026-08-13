@@ -7505,17 +7505,75 @@ function refreshedEstimateCostCentresFromRateBook(
 /** Client-side safety net — keep Jobs open even if heal API is down / slow. */
 const JOB_UI_MAX_MATERIALS_PER_CENTRE = 40;
 const JOB_UI_MAX_MATERIALS_PER_JOB = 200;
+const JOB_UI_LEAN_REBUILD_NOTICE = "Rebuilt lean centres (no line dump)";
 
 function isTenderBoqEstimateCentre(centre: EstimateCostCentre): boolean {
   const materials = Array.isArray(centre?.materials) ? centre.materials : [];
   if (materials.some((line) => line?.catalogItemId === "tender-boq")) return true;
-  return /tender\s*boq|from tender|lean package|collapsed .* lines/i.test(
+  return /tender\s*boq|from tender|lean (package|sheet|centres)|collapsed .* lines|no line dump/i.test(
     `${centre?.engineerDescription || ""} ${centre?.templateName || ""}`,
   );
 }
 
+function jobCentresLookFatForUi(centres: EstimateCostCentre[]): boolean {
+  let materials = 0;
+  let approxChars = 0;
+  for (const centre of centres) {
+    const mats = Array.isArray(centre?.materials) ? centre.materials : [];
+    materials += mats.length;
+    if (materials > 50) return true;
+    approxChars += String(centre?.name || "").length + String(centre?.engineerDescription || "").length;
+    for (let i = 0; i < Math.min(mats.length, 8); i += 1) {
+      approxChars += String(mats[i]?.description || "").length + 48;
+    }
+    if (mats.length > 8) approxChars += (mats.length - 8) * 64;
+    if (approxChars > 80_000) return true;
+  }
+  return materials > 50;
+}
+
+/** Nuclear strip — empty materials before first paint (no API). */
+function stripJobCostCentresToEmptyMaterialsForUi(
+  jobId: string,
+  centres: EstimateCostCentre[],
+): EstimateCostCentre[] {
+  if (!Array.isArray(centres) || centres.length === 0) return Array.isArray(centres) ? centres : [];
+  return centres.map((centre) => {
+    const materials = Array.isArray(centre?.materials) ? centre.materials : [];
+    const labour = Array.isArray(centre?.labour) ? centre.labour : [];
+    if (materials.length === 0) {
+      return {
+        ...centre,
+        clientDescription: centre?.clientDescription ?? "",
+        engineerDescription: centre?.engineerDescription ?? "",
+        materials: [],
+        labour,
+      };
+    }
+    const sell = materials.reduce(
+      (sum, line) =>
+        sum + Number(line.quantity || 0) * Number(line.unitCost || 0) * (1 + Number(line.markupPercent || 0) / 100),
+      0,
+    );
+    return {
+      ...centre,
+      clientDescription: centre?.clientDescription ?? "",
+      engineerDescription: `${centre.engineerDescription || "From tender BoQ"} · sheet total £${(Math.round(sell * 100) / 100).toFixed(2)} (${materials.length} lines stripped · no line dump)`.slice(
+        0,
+        480,
+      ),
+      materials: [],
+      labour,
+    };
+  });
+}
+
 function collapseOversizedJobCostCentresForUi(jobId: string, centres: EstimateCostCentre[]): EstimateCostCentre[] {
   if (!Array.isArray(centres) || centres.length === 0) return Array.isArray(centres) ? centres : [];
+  // Prefer nuclear empty-materials strip for fat / tender dumps — never keep line arrays in React state.
+  if (jobCentresLookFatForUi(centres) || centres.some((centre) => isTenderBoqEstimateCentre(centre) && (centre.materials?.length || 0) > 0)) {
+    return stripJobCostCentresToEmptyMaterialsForUi(jobId, centres);
+  }
   const safe = centres.map((centre) => ({
     ...centre,
     clientDescription: centre?.clientDescription ?? "",
@@ -7528,28 +7586,10 @@ function collapseOversizedJobCostCentresForUi(jobId: string, centres: EstimateCo
 
   return safe.map((centre) => {
     const tenderish = isTenderBoqEstimateCentre(centre);
-    const cap = tenderish ? 1 : JOB_UI_MAX_MATERIALS_PER_CENTRE;
-    const shouldLump = centre.materials.length > cap || (jobOver && centre.materials.length > cap);
-    if (!shouldLump) return centre;
-    const sell = centre.materials.reduce(
-      (sum, line) =>
-        sum + Number(line.quantity || 0) * Number(line.unitCost || 0) * (1 + Number(line.markupPercent || 0) / 100),
-      0,
-    );
-    return {
-      ...centre,
-      engineerDescription: `${centre.engineerDescription || "From tender BoQ"} · lean package (${centre.materials.length} lines).`,
-      materials: [
-        {
-          id: `${jobId}-ui-lump-${centre.id}`,
-          catalogItemId: "tender-boq",
-          description: `${centre.name} · tender BoQ package`,
-          quantity: 1,
-          unitCost: Math.round(sell * 100) / 100,
-          markupPercent: 0,
-        },
-      ],
-    };
+    const cap = tenderish ? 0 : JOB_UI_MAX_MATERIALS_PER_CENTRE;
+    const shouldStrip = centre.materials.length > cap || (jobOver && centre.materials.length > 0);
+    if (!shouldStrip) return centre;
+    return stripJobCostCentresToEmptyMaterialsForUi(jobId, [centre])[0]!;
   });
 }
 
@@ -20999,11 +21039,29 @@ export default function CoreApp() {
     setJobTenderActionError(null);
     setHomeView("job-record");
     scrollWorkspaceToTop();
-    // Heal corrupt / oversized tender-BoQ centres before paint so J-1103-style jobs never white-screen.
-    void healSelectedJobCostCentresIfNeeded(jobId, job?.ref);
+    // Nuclear sync strip BEFORE paint — tender jobs with any materials / fat JSON never hydrate line dumps.
+    const centres = jobEstimateCostCentres[jobId];
+    if (job?.sourceTenderId && Array.isArray(centres) && centres.length) {
+      const materialCount = centres.reduce(
+        (sum, centre) => sum + (Array.isArray(centre?.materials) ? centre.materials.length : 0),
+        0,
+      );
+      if (materialCount > 0 || jobCentresLookFatForUi(centres as EstimateCostCentre[])) {
+        setJobEstimateCostCentres((current) => ({
+          ...current,
+          [jobId]: stripJobCostCentresToEmptyMaterialsForUi(jobId, centres as EstimateCostCentre[]),
+        }));
+      }
+    }
+    // Background heal persists lean stubs; strip above does not need this roundtrip to paint.
+    void healSelectedJobCostCentresIfNeeded(jobId, job?.ref, Boolean(job?.sourceTenderId));
   }
 
-  async function healSelectedJobCostCentresIfNeeded(jobId: string, jobRef?: string) {
+  async function healSelectedJobCostCentresIfNeeded(
+    jobId: string,
+    jobRef?: string,
+    linkedToTender = false,
+  ) {
     const centres = jobEstimateCostCentres[jobId];
     const materialCount = Array.isArray(centres)
       ? centres.reduce((sum, centre) => sum + (Array.isArray(centre?.materials) ? centre.materials.length : 0), 0)
@@ -21011,24 +21069,19 @@ export default function CoreApp() {
     const missingArrays = Array.isArray(centres)
       ? centres.some((centre) => !Array.isArray(centre?.materials) || !Array.isArray(centre?.labour))
       : false;
-    const tenderHeavy =
-      Array.isArray(centres) &&
-      centres.some(
-        (centre) =>
-          isTenderBoqEstimateCentre(centre as EstimateCostCentre) &&
-          Array.isArray(centre?.materials) &&
-          centre.materials.length > 1,
-      );
+    const fat = Array.isArray(centres) && jobCentresLookFatForUi(centres as EstimateCostCentre[]);
+    const tenderAnyMaterials = linkedToTender && materialCount > 0;
     const needsHeal =
       missingArrays ||
       materialCount > JOB_UI_MAX_MATERIALS_PER_JOB ||
-      tenderHeavy ||
+      tenderAnyMaterials ||
+      fat ||
       materialCount > JOB_UI_MAX_MATERIALS_PER_CENTRE;
     // Sync lean strip before paint — never wait for the heal API with a huge materials dump in React state.
-    if (Array.isArray(centres) && centres.length && (needsHeal || tenderHeavy)) {
+    if (Array.isArray(centres) && centres.length && needsHeal) {
       setJobEstimateCostCentres((current) => ({
         ...current,
-        [jobId]: collapseOversizedJobCostCentresForUi(jobId, centres as EstimateCostCentre[]),
+        [jobId]: stripJobCostCentresToEmptyMaterialsForUi(jobId, centres as EstimateCostCentre[]),
       }));
     }
     if (!needsHeal) return;
@@ -21050,7 +21103,7 @@ export default function CoreApp() {
       if (payload?.centres) {
         setJobEstimateCostCentres((current) => ({
           ...current,
-          [jobId]: collapseOversizedJobCostCentresForUi(jobId, payload.centres as EstimateCostCentre[]),
+          [jobId]: stripJobCostCentresToEmptyMaterialsForUi(jobId, payload.centres as EstimateCostCentre[]),
         }));
       }
       if (payload?.sections?.length) {
@@ -21119,7 +21172,7 @@ export default function CoreApp() {
     }
     if (
       !window.confirm(
-        `Rebuild cost centres for ${selectedJob.ref} from the linked tender BoQ?\n\nFloor sections and service centres will replace the current structure. Daywork centres are kept. Tender drawings are synced to Documents.`,
+        `Rebuild lean cost centres for ${selectedJob.ref} from tender sheet totals?\n\nFloor/service stubs replace the current structure (no BoQ line dump). Daywork centres are kept. Use “Sync documents” separately for drawings.`,
       )
     ) {
       return;
@@ -21141,6 +21194,7 @@ export default function CoreApp() {
         jobSections?: JobSection[];
         job?: Job;
         documentsCopied?: number;
+        notice?: string;
         error?: string;
       } | null;
       if (!response.ok) {
@@ -21149,7 +21203,10 @@ export default function CoreApp() {
       if (payload?.jobCostCentres) {
         setJobEstimateCostCentres((current) => ({
           ...current,
-          [jobId]: collapseOversizedJobCostCentresForUi(jobId, payload.jobCostCentres as EstimateCostCentre[]),
+          [jobId]: stripJobCostCentresToEmptyMaterialsForUi(
+            jobId,
+            payload.jobCostCentres as EstimateCostCentre[],
+          ),
         }));
       }
       if (payload?.jobSections) {
@@ -21163,11 +21220,7 @@ export default function CoreApp() {
           current.map((row) => (row.id === jobId ? { ...row, value: payload.job!.value } : row)),
         );
       }
-      showNotice(
-        `Rebuilt ${payload?.jobCostCentres?.length || 0} cost centre(s) from BoQ${
-          payload?.documentsCopied ? ` · ${payload.documentsCopied} document(s) synced` : ""
-        }.`,
-      );
+      showNotice(payload?.notice || JOB_UI_LEAN_REBUILD_NOTICE);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to rebuild cost centres";
       setJobTenderActionError(message);

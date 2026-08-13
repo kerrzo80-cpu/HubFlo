@@ -11,7 +11,7 @@ import {
 } from "./tender-job-cost-centres";
 import type { TenderBoqLine } from "./tenders-types";
 
-test("buildJobStructureFromTenderBoq maps floors to sections and services to cost centres", () => {
+test("buildJobStructureFromTenderBoq maps sheets to sections/services with empty materials", () => {
   const lines: TenderBoqLine[] = [
     {
       id: "h-lg",
@@ -71,29 +71,11 @@ test("buildJobStructureFromTenderBoq maps floors to sections and services to cos
     lines,
   );
 
-  assert.deepEqual(
-    structure.sections.map((section) => section.name),
-    ["Lower ground", "Ground"],
-  );
-  assert.equal(structure.costCentres.length, 2);
   assert.equal(structure.totalSell, 4620);
-
-  const hotCold = structure.costCentres.find((centre) => centre.name === "Hot & cold");
-  const heating = structure.costCentres.find((centre) => centre.name === "Heating");
-  assert.ok(hotCold);
-  assert.ok(heating);
-  assert.equal(hotCold?.materials.length, 1);
-  assert.equal(heating?.materials.length, 1);
-  assert.equal(hotCold?.materials[0]?.unitCost, 120);
-  assert.equal(heating?.materials[0]?.unitCost, 4500);
-
-  const centreSell = structure.costCentres.reduce(
-    (sum, centre) =>
-      sum +
-      centre.materials.reduce((inner, line) => inner + line.quantity * line.unitCost, 0),
-    0,
-  );
-  assert.equal(Math.round(centreSell * 100) / 100, structure.totalSell);
+  assert.ok(structure.costCentres.length >= 2);
+  assert.ok(structure.costCentres.every((centre) => centre.materials.length === 0));
+  assert.ok(structure.costCentres.some((centre) => /Hot & cold/i.test(centre.name)));
+  assert.ok(structure.costCentres.some((centre) => /Heating/i.test(centre.name)));
 });
 
 test("applyTenderBoqStructureToJob writes hub sections/centres and syncs job value", async (t) => {
@@ -157,17 +139,17 @@ test("applyTenderBoqStructureToJob writes hub sections/centres and syncs job val
 
   assert.equal(applied.totalSell, 2400);
   assert.equal(applied.job.value, 2400);
-  assert.equal(applied.sections[0]?.name, "First");
   assert.equal(applied.costCentres.length, 2);
+  assert.ok(applied.costCentres.every((centre) => centre.materials.length === 0));
 
   const hub = getHubDetailState();
   const centres = (hub.jobCostCentres as Record<string, unknown[]>)?.[job.id];
   const sections = (hub.jobSections as Record<string, unknown[]>)?.[job.id];
   assert.equal(centres?.length, 2);
-  assert.equal(sections?.length, 1);
+  assert.ok(sections?.length);
 });
 
-test("healJobCostCentresShape collapses oversized material dumps", () => {
+test("healJobCostCentresShape strips material dumps to empty arrays", () => {
   const materials = Array.from({ length: 450 }, (_, index) => ({
     id: `m-${index}`,
     catalogItemId: "tender-boq",
@@ -188,12 +170,12 @@ test("healJobCostCentresShape collapses oversized material dumps", () => {
     },
   ]);
   assert.equal(healed.healed, true);
-  assert.equal(healed.centres[0]?.materials.length, 1);
-  assert.equal(healed.centres[0]?.materials[0]?.unitCost, 4500);
+  assert.equal(healed.centres[0]?.materials.length, 0);
   assert.ok(Array.isArray(healed.centres[0]?.labour));
+  assert.match(healed.centres[0]?.engineerDescription || "", /4500|450 lines|stripped/i);
 });
 
-test("buildJobStructureFromTenderBoq always emits lean package lines (no BoQ dump)", () => {
+test("buildJobStructureFromTenderBoq never emits BoQ line dumps", () => {
   const lines: TenderBoqLine[] = Array.from({ length: 60 }, (_, index) => ({
     id: `l-${index}`,
     kind: "measured" as const,
@@ -210,7 +192,6 @@ test("buildJobStructureFromTenderBoq always emits lean package lines (no BoQ dum
     lines,
   );
   assert.ok(structure.costCentres[0]);
-  assert.equal(structure.costCentres[0]!.materials.length, 1);
-  assert.equal(structure.costCentres[0]!.materials[0]!.unitCost, 300);
+  assert.equal(structure.costCentres[0]!.materials.length, 0);
   assert.equal(structure.totalSell, 300);
 });

@@ -67,13 +67,11 @@ test("Won tender creates Pending Core job and can reopen without deleting it", a
   assert.equal(converted.tender.convertedJobId, converted.job?.id);
   assert.ok(converted.jobCostCentres.length >= 1);
   assert.equal(
-    converted.jobCostCentres.reduce(
-      (sum, centre) =>
-        sum + centre.materials.reduce((inner, line) => inner + line.quantity * line.unitCost, 0),
-      0,
-    ),
-    300,
+    converted.jobCostCentres.reduce((sum, centre) => sum + centre.materials.length, 0),
+    0,
+    "won convert must not dump BoQ lines onto centres",
   );
+  assert.equal(converted.job?.value, 300);
 
   const viaStatus = updateTender(seedTender("tender-won-2").id, { status: "Won" });
   assert.equal(viaStatus.status, "Won");
@@ -205,9 +203,10 @@ test("rebuild from job works when tender.convertedJobId is stale or missing", as
   assert.ok(rebuilt.jobCostCentres.length >= 1);
   assert.equal(rebuilt.tender.boqLines.length, 0, "response tender must be lean (no BoQ dump)");
   assert.ok(
-    rebuilt.jobCostCentres.every((centre) => centre.materials.length <= 1),
+    rebuilt.jobCostCentres.every((centre) => centre.materials.length === 0),
     "rebuild response must not dump BoQ line arrays",
   );
+  assert.equal(rebuilt.notice, "Rebuilt lean centres (no line dump)");
   assert.equal(getTender(tender.id)?.convertedJobId, job.id);
   assert.equal(getJob(job.id)?.value, 300);
   const hub = getHubDetailState();

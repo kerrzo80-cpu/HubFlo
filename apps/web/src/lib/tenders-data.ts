@@ -13,10 +13,15 @@ import {
 } from "@/lib/tenders-xlsx";
 import { createJob, getJob, getJobs, updateJob } from "@/lib/workflow-data";
 import {
+  applyLeanSheetStructureToJob,
   applyTenderBoqStructureToJob,
   healStoredJobCostCentres,
 } from "@/lib/tender-job-cost-centres";
-import { leanCentresForTransport } from "@/lib/job-cost-centres-lean";
+import {
+  LEAN_REBUILD_NOTICE,
+  aggregateBoqSheetTotals,
+  leanCentresForTransport,
+} from "@/lib/job-cost-centres-lean";
 import { createTakeoffProject, getTakeoffProject, updateTakeoffProject } from "@/lib/takeoff-data";
 import {
   SOURCE_TENDER_DOC_PREFIX,
@@ -1726,13 +1731,15 @@ export function convertTenderToPendingJob(tenderId: string) {
         job: null as ReturnType<typeof createJob> | null,
         alreadyConverted: true as const,
         recreated: false as const,
-        jobSections: [] as ReturnType<typeof applyTenderBoqStructureToJob>["sections"],
-        jobCostCentres: [] as ReturnType<typeof applyTenderBoqStructureToJob>["costCentres"],
+        jobSections: [] as ReturnType<typeof applyLeanSheetStructureToJob>["sections"],
+        jobCostCentres: [] as ReturnType<typeof applyLeanSheetStructureToJob>["costCentres"],
       };
     }
     // Stale link (job deleted / missing) — fall through and create a fresh Pending job.
   }
-  const value = computeBoqTotal(tender.boqLines) || tender.bidValue || 0;
+  // Sheet totals only — never map boqLines onto job centre materials[].
+  const sheetAgg = aggregateBoqSheetTotals(tender.boqLines || []);
+  const value = sheetAgg.totalSell || tender.bidValue || tender.tenderSum || 0;
   const siteLabel = [tender.area, tender.materialsNote?.trim()].filter(Boolean).join(" — ") || "Site to be confirmed";
   const job = createJob({
     clientId: tender.clientId,
@@ -1748,7 +1755,10 @@ export function convertTenderToPendingJob(tenderId: string) {
     sourceTenderName: tender.name,
   });
   const recreated = Boolean(tender.convertedJobId);
-  const structure = applyTenderBoqStructureToJob(job, tender.boqLines, { replace: true });
+  const structure = applyLeanSheetStructureToJob(job, sheetAgg.sheets, {
+    replace: true,
+    totalSell: value,
+  });
   const documentsSync = copyTenderDocumentsToJob(tender, structure.job);
   // Use upsert directly so we do not re-enter the Won auto-convert branch in updateTender.
   const updated = upsertTender({
@@ -1772,7 +1782,7 @@ export function convertTenderToPendingJob(tenderId: string) {
   };
 }
 
-/** Rebuild floor sections + service cost centres on the linked Won job from current BoQ. */
+/** Rebuild floor sections + service cost centres on the linked Won job from sheet totals only. */
 export function rebuildTenderJobCostCentres(tenderId: string) {
   const tender = getTender(tenderId);
   if (!tender) throw new Error("Tender not found.");
@@ -1783,9 +1793,15 @@ export function rebuildTenderJobCostCentres(tenderId: string) {
   if (!job) {
     throw new Error("Linked job is missing — recreate the job from this tender first.");
   }
-  const structure = applyTenderBoqStructureToJob(job, tender.boqLines, { replace: true });
-  const documentsSync = copyTenderDocumentsToJob(tender, structure.job);
-  const nextValue = structure.totalSell || computeBoqTotal(tender.boqLines) || tender.bidValue || job.value;
+  // One-pass sheet sums; discard line bodies — never attach BoQ lines to centres.
+  const sheetAgg = aggregateBoqSheetTotals(tender.boqLines || []);
+  const structure = applyLeanSheetStructureToJob(job, sheetAgg.sheets, {
+    replace: true,
+    totalSell: sheetAgg.totalSell || tender.bidValue || tender.tenderSum || job.value,
+  });
+  // Documents stay on the separate sync action — rebuild must stay memory-cheap on Render.
+  const nextValue =
+    structure.totalSell || sheetAgg.totalSell || tender.bidValue || tender.tenderSum || job.value;
   const updatedTender = upsertTender({
     ...tender,
     status: "Won",
@@ -1798,14 +1814,21 @@ export function rebuildTenderJobCostCentres(tenderId: string) {
   if (structure.job.value !== nextValue) {
     updateJob(structure.job.id, { value: nextValue });
   }
+  console.info(`[hubflo] ${LEAN_REBUILD_NOTICE}`, {
+    path: "rebuildTenderJobCostCentres",
+    tenderId,
+    jobId: structure.job.id,
+    sheets: sheetAgg.sheets.length,
+  });
   return {
     // Keep BoQ out of the JSON response — large Bills OOMed Render / crashed the job UI.
     tender: leanTenderForClient(updatedTender),
     job: getJob(structure.job.id) || structure.job,
     jobSections: structure.sections,
     jobCostCentres: leanCentresForTransport(structure.job.id, structure.costCentres) as typeof structure.costCentres,
-    documentsCopied: documentsSync.copied,
-    documentsSkipped: documentsSync.skipped,
+    notice: LEAN_REBUILD_NOTICE,
+    documentsCopied: 0,
+    documentsSkipped: 0,
   };
 }
 
@@ -2016,7 +2039,7 @@ export function healJobCostCentresForJob(jobIdOrRef: string) {
 
 /**
  * Rebuild cost centres from the job's source tender (Jobs UI path when sourceTenderId is set).
- * Applies to this job even when tender.convertedJobId is missing/stale.
+ * Sheet totals only — never copies boqLines onto centres. Skips document copy (use sync action).
  */
 export function rebuildJobCostCentresFromSourceTender(jobIdOrRef: string) {
   const jobs = getJobs();
@@ -2032,9 +2055,13 @@ export function rebuildJobCostCentresFromSourceTender(jobIdOrRef: string) {
   if (!tender) {
     throw new Error("Linked tender is missing — reopen the tender or clear the job link.");
   }
-  const structure = applyTenderBoqStructureToJob(job, tender.boqLines, { replace: true });
-  const documentsSync = copyTenderDocumentsToJob(tender, structure.job);
-  const nextValue = structure.totalSell || computeBoqTotal(tender.boqLines) || tender.bidValue || job.value;
+  const sheetAgg = aggregateBoqSheetTotals(tender.boqLines || []);
+  const structure = applyLeanSheetStructureToJob(job, sheetAgg.sheets, {
+    replace: true,
+    totalSell: sheetAgg.totalSell || tender.bidValue || tender.tenderSum || job.value,
+  });
+  const nextValue =
+    structure.totalSell || sheetAgg.totalSell || tender.bidValue || tender.tenderSum || job.value;
   const updatedTender = upsertTender({
     ...tender,
     status: tender.status === "Lost" ? tender.status : "Won",
@@ -2047,13 +2074,20 @@ export function rebuildJobCostCentresFromSourceTender(jobIdOrRef: string) {
   if (structure.job.value !== nextValue) {
     updateJob(structure.job.id, { value: nextValue });
   }
+  console.info(`[hubflo] ${LEAN_REBUILD_NOTICE}`, {
+    path: "rebuildJobCostCentresFromSourceTender",
+    jobId: structure.job.id,
+    tenderId: tender.id,
+    sheets: sheetAgg.sheets.length,
+  });
   return {
     tender: leanTenderForClient(updatedTender),
     job: getJob(structure.job.id) || structure.job,
     jobSections: structure.sections,
     jobCostCentres: leanCentresForTransport(structure.job.id, structure.costCentres) as typeof structure.costCentres,
-    documentsCopied: documentsSync.copied,
-    documentsSkipped: documentsSync.skipped,
+    notice: LEAN_REBUILD_NOTICE,
+    documentsCopied: 0,
+    documentsSkipped: 0,
   };
 }
 
