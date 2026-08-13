@@ -1898,15 +1898,27 @@ export function convertTenderToPendingJob(tenderId: string) {
 }
 
 /**
- * Crash-proof rebuild — never loads BoQ line arrays.
- * Uses saved floor/service summary when present, otherwise the tender total.
+ * Crash-proof rebuild — never loads BoQ line arrays, never opens tenders meta.
+ * Uses saved floor/service summary when present, otherwise the job value / summary total.
  */
+function rebuildJobStructureFromJobOnly(job: NonNullable<ReturnType<typeof getJob>>) {
+  const tenderId = String(job.sourceTenderId || "");
+  const summary = tenderId ? readBoqRebuildSummary(tenderId) : null;
+  const total = summary?.totalSell || Number(job.value) || 0;
+  const built =
+    summary && summary.buckets.length
+      ? buildJobStructureFromBoqSummary(job, summary)
+      : buildJobStructureFromTenderTotal(job, total);
+  return applyBuiltTenderStructureToJob(job, built, { replace: true });
+}
+
+/** @deprecated Prefer rebuildJobStructureFromJobOnly — kept for tender-id rebuild path. */
 function rebuildJobStructureWithoutLoadingBoq(
   job: NonNullable<ReturnType<typeof getJob>>,
   tenderMeta: Tender,
 ) {
   const summary = readBoqRebuildSummary(tenderMeta.id);
-  const total = Number(tenderMeta.tenderSum) || Number(tenderMeta.bidValue) || summary?.totalSell || 0;
+  const total = Number(tenderMeta.tenderSum) || Number(tenderMeta.bidValue) || summary?.totalSell || Number(job.value) || 0;
   const built =
     summary && summary.buckets.length
       ? buildJobStructureFromBoqSummary(job, summary)
@@ -1925,23 +1937,30 @@ export function rebuildTenderJobCostCentres(tenderId: string) {
   if (!job) {
     throw new Error("Linked job is missing — recreate the job from this tender first.");
   }
-  const structure = rebuildJobStructureWithoutLoadingBoq(job, tenderMeta);
+  // Structure from summary/job only — never load BoQ lines.
+  const structure = rebuildJobStructureFromJobOnly(job);
   const nextValue = structure.totalSell || Number(tenderMeta.tenderSum) || Number(tenderMeta.bidValue) || job.value;
-  const linkOk =
-    tenderMeta.convertedJobId === structure.job.id &&
-    tenderMeta.convertedJobRef === structure.job.ref &&
-    tenderMeta.status === "Won" &&
-    moneyClose(tenderMeta.tenderSum, nextValue) &&
-    moneyClose(tenderMeta.bidValue, nextValue);
-  const updatedTender = linkOk
-    ? tenderMeta
-    : patchTenderJobLink(tenderMeta.id, {
+  // Link patch is best-effort — never fail the rebuild if tenders meta is fat/unwritable.
+  let updatedTender = tenderMeta;
+  try {
+    const linkOk =
+      tenderMeta.convertedJobId === structure.job.id &&
+      tenderMeta.convertedJobRef === structure.job.ref &&
+      tenderMeta.status === "Won" &&
+      moneyClose(tenderMeta.tenderSum, nextValue) &&
+      moneyClose(tenderMeta.bidValue, nextValue);
+    if (!linkOk) {
+      updatedTender = patchTenderJobLink(tenderMeta.id, {
         status: "Won",
         convertedJobId: structure.job.id,
         convertedJobRef: structure.job.ref,
         tenderSum: nextValue,
         bidValue: nextValue,
       });
+    }
+  } catch {
+    updatedTender = tenderMeta;
+  }
   return {
     tender: leanTenderForClient(updatedTender),
     job: getJob(structure.job.id) || structure.job,
@@ -2176,8 +2195,9 @@ export function healJobCostCentresForJob(jobIdOrRef: string) {
 }
 
 /**
- * Rebuild cost centres from the job's source tender (Jobs UI path when sourceTenderId is set).
- * Applies to this job even when tender.convertedJobId is missing/stale.
+ * Rebuild cost centres from the job's source tender (Jobs UI path).
+ * Job-only: never opens nexa-tenders-v1, never patches tender meta, never loads BoQ lines.
+ * Uses nexa-tender-boq-summary-v1:<id> when present, otherwise job.value as a single package.
  */
 export function rebuildJobCostCentresFromSourceTender(jobIdOrRef: string) {
   const jobs = getJobs();
@@ -2189,36 +2209,37 @@ export function rebuildJobCostCentresFromSourceTender(jobIdOrRef: string) {
   if (!job.sourceTenderId) {
     throw new Error("This job is not linked to a tender.");
   }
-  // Meta only — never attach/load BoQ lines (that is what kept OOMing Render).
-  const tenderMeta = readStoreRaw().tenders.find((row) => row.id === job.sourceTenderId);
-  if (!tenderMeta) {
-    throw new Error("Linked tender is missing — reopen the tender or clear the job link.");
-  }
-  const structure = rebuildJobStructureWithoutLoadingBoq(job, tenderMeta);
-  const nextValue = structure.totalSell || Number(tenderMeta.tenderSum) || Number(tenderMeta.bidValue) || job.value;
-  const linkOk =
-    tenderMeta.convertedJobId === structure.job.id &&
-    tenderMeta.convertedJobRef === structure.job.ref &&
-    (tenderMeta.status === "Won" || tenderMeta.status === "Lost") &&
-    moneyClose(tenderMeta.tenderSum, nextValue) &&
-    moneyClose(tenderMeta.bidValue, nextValue);
-  const updatedTender = linkOk
-    ? tenderMeta
-    : patchTenderJobLink(tenderMeta.id, {
-        status: tenderMeta.status === "Lost" ? tenderMeta.status : "Won",
-        convertedJobId: structure.job.id,
-        convertedJobRef: structure.job.ref,
-        tenderSum: nextValue,
-        bidValue: nextValue,
-      });
+  const summary = readBoqRebuildSummary(job.sourceTenderId);
+  const structure = rebuildJobStructureFromJobOnly(job);
+  const now = nowIso();
+  // Stub tender for API shape — do not load/rewrite tenders meta (still OOMs when fat).
+  const tenderStub: Tender = {
+    id: job.sourceTenderId,
+    name: job.sourceTenderName || "Linked tender",
+    client: job.customer || "",
+    category: "",
+    area: "",
+    status: "Won",
+    owner: "",
+    tenderSum: structure.totalSell || Number(job.value) || 0,
+    bidValue: structure.totalSell || Number(job.value) || 0,
+    convertedJobId: structure.job.id,
+    convertedJobRef: structure.job.ref,
+    qualifications: [],
+    daywork: { labourPerHour: 0, materialsUpliftPercent: 0, plantUpliftPercent: 0 },
+    boqLines: [],
+    documents: [],
+    createdAt: now,
+    updatedAt: now,
+  };
   return {
-    tender: leanTenderForClient(updatedTender),
+    tender: leanTenderForClient(tenderStub),
     job: getJob(structure.job.id) || structure.job,
     jobSections: structure.sections,
     jobCostCentres: leanCentresForTransport(structure.job.id, structure.costCentres) as typeof structure.costCentres,
     documentsCopied: 0,
     documentsSkipped: 0,
-    usedSummary: Boolean(readBoqRebuildSummary(tenderMeta.id)?.buckets?.length),
+    usedSummary: Boolean(summary?.buckets?.length),
   };
 }
 

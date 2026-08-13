@@ -8799,6 +8799,8 @@ export default function CoreApp() {
   const setupManualSaveInFlightRef = useRef(false);
   const lastLocalSetupEditAt = useRef(0);
   const lastLocalCostCentreEditAt = useRef(0);
+  /** Block hub PUT after BoQ rebuild — autosave was re-stringifying fat hubs and crashing Render. */
+  const hubAutosaveHoldUntilRef = useRef(0);
   const lastLocalEmployeeEditAt = useRef(0);
   const lastLocalInvoiceEditAt = useRef(0);
   const hasAppliedHubSetupState = useRef(false);
@@ -11901,6 +11903,9 @@ export default function CoreApp() {
     const invoiceSaveIncludesRecentEdit = Date.now() - lastLocalInvoiceEditAt.current < INVOICE_SERVER_SYNC_HOLD_MS;
     const controller = new AbortController();
     const timer = setTimeout(() => {
+      if (Date.now() < hubAutosaveHoldUntilRef.current) {
+        return;
+      }
       const payload = buildHubDetailStatePayload();
       // Background autosave must not flip the Save button to "Saving…" — that state
       // was getting stuck when rapid Setup edits aborted in-flight requests.
@@ -21133,6 +21138,9 @@ export default function CoreApp() {
     const jobId = selectedJob.id;
     setJobTenderActionBusy(true);
     setJobTenderActionError(null);
+    // Hold hub autosave across rebuild — PUT of a fat hub was crashing the service.
+    hubAutosaveHoldUntilRef.current = Date.now() + 90_000;
+    lastLocalCostCentreEditAt.current = Date.now();
     // Collapse any oversized dump in the UI immediately so a server blip cannot white-screen the job.
     setJobEstimateCostCentres((current) => ({
       ...current,
@@ -21160,6 +21168,8 @@ export default function CoreApp() {
       if (!response.ok) {
         throw new Error(payload?.error || `Unable to rebuild cost centres (${response.status})`);
       }
+      // Keep holding autosave after state updates so the lean rebuild is not overwritten.
+      hubAutosaveHoldUntilRef.current = Date.now() + 90_000;
       if (payload?.jobCostCentres) {
         setJobEstimateCostCentres((current) => ({
           ...current,

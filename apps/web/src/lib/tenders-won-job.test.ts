@@ -160,7 +160,7 @@ test("rebuild from job works when tender.convertedJobId is stale or missing", as
     auditEvents: [],
   });
 
-  const { upsertTender, rebuildJobCostCentresFromSourceTender, getTender } = await import("./tenders-data");
+  const { upsertTender, rebuildJobCostCentresFromSourceTender } = await import("./tenders-data");
   const { createJob, getJob } = await import("./workflow-data");
   const { getHubDetailState } = await import("./hub-detail-store");
 
@@ -209,7 +209,8 @@ test("rebuild from job works when tender.convertedJobId is stale or missing", as
     "rebuild response must not dump BoQ line arrays",
   );
   assert.equal(rebuilt.documentsCopied, 0, "rebuild must not copy tender PDFs (OOM path)");
-  assert.equal(getTender(tender.id)?.convertedJobId, job.id);
+  // Job-only rebuild must not rewrite tenders meta (convertedJobId patch removed — crash path).
+  assert.equal(rebuilt.tender.convertedJobId, job.id);
   assert.equal(getJob(job.id)?.value, 300);
   const hub = getHubDetailState();
   assert.ok(((hub.jobCostCentres as Record<string, unknown[]>)?.[job.id] || []).length >= 1);
@@ -299,6 +300,82 @@ test("rebuild from a large BoQ stays lean and does not dump line arrays onto the
   assert.equal(metaRow?.boqLines?.length || 0, 0, "tender meta must not store BoQ lines");
   const side = loadServerStore<{ lines?: unknown[] }>(`nexa-tender-boq-v1:${tender.id}`, { lines: [] });
   assert.equal(side.lines?.length || 0, 2500, "BoQ must live in the side store");
+});
+
+test("rebuild stays job-only even when tenders meta store is wiped", async (t) => {
+  const storeDir = mkdtempSync(path.join(tmpdir(), "hubflo-tender-rebuild-jobonly-"));
+  process.env.NEXA_STORE_DIR = storeDir;
+  process.env.NEXA_STORE_PATH = "";
+  process.env.NEXA_WORKSPACE_MODE = "live";
+  t.after(() => rmSync(storeDir, { recursive: true, force: true }));
+
+  const { writeServerStore } = await import("./server-store");
+  writeServerStore("nexa-tenders-v1", { tenders: [] });
+  writeServerStore("workflow-store", { jobs: [], quotes: [], purchaseRequests: [] });
+  writeServerStore("hub-detail-store", { invoices: [], jobCostCentres: {}, jobSections: {} });
+  writeServerStore("people-store", {
+    clients: [],
+    clientSites: [],
+    employees: [],
+    contacts: [],
+    contractors: [],
+    auditEvents: [],
+  });
+
+  const { upsertTender, rebuildJobCostCentresFromSourceTender } = await import("./tenders-data");
+  const { createJob, getJob } = await import("./workflow-data");
+  const { getHubDetailState } = await import("./hub-detail-store");
+
+  const tender = upsertTender({
+    id: "tender-job-only",
+    name: "Job only",
+    client: "Matt",
+    category: "Heating",
+    area: "Aberdeen",
+    status: "Won",
+    owner: "Office",
+    boqLines: [
+      {
+        id: "l1",
+        kind: "measured",
+        description: "Radiator",
+        quantity: 4,
+        rate: 100,
+        value: 400,
+        note: "Ground · guide",
+        sheet: "Heating",
+      },
+    ],
+  });
+
+  const job = createJob({
+    customer: "Matt",
+    site: "Site",
+    description: "Heating",
+    manager: "Office",
+    status: "Pending",
+    value: 1,
+    next: "Schedule",
+    due: "2026-08-13",
+    sourceTenderId: tender.id,
+    sourceTenderName: tender.name,
+  });
+
+  // Wipe tenders meta — rebuild must still work from summary + job fields only.
+  writeServerStore("nexa-tenders-v1", { tenders: [] });
+
+  const rebuilt = rebuildJobCostCentresFromSourceTender(job.id);
+  assert.equal(rebuilt.job.id, job.id);
+  assert.ok(rebuilt.jobCostCentres.length >= 1);
+  assert.equal(rebuilt.usedSummary, true);
+  assert.equal(getJob(job.id)?.value, 400);
+  const hub = getHubDetailState();
+  assert.ok(((hub.jobCostCentres as Record<string, unknown[]>)?.[job.id] || []).length >= 1);
+  const sideCc = (await import("./server-store")).loadServerStore<{ centres?: unknown[] }>(
+    `nexa-job-cc-v1:${job.id}`,
+    { centres: [] },
+  );
+  assert.ok((sideCc.centres || []).length >= 1, "rebuild must write per-job side store");
 });
 
 test("Won convert copies tender drawings onto the job documents hub", async (t) => {
