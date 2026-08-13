@@ -1937,23 +1937,30 @@ export function rebuildTenderJobCostCentres(tenderId: string) {
   if (!job) {
     throw new Error("Linked job is missing — recreate the job from this tender first.");
   }
-  const structure = rebuildJobStructureWithoutLoadingBoq(job, tenderMeta);
+  // Structure from summary/job only — never load BoQ lines.
+  const structure = rebuildJobStructureFromJobOnly(job);
   const nextValue = structure.totalSell || Number(tenderMeta.tenderSum) || Number(tenderMeta.bidValue) || job.value;
-  const linkOk =
-    tenderMeta.convertedJobId === structure.job.id &&
-    tenderMeta.convertedJobRef === structure.job.ref &&
-    tenderMeta.status === "Won" &&
-    moneyClose(tenderMeta.tenderSum, nextValue) &&
-    moneyClose(tenderMeta.bidValue, nextValue);
-  const updatedTender = linkOk
-    ? tenderMeta
-    : patchTenderJobLink(tenderMeta.id, {
+  // Link patch is best-effort — never fail the rebuild if tenders meta is fat/unwritable.
+  let updatedTender = tenderMeta;
+  try {
+    const linkOk =
+      tenderMeta.convertedJobId === structure.job.id &&
+      tenderMeta.convertedJobRef === structure.job.ref &&
+      tenderMeta.status === "Won" &&
+      moneyClose(tenderMeta.tenderSum, nextValue) &&
+      moneyClose(tenderMeta.bidValue, nextValue);
+    if (!linkOk) {
+      updatedTender = patchTenderJobLink(tenderMeta.id, {
         status: "Won",
         convertedJobId: structure.job.id,
         convertedJobRef: structure.job.ref,
         tenderSum: nextValue,
         bidValue: nextValue,
       });
+    }
+  } catch {
+    updatedTender = tenderMeta;
+  }
   return {
     tender: leanTenderForClient(updatedTender),
     job: getJob(structure.job.id) || structure.job,
