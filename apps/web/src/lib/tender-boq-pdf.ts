@@ -5,6 +5,7 @@
  * Also handles supplier sales-order / quotation layouts (Qty / Product Code / Description / Unit Price).
  */
 
+import { friendlyPdfEngineError } from "@/lib/pdfjs-server";
 import {
   extractPdfDocument,
   type ExtractedPdfDocument,
@@ -385,8 +386,12 @@ export async function workbookBoqSheetsFromPdfBuffer(
   bytes: Buffer,
   fileName = "boq.pdf",
 ): Promise<WorkbookSheetRows[]> {
-  const doc = await extractPdfDocument(bytes, fileName);
-  return workbookBoqSheetsFromPdfDocument(doc);
+  try {
+    const doc = await extractPdfDocument(bytes, fileName);
+    return workbookBoqSheetsFromPdfDocument(doc);
+  } catch (error) {
+    throw new Error(friendlyPdfEngineError(error, "Could not read any BoQ rows from this PDF."));
+  }
 }
 
 /** Pure helper for tests — build a fake page from positioned strings. */

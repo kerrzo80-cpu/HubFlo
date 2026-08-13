@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { friendlyPdfEngineError, loadPdfJsServer } from "@/lib/pdfjs-server";
+
 export type ExtractedPdfTextItem = {
   text: string;
   x: number;
@@ -24,14 +26,13 @@ export type ExtractedPdfDocument = {
   pages: ExtractedPdfPage[];
 };
 
-async function loadPdfJs() {
-  // Prefer legacy build for Node/server routes.
-  const mod = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  return mod;
-}
-
 export async function extractPdfDocument(buffer: Buffer, fileName: string): Promise<ExtractedPdfDocument> {
-  const pdfjs = await loadPdfJs();
+  let pdfjs;
+  try {
+    pdfjs = await loadPdfJsServer();
+  } catch (error) {
+    throw new Error(friendlyPdfEngineError(error));
+  }
   const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(buffer),
     useSystemFonts: true,

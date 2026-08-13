@@ -268,7 +268,8 @@ export function summariseStrokeRunsByRole(runs: PdfStrokeRun[]) {
 }
 
 async function loadPdfJs() {
-  return import("pdfjs-dist/legacy/build/pdf.mjs");
+  const { loadPdfJsServer } = await import("@/lib/pdfjs-server");
+  return loadPdfJsServer();
 }
 
 export async function extractPdfStrokeRuns(

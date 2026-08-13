@@ -12,6 +12,7 @@ import {
   type TenderDocumentKind,
 } from "@/lib/tenders-data";
 import { isTenderDocumentKind } from "@/lib/tender-document-folders";
+import { friendlyPdfEngineError } from "@/lib/pdfjs-server";
 import { workbookBoqSheetsFromPdfBuffer } from "@/lib/tender-boq-pdf";
 import {
   sheetRowsFromWorkbookBuffer,
@@ -177,7 +178,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Import failed" },
+      { error: friendlyPdfEngineError(error, "Import failed") },
       { status: 400 },
     );
   }
