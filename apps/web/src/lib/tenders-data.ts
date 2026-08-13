@@ -404,6 +404,16 @@ export function upsertTender(input: Partial<Tender> & { name: string; client: st
 export function updateTender(id: string, patch: Partial<Tender>) {
   const existing = getTender(id);
   if (!existing) throw new Error("Tender not found.");
+
+  const nextStatus = patch.status ?? existing.status;
+  const linkedJobId = patch.convertedJobId ?? existing.convertedJobId;
+  // Status dropdown (or any patch) to Won must create a Core job — not status-only.
+  // Skip when a job link is already present or being set in this same write (convert path).
+  if (nextStatus === "Won" && !linkedJobId) {
+    return convertTenderToPendingJob(id).tender;
+  }
+
+  // Reopening Won → Open/In Progress/etc. keeps any linked job; never silent-delete.
   return upsertTender({ ...existing, ...patch, id });
 }
 
@@ -1685,13 +1695,19 @@ export function convertTenderToPendingJob(tenderId: string) {
   const tender = getTender(tenderId);
   if (!tender) throw new Error("Tender not found.");
   if (tender.convertedJobId) {
-    return { tender, job: null as ReturnType<typeof createJob> | null, alreadyConverted: true as const };
+    // Already linked — ensure status is Won without creating a second job.
+    const ensured =
+      tender.status === "Won"
+        ? tender
+        : upsertTender({ ...tender, status: "Won", id: tender.id });
+    return { tender: ensured, job: null as ReturnType<typeof createJob> | null, alreadyConverted: true as const };
   }
   const value = computeBoqTotal(tender.boqLines) || tender.bidValue || 0;
+  const siteLabel = [tender.area, tender.materialsNote?.trim()].filter(Boolean).join(" — ") || "Site to be confirmed";
   const job = createJob({
     clientId: tender.clientId,
     customer: tender.client,
-    site: tender.area || "Site to be confirmed",
+    site: siteLabel,
     description: `${tender.name}${tender.boqTitle ? ` — ${tender.boqTitle}` : ""}`.trim(),
     manager: tender.owner || "Unassigned",
     status: "Pending",
@@ -1701,12 +1717,15 @@ export function convertTenderToPendingJob(tenderId: string) {
     sourceTenderId: tender.id,
     sourceTenderName: tender.name,
   });
-  const updated = updateTender(tenderId, {
+  // Use upsert directly so we do not re-enter the Won auto-convert branch in updateTender.
+  const updated = upsertTender({
+    ...tender,
     status: "Won",
     convertedJobId: job.id,
     convertedJobRef: job.ref,
     tenderSum: value,
     bidValue: value,
+    id: tender.id,
   });
   return { tender: updated, job, alreadyConverted: false as const };
 }

@@ -299,7 +299,7 @@ export function TendersPanel({
     const lost = tenders.filter((tender) => tender.status === "Lost");
     return [
       { key: "open" as const, label: "Open", tone: "blue", items: open, detail: "Live and in-progress tenders" },
-      { key: "won" as const, label: "Won", tone: "green", items: won, detail: "Accepted — pending job created when marked won" },
+      { key: "won" as const, label: "Won", tone: "green", items: won, detail: "Accepted — creates a Pending job for scheduling" },
       { key: "lost" as const, label: "Lost / archived", tone: "amber", items: lost, detail: "Lost or archived tenders" },
       { key: "all" as const, label: "All", tone: "blue", items: tenders, detail: "Everything" },
     ];
@@ -366,7 +366,17 @@ export function TendersPanel({
     }
   }
 
-  async function markWon(tenderId: string) {
+  async function markWon(tenderId: string, options?: { skipConfirm?: boolean }) {
+    const tender = tenders.find((row) => row.id === tenderId);
+    if (!options?.skipConfirm) {
+      const alreadyLinked = Boolean(tender?.convertedJobId);
+      const ok = window.confirm(
+        alreadyLinked
+          ? `Mark “${tender?.name || "this tender"}” as Won? Linked job ${tender?.convertedJobRef || tender?.convertedJobId} stays — no second job.`
+          : `Create a Pending job from “${tender?.name || "this tender"}” and mark it Won?\n\nThe job will appear in Jobs for scheduling labour. You can change status back later without deleting the job.`,
+      );
+      if (!ok) return;
+    }
     try {
       const result = await postAction({ action: "convert-won", id: tenderId });
       if (result.alreadyConverted && result.tender?.convertedJobId) {
@@ -551,8 +561,22 @@ export function TendersPanel({
 
   async function saveSelected(patch: Partial<Tender>) {
     if (!selected) return;
+    // Route status→Won through convert so the confirm + job handoff stay consistent.
+    if (patch.status === "Won" && selected.status !== "Won") {
+      await markWon(selected.id);
+      return;
+    }
     try {
-      await postAction({ action: "update", id: selected.id, patch });
+      const result = await postAction({ action: "update", id: selected.id, patch });
+      if (patch.status && patch.status !== "Won" && selected.status === "Won") {
+        const linked =
+          result.tender?.convertedJobRef || result.tender?.convertedJobId || selected.convertedJobRef;
+        onNotice(
+          linked
+            ? `Tender reopened as ${patch.status}. Linked job ${linked} kept — open it from Jobs anytime.`
+            : `Tender reopened as ${patch.status}.`,
+        );
+      }
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "Unable to save tender");
     }
@@ -1105,6 +1129,26 @@ export function TendersPanel({
               >
                 Open job {selected.convertedJobRef || ""}
               </button>
+            ) : (
+              <button
+                type="button"
+                className="primary-button"
+                disabled={saving}
+                onClick={() => void markWon(selected.id)}
+              >
+                Create job from this tender
+              </button>
+            )}
+            {selected.status === "Won" ? (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={saving}
+                onClick={() => void saveSelected({ status: "In Progress" })}
+                title="Reopen the tender without deleting any linked job"
+              >
+                Reopen (In Progress)
+              </button>
             ) : null}
             <button type="button" className="secondary-button" disabled={saving} onClick={() => void downloadFormOfTender()}>
               <Download size={15} />
@@ -1277,6 +1321,13 @@ export function TendersPanel({
                   </option>
                 ))}
               </select>
+              <span className="tenders-hint" style={{ display: "block", marginTop: 4 }}>
+                {selected.status === "Won"
+                  ? selected.convertedJobId
+                    ? `Won keeps job ${selected.convertedJobRef || selected.convertedJobId}. Change status anytime to reopen — job is not deleted.`
+                    : "Won but no job yet — use Create job from this tender."
+                  : "Marking Won creates a Pending job for scheduling. You can change status back later."}
+              </span>
             </label>
             <label>
               Owner
