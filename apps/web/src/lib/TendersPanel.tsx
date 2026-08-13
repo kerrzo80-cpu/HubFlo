@@ -1766,7 +1766,10 @@ export function TendersPanel({
                             measuredIds.length > 0 && selectedInSection === measuredIds.length;
                           const someSelected = selectedInSection > 0 && !allSelected;
                           return (
-                            <tr key={line.id} className="tenders-boq-header-row">
+                            <tr
+                              key={`${(line.sheet || "").trim()}::${line.id}`}
+                              className="tenders-boq-header-row"
+                            >
                               <td className="tenders-boq-check-col">
                                 {measuredIds.length ? (
                                   <input
@@ -1812,7 +1815,10 @@ export function TendersPanel({
                         }
                         if (line.kind === "note") {
                           return (
-                            <tr key={line.id} className="tenders-boq-header-row tenders-boq-note-row">
+                            <tr
+                              key={`${(line.sheet || "").trim()}::${line.id}`}
+                              className="tenders-boq-header-row tenders-boq-note-row"
+                            >
                               <td className="tenders-boq-check-col" />
                               <td colSpan={7}>
                                 <span className="tenders-boq-section-label">
@@ -1855,9 +1861,10 @@ export function TendersPanel({
                               ? "Guide"
                               : "Priced";
                         const checked = boqBlakeLineIds.includes(line.id);
+                        const rowKey = `${(line.sheet || "").trim()}::${line.id}`;
                         return (
                           <tr
-                            key={line.id}
+                            key={rowKey}
                             className={`${priced ? "" : "unpriced"}${checked ? " tenders-boq-selected" : ""}`}
                           >
                             <td className="tenders-boq-check-col">
@@ -1872,7 +1879,7 @@ export function TendersPanel({
                             <td className="tenders-boq-ref-col">
                               <input
                                 type="text"
-                                key={`${line.id}-ref-${line.ref || ""}`}
+                                key={`${rowKey}-ref-${line.ref || ""}`}
                                 defaultValue={line.ref || ""}
                                 placeholder="—"
                                 aria-label="Ref"
@@ -1886,7 +1893,7 @@ export function TendersPanel({
                             </td>
                             <td className="tenders-boq-desc-col">
                               <textarea
-                                key={`${line.id}-desc-${line.description}`}
+                                key={`${rowKey}-desc-${line.description}`}
                                 className="tenders-boq-desc-input"
                                 defaultValue={line.description}
                                 rows={2}
@@ -1908,7 +1915,7 @@ export function TendersPanel({
                               <input
                                 type="number"
                                 step="any"
-                                key={`${line.id}-qty-${line.quantity ?? "blank"}`}
+                                key={`${rowKey}-qty-${line.quantity ?? "blank"}`}
                                 defaultValue={line.quantity ?? ""}
                                 aria-label="Quantity"
                                 disabled={blakeBudgetBusy}
@@ -1924,7 +1931,7 @@ export function TendersPanel({
                             <td className="tenders-boq-unit-col">
                               <input
                                 type="text"
-                                key={`${line.id}-unit-${line.unit || ""}`}
+                                key={`${rowKey}-unit-${line.unit || ""}`}
                                 defaultValue={line.unit || ""}
                                 aria-label="Unit"
                                 disabled={blakeBudgetBusy}
@@ -1939,7 +1946,7 @@ export function TendersPanel({
                               <input
                                 type="number"
                                 step="0.01"
-                                key={`${line.id}-${line.rate ?? "blank"}-${line.pricingSource || ""}`}
+                                key={`${rowKey}-${line.rate ?? "blank"}-${line.pricingSource || ""}`}
                                 defaultValue={line.rate ?? ""}
                                 placeholder=""
                                 aria-label={priced ? "Rate" : "Unpriced — leave blank"}

@@ -81,8 +81,44 @@ const DEFAULT_QUALIFICATIONS = [
   "VAT is excluded unless expressly stated otherwise.",
 ];
 
+/** Stable unique ids — never Date.now()+tiny-random (collisions corrupt multi-sheet BoQs). */
 function uid(prefix: string) {
-  return `${prefix}-${Date.now()}-${Math.round(Math.random() * 1000)}`;
+  return `${prefix}-${randomUUID()}`;
+}
+
+/**
+ * Keep BoQ line identity and sheet tabs stable across save/reload.
+ * - Unique `id` per line (duplicate ids made edits/Blake overwrite other sheets)
+ * - Trimmed `sheet` labels so tab keys match filter/export
+ */
+export function normalizeBoqLines(lines: TenderBoqLine[] | null | undefined): TenderBoqLine[] {
+  if (!Array.isArray(lines) || !lines.length) return Array.isArray(lines) ? lines : [];
+  const seen = new Set<string>();
+  let changed = false;
+  const next = lines.map((line) => {
+    const prevId = typeof line.id === "string" ? line.id.trim() : "";
+    let id = prevId;
+    if (!id || seen.has(id)) {
+      id = uid("boq");
+      changed = true;
+    }
+    seen.add(id);
+
+    const sheetRaw = typeof line.sheet === "string" ? line.sheet : undefined;
+    const sheet = sheetRaw?.trim() ? sheetRaw.trim() : undefined;
+    const sectionRaw = typeof line.section === "string" ? line.section : undefined;
+    const section = sectionRaw?.trim() ? sectionRaw.trim() : undefined;
+
+    if (id === line.id && sheet === line.sheet && section === line.section) return line;
+    changed = true;
+    return {
+      ...line,
+      id,
+      sheet,
+      section: section || sheet,
+    };
+  });
+  return changed ? next : lines;
 }
 
 function nowIso() {
@@ -243,7 +279,21 @@ function readStore(): TenderStore {
     writeServerStore(STORE, seeded);
     return seeded;
   }
-  return { tenders };
+  // One-shot heal: duplicate BoQ ids / untrimmed sheet labels reshuffle tabs after reload.
+  let healed = false;
+  const nextTenders = tenders.map((raw) => {
+    const tender = raw as Tender;
+    const boqLines = normalizeBoqLines(tender.boqLines);
+    if (boqLines === tender.boqLines) return tender;
+    healed = true;
+    return { ...tender, boqLines };
+  });
+  if (healed) {
+    const store = { tenders: nextTenders };
+    writeServerStore(STORE, store);
+    return store;
+  }
+  return { tenders: nextTenders };
 }
 
 function writeStore(store: TenderStore) {
@@ -284,7 +334,7 @@ function normalizeTenderDocument(input: Partial<TenderDocument> | null | undefin
 
 function normalizeTender(input: Partial<Tender> & { name: string; client: string }): Tender {
   const now = nowIso();
-  const lines = Array.isArray(input.boqLines) ? input.boqLines : [];
+  const lines = normalizeBoqLines(Array.isArray(input.boqLines) ? input.boqLines : []);
   const boqTotal = computeBoqTotal(lines);
   return {
     id: input.id || uid("tender"),
@@ -751,17 +801,19 @@ export function parseBoqFromWorkbookSheets(
   let resolvedTitle = title || "";
   const lines: TenderBoqLine[] = [];
   for (const sheet of usable) {
-    const parsed = parseBoqFromRows(sheet.rows, resolvedTitle || undefined, { sheet: sheet.name });
+    // Trim once so tab key, filter, and rename all use the same stable sheet id string.
+    const sheetName = (sheet.name || "").trim() || "Sheet";
+    const parsed = parseBoqFromRows(sheet.rows, resolvedTitle || undefined, { sheet: sheetName });
     if (!resolvedTitle && parsed.title) resolvedTitle = parsed.title;
     for (const line of parsed.lines) {
       lines.push({
         ...line,
-        sheet: sheet.name,
-        section: line.kind === "header" ? line.section || line.description : line.section || sheet.name,
+        sheet: sheetName,
+        section: line.kind === "header" ? line.section || line.description : line.section || sheetName,
       });
     }
   }
-  return { title: resolvedTitle, lines };
+  return { title: resolvedTitle, lines: normalizeBoqLines(lines) };
 }
 
 /** How a BoQ file/paste lands on an existing tender bill. */
@@ -1006,9 +1058,10 @@ function stampUnsheetedLines(lines: TenderBoqLine[], homeLabel: string): TenderB
 }
 
 function persistBoqLines(tenderId: string, boqLines: TenderBoqLine[]) {
-  const boqTotal = computeBoqTotal(boqLines);
+  const normalized = normalizeBoqLines(boqLines);
+  const boqTotal = computeBoqTotal(normalized);
   return updateTender(tenderId, {
-    boqLines,
+    boqLines: normalized,
     bidValue: boqTotal,
   });
 }
@@ -1260,9 +1313,14 @@ export function importTrackerRows(rows: string[][]) {
 export function updateBoqLine(tenderId: string, lineId: string, patch: Partial<TenderBoqLine>) {
   const existing = getTender(tenderId);
   if (!existing) throw new Error("Tender not found.");
+  // Only the first matching id — duplicate ids must never rewrite other sheet tabs.
+  let matched = false;
   const boqLines = existing.boqLines.map((line) => {
-    if (line.id !== lineId) return line;
+    if (matched || line.id !== lineId) return line;
+    matched = true;
     const next: TenderBoqLine = { ...line, ...patch };
+    // Never let a cell edit reassign the workbook sheet tab.
+    next.sheet = line.sheet;
     delete next.excluded;
     if (next.kind === "measured") {
       if (patch.rate === null) {

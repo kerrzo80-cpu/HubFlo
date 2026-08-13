@@ -84,7 +84,8 @@ export type TenderBoqLine = {
   /** blake-budget / rate-library = guide; manual = office/typed. */
   pricingSource?: TenderBoqPricingSource;
   /**
-   * Excel worksheet name (workbook tab). Drives the BoQ sheet tab bar.
+   * Excel worksheet / BoQ sheet-tab id (trimmed workbook tab name).
+   * Stable across save → reload → navigate away → reopen. Drives the tab bar.
    * Distinct from `section`, which is a bill heading inside a sheet.
    */
   sheet?: string;
