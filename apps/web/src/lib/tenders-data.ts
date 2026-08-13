@@ -47,6 +47,7 @@ import {
   alertForDeadline,
   computeBoqTotal,
   daysLeftForDeadline,
+  sortTendersByDueDate,
   type Tender,
   type TenderBoqLine,
   type TenderDayworkRates,
@@ -319,14 +320,7 @@ function writeStore(store: TenderStore) {
 }
 
 export function listTenders() {
-  return readStore()
-    .tenders.slice()
-    .sort((a, b) => {
-      const aDue = a.submissionDeadline || "9999-12-31";
-      const bDue = b.submissionDeadline || "9999-12-31";
-      if (aDue !== bDue) return aDue.localeCompare(bDue);
-      return a.name.localeCompare(b.name);
-    });
+  return sortTendersByDueDate(readStore().tenders);
 }
 
 /** Strip heavy BoQ payloads before returning tender metadata to the client. */
@@ -1771,7 +1765,16 @@ export function convertTenderToPendingJob(tenderId: string) {
     alreadyConverted: false as const,
     recreated,
     jobSections: structure.sections,
-    jobCostCentres: structure.costCentres,
+    jobCostCentres: structure.costCentres.map((centre) => ({
+      id: centre.id,
+      name: centre.name,
+      sectionId: centre.sectionId,
+      templateName: centre.templateName,
+      clientDescription: centre.clientDescription,
+      engineerDescription: centre.engineerDescription,
+      materials: centre.materials.slice(0, 1),
+      labour: [],
+    })),
     documentsCopied: documentsSync.copied,
     documentsSkipped: documentsSync.skipped,
   };

@@ -38,6 +38,7 @@ import {
   boqProgress,
   computeBoqTotal,
   daysLeftForDeadline,
+  sortTendersByDueDate,
   type Tender,
   type TenderBoqLine,
   type TenderDocument,
@@ -341,18 +342,21 @@ export function TendersPanel({
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     const folderItems = folders.find((folder) => folder.key === folderKey)?.items ?? tenders;
-    if (!query) return folderItems;
-    return folderItems.filter((tender) =>
-      [
-        tender.name,
-        tender.client,
-        tender.category,
-        tender.area,
-        tender.status,
-        tender.owner,
-        tender.externalId ?? "",
-      ].some((value) => String(value).toLowerCase().includes(query)),
-    );
+    const matched = !query
+      ? folderItems
+      : folderItems.filter((tender) =>
+          [
+            tender.name,
+            tender.client,
+            tender.category,
+            tender.area,
+            tender.status,
+            tender.owner,
+            tender.externalId ?? "",
+          ].some((value) => String(value).toLowerCase().includes(query)),
+        );
+    // Folder/search first, then soonest deadline — undated last.
+    return sortTendersByDueDate(matched);
   }, [folderKey, folders, search, tenders]);
 
   const pipelineValue = useMemo(

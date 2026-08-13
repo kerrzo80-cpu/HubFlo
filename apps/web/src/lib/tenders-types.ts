@@ -175,6 +175,27 @@ export function daysLeftForDeadline(deadline?: string, asOf = new Date().toISOSt
   return Math.floor((start - current) / 86_400_000);
 }
 
+/** ISO date for sort; missing/invalid deadlines sink to the end of the list. */
+export function tenderDueSortKey(deadline?: string) {
+  if (!deadline || !/^\d{4}-\d{2}-\d{2}/.test(deadline)) return "9999-12-31";
+  return deadline.slice(0, 10);
+}
+
+/** Soonest / overdue first; undated last; name as tie-breaker. */
+export function compareTendersByDueDate(
+  a: { submissionDeadline?: string; name?: string },
+  b: { submissionDeadline?: string; name?: string },
+) {
+  const aDue = tenderDueSortKey(a.submissionDeadline);
+  const bDue = tenderDueSortKey(b.submissionDeadline);
+  if (aDue !== bDue) return aDue.localeCompare(bDue);
+  return (a.name || "").localeCompare(b.name || "");
+}
+
+export function sortTendersByDueDate<T extends { submissionDeadline?: string; name?: string }>(tenders: T[]) {
+  return tenders.slice().sort(compareTendersByDueDate);
+}
+
 /** Open / in-progress statuses that still chase deadlines. Sent / Won / Lost are closed for due alerts. */
 export function tenderNeedsDeadlineAlert(status: TenderStatus) {
   return status === "Not Started" || status === "In Progress" || status === "Needs Reviewed";
