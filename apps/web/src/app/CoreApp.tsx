@@ -7570,8 +7570,10 @@ function stripJobCostCentresToEmptyMaterialsForUi(
 
 function collapseOversizedJobCostCentresForUi(jobId: string, centres: EstimateCostCentre[]): EstimateCostCentre[] {
   if (!Array.isArray(centres) || centres.length === 0) return Array.isArray(centres) ? centres : [];
-  // Prefer nuclear empty-materials strip for fat / tender dumps — never keep line arrays in React state.
-  if (jobCentresLookFatForUi(centres) || centres.some((centre) => isTenderBoqEstimateCentre(centre) && (centre.materials?.length || 0) > 0)) {
+  if (
+    jobCentresLookFatForUi(centres) ||
+    centres.some((centre) => isTenderBoqEstimateCentre(centre) && (centre.materials?.length || 0) > 0)
+  ) {
     return stripJobCostCentresToEmptyMaterialsForUi(jobId, centres);
   }
   const safe = centres.map((centre) => ({
@@ -8839,6 +8841,8 @@ export default function CoreApp() {
   const setupManualSaveInFlightRef = useRef(false);
   const lastLocalSetupEditAt = useRef(0);
   const lastLocalCostCentreEditAt = useRef(0);
+  /** Block hub PUT after BoQ rebuild — autosave was re-stringifying fat hubs and crashing Render. */
+  const hubAutosaveHoldUntilRef = useRef(0);
   const lastLocalEmployeeEditAt = useRef(0);
   const lastLocalInvoiceEditAt = useRef(0);
   const hasAppliedHubSetupState = useRef(false);
@@ -11681,7 +11685,8 @@ export default function CoreApp() {
       jobSchedulePlans,
       customQuoteCatalog,
       catalogFolders,
-      jobCostCentres: jobEstimateCostCentres,
+      // Never autosave full BoQ dumps — lean packages only (same as localStorage).
+      jobCostCentres: leanJobCostCentresMapForUi(jobEstimateCostCentres),
       jobSections,
       jobReviews: jobReviewApprovals,
       jobDeliveryEvents,
@@ -11940,6 +11945,9 @@ export default function CoreApp() {
     const invoiceSaveIncludesRecentEdit = Date.now() - lastLocalInvoiceEditAt.current < INVOICE_SERVER_SYNC_HOLD_MS;
     const controller = new AbortController();
     const timer = setTimeout(() => {
+      if (Date.now() < hubAutosaveHoldUntilRef.current) {
+        return;
+      }
       const payload = buildHubDetailStatePayload();
       // Background autosave must not flip the Save button to "Saving…" — that state
       // was getting stuck when rapid Setup edits aborted in-flight requests.
@@ -21053,7 +21061,6 @@ export default function CoreApp() {
         }));
       }
     }
-    // Background heal persists lean stubs; strip above does not need this roundtrip to paint.
     void healSelectedJobCostCentresIfNeeded(jobId, job?.ref, Boolean(job?.sourceTenderId));
   }
 
@@ -21071,20 +21078,24 @@ export default function CoreApp() {
       : false;
     const fat = Array.isArray(centres) && jobCentresLookFatForUi(centres as EstimateCostCentre[]);
     const tenderAnyMaterials = linkedToTender && materialCount > 0;
-    const needsHeal =
-      missingArrays ||
-      materialCount > JOB_UI_MAX_MATERIALS_PER_JOB ||
-      tenderAnyMaterials ||
-      fat ||
-      materialCount > JOB_UI_MAX_MATERIALS_PER_CENTRE;
+    const perCentreOver = Array.isArray(centres)
+      ? centres.some(
+          (centre) =>
+            Array.isArray(centre?.materials) && centre.materials.length > JOB_UI_MAX_MATERIALS_PER_CENTRE,
+        )
+      : false;
+    // Client strip is cheap; server heal hits the hub store — only for corrupt / tender dumps / huge jobs.
+    const needsServerHeal =
+      missingArrays || tenderAnyMaterials || fat || materialCount > JOB_UI_MAX_MATERIALS_PER_JOB;
+    const needsClientCollapse = needsServerHeal || perCentreOver || tenderAnyMaterials;
     // Sync lean strip before paint — never wait for the heal API with a huge materials dump in React state.
-    if (Array.isArray(centres) && centres.length && needsHeal) {
+    if (Array.isArray(centres) && centres.length && needsClientCollapse) {
       setJobEstimateCostCentres((current) => ({
         ...current,
         [jobId]: stripJobCostCentresToEmptyMaterialsForUi(jobId, centres as EstimateCostCentre[]),
       }));
     }
-    if (!needsHeal) return;
+    if (!needsServerHeal) return;
     try {
       const response = await fetch("/api/tenders", {
         method: "POST",
@@ -21172,7 +21183,7 @@ export default function CoreApp() {
     }
     if (
       !window.confirm(
-        `Rebuild lean cost centres for ${selectedJob.ref} from tender sheet totals?\n\nFloor/service stubs replace the current structure (no BoQ line dump). Daywork centres are kept. Use “Sync documents” separately for drawings.`,
+        `Build lean cost centres for ${selectedJob.ref} from the tender summary?\n\nUses the saved floor/service packages (or the job value) — does not reload the Bill. Daywork centres are kept.\n\nDrawings: use Sync drawings from tender.`,
       )
     ) {
       return;
@@ -21180,6 +21191,17 @@ export default function CoreApp() {
     const jobId = selectedJob.id;
     setJobTenderActionBusy(true);
     setJobTenderActionError(null);
+    // Hold hub autosave across rebuild — PUT of a fat hub was crashing the service.
+    hubAutosaveHoldUntilRef.current = Date.now() + 90_000;
+    lastLocalCostCentreEditAt.current = Date.now();
+    // Collapse any oversized dump in the UI immediately so a server blip cannot white-screen the job.
+    setJobEstimateCostCentres((current) => ({
+      ...current,
+      [jobId]: collapseOversizedJobCostCentresForUi(
+        jobId,
+        (current[jobId] ?? []) as EstimateCostCentre[],
+      ),
+    }));
     try {
       const response = await fetch("/api/tenders", {
         method: "POST",
@@ -21200,6 +21222,8 @@ export default function CoreApp() {
       if (!response.ok) {
         throw new Error(payload?.error || `Unable to rebuild cost centres (${response.status})`);
       }
+      // Keep holding autosave after state updates so the lean rebuild is not overwritten.
+      hubAutosaveHoldUntilRef.current = Date.now() + 90_000;
       if (payload?.jobCostCentres) {
         setJobEstimateCostCentres((current) => ({
           ...current,

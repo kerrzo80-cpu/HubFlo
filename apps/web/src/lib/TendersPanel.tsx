@@ -262,11 +262,40 @@ export function TendersPanel({
       const response = await fetch("/api/tenders", { headers: requestHeaders });
       if (!response.ok) throw new Error("Unable to load tenders");
       const payload = (await response.json()) as { tenders?: Tender[] };
-      setTenders(Array.isArray(payload.tenders) ? payload.tenders : []);
+      // List is lean (no BoQ arrays) — preserve any BoQ already loaded for the open tender.
+      setTenders((current) => {
+        const previousById = new Map(current.map((row) => [row.id, row]));
+        const next = Array.isArray(payload.tenders) ? payload.tenders : [];
+        return next.map((row) => {
+          const previous = previousById.get(row.id);
+          if (previous?.boqLines?.length && !(row.boqLines && row.boqLines.length)) {
+            return { ...row, boqLines: previous.boqLines, boqTitle: row.boqTitle || previous.boqTitle };
+          }
+          return row;
+        });
+      });
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "Unable to load tenders");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadSelectedTenderBoq(tenderId: string) {
+    try {
+      const response = await fetch(`/api/tenders?id=${encodeURIComponent(tenderId)}`, {
+        headers: requestHeaders,
+      });
+      if (!response.ok) return;
+      const payload = (await response.json()) as { tender?: Tender };
+      if (!payload.tender?.id) return;
+      setTenders((current) => {
+        const exists = current.some((row) => row.id === payload.tender!.id);
+        if (!exists) return [...current, payload.tender!];
+        return current.map((row) => (row.id === payload.tender!.id ? payload.tender! : row));
+      });
+    } catch {
+      // Non-fatal — tracker still works without the open Bill.
     }
   }
 
@@ -277,6 +306,14 @@ export function TendersPanel({
 
   useEffect(() => {
     setClientSuggestionsOpen(false);
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const open = tenders.find((row) => row.id === selectedId);
+    if (open && Array.isArray(open.boqLines) && open.boqLines.length > 0) return;
+    void loadSelectedTenderBoq(selectedId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
   useEffect(() => {
@@ -445,7 +482,7 @@ export function TendersPanel({
           ? `Linked job ${tender?.convertedJobRef || tender?.convertedJobId} is missing. Recreate a Pending job from “${tender?.name || "this tender"}”?`
           : alreadyLinked
             ? `Mark “${tender?.name || "this tender"}” as Won? Linked job ${tender?.convertedJobRef || tender?.convertedJobId} stays — no second job.`
-            : `Create a Pending job from “${tender?.name || "this tender"}” and mark it Won?\n\nThe job will appear in Jobs for scheduling labour. You can change status back later without deleting the job.`,
+            : `Create a Pending job from “${tender?.name || "this tender"}” and mark it Won?\n\nSame as converting a quote — job record + value only. Cost centres and drawings can be added afterwards from the job.`,
       );
       if (!ok) return;
     }
@@ -458,12 +495,10 @@ export function TendersPanel({
         return;
       }
       if (result.job?.id) {
-        const centreCount = result.jobCostCentres?.length || 0;
-        const docs = result.documentsCopied || 0;
         onNotice(
           result.recreated
-            ? `Missing job recreated — pending job ${result.job.ref}${centreCount ? ` · ${centreCount} cost centre(s) from BoQ` : ""}${docs ? ` · ${docs} document(s)` : ""}.`
-            : `Tender won — pending job ${result.job.ref} created${centreCount ? ` · ${centreCount} cost centre(s) from BoQ` : ""}${docs ? ` · ${docs} document(s)` : ""}.`,
+            ? `Missing job recreated — pending job ${result.job.ref}. Use Rebuild cost centres / Sync drawings if needed.`
+            : `Tender won — pending job ${result.job.ref} created (like a quote). Use Rebuild cost centres / Sync drawings if needed.`,
         );
         onOpenPendingJob?.(result.job.id);
       } else {
@@ -478,7 +513,7 @@ export function TendersPanel({
     if (!selected?.convertedJobId) return;
     if (
       !window.confirm(
-        `Rebuild lean cost centres for “${selected.name}” from tender sheet totals?\n\nFloor/service stubs replace the current structure (no BoQ line dump). Daywork centres are kept. Use Sync documents separately for drawings.`,
+        `Rebuild lean cost centres for “${selected.name}” from tender sheet totals?\n\nFloor/service stubs replace the current structure (no BoQ line dump). Daywork centres are kept. Use Sync drawings separately.`,
       )
     ) {
       return;
