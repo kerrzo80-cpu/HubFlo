@@ -12,7 +12,10 @@ import {
   type ExtractedPdfPage,
   type ExtractedPdfTextItem,
 } from "@/lib/takeoff-pdf-extract";
+import { looksLikeTakeoffPipeMetreLine } from "@/lib/tender-boq-sections";
 import type { WorkbookSheetRows } from "@/lib/tenders-xlsx";
+
+export { looksLikeTakeoffPipeMetreLine } from "@/lib/tender-boq-sections";
 
 const LINE_Y_TOLERANCE = 4;
 const COLUMN_GAP_MIN = 12;
@@ -307,6 +310,8 @@ export function pdfPageToSupplierQuoteRows(page: ExtractedPdfPage): string[][] |
     if ((qty === 0 || qty === null) && (rate === 0 || rate === null) && (net === 0 || net === null)) {
       continue;
     }
+    // Never invent takeoff pipe-metre lines on a supplier sales-order sheet.
+    if (looksLikeTakeoffPipeMetreLine(code, description)) continue;
 
     const quantity = qty !== null && qty > 0 ? qty : 1;
     const unitRate = rate ?? net;

@@ -199,4 +199,61 @@ describe("tender-boq-pdf", () => {
     assert.ok(measured.some((line) => /CARRIAGE/i.test(line.description)));
     assert.equal(measured.find((line) => /ESYTANK|ESYBOX/i.test(line.description))?.rate, 8147.15);
   });
+
+  it("sales-order fixture tab never includes Cold pipe runs / takeoff metres", async () => {
+    const { existsSync, readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const fixture = resolve(process.cwd(), "../../tmp/Sales Order 20668.pdf");
+    const alt = resolve(process.cwd(), "tmp/Sales Order 20668.pdf");
+    const path = existsSync(fixture) ? fixture : existsSync(alt) ? alt : "";
+    if (!path) return;
+
+    const { workbookBoqSheetsFromPdfBuffer } = await import("@/lib/tender-boq-pdf");
+    const sheets = await workbookBoqSheetsFromPdfBuffer(readFileSync(path), "Sales Order 33888.pdf");
+    const parsed = parseBoqFromWorkbookSheets(sheets);
+    const measured = parsed.lines.filter((line) => line.kind === "measured");
+    assert.ok(measured.length >= 3);
+    assert.ok(
+      measured.every((line) => !/cold\s+pipe\s+runs?/i.test(line.description)),
+      "supplier PDF tab must not invent Cold pipe runs",
+    );
+    assert.ok(measured.every((line) => line.unit === "nr" || !line.unit));
+    assert.ok(measured.some((line) => /CARRIAGE/i.test(line.description)));
+  });
+
+  it("skips takeoff pipe-metre rows even if they appear in a supplier quote parse", () => {
+    const page = syntheticPdfPage(1, [
+      { text: "Filpumps", x: 38, y: 800 },
+      { text: "Quotation", x: 104, y: 800 },
+      { text: "Qty", x: 27, y: 532 },
+      { text: "Ordered", x: 48, y: 532 },
+      { text: "Product", x: 94, y: 532 },
+      { text: "Code", x: 131, y: 532 },
+      { text: "Product", x: 176, y: 532 },
+      { text: "Description", x: 212, y: 532 },
+      { text: "Unit", x: 394, y: 532 },
+      { text: "Price", x: 415, y: 532 },
+      { text: "Net", x: 454, y: 532 },
+      { text: "Price", x: 471, y: 532 },
+      { text: "1.00", x: 70, y: 500 },
+      { text: "PIPE", x: 94, y: 500 },
+      { text: "15mm", x: 176, y: 500 },
+      { text: "Copper", x: 210, y: 500 },
+      { text: "-", x: 250, y: 500 },
+      { text: "Cold", x: 260, y: 500 },
+      { text: "pipe", x: 290, y: 500 },
+      { text: "runs", x: 320, y: 500 },
+      { text: "9.50", x: 415, y: 500 },
+      { text: "9.50", x: 471, y: 500 },
+      { text: "1.00", x: 70, y: 480 },
+      { text: "S1", x: 94, y: 480 },
+      { text: "CARRIAGE", x: 176, y: 480 },
+      { text: "100.00", x: 415, y: 480 },
+      { text: "100.00", x: 471, y: 480 },
+    ]);
+    const rows = pdfPageToSupplierQuoteRows(page);
+    assert.ok(rows);
+    assert.equal(rows!.length, 2); // header + CARRIAGE only
+    assert.equal(rows![1]?.[1], "CARRIAGE");
+  });
 });

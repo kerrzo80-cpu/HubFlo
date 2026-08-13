@@ -4,6 +4,10 @@ import path from "node:path";
 
 import { loadServerStore, writeServerStore, getServerStoreDirectory } from "@/lib/server-store";
 import {
+  looksLikeSupplierQuoteSheetName,
+  looksLikeTakeoffPipeMetreLine,
+} from "@/lib/tender-boq-sections";
+import {
   BOQ_SHEET_MARKER,
   type WorkbookSheetRows,
 } from "@/lib/tenders-xlsx";
@@ -785,6 +789,7 @@ function nextUniqueBoqSheetName(base: string, used: Set<string>): string {
 /**
  * Append imported lines onto an existing BoQ without wiping priced work.
  * New sheets keep distinct tab names; unsheeted imports become “Additional items”.
+ * Existing takeoff / sheeted lines keep their tabs — never reassigned onto a supplier PDF tab.
  */
 export function mergeBoqImportLines(
   existing: TenderBoqLine[],
@@ -811,6 +816,15 @@ export function mergeBoqImportLines(
     for (const line of existing) {
       const sheet = line.sheet?.trim();
       if (sheet) used.add(sheet);
+    }
+    // Orphans must not float onto a newly imported Sales Order tab in the UI.
+    if (incomingHasSheets && existing.some((line) => !line.sheet?.trim())) {
+      const home = nextUniqueBoqSheetName("Issued BoQ", used);
+      base = existing.map((line) =>
+        line.sheet?.trim()
+          ? line
+          : { ...line, sheet: home, section: line.section || home },
+      );
     }
   }
 
@@ -869,6 +883,9 @@ function applyBoqImport(
     );
   }
   const mode: BoqImportMode = options?.mode === "append" ? "append" : "replace";
+  const beforeSheets = new Set(
+    existing.boqLines.map((line) => (line.sheet || "").trim()).filter(Boolean),
+  );
   const boqLines =
     mode === "append"
       ? mergeBoqImportLines(existing.boqLines, parsed.lines, {
@@ -876,7 +893,7 @@ function applyBoqImport(
         })
       : parsed.lines;
   const boqTotal = computeBoqTotal(boqLines);
-  return updateTender(id, {
+  const tender = updateTender(id, {
     boqTitle:
       mode === "append"
         ? existing.boqTitle || parsed.title || existing.boqTitle
@@ -886,10 +903,54 @@ function applyBoqImport(
     tenderSum: existing.tenderSum && existing.tenderSum > 0 ? existing.tenderSum : boqTotal,
     status: existing.status === "Not Started" ? "In Progress" : existing.status,
   });
+  const addedSheets = [
+    ...new Set(
+      tender.boqLines
+        .map((line) => (line.sheet || "").trim())
+        .filter((sheet) => sheet && (mode === "replace" || !beforeSheets.has(sheet))),
+    ),
+  ];
+  return { ...tender, addedSheets };
+}
+
+/**
+ * Paste / CSV imports in append mode always get their own sheet tab.
+ * Never leave lines unsheeted (easy to mis-attribute) and never reuse a supplier
+ * PDF tab name from a previous drop — paste stays on “Additional items” / label.
+ */
+function stampAppendSheetOnParsedLines(
+  parsed: { title: string; lines: TenderBoqLine[] },
+  options?: BoqImportOptions,
+): { title: string; lines: TenderBoqLine[] } {
+  if (options?.mode !== "append") return parsed;
+  const label = options.appendSheetLabel?.trim() || "Additional items";
+  return {
+    title: parsed.title,
+    lines: parsed.lines.map((line) => {
+      if (line.sheet?.trim()) return line;
+      return {
+        ...line,
+        sheet: label,
+        section: line.section || label,
+      };
+    }),
+  };
+}
+
+/** Drop takeoff pipe-metre noise from supplier workbook sheets (sales-order PDFs). */
+function stripTakeoffPipeMetresFromSupplierSheets(
+  parsed: { title: string; lines: TenderBoqLine[] },
+): { title: string; lines: TenderBoqLine[] } {
+  const lines = parsed.lines.filter((line) => {
+    if (line.kind !== "measured") return true;
+    if (!looksLikeSupplierQuoteSheetName(line.sheet || "")) return true;
+    return !looksLikeTakeoffPipeMetreLine(line.ref || "", line.description || "");
+  });
+  return { title: parsed.title, lines };
 }
 
 export function importBoqIntoTender(id: string, raw: string, title?: string, options?: BoqImportOptions) {
-  return applyBoqImport(id, parseBoqDelimitedText(raw, title), options);
+  return applyBoqImport(id, stampAppendSheetOnParsedLines(parseBoqDelimitedText(raw, title), options), options);
 }
 
 export function importBoqRowsIntoTender(
@@ -898,7 +959,7 @@ export function importBoqRowsIntoTender(
   title?: string,
   options?: BoqImportOptions,
 ) {
-  return applyBoqImport(id, parseBoqFromRows(rows, title), options);
+  return applyBoqImport(id, stampAppendSheetOnParsedLines(parseBoqFromRows(rows, title), options), options);
 }
 
 export function importBoqWorkbookIntoTender(
@@ -907,7 +968,8 @@ export function importBoqWorkbookIntoTender(
   title?: string,
   options?: BoqImportOptions,
 ) {
-  return applyBoqImport(id, parseBoqFromWorkbookSheets(sheets, title), options);
+  const parsed = stripTakeoffPipeMetresFromSupplierSheets(parseBoqFromWorkbookSheets(sheets, title));
+  return applyBoqImport(id, parsed, options);
 }
 
 /** Wipe imported BoQ lines so the office can start a fresh import. Does not touch document uploads. */

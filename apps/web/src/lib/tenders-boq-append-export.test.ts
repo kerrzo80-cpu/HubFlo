@@ -219,6 +219,132 @@ describe("tender BoQ append / export", () => {
     assert.equal(getTender(tender.id)?.boqLines.some((line) => line.id === "keep"), true);
   });
 
+  it("append sales-order workbook keeps takeoff Hot & cold pipes off the Sales Order tab", () => {
+    writeServerStore("nexa-tenders-v1", { tenders: [] });
+    const tender = upsertTender({
+      id: "tender-so-isolate",
+      name: "Sales order isolate",
+      client: "Burns",
+      category: "Plumbing",
+      area: "Aberdeen",
+      status: "In Progress",
+      boqLines: [
+        {
+          id: "takeoff-boq-pipe-1",
+          kind: "measured",
+          ref: "PIPE",
+          description: "15mm Copper · Cold pipe runs",
+          quantity: 12,
+          unit: "m",
+          rate: 9.5,
+          value: 114,
+          note: "Lower ground · Rate library guide — amend when supplier quote lands",
+          pricingSource: "rate-library",
+          sheet: "Takeoff · Hot & cold",
+          section: "Pipework",
+        },
+        {
+          id: "takeoff-boq-pipe-2",
+          kind: "measured",
+          ref: "PIPE",
+          description: "22mm Copper · Cold pipe runs",
+          quantity: 8,
+          unit: "m",
+          rate: 12,
+          value: 96,
+          note: "Lower ground · Rate library guide — amend when supplier quote lands",
+          pricingSource: "rate-library",
+          sheet: "Takeoff · Hot & cold",
+          section: "Pipework",
+        },
+      ],
+    });
+
+    const updated = importBoqWorkbookIntoTender(
+      tender.id,
+      [
+        {
+          name: "Sales Order 33888",
+          rows: [
+            ["Ref", "Description", "Quantity", "Units", "Rate", "Value"],
+            ["PIPE", "15mm Copper - Cold pipe runs", "4.5", "m", "9.5", "42.75"],
+            ["01", "EDP TANK, PRO 1000A3", "1", "nr", "3147.15", "3147.15"],
+            ["LOWA60", "60 LTR LOWARA VERTICAL - EXPANSION VESSEL, 10 BAR", "1", "nr", "164", "164"],
+            ["01", "CARRIAGE", "1", "nr", "100", "100"],
+          ],
+        },
+      ],
+      undefined,
+      { mode: "append", appendSheetLabel: "Sales Order 33888" },
+    );
+
+    const tabs = listBoqSheetTabs(updated.boqLines);
+    assert.ok(tabs.some((tab) => tab.key === "Takeoff · Hot & cold"));
+    assert.ok(tabs.some((tab) => tab.key === "Sales Order 33888"));
+    const so = updated.boqLines.filter(
+      (line) => line.kind === "measured" && (line.sheet || "").trim() === "Sales Order 33888",
+    );
+    assert.equal(so.length, 3);
+    assert.ok(so.every((line) => !/cold\s+pipe\s+runs?/i.test(line.description)));
+    assert.ok(so.some((line) => /EDP TANK/i.test(line.description)));
+    assert.ok(so.some((line) => /LOWARA/i.test(line.description)));
+    assert.ok(so.some((line) => /CARRIAGE/i.test(line.description)));
+    assert.ok(
+      updated.boqLines.some(
+        (line) =>
+          line.id === "takeoff-boq-pipe-1" && (line.sheet || "").trim() === "Takeoff · Hot & cold",
+      ),
+    );
+  });
+
+  it("paste append stamps Additional items — not the active Sales Order tab name", () => {
+    writeServerStore("nexa-tenders-v1", { tenders: [] });
+    const tender = upsertTender({
+      id: "tender-paste-isolate",
+      name: "Paste isolate",
+      client: "Burns",
+      category: "Plumbing",
+      area: "Aberdeen",
+      status: "In Progress",
+      boqLines: [
+        {
+          id: "so-1",
+          kind: "measured",
+          ref: "01",
+          description: "CARRIAGE",
+          quantity: 1,
+          unit: "nr",
+          rate: 100,
+          value: 100,
+          sheet: "Sales Order 33888",
+        },
+      ],
+    });
+
+    const updated = importBoqIntoTender(
+      tender.id,
+      [
+        "Ref,Description,Quantity,Units,Rate,Notes",
+        "PIPE,15mm Copper - Cold pipe runs,12,m,9.5,Lower ground · Rate library guide",
+      ].join("\n"),
+      undefined,
+      { mode: "append", appendSheetLabel: "Additional items" },
+    );
+
+    const so = updated.boqLines.filter(
+      (line) => (line.sheet || "").trim() === "Sales Order 33888" && line.kind === "measured",
+    );
+    assert.equal(so.length, 1);
+    assert.equal(so[0]?.description, "CARRIAGE");
+    assert.ok(
+      updated.boqLines.some(
+        (line) =>
+          /Cold pipe runs/i.test(line.description) &&
+          (line.sheet || "").trim() === "Additional items",
+      ),
+    );
+  });
+
   it("adds, renames, and removes sheet tabs plus manual lines", () => {
     writeServerStore("tenders.json", { tenders: [] });
     const tender = upsertTender({

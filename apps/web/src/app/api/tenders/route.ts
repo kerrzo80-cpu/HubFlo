@@ -143,9 +143,12 @@ export async function POST(request: NextRequest) {
       const mode = modeRaw === "append" || modeRaw === "add" ? "append" : "replace";
       const tender = importBoqIntoTender(body.id, body.boqText, body.boqTitle, {
         mode,
-        appendSheetLabel: body.appendSheetLabel,
+        appendSheetLabel: body.appendSheetLabel || "Additional items",
       });
-      return NextResponse.json({ tender, tenders: listTenders(), mode });
+      const addedSheets = Array.isArray((tender as { addedSheets?: string[] }).addedSheets)
+        ? (tender as { addedSheets: string[] }).addedSheets
+        : [];
+      return NextResponse.json({ tender, tenders: listTenders(), mode, addedSheets });
     }
 
     if (body?.action === "clear-boq") {

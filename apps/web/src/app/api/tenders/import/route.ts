@@ -117,11 +117,15 @@ export async function POST(request: NextRequest) {
       }
       const added = tender.boqLines.length;
       const measured = tender.boqLines.filter((line) => line.kind === "measured").length;
+      const addedSheets = Array.isArray((tender as { addedSheets?: string[] }).addedSheets)
+        ? (tender as { addedSheets: string[] }).addedSheets
+        : [];
       return NextResponse.json({
         tender,
         tenders: listTenders(),
         mode,
         measured,
+        addedSheets,
         message:
           mode === "append"
             ? `Added lines to BoQ (${measured} measured · ${added} total line${added === 1 ? "" : "s"}).`

@@ -280,6 +280,7 @@ export function TendersPanel({
         tenders?: Tender[];
         tender?: Tender;
         sheetKey?: string;
+        addedSheets?: string[];
         job?: { id: string; ref: string } | null;
         alreadyConverted?: boolean;
       };
@@ -574,19 +575,23 @@ export function TendersPanel({
     const mode = effectiveBoqImportMode(selected.boqLines.length);
     if (mode === "replace" && !confirmReplaceBoq(selected.boqLines.length)) return;
     try {
-      await postAction({
+      const result = await postAction({
         action: "import-boq",
         id: selected.id,
         boqText: boqImportText,
         mode,
+        // Paste always lands on its own tab — never the active Sales Order / takeoff sheet.
         appendSheetLabel: "Additional items",
       });
       setBoqImportText("");
       setBoqBlakeLineIds([]);
       setTab("boq");
+      const addedSheets = Array.isArray(result.addedSheets) ? result.addedSheets : [];
+      const pastedSheet = addedSheets.find((name) => typeof name === "string" && name.trim());
+      if (typeof pastedSheet === "string") setBoqSheetTab(pastedSheet);
       onNotice(
         mode === "append"
-          ? "BoQ lines added — existing priced work kept."
+          ? "Pasted BoQ lines added on their own sheet tab — existing priced work kept."
           : "BoQ replaced — all issued lines kept; blank rates stay unpriced (not free).",
       );
     } catch (error) {
@@ -617,6 +622,7 @@ export function TendersPanel({
         created?: number;
         updated?: number;
         mode?: string;
+        addedSheets?: string[];
       };
       if (!response.ok) throw new Error(payload.error || "Upload failed");
       if (Array.isArray(payload.tenders)) setTenders(payload.tenders);
@@ -629,8 +635,12 @@ export function TendersPanel({
       }
       if (payload.tender?.id) setSelectedId(payload.tender.id);
       if (action === "import-boq") {
+        // PDF/Excel import must not also consume leftover takeoff text in the paste box.
+        setBoqImportText("");
         setBoqBlakeLineIds([]);
         setTab("boq");
+        const newSheet = payload.addedSheets?.find((name) => name.trim()) || null;
+        if (newSheet) setBoqSheetTab(newSheet);
       }
       onNotice(
         payload.message ||
@@ -662,6 +672,7 @@ export function TendersPanel({
       name.endsWith(".pdf") ||
       file.type === "application/pdf"
     ) {
+      // File-only path — never parse the paste textarea together with the PDF/Excel.
       await uploadImportFile("import-boq", file, {
         tenderId: selected.id,
         mode,
@@ -1412,7 +1423,7 @@ export function TendersPanel({
                   Price on their refs (e.g. 8/1/A). Excel sheets appear as workbook tabs below. Full bill wording is kept — leave Rate blank if not priced so they can see it was not priced (do not put £0 / NIL).
                 </p>
                 <p className="tenders-boq-blake-note">
-                  Supplier priced PDF/Excel as extra lines: keep Add to BoQ (default when lines exist), then drop the file below — it appends new sheet tab(s) named from the file (PDF pages become Page 1, Page 2…; Excel keeps worksheet names; duplicates get “ (2)”). Documents → Supplier quotes only stores the file; it does not pull lines into the bill. Use Replace BoQ only when you intend to wipe current lines.
+                  Supplier priced PDF/Excel as extra lines: keep Add to BoQ (default when lines exist), then drop the file below — it appends new sheet tab(s) named from the file only (paste box is ignored and cleared). PDF pages become Page 1, Page 2…; Excel keeps worksheet names; duplicates get “ (2)”. Documents → Supplier quotes only stores the file; it does not pull lines into the bill. Use Replace BoQ only when you intend to wipe current lines.
                 </p>
                 <p className="tenders-boq-blake-note">
                   Sheet tabs: + Sheet / Rename / Remove sheet (confirm if not empty). Lines: Add line on the active sheet, edit cells, trash a row, or tick lines and Delete selected. Tick measured lines (or a whole sheet/section header) then run Blake — only ticked lines are budget-priced. Library first, then UK trade ballpark for gaps. Guide rates only; unsure lines stay blank.

@@ -26,6 +26,29 @@ export function isBoqLinePriced(line: TenderBoqLine): boolean {
   return hasRate || hasValue;
 }
 
+/** Takeoff Hot & cold style metres — must never land on a Filpumps/sales-order tab. */
+export function looksLikeTakeoffPipeMetreLine(ref: string, description: string): boolean {
+  const hay = `${ref || ""} ${description || ""}`.toLowerCase();
+  if (!hay.trim()) return false;
+  if (/\bcold\s+pipe\s+runs?\b/.test(hay)) return true;
+  if (/\bhot\s+pipe\s+runs?\b/.test(hay)) return true;
+  if (/^\s*pipe\s*$/i.test(ref || "") && /\b\d{2}\s*mm\b/.test(hay) && /\bcopper\b/.test(hay)) {
+    return true;
+  }
+  return false;
+}
+
+/** Sheet tabs named like supplier sales orders / quotations. */
+export function looksLikeSupplierQuoteSheetName(sheet: string): boolean {
+  const key = (sheet || "").toLowerCase();
+  return (
+    /\bsales\s*order\b/.test(key) ||
+    /\bquotation\b/.test(key) ||
+    /\bfilpumps\b/.test(key) ||
+    /\bquote\b/.test(key)
+  );
+}
+
 /**
  * Resolve the sheet/section label for a line index — prefers stored `section`,
  * otherwise the nearest preceding header row.
