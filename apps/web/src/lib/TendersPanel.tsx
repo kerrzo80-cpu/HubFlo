@@ -126,6 +126,8 @@ export function TendersPanel({
   actorName = "NeXa user",
   clients = [],
   onOpenPendingJob,
+  jobExists,
+  onTenderJobStructure,
 }: {
   requestHeaders: RequestHeaders;
   onNotice: (message: string) => void;
@@ -139,6 +141,15 @@ export function TendersPanel({
     billingAddress?: string;
   }>;
   onOpenPendingJob?: (jobId: string) => void;
+  /** True when the linked Core job id still exists (stale links show Recreate). */
+  jobExists?: (jobId: string) => boolean;
+  /** Apply BoQ-built sections/cost centres into Core job state immediately. */
+  onTenderJobStructure?: (payload: {
+    jobId: string;
+    job?: { id: string; ref: string; value?: number } | null;
+    jobSections: Array<{ id: string; name: string; description: string }>;
+    jobCostCentres: Array<Record<string, unknown>>;
+  }) => void;
 }) {
   const [tenders, setTenders] = useState<Tender[]>([]);
   const [loading, setLoading] = useState(true);
@@ -267,6 +278,13 @@ export function TendersPanel({
     setClientSuggestionsOpen(false);
   }, [selectedId]);
 
+  useEffect(() => {
+    if (selected && tenderNeedsJob(selected)) {
+      setTab("overview");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, selected?.status, selected?.convertedJobId]);
+
   async function postAction(body: Record<string, unknown>) {
     setSaving(true);
     try {
@@ -281,8 +299,11 @@ export function TendersPanel({
         tender?: Tender;
         sheetKey?: string;
         addedSheets?: string[];
-        job?: { id: string; ref: string } | null;
+        job?: { id: string; ref: string; value?: number } | null;
         alreadyConverted?: boolean;
+        recreated?: boolean;
+        jobSections?: Array<{ id: string; name: string; description: string }>;
+        jobCostCentres?: Array<Record<string, unknown>>;
       };
       if (!response.ok) throw new Error(payload.error || "Request failed");
       if (Array.isArray(payload.tenders)) setTenders(payload.tenders);
@@ -366,32 +387,95 @@ export function TendersPanel({
     }
   }
 
+  function tenderNeedsJob(tender: Tender | null | undefined) {
+    if (!tender || tender.status !== "Won") return false;
+    if (!tender.convertedJobId) return true;
+    if (!jobExists) return false;
+    return !jobExists(tender.convertedJobId);
+  }
+
+  function tenderJobMissing(tender: Tender | null | undefined) {
+    if (!tender?.convertedJobId || tender.status !== "Won") return false;
+    if (!jobExists) return false;
+    return !jobExists(tender.convertedJobId);
+  }
+
+  function applyJobStructureFromResult(result: {
+    job?: { id: string; ref: string; value?: number } | null;
+    tender?: Tender;
+    jobSections?: Array<{ id: string; name: string; description: string }>;
+    jobCostCentres?: Array<Record<string, unknown>>;
+  }) {
+    const jobId = result.job?.id || result.tender?.convertedJobId;
+    if (!jobId) return;
+    if (!result.jobSections?.length && !result.jobCostCentres?.length) return;
+    onTenderJobStructure?.({
+      jobId,
+      job: result.job,
+      jobSections: result.jobSections || [],
+      jobCostCentres: result.jobCostCentres || [],
+    });
+  }
+
   async function markWon(tenderId: string, options?: { skipConfirm?: boolean }) {
     const tender = tenders.find((row) => row.id === tenderId);
+    const missingLinkedJob = tenderJobMissing(tender);
+    const alreadyLinked = Boolean(tender?.convertedJobId) && !missingLinkedJob;
     if (!options?.skipConfirm) {
-      const alreadyLinked = Boolean(tender?.convertedJobId);
       const ok = window.confirm(
-        alreadyLinked
-          ? `Mark “${tender?.name || "this tender"}” as Won? Linked job ${tender?.convertedJobRef || tender?.convertedJobId} stays — no second job.`
-          : `Create a Pending job from “${tender?.name || "this tender"}” and mark it Won?\n\nThe job will appear in Jobs for scheduling labour. You can change status back later without deleting the job.`,
+        missingLinkedJob
+          ? `Linked job ${tender?.convertedJobRef || tender?.convertedJobId} is missing. Recreate a Pending job from “${tender?.name || "this tender"}”?`
+          : alreadyLinked
+            ? `Mark “${tender?.name || "this tender"}” as Won? Linked job ${tender?.convertedJobRef || tender?.convertedJobId} stays — no second job.`
+            : `Create a Pending job from “${tender?.name || "this tender"}” and mark it Won?\n\nThe job will appear in Jobs for scheduling labour. You can change status back later without deleting the job.`,
       );
       if (!ok) return;
     }
     try {
       const result = await postAction({ action: "convert-won", id: tenderId });
+      applyJobStructureFromResult(result);
       if (result.alreadyConverted && result.tender?.convertedJobId) {
         onNotice(`Already won — job ${result.tender.convertedJobRef || result.tender.convertedJobId}.`);
         onOpenPendingJob?.(result.tender.convertedJobId);
         return;
       }
       if (result.job?.id) {
-        onNotice(`Tender won — pending job ${result.job.ref} created.`);
+        const centreCount = result.jobCostCentres?.length || 0;
+        onNotice(
+          result.recreated
+            ? `Missing job recreated — pending job ${result.job.ref}${centreCount ? ` · ${centreCount} cost centre(s) from BoQ` : ""}.`
+            : `Tender won — pending job ${result.job.ref} created${centreCount ? ` · ${centreCount} cost centre(s) from BoQ` : ""}.`,
+        );
         onOpenPendingJob?.(result.job.id);
       } else {
         onNotice("Tender marked Won.");
       }
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "Unable to mark won");
+    }
+  }
+
+  async function rebuildJobCostCentres() {
+    if (!selected?.convertedJobId) return;
+    if (
+      !window.confirm(
+        `Rebuild job cost centres for “${selected.name}” from the current BoQ?\n\nFloor sections and service centres (Heating, Hot & cold, …) will replace the current structure. Daywork centres are kept.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const result = await postAction({ action: "rebuild-job-cost-centres", id: selected.id });
+      applyJobStructureFromResult(result);
+      const centreCount = result.jobCostCentres?.length || 0;
+      onNotice(
+        `Rebuilt ${centreCount} cost centre(s) from BoQ onto job ${result.job?.ref || selected.convertedJobRef || ""}.`,
+      );
+      if (result.job?.id || selected.convertedJobId) {
+        onOpenPendingJob?.(result.job?.id || selected.convertedJobId!);
+      }
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to rebuild cost centres");
     }
   }
 
@@ -1099,6 +1183,16 @@ export function TendersPanel({
             </p>
           </div>
           <div className="tenders-toolbar-actions">
+            {selected.status === "Won" && tenderNeedsJob(selected) ? (
+              <button
+                type="button"
+                className="primary-button"
+                disabled={saving}
+                onClick={() => void markWon(selected.id)}
+              >
+                {tenderJobMissing(selected) ? "Recreate missing job" : "Create job from this tender"}
+              </button>
+            ) : null}
             <button
               type="button"
               className="secondary-button"
@@ -1121,7 +1215,7 @@ export function TendersPanel({
               <button type="button" className="primary-button" disabled={saving} onClick={() => void markWon(selected.id)}>
                 Mark Won → Pending job
               </button>
-            ) : selected.convertedJobId ? (
+            ) : selected.convertedJobId && !tenderJobMissing(selected) ? (
               <button
                 type="button"
                 className="primary-button"
@@ -1129,16 +1223,7 @@ export function TendersPanel({
               >
                 Open job {selected.convertedJobRef || ""}
               </button>
-            ) : (
-              <button
-                type="button"
-                className="primary-button"
-                disabled={saving}
-                onClick={() => void markWon(selected.id)}
-              >
-                Create job from this tender
-              </button>
-            )}
+            ) : null}
             {selected.status === "Won" ? (
               <button
                 type="button"
@@ -1323,12 +1408,55 @@ export function TendersPanel({
               </select>
               <span className="tenders-hint" style={{ display: "block", marginTop: 4 }}>
                 {selected.status === "Won"
-                  ? selected.convertedJobId
-                    ? `Won keeps job ${selected.convertedJobRef || selected.convertedJobId}. Change status anytime to reopen — job is not deleted.`
-                    : "Won but no job yet — use Create job from this tender."
+                  ? tenderNeedsJob(selected)
+                    ? tenderJobMissing(selected)
+                      ? `Linked job ${selected.convertedJobRef || selected.convertedJobId} is missing — recreate it below.`
+                      : "Won but no job yet — create one below."
+                    : `Won keeps job ${selected.convertedJobRef || selected.convertedJobId}. Change status anytime to reopen — job is not deleted.`
                   : "Marking Won creates a Pending job for scheduling. You can change status back later."}
               </span>
             </label>
+            {selected.status === "Won" && tenderNeedsJob(selected) ? (
+              <div className="tenders-span-2 tenders-won-job-callout" role="status">
+                <div>
+                  <strong>
+                    {tenderJobMissing(selected) ? "Linked job missing" : "Won — no scheduling job yet"}
+                  </strong>
+                  <p>
+                    {tenderJobMissing(selected)
+                      ? `This tender still points at ${selected.convertedJobRef || selected.convertedJobId}, but that job is gone. Recreate a Pending job for scheduling.`
+                      : "Create a Pending Core job from this tender so it appears in Jobs for labour scheduling. Cost centres will be built from BoQ floors and services."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={saving}
+                  onClick={() => void markWon(selected.id)}
+                >
+                  {tenderJobMissing(selected) ? "Recreate missing job" : "Create job from this tender"}
+                </button>
+              </div>
+            ) : null}
+            {selected.status === "Won" && selected.convertedJobId && !tenderNeedsJob(selected) ? (
+              <div className="tenders-span-2 tenders-won-job-callout tenders-won-job-callout-secondary" role="status">
+                <div>
+                  <strong>Job {selected.convertedJobRef || selected.convertedJobId}</strong>
+                  <p>
+                    If cost centres look wrong or only show a partial amount, rebuild them from the current BoQ
+                    (floors as sections, Heating / Hot & cold / Gas as cost centres).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={saving}
+                  onClick={() => void rebuildJobCostCentres()}
+                >
+                  Rebuild cost centres from BoQ
+                </button>
+              </div>
+            ) : null}
             <label>
               Owner
               <input

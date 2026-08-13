@@ -14,6 +14,7 @@ test("Won tender creates Pending Core job and can reopen without deleting it", a
   const { writeServerStore } = await import("./server-store");
   writeServerStore("nexa-tenders-v1", { tenders: [] });
   writeServerStore("workflow-store", { jobs: [], quotes: [], purchaseRequests: [] });
+  writeServerStore("hub-detail-store", { invoices: [], jobCostCentres: {}, jobSections: {} });
   writeServerStore("people-store", {
     clients: [],
     clientSites: [],
@@ -23,8 +24,10 @@ test("Won tender creates Pending Core job and can reopen without deleting it", a
     auditEvents: [],
   });
 
-  const { convertTenderToPendingJob, getTender, updateTender, upsertTender } = await import("./tenders-data");
+  const { convertTenderToPendingJob, getTender, rebuildTenderJobCostCentres, updateTender, upsertTender } =
+    await import("./tenders-data");
   const { getJobs, getJob } = await import("./workflow-data");
+  const { getHubDetailState } = await import("./hub-detail-store");
 
   function seedTender(id: string) {
     return upsertTender({
@@ -62,6 +65,15 @@ test("Won tender creates Pending Core job and can reopen without deleting it", a
   assert.match(converted.job?.site || "", /Aberdeen/);
   assert.equal(converted.tender.status, "Won");
   assert.equal(converted.tender.convertedJobId, converted.job?.id);
+  assert.ok(converted.jobCostCentres.length >= 1);
+  assert.equal(
+    converted.jobCostCentres.reduce(
+      (sum, centre) =>
+        sum + centre.materials.reduce((inner, line) => inner + line.quantity * line.unitCost, 0),
+      0,
+    ),
+    300,
+  );
 
   const viaStatus = updateTender(seedTender("tender-won-2").id, { status: "Won" });
   assert.equal(viaStatus.status, "Won");
@@ -120,4 +132,10 @@ test("Won tender creates Pending Core job and can reopen without deleting it", a
   assert.equal(second.job, null);
   assert.equal(second.tender.convertedJobId, first.job?.id);
   assert.equal(getJobs().length, countBefore);
+
+  const rebuilt = rebuildTenderJobCostCentres("tender-won-4");
+  assert.equal(rebuilt.job.id, first.job?.id);
+  assert.ok(rebuilt.jobCostCentres.length >= 1);
+  const hub = getHubDetailState();
+  assert.ok(((hub.jobCostCentres as Record<string, unknown[]>)?.[first.job!.id] || []).length >= 1);
 });

@@ -39991,6 +39991,52 @@ button.nexa-kpi-card,
   align-items: center;
 }
 
+.tenders-won-job-callout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 18px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  padding: 14px 16px;
+  border: 1px solid #b7d4c2;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f3faf6 0%, #eaf6ef 100%);
+}
+
+.tenders-won-job-callout strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #1f4d33;
+  font-size: 0.95rem;
+}
+
+.tenders-won-job-callout p {
+  margin: 0;
+  max-width: 62ch;
+  color: #355a44;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.tenders-won-job-callout .primary-button {
+  flex: 0 0 auto;
+}
+
+.tenders-won-job-callout-secondary {
+  border-color: #c9d5e0;
+  background: linear-gradient(180deg, #f7fafc 0%, #eef3f7 100%);
+}
+
+.tenders-won-job-callout-secondary strong {
+  color: #243746;
+}
+
+.tenders-won-job-callout-secondary p {
+  color: #4a5d6c;
+}
+
 .tenders-metric-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));

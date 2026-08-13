@@ -13,6 +13,7 @@ import {
   deleteTenders,
   archiveTenders,
   convertTenderToPendingJob,
+  rebuildTenderJobCostCentres,
   importBoqIntoTender,
   listTenders,
   markTenderSubmitted,
@@ -73,7 +74,8 @@ export async function POST(request: NextRequest) {
       | "delete-document-folder"
       | "move-document"
       | "submit"
-      | "convert-won";
+      | "convert-won"
+      | "rebuild-job-cost-centres";
     id?: string;
     ids?: string[];
     documentId?: string;
@@ -262,6 +264,12 @@ export async function POST(request: NextRequest) {
     if (body?.action === "convert-won") {
       if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
       const result = convertTenderToPendingJob(body.id);
+      return NextResponse.json({ ...result, tenders: listTenders() });
+    }
+
+    if (body?.action === "rebuild-job-cost-centres") {
+      if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const result = rebuildTenderJobCostCentres(body.id);
       return NextResponse.json({ ...result, tenders: listTenders() });
     }
 

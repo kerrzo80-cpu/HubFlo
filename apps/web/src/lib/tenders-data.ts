@@ -11,7 +11,8 @@ import {
   BOQ_SHEET_MARKER,
   type WorkbookSheetRows,
 } from "@/lib/tenders-xlsx";
-import { createJob } from "@/lib/workflow-data";
+import { createJob, getJob, updateJob } from "@/lib/workflow-data";
+import { applyTenderBoqStructureToJob } from "@/lib/tender-job-cost-centres";
 import { createTakeoffProject, getTakeoffProject, updateTakeoffProject } from "@/lib/takeoff-data";
 import {
   SOURCE_TENDER_DOC_PREFIX,
@@ -408,7 +409,7 @@ export function updateTender(id: string, patch: Partial<Tender>) {
   const nextStatus = patch.status ?? existing.status;
   const linkedJobId = patch.convertedJobId ?? existing.convertedJobId;
   // Status dropdown (or any patch) to Won must create a Core job — not status-only.
-  // Skip when a job link is already present or being set in this same write (convert path).
+  // Skip when a job link is already present (convert path / recreate handles stale links).
   if (nextStatus === "Won" && !linkedJobId) {
     return convertTenderToPendingJob(id).tender;
   }
@@ -1695,12 +1696,23 @@ export function convertTenderToPendingJob(tenderId: string) {
   const tender = getTender(tenderId);
   if (!tender) throw new Error("Tender not found.");
   if (tender.convertedJobId) {
-    // Already linked — ensure status is Won without creating a second job.
-    const ensured =
-      tender.status === "Won"
-        ? tender
-        : upsertTender({ ...tender, status: "Won", id: tender.id });
-    return { tender: ensured, job: null as ReturnType<typeof createJob> | null, alreadyConverted: true as const };
+    const linked = getJob(tender.convertedJobId);
+    if (linked) {
+      // Already linked — ensure status is Won without creating a second job.
+      const ensured =
+        tender.status === "Won"
+          ? tender
+          : upsertTender({ ...tender, status: "Won", id: tender.id });
+      return {
+        tender: ensured,
+        job: null as ReturnType<typeof createJob> | null,
+        alreadyConverted: true as const,
+        recreated: false as const,
+        jobSections: [] as ReturnType<typeof applyTenderBoqStructureToJob>["sections"],
+        jobCostCentres: [] as ReturnType<typeof applyTenderBoqStructureToJob>["costCentres"],
+      };
+    }
+    // Stale link (job deleted / missing) — fall through and create a fresh Pending job.
   }
   const value = computeBoqTotal(tender.boqLines) || tender.bidValue || 0;
   const siteLabel = [tender.area, tender.materialsNote?.trim()].filter(Boolean).join(" — ") || "Site to be confirmed";
@@ -1717,17 +1729,59 @@ export function convertTenderToPendingJob(tenderId: string) {
     sourceTenderId: tender.id,
     sourceTenderName: tender.name,
   });
+  const recreated = Boolean(tender.convertedJobId);
+  const structure = applyTenderBoqStructureToJob(job, tender.boqLines, { replace: true });
   // Use upsert directly so we do not re-enter the Won auto-convert branch in updateTender.
   const updated = upsertTender({
     ...tender,
     status: "Won",
-    convertedJobId: job.id,
-    convertedJobRef: job.ref,
-    tenderSum: value,
-    bidValue: value,
+    convertedJobId: structure.job.id,
+    convertedJobRef: structure.job.ref,
+    tenderSum: structure.totalSell || value,
+    bidValue: structure.totalSell || value,
     id: tender.id,
   });
-  return { tender: updated, job, alreadyConverted: false as const };
+  return {
+    tender: updated,
+    job: structure.job,
+    alreadyConverted: false as const,
+    recreated,
+    jobSections: structure.sections,
+    jobCostCentres: structure.costCentres,
+  };
+}
+
+/** Rebuild floor sections + service cost centres on the linked Won job from current BoQ. */
+export function rebuildTenderJobCostCentres(tenderId: string) {
+  const tender = getTender(tenderId);
+  if (!tender) throw new Error("Tender not found.");
+  if (!tender.convertedJobId) {
+    throw new Error("This tender has no linked job yet — use Create job from this tender first.");
+  }
+  const job = getJob(tender.convertedJobId);
+  if (!job) {
+    throw new Error("Linked job is missing — recreate the job from this tender first.");
+  }
+  const structure = applyTenderBoqStructureToJob(job, tender.boqLines, { replace: true });
+  const nextValue = structure.totalSell || computeBoqTotal(tender.boqLines) || tender.bidValue || job.value;
+  const updatedTender = upsertTender({
+    ...tender,
+    status: "Won",
+    convertedJobId: structure.job.id,
+    convertedJobRef: structure.job.ref,
+    tenderSum: nextValue,
+    bidValue: nextValue,
+    id: tender.id,
+  });
+  if (structure.job.value !== nextValue) {
+    updateJob(structure.job.id, { value: nextValue });
+  }
+  return {
+    tender: updatedTender,
+    job: getJob(structure.job.id) || structure.job,
+    jobSections: structure.sections,
+    jobCostCentres: structure.costCentres,
+  };
 }
 
 function recordDocumentIdFromUrl(url?: string) {

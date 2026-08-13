@@ -36343,6 +36343,34 @@ export default function CoreApp() {
                 primaryContact: client.primaryContact,
                 billingAddress: client.billingAddress,
               }))}
+              jobExists={(jobId) => jobs.some((job) => job.id === jobId)}
+              onTenderJobStructure={({ jobId, job, jobSections, jobCostCentres }) => {
+                if (job?.id) {
+                  setJobs((current) => {
+                    const existing = current.find((row) => row.id === job.id);
+                    if (existing) {
+                      return current.map((row) =>
+                        row.id === job.id
+                          ? { ...row, ...(typeof job.value === "number" ? { value: job.value } : {}), ref: job.ref || row.ref }
+                          : row,
+                      );
+                    }
+                    return current;
+                  });
+                }
+                if (jobCostCentres.length) {
+                  setJobEstimateCostCentres((current) => ({
+                    ...current,
+                    [jobId]: jobCostCentres as EstimateCostCentre[],
+                  }));
+                }
+                if (jobSections.length) {
+                  setJobSections((current) => ({
+                    ...current,
+                    [jobId]: jobSections,
+                  }));
+                }
+              }}
               onOpenPendingJob={(jobId) => {
                 setSelectedJobId(jobId);
                 setActiveJobFolderKey("pending");
