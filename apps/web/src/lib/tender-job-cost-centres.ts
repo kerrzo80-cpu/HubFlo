@@ -506,7 +506,10 @@ export function applyBuiltTenderStructureToJob(
     }
   }
 
-  writeJobCostCentresAndSections(job.id, structure.costCentres, structure.sections);
+  // skipRehydrate: never re-parse the full hub during rebuild (2× memory → OOM on Render).
+  writeJobCostCentresAndSections(job.id, structure.costCentres, structure.sections, {
+    skipRehydrate: true,
+  });
 
   const nextValue = structure.totalSell > 0 ? structure.totalSell : job.value;
   const updated =
@@ -562,7 +565,10 @@ export function healStoredJobCostCentres(jobId: string): {
   }
 
   // Persist lean centres only — do not clone/merge the rest of the hub on heal.
-  writeJobCostCentresAndSections(jobId, nextCentres, sections, { preserveDaywork: false });
+  writeJobCostCentresAndSections(jobId, nextCentres, sections, {
+    preserveDaywork: false,
+    skipRehydrate: true,
+  });
 
   return {
     healed: true,
