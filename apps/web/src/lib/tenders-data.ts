@@ -1765,16 +1765,7 @@ export function convertTenderToPendingJob(tenderId: string) {
     alreadyConverted: false as const,
     recreated,
     jobSections: structure.sections,
-    jobCostCentres: structure.costCentres.map((centre) => ({
-      id: centre.id,
-      name: centre.name,
-      sectionId: centre.sectionId,
-      templateName: centre.templateName,
-      clientDescription: centre.clientDescription,
-      engineerDescription: centre.engineerDescription,
-      materials: centre.materials.slice(0, 1),
-      labour: [],
-    })),
+    jobCostCentres: structure.costCentres,
     documentsCopied: documentsSync.copied,
     documentsSkipped: documentsSync.skipped,
   };
