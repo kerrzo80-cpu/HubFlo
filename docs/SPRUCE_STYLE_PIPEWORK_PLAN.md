@@ -136,10 +136,12 @@ Add room-side inspector like Spruce UFH panel:
 4. No Spruce logos, colours, or copy  
 5. Ship Phase 0 + Phase 1 first so office feels Spruce-like workflow without boiling the ocean  
 
-## First build slice (when approved)
+## First build slice
 
-1. Phase 0 — collapsible TakeOff groups (Boilers, Heating/UFH, Hot & cold, …)  
-2. Phase 1 — Heat Design draw-pipe tool + new/existing + recalc lengths on edit  
-3. Thin performance strip (even if hydraulics are v1 rules)
+**Pilot only until accepted** — ship to `nexa-pilot` / WIP branch. Do **not** Manual Deploy `nexa-live` until Brian says promote.
 
-Stop after that for office feedback before risers / auto-trace / full CAD pack.
+1. Phase 0 — TakeOff already has collapsible Draw-as groups (Boilers / plant, UFH / manifolds, valves…). Polish: UFH loops sit under **UFH / manifolds**.  
+2. Phase 1 — Heat Design **Draw pipe** tool (kind, diameter, new/existing, Done/Esc, snap/Shift) + keep drawn pipes after Route pipes.  
+3. Later — Performance strip (ΔP / velocity / volume) once draw feels right.
+
+Stop for office feedback on pilot before risers / auto-trace / full CAD pack.
