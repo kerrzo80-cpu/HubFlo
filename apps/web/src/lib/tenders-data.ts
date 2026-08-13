@@ -16,6 +16,7 @@ import {
   applyTenderBoqStructureToJob,
   healStoredJobCostCentres,
 } from "@/lib/tender-job-cost-centres";
+import { leanCentresForTransport } from "@/lib/job-cost-centres-lean";
 import { createTakeoffProject, getTakeoffProject, updateTakeoffProject } from "@/lib/takeoff-data";
 import {
   SOURCE_TENDER_DOC_PREFIX,
@@ -1765,7 +1766,7 @@ export function convertTenderToPendingJob(tenderId: string) {
     alreadyConverted: false as const,
     recreated,
     jobSections: structure.sections,
-    jobCostCentres: structure.costCentres,
+    jobCostCentres: leanCentresForTransport(structure.job.id, structure.costCentres) as typeof structure.costCentres,
     documentsCopied: documentsSync.copied,
     documentsSkipped: documentsSync.skipped,
   };
@@ -1802,7 +1803,7 @@ export function rebuildTenderJobCostCentres(tenderId: string) {
     tender: leanTenderForClient(updatedTender),
     job: getJob(structure.job.id) || structure.job,
     jobSections: structure.sections,
-    jobCostCentres: structure.costCentres,
+    jobCostCentres: leanCentresForTransport(structure.job.id, structure.costCentres) as typeof structure.costCentres,
     documentsCopied: documentsSync.copied,
     documentsSkipped: documentsSync.skipped,
   };
@@ -2008,6 +2009,7 @@ export function healJobCostCentresForJob(jobIdOrRef: string) {
   return {
     job,
     ...healed,
+    centres: leanCentresForTransport(job.id, healed.centres) as typeof healed.centres,
     documents: null as CopyTenderDocumentsToJobResult | null,
   };
 }
@@ -2049,7 +2051,7 @@ export function rebuildJobCostCentresFromSourceTender(jobIdOrRef: string) {
     tender: leanTenderForClient(updatedTender),
     job: getJob(structure.job.id) || structure.job,
     jobSections: structure.sections,
-    jobCostCentres: structure.costCentres,
+    jobCostCentres: leanCentresForTransport(structure.job.id, structure.costCentres) as typeof structure.costCentres,
     documentsCopied: documentsSync.copied,
     documentsSkipped: documentsSync.skipped,
   };

@@ -4,6 +4,12 @@
  */
 
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
+import {
+  LEAN_MAX_MATERIALS_PER_CENTRE,
+  LEAN_MAX_MATERIALS_PER_JOB,
+  leanCentresForTransport,
+  leanJobCostCentresList,
+} from "@/lib/job-cost-centres-lean";
 import { TAKEOFF_BOQ_SHEET_PREFIX } from "@/lib/takeoff-tender-export";
 import {
   floorLabelSortKey,
@@ -132,18 +138,6 @@ function lineAmount(line: TenderBoqLine): number | null {
   return roundMoney(line.rate! * qty);
 }
 
-function lineUnitCostAndQty(line: TenderBoqLine): { quantity: number; unitCost: number } {
-  const amount = lineAmount(line) ?? 0;
-  const qty =
-    typeof line.quantity === "number" && Number.isFinite(line.quantity) && line.quantity !== 0
-      ? line.quantity
-      : 1;
-  if (typeof line.rate === "number" && Number.isFinite(line.rate)) {
-    return { quantity: qty, unitCost: roundMoney(line.rate) };
-  }
-  return { quantity: qty, unitCost: roundMoney(amount / qty) };
-}
-
 function nearestFloorHeader(lines: TenderBoqLine[], index: number): string | null {
   for (let i = index - 1; i >= 0; i -= 1) {
     const prior = lines[i];
@@ -193,48 +187,19 @@ function resolvePlacement(lines: TenderBoqLine[], index: number): { location: st
   return { location, service };
 }
 
-/** Soft cap so opening a converted job never freezes on a full BoQ dump. */
-export const MAX_TENDER_BOQ_MATERIALS_PER_CENTRE = 40;
+/** Soft cap — anything larger is collapsed to a single package line on read. */
+export const MAX_TENDER_BOQ_MATERIALS_PER_CENTRE = LEAN_MAX_MATERIALS_PER_CENTRE;
 /** Across a whole job — beyond this, heal collapses each centre to a lump line. */
-export const MAX_TENDER_BOQ_MATERIALS_PER_JOB = 400;
+export const MAX_TENDER_BOQ_MATERIALS_PER_JOB = LEAN_MAX_MATERIALS_PER_JOB;
 
-function materialLineSell(line: Pick<TenderJobMaterialLine, "quantity" | "unitCost" | "markupPercent">) {
-  const qty = Number.isFinite(line.quantity) ? line.quantity : 0;
-  const unit = Number.isFinite(line.unitCost) ? line.unitCost : 0;
-  const markup = Number.isFinite(line.markupPercent) ? line.markupPercent : 0;
-  return roundMoney(qty * unit * (1 + markup / 100));
-}
-
-function collapseMaterials(
-  jobId: string,
-  centreKey: string,
-  materials: TenderJobMaterialLine[],
-  maxLines = MAX_TENDER_BOQ_MATERIALS_PER_CENTRE,
-): TenderJobMaterialLine[] {
-  if (materials.length <= maxLines) return materials;
-  const keep = materials.slice(0, Math.max(1, maxLines - 1));
-  const rest = materials.slice(keep.length);
-  const restSell = roundMoney(rest.reduce((sum, line) => sum + materialLineSell(line), 0));
-  return [
-    ...keep,
-    {
-      id: `${jobId}-tender-residual-${slug(centreKey)}`,
-      catalogItemId: "tender-boq",
-      description: `${rest.length} further BoQ line(s) (collapsed for job stability)`,
-      quantity: 1,
-      unitCost: restSell,
-      markupPercent: 0,
-    },
-  ];
-}
-
-/** Ensure centres always have arrays and finite numbers — never crash job open. */
-export function sanitizeJobCostCentres(centres: unknown): TenderJobCostCentre[] {
-  if (!Array.isArray(centres)) return [];
+/** Ensure centres always have arrays and finite numbers — never hydrate full BoQ dumps. */
+export function sanitizeJobCostCentres(centres: unknown, jobId = "job"): TenderJobCostCentre[] {
+  const leaned = leanJobCostCentresList(jobId, centres, {
+    maxPerCentre: MAX_TENDER_BOQ_MATERIALS_PER_CENTRE,
+    maxPerJob: MAX_TENDER_BOQ_MATERIALS_PER_JOB,
+  });
   const cleaned: TenderJobCostCentre[] = [];
-  for (const raw of centres) {
-    if (!raw || typeof raw !== "object") continue;
-    const centre = raw as Record<string, unknown>;
+  for (const centre of leaned.centres) {
     const id = typeof centre.id === "string" && centre.id.trim() ? centre.id.trim() : "";
     if (!id) continue;
     const materialsRaw = Array.isArray(centre.materials) ? centre.materials : [];
@@ -317,53 +282,26 @@ export function healJobCostCentresShape(
     const centre = row as Record<string, unknown>;
     return !Array.isArray(centre.materials) || !Array.isArray(centre.labour);
   });
-  const sanitized = sanitizeJobCostCentres(centres);
-  const totalMaterials = sanitized.reduce((sum, centre) => sum + centre.materials.length, 0);
-
-  if (totalMaterials > maxPerJob) {
-    const collapsed = sanitized.map((centre) => {
-      if (!centre.materials.length) return centre;
-      const sell = roundMoney(centre.materials.reduce((sum, line) => sum + materialLineSell(line), 0));
-      return {
-        ...centre,
-        engineerDescription: `${centre.engineerDescription || "From tender BoQ"} · collapsed ${centre.materials.length} lines for stability.`,
-        materials: [
-          {
-            id: `${jobId}-tender-lump-${slug(centre.id)}`,
-            catalogItemId: "tender-boq",
-            description: `${centre.name} · tender BoQ package`,
-            quantity: 1,
-            unitCost: sell,
-            markupPercent: 0,
-          },
-        ],
-      };
-    });
-    return { centres: collapsed, healed: true, reason: `collapsed ${totalMaterials} material lines (job cap ${maxPerJob})` };
-  }
-
-  const next = sanitized.map((centre) => {
-    if (centre.materials.length <= maxPerCentre) return centre;
-    return {
-      ...centre,
-      materials: collapseMaterials(jobId, centre.id, centre.materials, maxPerCentre),
-    };
-  });
-  const capped = next.some((centre, index) => centre.materials.length < (sanitized[index]?.materials.length || 0));
-  const shapeChanged = sanitized.length !== inputList.length || inputWasCorrupt;
-  const healed = capped || shapeChanged;
+  const inputMaterialCount = inputList.reduce((sum, row) => {
+    if (!row || typeof row !== "object") return sum;
+    const materials = (row as { materials?: unknown }).materials;
+    return sum + (Array.isArray(materials) ? materials.length : 0);
+  }, 0);
+  const leaned = leanJobCostCentresList(jobId, centres, { maxPerCentre, maxPerJob });
+  const sanitized = sanitizeJobCostCentres(leaned.centres, jobId);
+  const healed = leaned.changed || inputWasCorrupt || sanitized.length !== inputList.length;
   return {
-    centres: next,
+    centres: sanitized,
     healed,
     reason: healed
-      ? capped
-        ? `capped materials at ${maxPerCentre} per cost centre`
+      ? leaned.changed
+        ? `collapsed ${inputMaterialCount} material lines to lean packages (cap ${maxPerCentre}/centre, ${maxPerJob}/job)`
         : "sanitized cost centre shape"
       : undefined,
   };
 }
 
-/** Pure builder — floors as sections, services as cost centres, amounts match BoQ sell. */
+/** Pure builder — floors as sections, services as cost centres; always one package line per centre (no BoQ line dump). */
 export function buildJobStructureFromTenderBoq(
   job: Pick<Job, "id" | "ref" | "description">,
   lines: TenderBoqLine[],
@@ -371,7 +309,7 @@ export function buildJobStructureFromTenderBoq(
   type Bucket = {
     location: string;
     service: string;
-    materials: TenderJobMaterialLine[];
+    lineCount: number;
     sell: number;
   };
 
@@ -386,18 +324,10 @@ export function buildJobStructureFromTenderBoq(
     const key = `${location.toLowerCase()}||${service.toLowerCase()}`;
     let bucket = buckets.get(key);
     if (!bucket) {
-      bucket = { location, service, materials: [], sell: 0 };
+      bucket = { location, service, lineCount: 0, sell: 0 };
       buckets.set(key, bucket);
     }
-    const priced = lineUnitCostAndQty(line);
-    bucket.materials.push({
-      id: `${job.id}-tender-${line.id}`,
-      catalogItemId: "tender-boq",
-      description: [line.ref, line.description].filter(Boolean).join(" — ") || line.description,
-      quantity: priced.quantity,
-      unitCost: priced.unitCost,
-      markupPercent: 0,
-    });
+    bucket.lineCount += 1;
     bucket.sell = roundMoney(bucket.sell + amount);
     totalSell = roundMoney(totalSell + amount);
   });
@@ -454,21 +384,23 @@ export function buildJobStructureFromTenderBoq(
     })
     .map((bucket) => {
       const sectionId = sectionIdByName.get(bucket.location) || sections[0]!.id;
-      const materials = collapseMaterials(
-        job.id,
-        `${bucket.location}-${bucket.service}`,
-        bucket.materials,
-      );
       return {
         id: `${job.id}-cc-${slug(bucket.location)}-${slug(bucket.service)}`,
         name: bucket.service,
         sectionId,
         templateName: bucket.service,
         clientDescription: `${bucket.location} · ${bucket.service}`,
-        engineerDescription: `Built from tender BoQ (${bucket.materials.length} priced line(s)${
-          materials.length < bucket.materials.length ? `, showing ${materials.length}` : ""
-        }).`,
-        materials,
+        engineerDescription: `Built from tender BoQ (${bucket.lineCount} priced line(s) · lean package).`,
+        materials: [
+          {
+            id: `${job.id}-tender-pkg-${slug(bucket.location)}-${slug(bucket.service)}`,
+            catalogItemId: "tender-boq",
+            description: `${bucket.service} · tender package (${bucket.lineCount} BoQ lines)`,
+            quantity: 1,
+            unitCost: bucket.sell,
+            markupPercent: 0,
+          },
+        ],
         labour: [],
       };
     });
@@ -497,9 +429,10 @@ export function applyTenderBoqStructureToJob(
   options?: { replace?: boolean },
 ): TenderJobStructure & { job: Job } {
   const built = buildJobStructureFromTenderBoq(job, lines);
+  const leanCentres = leanCentresForTransport(job.id, built.costCentres) as TenderJobCostCentre[];
   const structure: TenderJobStructure = {
     sections: sanitizeJobSections(built.sections, job.id),
-    costCentres: sanitizeJobCostCentres(built.costCentres),
+    costCentres: sanitizeJobCostCentres(leanCentres, job.id),
     totalSell: built.totalSell,
   };
   const hub = getHubDetailState();
@@ -551,12 +484,16 @@ export function healStoredJobCostCentres(jobId: string): {
   const nonDaywork = existingList.filter((centre) => !isDayworkCentre(centre));
   const result = healJobCostCentresShape(jobId, nonDaywork);
   const sections = sanitizeJobSections(existingSections, jobId);
-  const nextCentres = [...result.centres, ...sanitizeJobCostCentres(dayworkKept)];
+  const nextCentres = [
+    ...sanitizeJobCostCentres(leanCentresForTransport(jobId, result.centres), jobId),
+    ...sanitizeJobCostCentres(dayworkKept, jobId),
+  ];
   // Avoid JSON.stringify on huge dumps — that alone OOM'd Render when opening bad jobs.
   const needsPersist =
     result.healed ||
     existingList.length !== nextCentres.length ||
-    existingList.some((centre) => !Array.isArray(centre.materials) || !Array.isArray(centre.labour));
+    existingList.some((centre) => !Array.isArray(centre.materials) || !Array.isArray(centre.labour)) ||
+    existingList.some((centre) => Array.isArray(centre.materials) && centre.materials.length > MAX_TENDER_BOQ_MATERIALS_PER_CENTRE);
   if (!needsPersist) {
     return {
       healed: false,

@@ -3,12 +3,12 @@ services:
     name: nexa-pilot
     runtime: node
     region: frankfurt
-    plan: starter
+    plan: standard
     autoDeploy: true
     healthCheckPath: /api/health
     buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile --filter @hubflo/web... && NODE_OPTIONS=--max-old-space-size=3072 pnpm --filter @hubflo/web build
-    # Starter = 512MB — keep runtime heap small. Start Next directly (no Corepack on boot).
-    startCommand: NODE_OPTIONS=--max-old-space-size=384 node apps/web/node_modules/next/dist/bin/next start apps/web --hostname 0.0.0.0 --port $PORT
+    # Was starter/512MB — OOM on heavy tender jobs (J-1103). Standard ≈ 2GB; still keep runtime lean.
+    startCommand: NODE_OPTIONS=--max-old-space-size=1536 node apps/web/node_modules/next/dist/bin/next start apps/web --hostname 0.0.0.0 --port $PORT
     disk:
       name: nexa-pilot-data
       mountPath: /var/data

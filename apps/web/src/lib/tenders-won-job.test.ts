@@ -204,6 +204,10 @@ test("rebuild from job works when tender.convertedJobId is stale or missing", as
   assert.equal(rebuilt.job.id, job.id);
   assert.ok(rebuilt.jobCostCentres.length >= 1);
   assert.equal(rebuilt.tender.boqLines.length, 0, "response tender must be lean (no BoQ dump)");
+  assert.ok(
+    rebuilt.jobCostCentres.every((centre) => centre.materials.length <= 1),
+    "rebuild response must not dump BoQ line arrays",
+  );
   assert.equal(getTender(tender.id)?.convertedJobId, job.id);
   assert.equal(getJob(job.id)?.value, 300);
   const hub = getHubDetailState();

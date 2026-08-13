@@ -7504,7 +7504,15 @@ function refreshedEstimateCostCentresFromRateBook(
 
 /** Client-side safety net — keep Jobs open even if heal API is down / slow. */
 const JOB_UI_MAX_MATERIALS_PER_CENTRE = 40;
-const JOB_UI_MAX_MATERIALS_PER_JOB = 400;
+const JOB_UI_MAX_MATERIALS_PER_JOB = 200;
+
+function isTenderBoqEstimateCentre(centre: EstimateCostCentre): boolean {
+  const materials = Array.isArray(centre?.materials) ? centre.materials : [];
+  if (materials.some((line) => line?.catalogItemId === "tender-boq")) return true;
+  return /tender\s*boq|from tender|lean package|collapsed .* lines/i.test(
+    `${centre?.engineerDescription || ""} ${centre?.templateName || ""}`,
+  );
+}
 
 function collapseOversizedJobCostCentresForUi(jobId: string, centres: EstimateCostCentre[]): EstimateCostCentre[] {
   if (!Array.isArray(centres) || centres.length === 0) return Array.isArray(centres) ? centres : [];
@@ -7516,40 +7524,21 @@ function collapseOversizedJobCostCentresForUi(jobId: string, centres: EstimateCo
     labour: Array.isArray(centre?.labour) ? centre.labour : [],
   }));
   const total = safe.reduce((sum, centre) => sum + centre.materials.length, 0);
-  if (total <= JOB_UI_MAX_MATERIALS_PER_JOB) {
-    return safe.map((centre) => {
-      if (centre.materials.length <= JOB_UI_MAX_MATERIALS_PER_CENTRE) return centre;
-      const kept = centre.materials.slice(0, JOB_UI_MAX_MATERIALS_PER_CENTRE - 1);
-      const overflow = centre.materials.slice(JOB_UI_MAX_MATERIALS_PER_CENTRE - 1);
-      const overflowSell = overflow.reduce(
-        (sum, line) => sum + Number(line.quantity || 0) * Number(line.unitCost || 0) * (1 + Number(line.markupPercent || 0) / 100),
-        0,
-      );
-      return {
-        ...centre,
-        materials: [
-          ...kept,
-          {
-            id: `${jobId}-ui-cap-${centre.id}`,
-            catalogItemId: "tender-boq",
-            description: `${overflow.length} further BoQ lines (capped for stability)`,
-            quantity: 1,
-            unitCost: Math.round(overflowSell * 100) / 100,
-            markupPercent: 0,
-          },
-        ],
-      };
-    });
-  }
+  const jobOver = total > JOB_UI_MAX_MATERIALS_PER_JOB;
+
   return safe.map((centre) => {
-    if (!centre.materials.length) return centre;
+    const tenderish = isTenderBoqEstimateCentre(centre);
+    const cap = tenderish ? 1 : JOB_UI_MAX_MATERIALS_PER_CENTRE;
+    const shouldLump = centre.materials.length > cap || (jobOver && centre.materials.length > cap);
+    if (!shouldLump) return centre;
     const sell = centre.materials.reduce(
-      (sum, line) => sum + Number(line.quantity || 0) * Number(line.unitCost || 0) * (1 + Number(line.markupPercent || 0) / 100),
+      (sum, line) =>
+        sum + Number(line.quantity || 0) * Number(line.unitCost || 0) * (1 + Number(line.markupPercent || 0) / 100),
       0,
     );
     return {
       ...centre,
-      engineerDescription: `${centre.engineerDescription || "From tender BoQ"} · collapsed ${centre.materials.length} lines for stability.`,
+      engineerDescription: `${centre.engineerDescription || "From tender BoQ"} · lean package (${centre.materials.length} lines).`,
       materials: [
         {
           id: `${jobId}-ui-lump-${centre.id}`,
@@ -7562,6 +7551,14 @@ function collapseOversizedJobCostCentresForUi(jobId: string, centres: EstimateCo
       ],
     };
   });
+}
+
+function leanJobCostCentresMapForUi(map: Record<string, EstimateCostCentre[]>): Record<string, EstimateCostCentre[]> {
+  const next: Record<string, EstimateCostCentre[]> = {};
+  for (const [jobId, centres] of Object.entries(map || {})) {
+    next[jobId] = collapseOversizedJobCostCentresForUi(jobId, Array.isArray(centres) ? centres : []);
+  }
+  return next;
 }
 
 /** True when the employee card has at least one weekday availability ticked. */
@@ -9325,7 +9322,10 @@ export default function CoreApp() {
     }
     if ((homeView === "job-record" || homeView === "cost-centre-record") && selectedJob) {
       // Lightweight fingerprint — never JSON.stringify full BoQ material dumps (crashes / freezes job open).
-      const centres = jobEstimateCostCentres[selectedJob.id] ?? [];
+      const centres = collapseOversizedJobCostCentresForUi(
+        selectedJob.id,
+        jobEstimateCostCentres[selectedJob.id] ?? [],
+      );
       return JSON.stringify({
         type: "job",
         record: selectedJob,
@@ -11410,13 +11410,16 @@ export default function CoreApp() {
                   nextCentres[jobId] = [];
                   continue;
                 }
-                nextCentres[jobId] = centres.map((centre) => ({
-                  ...centre,
-                  clientDescription: centre?.clientDescription ?? "",
-                  engineerDescription: centre?.engineerDescription ?? "",
-                  materials: Array.isArray(centre?.materials) ? centre.materials : [],
-                  labour: Array.isArray(centre?.labour) ? centre.labour : [],
-                }));
+                nextCentres[jobId] = collapseOversizedJobCostCentresForUi(
+                  jobId,
+                  centres.map((centre) => ({
+                    ...centre,
+                    clientDescription: centre?.clientDescription ?? "",
+                    engineerDescription: centre?.engineerDescription ?? "",
+                    materials: Array.isArray(centre?.materials) ? centre.materials : [],
+                    labour: Array.isArray(centre?.labour) ? centre.labour : [],
+                  })),
+                );
               }
               setJobEstimateCostCentres(nextCentres);
             }
@@ -11881,7 +11884,7 @@ export default function CoreApp() {
     safeSaveStoredJson(STORAGE_KEYS.jobSchedulePlans, jobSchedulePlans);
     safeSaveStoredJson(STORAGE_KEYS.customCatalog, customQuoteCatalog);
     safeSaveStoredJson(STORAGE_KEYS.catalogFolders, catalogFolders);
-    safeSaveStoredJson(STORAGE_KEYS.jobCostCentres, jobEstimateCostCentres);
+    safeSaveStoredJson(STORAGE_KEYS.jobCostCentres, leanJobCostCentresMapForUi(jobEstimateCostCentres));
     safeSaveStoredJson(STORAGE_KEYS.jobSections, jobSections);
     safeSaveStoredJson(STORAGE_KEYS.jobReviews, jobReviewApprovals);
     safeSaveStoredJson(STORAGE_KEYS.jobDeliveryEvents, jobDeliveryEvents);
@@ -15757,7 +15760,7 @@ export default function CoreApp() {
       }
       if (hubState.quoteSections) setQuoteSections(hubState.quoteSections);
       if (hubState.quoteSchedulePlans) setQuoteSchedulePlans(hubState.quoteSchedulePlans);
-      if (hubState.jobCostCentres) setJobEstimateCostCentres(hubState.jobCostCentres);
+      if (hubState.jobCostCentres) setJobEstimateCostCentres(leanJobCostCentresMapForUi(hubState.jobCostCentres as Record<string, EstimateCostCentre[]>));
       if (hubState.jobSections) setJobSections(hubState.jobSections);
       if (hubState.jobSchedulePlans) setJobSchedulePlans(hubState.jobSchedulePlans);
       if (hubState.jobVariationSections) setJobVariationSections(hubState.jobVariationSections);
@@ -21008,15 +21011,27 @@ export default function CoreApp() {
     const missingArrays = Array.isArray(centres)
       ? centres.some((centre) => !Array.isArray(centre?.materials) || !Array.isArray(centre?.labour))
       : false;
-    const needsHeal = missingArrays || materialCount > JOB_UI_MAX_MATERIALS_PER_JOB;
-    if (!needsHeal) return;
-    // Cap locally first so the job paints even if the heal API is slow/down.
-    if (Array.isArray(centres) && centres.length) {
+    const tenderHeavy =
+      Array.isArray(centres) &&
+      centres.some(
+        (centre) =>
+          isTenderBoqEstimateCentre(centre as EstimateCostCentre) &&
+          Array.isArray(centre?.materials) &&
+          centre.materials.length > 1,
+      );
+    const needsHeal =
+      missingArrays ||
+      materialCount > JOB_UI_MAX_MATERIALS_PER_JOB ||
+      tenderHeavy ||
+      materialCount > JOB_UI_MAX_MATERIALS_PER_CENTRE;
+    // Sync lean strip before paint — never wait for the heal API with a huge materials dump in React state.
+    if (Array.isArray(centres) && centres.length && (needsHeal || tenderHeavy)) {
       setJobEstimateCostCentres((current) => ({
         ...current,
         [jobId]: collapseOversizedJobCostCentresForUi(jobId, centres as EstimateCostCentre[]),
       }));
     }
+    if (!needsHeal) return;
     try {
       const response = await fetch("/api/tenders", {
         method: "POST",
@@ -36728,7 +36743,7 @@ export default function CoreApp() {
                 if (jobCostCentres.length) {
                   setJobEstimateCostCentres((current) => ({
                     ...current,
-                    [jobId]: jobCostCentres as EstimateCostCentre[],
+                    [jobId]: collapseOversizedJobCostCentresForUi(jobId, jobCostCentres as EstimateCostCentre[]),
                   }));
                 }
                 if (jobSections.length) {
@@ -42026,22 +42041,31 @@ export default function CoreApp() {
                               </div>
                             </div>
 
-                            <h3>Parts & Labour</h3>
-                            <div className="simpro-summary-table">
+                              <h3>Parts & Labour</h3>
+                              <div className="simpro-summary-table">
                               <div className="table-head">
                                 <span>Description</span>
                                 <span>Quantity</span>
                                 <span>Item Sell</span>
                                 <span>Total</span>
                               </div>
-                              {selectedCostCentre.materials.map((line) => (
-                                <div className="table-row" key={line.id}>
-                                  <a>{line.description}</a>
-                                  <span>{formatLineQuantity(line.quantity)}</span>
-                                  <span>{currency(lineSellFromMarkup(line.unitCost, line.markupPercent))}</span>
-                                  <strong>{currency(estimateMaterialSell(line))}</strong>
+                              {isTenderBoqEstimateCentre(selectedCostCentre) ? (
+                                <div className="table-row">
+                                  <a>{selectedCostCentre.name} · tender package total</a>
+                                  <span>1</span>
+                                  <span>{currency(totals.materialSell)}</span>
+                                  <strong>{currency(totals.materialSell)}</strong>
                                 </div>
-                              ))}
+                              ) : (
+                                selectedCostCentre.materials.map((line) => (
+                                  <div className="table-row" key={line.id}>
+                                    <a>{line.description}</a>
+                                    <span>{formatLineQuantity(line.quantity)}</span>
+                                    <span>{currency(lineSellFromMarkup(line.unitCost, line.markupPercent))}</span>
+                                    <strong>{currency(estimateMaterialSell(line))}</strong>
+                                  </div>
+                                ))
+                              )}
                               {selectedCostCentre.labour.map((line) => (
                                 <div className="table-row" key={line.id}>
                                   <span>{line.role}</span>
@@ -42598,7 +42622,29 @@ export default function CoreApp() {
                           <span>Total</span>
                           <span />
                         </div>
-                        {selectedCostCentre.materials.map((line) => {
+                        {isTenderBoqEstimateCentre(selectedCostCentre) ? (
+                          <div className="simpro-billable-row parts">
+                            <span />
+                            <input
+                              readOnly
+                              value={`${selectedCostCentre.name} · tender package total (detail lives on the tender BoQ)`}
+                            />
+                            <input value={0} readOnly />
+                            <input
+                              readOnly
+                              value={String(Math.round(estimateCostCentreTotals(selectedCostCentre).materialSell * 100) / 100)}
+                            />
+                            <input value={0} readOnly />
+                            <input
+                              readOnly
+                              value={String(Math.round(estimateCostCentreTotals(selectedCostCentre).materialSell * 100) / 100)}
+                            />
+                            <input value={1} readOnly />
+                            <strong>{currency(estimateCostCentreTotals(selectedCostCentre).materialSell)}</strong>
+                            <span />
+                          </div>
+                        ) : (
+                        selectedCostCentre.materials.map((line) => {
                           const unitSell = lineSellFromMarkup(line.unitCost, line.markupPercent);
                           return (
                             <div className="simpro-billable-row parts" key={line.id}>
@@ -42677,7 +42723,8 @@ export default function CoreApp() {
                               </button>
                             </div>
                           );
-                        })}
+                        })
+                        )}
                         {selectedCostCentre.materials.length === 0 ? (
                           <div className="simpro-billable-row parts empty">
                             <span />

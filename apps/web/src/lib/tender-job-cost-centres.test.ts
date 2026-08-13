@@ -83,7 +83,9 @@ test("buildJobStructureFromTenderBoq maps floors to sections and services to cos
   assert.ok(hotCold);
   assert.ok(heating);
   assert.equal(hotCold?.materials.length, 1);
-  assert.equal(heating?.materials.length, 2);
+  assert.equal(heating?.materials.length, 1);
+  assert.equal(hotCold?.materials[0]?.unitCost, 120);
+  assert.equal(heating?.materials[0]?.unitCost, 4500);
 
   const centreSell = structure.costCentres.reduce(
     (sum, centre) =>
@@ -191,7 +193,7 @@ test("healJobCostCentresShape collapses oversized material dumps", () => {
   assert.ok(Array.isArray(healed.centres[0]?.labour));
 });
 
-test("buildJobStructureFromTenderBoq caps materials per cost centre", () => {
+test("buildJobStructureFromTenderBoq always emits lean package lines (no BoQ dump)", () => {
   const lines: TenderBoqLine[] = Array.from({ length: 60 }, (_, index) => ({
     id: `l-${index}`,
     kind: "measured" as const,
@@ -208,6 +210,7 @@ test("buildJobStructureFromTenderBoq caps materials per cost centre", () => {
     lines,
   );
   assert.ok(structure.costCentres[0]);
-  assert.ok(structure.costCentres[0]!.materials.length <= 40);
+  assert.equal(structure.costCentres[0]!.materials.length, 1);
+  assert.equal(structure.costCentres[0]!.materials[0]!.unitCost, 300);
   assert.equal(structure.totalSell, 300);
 });

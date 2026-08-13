@@ -10,6 +10,7 @@ import {
   mergeDayworkSheetsIntoStore,
   readDayworkSheetsStore,
 } from "@/lib/daywork-sheets-store";
+import { leanJobCostCentresMap } from "@/lib/job-cost-centres-lean";
 
 export type HubDetailState = {
   businessSettings?: Record<string, unknown>;
@@ -140,6 +141,8 @@ function rehydrateDayworkFieldsFromDisk() {
 export function saveHubDetailState(nextState: HubDetailState): HubDetailState {
   rehydrateDayworkFieldsFromDisk();
   const liveSheets = mergeDayworkSheets(readDayworkSheetsStore(), hubDetailState.dayworkSheets);
+  const nextJobCostCentres = mergeCentresPreserveDaywork(hubDetailState.jobCostCentres, nextState.jobCostCentres);
+  leanJobCostCentresMap(nextJobCostCentres);
   const updated: HubDetailState = {
     ...nextState,
     dayworkSheets: mergeDayworkSheets(liveSheets, nextState.dayworkSheets) as Record<string, unknown>,
@@ -149,7 +152,7 @@ export function saveHubDetailState(nextState: HubDetailState): HubDetailState {
       ...((nextState.flowStepCompletion || {}) as Record<string, unknown>),
     },
     jobDeliveryEvents: mergeJobDeliveryEvents(hubDetailState.jobDeliveryEvents, nextState.jobDeliveryEvents),
-    jobCostCentres: mergeCentresPreserveDaywork(hubDetailState.jobCostCentres, nextState.jobCostCentres),
+    jobCostCentres: nextJobCostCentres,
     // Field auto-drafts and office invoice edits must survive stale Core PUT payloads.
     invoices: mergeInvoicesById(hubDetailState.invoices, nextState.invoices) as unknown[],
     updatedAt: new Date().toISOString(),
@@ -169,6 +172,10 @@ export function saveHubDetailState(nextState: HubDetailState): HubDetailState {
 export function getHubDetailState(): HubDetailState {
   // Always surface dedicated daywork sheets, even if a prior hub write dropped them.
   rehydrateDayworkFieldsFromDisk();
+  // Lean oversized tender BoQ dumps BEFORE JSON clone — stringify of 400+ lines OOMs 512MB Render.
+  if (leanJobCostCentresMap(hubDetailState.jobCostCentres)) {
+    writeServerStore("hub-detail-store", hubDetailState);
+  }
   const sheets = mergeDayworkSheets(readDayworkSheetsStore(), hubDetailState.dayworkSheets);
   return clone({
     ...hubDetailState,

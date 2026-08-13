@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   alertForDeadline,
+  sortTendersByDueDate,
   tenderNeedsDeadlineAlert,
   type TenderStatus,
 } from "@/lib/tenders-types";
@@ -25,5 +26,21 @@ describe("tender deadline alerts", () => {
 
   it("still alerts when status is omitted (legacy callers)", () => {
     assert.equal(alertForDeadline("2026-08-15", "2026-08-13"), "Due this week");
+  });
+});
+
+describe("tender due-date list sort", () => {
+  it("orders soonest due first and undated last", () => {
+    const sorted = sortTendersByDueDate([
+      { name: "Charlie", submissionDeadline: "2026-09-01" },
+      { name: "Alpha", submissionDeadline: undefined },
+      { name: "Bravo", submissionDeadline: "2026-08-10" },
+      { name: "Delta", submissionDeadline: "Not set" },
+      { name: "Echo", submissionDeadline: "2026-08-10" },
+    ]);
+    assert.deepEqual(
+      sorted.map((row) => row.name),
+      ["Bravo", "Echo", "Charlie", "Alpha", "Delta"],
+    );
   });
 });
