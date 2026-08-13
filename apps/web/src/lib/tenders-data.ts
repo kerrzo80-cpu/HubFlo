@@ -1837,63 +1837,74 @@ export function removeTenderDocument(tenderId: string, documentId: string) {
   });
 }
 
+/**
+ * Mark Won → Pending job — same shape as quote→job.
+ * Creates the job + tender link only. Never loads BoQ lines, never writes cost centres,
+ * never copies PDFs (use Rebuild / Sync drawings afterwards).
+ */
 export function convertTenderToPendingJob(tenderId: string) {
-  const tender = getTender(tenderId);
-  if (!tender) throw new Error("Tender not found.");
-  if (tender.convertedJobId) {
-    const linked = getJob(tender.convertedJobId);
+  // Lean meta only — getTender/attachBoq is what OOMed Mark Won on volume Bills.
+  const tenderMeta = readStoreRaw().tenders.find((row) => row.id === tenderId);
+  if (!tenderMeta) throw new Error("Tender not found.");
+  if (tenderMeta.convertedJobId) {
+    const linked = getJob(tenderMeta.convertedJobId);
     if (linked) {
       // Already linked — ensure status is Won without creating a second job.
       const ensured =
-        tender.status === "Won"
-          ? tender
-          : upsertTender({ ...tender, status: "Won", id: tender.id });
+        tenderMeta.status === "Won"
+          ? tenderMeta
+          : patchTenderJobLink(tenderMeta.id, { status: "Won" });
       return {
-        tender: ensured,
+        tender: leanTenderForClient(ensured),
         job: null as ReturnType<typeof createJob> | null,
         alreadyConverted: true as const,
         recreated: false as const,
         jobSections: [] as ReturnType<typeof applyTenderBoqStructureToJob>["sections"],
         jobCostCentres: [] as ReturnType<typeof applyTenderBoqStructureToJob>["costCentres"],
+        documentsCopied: 0,
+        documentsSkipped: 0,
       };
     }
     // Stale link (job deleted / missing) — fall through and create a fresh Pending job.
   }
-  const value = computeBoqTotal(tender.boqLines) || tender.bidValue || 0;
-  const siteLabel = [tender.area, tender.materialsNote?.trim()].filter(Boolean).join(" — ") || "Site to be confirmed";
+  const summary = readBoqRebuildSummary(tenderMeta.id);
+  const value =
+    Number(tenderMeta.tenderSum) ||
+    Number(tenderMeta.bidValue) ||
+    Number(summary?.totalSell) ||
+    0;
+  const siteLabel =
+    [tenderMeta.area, tenderMeta.materialsNote?.trim()].filter(Boolean).join(" — ") || "Site to be confirmed";
   const job = createJob({
-    clientId: tender.clientId,
-    customer: tender.client,
+    clientId: tenderMeta.clientId,
+    customer: tenderMeta.client,
     site: siteLabel,
-    description: `${tender.name}${tender.boqTitle ? ` — ${tender.boqTitle}` : ""}`.trim(),
-    manager: tender.owner || "Unassigned",
+    description: `${tenderMeta.name}${tenderMeta.boqTitle ? ` — ${tenderMeta.boqTitle}` : ""}`.trim(),
+    manager: tenderMeta.owner || "Unassigned",
     status: "Pending",
     value,
     next: "Won tender — schedule and start checks",
-    due: tender.submissionDeadline || new Date().toISOString().slice(0, 10),
-    sourceTenderId: tender.id,
-    sourceTenderName: tender.name,
+    due: tenderMeta.submissionDeadline || new Date().toISOString().slice(0, 10),
+    sourceTenderId: tenderMeta.id,
+    sourceTenderName: tenderMeta.name,
   });
-  const recreated = Boolean(tender.convertedJobId);
-  const structure = applyTenderBoqStructureToJob(job, tender.boqLines, { replace: true });
-  const documentsSync = copyTenderDocumentsToJob(tender, structure.job);
-  // Patch link only — do not re-normalise / rewrite the BoQ blob (OOM on large Bills).
-  const updated = patchTenderJobLink(tender.id, {
+  const recreated = Boolean(tenderMeta.convertedJobId);
+  const updated = patchTenderJobLink(tenderMeta.id, {
     status: "Won",
-    convertedJobId: structure.job.id,
-    convertedJobRef: structure.job.ref,
-    tenderSum: structure.totalSell || value,
-    bidValue: structure.totalSell || value,
+    convertedJobId: job.id,
+    convertedJobRef: job.ref,
+    tenderSum: value,
+    bidValue: value,
   });
   return {
-    tender: updated,
-    job: structure.job,
+    tender: leanTenderForClient(updated),
+    job,
     alreadyConverted: false as const,
     recreated,
-    jobSections: structure.sections,
-    jobCostCentres: leanCentresForTransport(structure.job.id, structure.costCentres) as typeof structure.costCentres,
-    documentsCopied: documentsSync.copied,
-    documentsSkipped: documentsSync.skipped,
+    jobSections: [],
+    jobCostCentres: [],
+    documentsCopied: 0,
+    documentsSkipped: 0,
   };
 }
 

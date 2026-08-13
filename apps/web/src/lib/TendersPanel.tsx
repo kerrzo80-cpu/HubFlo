@@ -480,7 +480,7 @@ export function TendersPanel({
           ? `Linked job ${tender?.convertedJobRef || tender?.convertedJobId} is missing. Recreate a Pending job from “${tender?.name || "this tender"}”?`
           : alreadyLinked
             ? `Mark “${tender?.name || "this tender"}” as Won? Linked job ${tender?.convertedJobRef || tender?.convertedJobId} stays — no second job.`
-            : `Create a Pending job from “${tender?.name || "this tender"}” and mark it Won?\n\nThe job will appear in Jobs for scheduling labour. You can change status back later without deleting the job.`,
+            : `Create a Pending job from “${tender?.name || "this tender"}” and mark it Won?\n\nSame as converting a quote — job record + value only. Cost centres and drawings can be added afterwards from the job.`,
       );
       if (!ok) return;
     }
@@ -493,12 +493,10 @@ export function TendersPanel({
         return;
       }
       if (result.job?.id) {
-        const centreCount = result.jobCostCentres?.length || 0;
-        const docs = result.documentsCopied || 0;
         onNotice(
           result.recreated
-            ? `Missing job recreated — pending job ${result.job.ref}${centreCount ? ` · ${centreCount} cost centre(s) from BoQ` : ""}${docs ? ` · ${docs} document(s)` : ""}.`
-            : `Tender won — pending job ${result.job.ref} created${centreCount ? ` · ${centreCount} cost centre(s) from BoQ` : ""}${docs ? ` · ${docs} document(s)` : ""}.`,
+            ? `Missing job recreated — pending job ${result.job.ref}. Use Rebuild cost centres / Sync drawings if needed.`
+            : `Tender won — pending job ${result.job.ref} created (like a quote). Use Rebuild cost centres / Sync drawings if needed.`,
         );
         onOpenPendingJob?.(result.job.id);
       } else {

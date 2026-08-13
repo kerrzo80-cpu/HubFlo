@@ -506,9 +506,10 @@ export function applyBuiltTenderStructureToJob(
     }
   }
 
-  // skipRehydrate: never re-parse the full hub during rebuild (2× memory → OOM on Render).
+  // sideStoreOnly: never stringify hub-detail-store during rebuild (OOM path).
   writeJobCostCentresAndSections(job.id, structure.costCentres, structure.sections, {
     skipRehydrate: true,
+    sideStoreOnly: true,
   });
 
   const nextValue = structure.totalSell > 0 ? structure.totalSell : job.value;
@@ -564,10 +565,11 @@ export function healStoredJobCostCentres(jobId: string): {
     };
   }
 
-  // Persist lean centres only — do not clone/merge the rest of the hub on heal.
+  // Persist lean centres only — side store; never stringify the full hub on heal.
   writeJobCostCentresAndSections(jobId, nextCentres, sections, {
     preserveDaywork: false,
     skipRehydrate: true,
+    sideStoreOnly: true,
   });
 
   return {
