@@ -306,7 +306,19 @@ export function TendersPanel({
         jobCostCentres?: Array<Record<string, unknown>>;
       };
       if (!response.ok) throw new Error(payload.error || "Request failed");
-      if (Array.isArray(payload.tenders)) setTenders(payload.tenders);
+      if (Array.isArray(payload.tenders)) {
+        // Lean POST responses strip boqLines to protect Render memory — keep open BoQs.
+        setTenders((current) => {
+          const previousById = new Map(current.map((row) => [row.id, row]));
+          return payload.tenders!.map((row) => {
+            const previous = previousById.get(row.id);
+            if (previous?.boqLines?.length && !(row.boqLines && row.boqLines.length)) {
+              return { ...row, boqLines: previous.boqLines, boqTitle: row.boqTitle || previous.boqTitle };
+            }
+            return row;
+          });
+        });
+      }
       if (payload.tender?.id) setSelectedId(payload.tender.id);
       return payload;
     } finally {
@@ -814,8 +826,9 @@ export function TendersPanel({
   async function downloadBoqSpreadsheet(
     scope: "all" | "active",
     format: "xlsx" | "csv" | "pdf" = "xlsx",
+    options?: { quiet?: boolean },
   ) {
-    if (!selected || !selected.boqLines.length) return;
+    if (!selected || !selected.boqLines.length) return false;
     const params = new URLSearchParams({ format, scope });
     if (scope === "active" && activeBoqSheet) params.set("sheet", activeBoqSheet);
     const response = await fetch(`/api/tenders/${selected.id}/boq-export?${params}`, {
@@ -823,8 +836,8 @@ export function TendersPanel({
     });
     if (!response.ok) {
       const payload = (await response.json().catch(() => ({}))) as { error?: string };
-      onNotice(payload.error || "Unable to export BoQ.");
-      return;
+      if (!options?.quiet) onNotice(payload.error || "Unable to export BoQ.");
+      return false;
     }
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
@@ -838,11 +851,14 @@ export function TendersPanel({
     anchor.click();
     URL.revokeObjectURL(url);
     const label = format === "pdf" ? "PDF" : format.toUpperCase();
-    onNotice(
-      scope === "active"
-        ? `Exported active sheet${activeBoqSheet ? ` (${activeBoqSheet})` : ""} as ${label}.`
-        : `Exported full BoQ as ${label}.`,
-    );
+    if (!options?.quiet) {
+      onNotice(
+        scope === "active"
+          ? `Exported active sheet${activeBoqSheet ? ` (${activeBoqSheet})` : ""} as ${label}.`
+          : `Exported full BoQ as ${label}.`,
+      );
+    }
+    return true;
   }
 
   async function patchBoqLine(lineId: string, linePatch: Partial<TenderBoqLine>) {
@@ -1137,8 +1153,8 @@ export function TendersPanel({
     setBlakeBudgetStatus("Cancelling…");
   }
 
-  async function downloadFormOfTender() {
-    if (!selected) return;
+  async function downloadFormOfTender(options?: { quiet?: boolean }) {
+    if (!selected) return false;
     const params = new URLSearchParams({
       businessName,
       signatoryName: actorName,
@@ -1148,8 +1164,8 @@ export function TendersPanel({
       headers: requestHeaders,
     });
     if (!response.ok) {
-      onNotice("Unable to generate Form of Tender.");
-      return;
+      if (!options?.quiet) onNotice("Unable to generate Form of Tender.");
+      return false;
     }
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
@@ -1158,19 +1174,35 @@ export function TendersPanel({
     anchor.download = `Form_of_Tender_${selected.name.replace(/[^a-z0-9]+/gi, "_")}.pdf`;
     anchor.click();
     URL.revokeObjectURL(url);
-    onNotice("Form of Tender downloaded.");
+    if (!options?.quiet) onNotice("Form of Tender downloaded.");
+    return true;
   }
 
   async function submitTender() {
     if (!selected) return;
+    const hasBoq = selected.boqLines.length > 0;
     try {
       await postAction({
         action: "submit",
         id: selected.id,
         tenderSum: computeBoqTotal(selected.boqLines),
       });
-      await downloadFormOfTender();
-      onNotice("Tender marked Sent — attach the FoT PDF + priced BoQ for return.");
+      // Prefer Excel BoQ (all sheets) + FoT PDF as the email attachment pack.
+      const boqOk = hasBoq ? await downloadBoqSpreadsheet("all", "xlsx", { quiet: true }) : false;
+      const fotOk = await downloadFormOfTender({ quiet: true });
+      if (boqOk && fotOk) {
+        onNotice("Tender marked Sent — Downloads BoQ + Form of Tender. Attach both to your email.");
+      } else if (fotOk) {
+        onNotice(
+          hasBoq
+            ? "Tender marked Sent — Form of Tender downloaded; BoQ export failed. Retry Export Excel on the BoQ tab."
+            : "Tender marked Sent — Form of Tender downloaded (no BoQ lines to export).",
+        );
+      } else if (boqOk) {
+        onNotice("Tender marked Sent — BoQ downloaded; Form of Tender failed. Retry from Submit.");
+      } else {
+        onNotice("Tender marked Sent — downloads failed. Use Export Excel + Form of Tender on Submit.");
+      }
       setTab("submit");
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "Unable to submit tender");
@@ -1181,7 +1213,7 @@ export function TendersPanel({
     const progress = boqProgress(selected.boqLines);
     const boqTotal = computeBoqTotal(selected.boqLines);
     const daysLeft = daysLeftForDeadline(selected.submissionDeadline);
-    const alert = alertForDeadline(selected.submissionDeadline);
+    const alert = alertForDeadline(selected.submissionDeadline, undefined, selected.status);
 
     return (
       <section className="tenders-workspace" aria-label="Tender record">
@@ -1258,7 +1290,13 @@ export function TendersPanel({
               <Download size={15} />
               Form of Tender
             </button>
-            <button type="button" className="secondary-button" disabled={saving} onClick={() => void submitTender()}>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={saving}
+              onClick={() => void submitTender()}
+              title="Downloads BoQ + Form of Tender"
+            >
               <Send size={15} />
               Mark submitted
             </button>
@@ -2385,8 +2423,8 @@ export function TendersPanel({
               <span className="permission-heading">Return pack</span>
               <h3>What goes back to the main contractor</h3>
               <ol>
-                <li>Priced BoQ on <em>their</em> spreadsheet structure (use Export Excel / CSV on the BoQ tab after pricing).</li>
-                <li>Form of Tender PDF (NeXa generated from this record).</li>
+                <li>Priced BoQ Excel (all sheets) — downloaded automatically when you Mark Sent.</li>
+                <li>Form of Tender PDF — downloaded with the BoQ (not FoT alone).</li>
                 <li>Optional covering note with qualifications already on the FoT appendix.</li>
               </ol>
               <div className="tenders-metric-row">
@@ -2408,9 +2446,15 @@ export function TendersPanel({
                   <Download size={15} />
                   Download Form of Tender
                 </button>
-                <button type="button" className="primary-button" disabled={saving} onClick={() => void submitTender()}>
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={saving}
+                  onClick={() => void submitTender()}
+                  title="Downloads BoQ + Form of Tender"
+                >
                   <Send size={15} />
-                  Mark Sent + download FoT
+                  Mark Sent — Downloads BoQ + Form of Tender
                 </button>
               </div>
             </article>
@@ -2473,7 +2517,7 @@ export function TendersPanel({
         <article className="record-folder-card amber">
           <span>Due this week</span>
           <strong>
-            {tenders.filter((t) => alertForDeadline(t.submissionDeadline) === "Due this week").length}
+            {tenders.filter((t) => alertForDeadline(t.submissionDeadline, undefined, t.status) === "Due this week").length}
           </strong>
         </article>
       </div>
@@ -2561,7 +2605,7 @@ export function TendersPanel({
             <tbody>
               {filtered.map((tender) => {
                 const days = daysLeftForDeadline(tender.submissionDeadline);
-                const alert = alertForDeadline(tender.submissionDeadline);
+                const alert = alertForDeadline(tender.submissionDeadline, undefined, tender.status);
                 const openTender = () => {
                   setSelectedId(tender.id);
                   setTab("overview");

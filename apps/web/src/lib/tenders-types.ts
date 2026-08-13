@@ -175,7 +175,13 @@ export function daysLeftForDeadline(deadline?: string, asOf = new Date().toISOSt
   return Math.floor((start - current) / 86_400_000);
 }
 
-export function alertForDeadline(deadline?: string, asOf?: string) {
+/** Open / in-progress statuses that still chase deadlines. Sent / Won / Lost are closed for due alerts. */
+export function tenderNeedsDeadlineAlert(status: TenderStatus) {
+  return status === "Not Started" || status === "In Progress" || status === "Needs Reviewed";
+}
+
+export function alertForDeadline(deadline?: string, asOf?: string, status?: TenderStatus) {
+  if (status && !tenderNeedsDeadlineAlert(status)) return "";
   const days = daysLeftForDeadline(deadline, asOf);
   if (days === null) return "";
   if (days < 0) return "Overdue";
