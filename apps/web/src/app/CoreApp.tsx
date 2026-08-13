@@ -21178,7 +21178,11 @@ export default function CoreApp() {
         );
       }
       showNotice(
-        `Rebuilt ${payload?.jobCostCentres?.length || 0} cost centre(s) from BoQ. Use Sync drawings from tender for Documents.`,
+        `Rebuilt ${payload?.jobCostCentres?.length || 0} cost centre(s) from the tender${
+          (payload as { usedSummary?: boolean } | null)?.usedSummary === false
+            ? " total"
+            : ""
+        }. Use Sync drawings from tender for Documents.`,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to rebuild cost centres";

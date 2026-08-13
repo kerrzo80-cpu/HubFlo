@@ -58,6 +58,21 @@ export type TenderJobStructure = {
   totalSell: number;
 };
 
+/** Tiny rebuild recipe — floors × services × totals. Never includes BoQ line arrays. */
+export type TenderBoqRebuildBucket = {
+  location: string;
+  service: string;
+  lineCount: number;
+  sell: number;
+};
+
+export type TenderBoqRebuildSummary = {
+  totalSell: number;
+  lineCount: number;
+  buckets: TenderBoqRebuildBucket[];
+  updatedAt: string;
+};
+
 const INTERNAL_SECTION_LABELS = new Set([
   "pipework",
   "fittings",
@@ -301,20 +316,12 @@ export function healJobCostCentresShape(
   };
 }
 
-/** Pure builder — floors as sections, services as cost centres; always one package line per centre (no BoQ line dump). */
-export function buildJobStructureFromTenderBoq(
-  job: Pick<Job, "id" | "ref" | "description">,
-  lines: TenderBoqLine[],
-): TenderJobStructure {
-  type Bucket = {
-    location: string;
-    service: string;
-    lineCount: number;
-    sell: number;
-  };
-
+/** Summarise a Bill into tiny floor/service buckets (safe to persist beside the BoQ). */
+export function summariseTenderBoqForRebuild(lines: TenderBoqLine[]): TenderBoqRebuildSummary {
+  type Bucket = TenderBoqRebuildBucket;
   const buckets = new Map<string, Bucket>();
   let totalSell = 0;
+  let lineCount = 0;
 
   lines.forEach((line, index) => {
     if (line.kind !== "measured") return;
@@ -330,45 +337,80 @@ export function buildJobStructureFromTenderBoq(
     bucket.lineCount += 1;
     bucket.sell = roundMoney(bucket.sell + amount);
     totalSell = roundMoney(totalSell + amount);
+    lineCount += 1;
   });
 
   if (!buckets.size) {
     const boqTotal = computeBoqTotal(lines);
-    const sectionId = `${job.id}-section-general`;
     return {
-      sections: [{ id: sectionId, name: "General", description: "From won tender BoQ" }],
-      costCentres: [
-        {
-          id: `${job.id}-cc-boq`,
-          name: "Tender BoQ",
-          sectionId,
-          templateName: "Tender BoQ",
-          clientDescription: job.description || "Won tender",
-          engineerDescription: "Generated from tender BoQ on Mark Won.",
-          materials:
-            boqTotal > 0
-              ? [
-                  {
-                    id: `${job.id}-tender-boq-lump`,
-                    catalogItemId: "tender-boq",
-                    description: "Tender BoQ total",
-                    quantity: 1,
-                    unitCost: boqTotal,
-                    markupPercent: 0,
-                  },
-                ]
-              : [],
-          labour: [],
-        },
-      ],
       totalSell: boqTotal,
+      lineCount: lines.filter((line) => line.kind === "measured").length,
+      buckets:
+        boqTotal > 0
+          ? [{ location: "General", service: "Tender BoQ", lineCount: lineCount || 1, sell: boqTotal }]
+          : [],
+      updatedAt: new Date().toISOString(),
     };
   }
 
-  const locationNames = Array.from(
-    new Set(Array.from(buckets.values()).map((bucket) => bucket.location)),
-  ).sort((a, b) => floorLabelSortKey(a) - floorLabelSortKey(b) || a.localeCompare(b));
+  return {
+    totalSell,
+    lineCount,
+    buckets: Array.from(buckets.values()),
+    updatedAt: new Date().toISOString(),
+  };
+}
 
+/** Crash-proof rebuild from tender total only — never needs BoQ lines in memory. */
+export function buildJobStructureFromTenderTotal(
+  job: Pick<Job, "id" | "ref" | "description">,
+  totalSell: number,
+): TenderJobStructure {
+  const amount = roundMoney(Number.isFinite(totalSell) ? totalSell : 0);
+  const sectionId = `${job.id}-section-general`;
+  return {
+    sections: [{ id: sectionId, name: "General", description: "From won tender BoQ" }],
+    costCentres: [
+      {
+        id: `${job.id}-cc-boq`,
+        name: "Tender BoQ",
+        sectionId,
+        templateName: "Tender BoQ",
+        clientDescription: job.description || "Won tender",
+        engineerDescription: "Rebuilt from tender total (no BoQ line load).",
+        materials:
+          amount > 0
+            ? [
+                {
+                  id: `${job.id}-tender-boq-lump`,
+                  catalogItemId: "tender-boq",
+                  description: "Tender BoQ package",
+                  quantity: 1,
+                  unitCost: amount,
+                  markupPercent: 0,
+                },
+              ]
+            : [],
+        labour: [],
+      },
+    ],
+    totalSell: amount,
+  };
+}
+
+/** Rebuild from a previously saved summary — no BoQ line arrays required. */
+export function buildJobStructureFromBoqSummary(
+  job: Pick<Job, "id" | "ref" | "description">,
+  summary: TenderBoqRebuildSummary,
+): TenderJobStructure {
+  const buckets = Array.isArray(summary.buckets) ? summary.buckets : [];
+  if (!buckets.length) {
+    return buildJobStructureFromTenderTotal(job, summary.totalSell || 0);
+  }
+
+  const locationNames = Array.from(new Set(buckets.map((bucket) => bucket.location || "General"))).sort(
+    (a, b) => floorLabelSortKey(a) - floorLabelSortKey(b) || a.localeCompare(b),
+  );
   const sections: TenderJobSection[] = locationNames.map((name) => ({
     id: `${job.id}-section-${slug(name)}`,
     name,
@@ -376,36 +418,54 @@ export function buildJobStructureFromTenderBoq(
   }));
   const sectionIdByName = new Map(sections.map((section) => [section.name, section.id]));
 
-  const costCentres: TenderJobCostCentre[] = Array.from(buckets.values())
+  const costCentres: TenderJobCostCentre[] = [...buckets]
     .sort((a, b) => {
       const floor = floorLabelSortKey(a.location) - floorLabelSortKey(b.location);
       if (floor !== 0) return floor;
       return a.service.localeCompare(b.service) || a.location.localeCompare(b.location);
     })
     .map((bucket) => {
-      const sectionId = sectionIdByName.get(bucket.location) || sections[0]!.id;
+      const location = bucket.location || "General";
+      const service = bucket.service || "General";
+      const sectionId = sectionIdByName.get(location) || sections[0]!.id;
+      const sell = roundMoney(bucket.sell || 0);
       return {
-        id: `${job.id}-cc-${slug(bucket.location)}-${slug(bucket.service)}`,
-        name: bucket.service,
+        id: `${job.id}-cc-${slug(location)}-${slug(service)}`,
+        name: service,
         sectionId,
-        templateName: bucket.service,
-        clientDescription: `${bucket.location} · ${bucket.service}`,
-        engineerDescription: `Built from tender BoQ (${bucket.lineCount} priced line(s) · lean package).`,
-        materials: [
-          {
-            id: `${job.id}-tender-pkg-${slug(bucket.location)}-${slug(bucket.service)}`,
-            catalogItemId: "tender-boq",
-            description: `${bucket.service} · tender package (${bucket.lineCount} BoQ lines)`,
-            quantity: 1,
-            unitCost: bucket.sell,
-            markupPercent: 0,
-          },
-        ],
+        templateName: service,
+        clientDescription: `${location} · ${service}`,
+        engineerDescription: `Built from tender BoQ summary (${bucket.lineCount || 0} priced line(s) · lean package).`,
+        materials:
+          sell > 0
+            ? [
+                {
+                  id: `${job.id}-tender-pkg-${slug(location)}-${slug(service)}`,
+                  catalogItemId: "tender-boq",
+                  description: `${service} · tender package (${bucket.lineCount || 0} BoQ lines)`,
+                  quantity: 1,
+                  unitCost: sell,
+                  markupPercent: 0,
+                },
+              ]
+            : [],
         labour: [],
       };
     });
 
+  const totalSell =
+    roundMoney(summary.totalSell) ||
+    roundMoney(costCentres.reduce((sum, centre) => sum + (centre.materials[0]?.unitCost || 0), 0));
+
   return { sections, costCentres, totalSell };
+}
+
+/** Pure builder — floors as sections, services as cost centres; always one package line per centre (no BoQ line dump). */
+export function buildJobStructureFromTenderBoq(
+  job: Pick<Job, "id" | "ref" | "description">,
+  lines: TenderBoqLine[],
+): TenderJobStructure {
+  return buildJobStructureFromBoqSummary(job, summariseTenderBoqForRebuild(lines));
 }
 
 function asMap(value: unknown): Record<string, unknown[]> {
@@ -422,13 +482,12 @@ function isDayworkCentre(centre: Record<string, unknown>) {
   );
 }
 
-/** Persist BoQ-built structure onto a job; keeps daywork centres; syncs job.value to BoQ total. */
-export function applyTenderBoqStructureToJob(
+/** Persist a pre-built lean structure onto a job; keeps daywork centres; syncs job.value. */
+export function applyBuiltTenderStructureToJob(
   job: Job,
-  lines: TenderBoqLine[],
+  built: TenderJobStructure,
   options?: { replace?: boolean },
 ): TenderJobStructure & { job: Job } {
-  const built = buildJobStructureFromTenderBoq(job, lines);
   const leanCentres = leanCentresForTransport(job.id, built.costCentres) as TenderJobCostCentre[];
   const structure: TenderJobStructure = {
     sections: sanitizeJobSections(built.sections, job.id),
@@ -438,7 +497,6 @@ export function applyTenderBoqStructureToJob(
 
   const replace = options?.replace !== false;
   if (!replace) {
-    // Peek without cloning the whole hub when possible — still lean first.
     const hub = getHubDetailState();
     const existingCentres = Array.isArray(asMap(hub.jobCostCentres)[job.id])
       ? (asMap(hub.jobCostCentres)[job.id] as Array<Record<string, unknown>>)
@@ -448,7 +506,6 @@ export function applyTenderBoqStructureToJob(
     }
   }
 
-  // Targeted write — never JSON.stringify the entire hub for BoQ rebuild/heal.
   writeJobCostCentresAndSections(job.id, structure.costCentres, structure.sections);
 
   const nextValue = structure.totalSell > 0 ? structure.totalSell : job.value;
@@ -458,6 +515,15 @@ export function applyTenderBoqStructureToJob(
       : job;
 
   return { ...structure, job: updated };
+}
+
+/** Persist BoQ-built structure onto a job; keeps daywork centres; syncs job.value to BoQ total. */
+export function applyTenderBoqStructureToJob(
+  job: Job,
+  lines: TenderBoqLine[],
+  options?: { replace?: boolean },
+): TenderJobStructure & { job: Job } {
+  return applyBuiltTenderStructureToJob(job, buildJobStructureFromTenderBoq(job, lines), options);
 }
 
 /**

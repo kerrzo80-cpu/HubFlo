@@ -281,6 +281,7 @@ test("rebuild from a large BoQ stays lean and does not dump line arrays onto the
     rebuilt.jobCostCentres.every((centre) => centre.materials.length <= 1),
     "large rebuild must stay lean",
   );
+  assert.equal(rebuilt.usedSummary, true, "rebuild must use summary, not reload 2500 lines");
   const materialCount = rebuilt.jobCostCentres.reduce((sum, centre) => sum + centre.materials.length, 0);
   assert.ok(materialCount <= rebuilt.jobCostCentres.length);
   assert.equal(listTendersLean().every((row) => row.boqLines.length === 0), true);
