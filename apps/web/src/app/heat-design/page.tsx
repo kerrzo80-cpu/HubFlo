@@ -39,6 +39,7 @@ import {
   floorTypes,
   flowTempOptionsForSystem,
   glazingTypes,
+  mergeUserDrawnPipes,
   placePlantOnLayout,
   propertyTypes,
   radiatorRanges,
@@ -1686,6 +1687,7 @@ export default function HeatDesignLabPage() {
                           } else {
                             setUfhSummary(null);
                           }
+                          layout = mergeUserDrawnPipes(layout, project.heatingLayout?.pipes);
                           patchProject({
                             chosenSystemId: systemOptionId,
                             emitterMode,
@@ -1695,7 +1697,7 @@ export default function HeatDesignLabPage() {
                           setLayoutMode(true);
                           setNotice(
                             userPlants.length
-                              ? `Routed pipes + emitters around your ${userPlants.length} placed plant piece${userPlants.length === 1 ? "" : "s"} — nothing else added on plan.`
+                              ? `Routed pipes + emitters around your ${userPlants.length} placed plant piece${userPlants.length === 1 ? "" : "s"} — drawn pipes kept.`
                               : "Designed heating layout for the selected system.",
                           );
                         }

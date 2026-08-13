@@ -2456,6 +2456,33 @@
   color: #0f172a;
 }
 
+.hp-pipe-draw-tools {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+}
+
+.hp-pipe-draw-tools select {
+  min-height: 2rem;
+  border-radius: 0.45rem;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  background: #fff;
+  padding: 0.2rem 0.45rem;
+  font: inherit;
+  font-size: 0.84rem;
+}
+
+.hp-pipe-draw-existing {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #0f172a;
+  cursor: pointer;
+}
+
 .hp-zoom-controls {
   display: inline-flex;
   align-items: center;

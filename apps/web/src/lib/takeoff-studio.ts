@@ -311,7 +311,7 @@ export const SERVICE_CLASS_DEFS: Array<StudioClassification & { role?: "hot" | "
   // Heating — linears then valves / CH ancillaries (plant pins live in PLANT_CLASS_DEFS)
   { id: "cls-linear-heating-flow", kind: "linear", name: "Heating flow", colour: "#f97316", unit: "m", layer: "heating", group: "pipe-runs", notes: "CH flow" },
   { id: "cls-linear-heating-return", kind: "linear", name: "Heating return", colour: "#7c3aed", unit: "m", layer: "heating", group: "pipe-runs", notes: "CH return" },
-  { id: "cls-linear-ufh", kind: "linear", name: "UFH loops", colour: "#2ea66f", unit: "m", layer: "heating", group: "pipe-runs", notes: "Underfloor heating" },
+  { id: "cls-linear-ufh", kind: "linear", name: "UFH loops", colour: "#2ea66f", unit: "m", layer: "heating", group: "ufh-manifolds", notes: "Underfloor heating" },
   { id: "cls-count-trv", kind: "count", name: "TRV", colour: "#ea580c", unit: "nr", layer: "heating", group: "radiators-valves", notes: "Thermostatic radiator valve" },
   { id: "cls-count-lockshield", kind: "count", name: "Lockshield", colour: "#c2410c", unit: "nr", layer: "heating", group: "radiators-valves", notes: "Lockshield radiator valve" },
   { id: "cls-count-zone-valve", kind: "count", name: "Zone / motorised valve", colour: "#7c3aed", unit: "nr", layer: "heating", group: "radiators-valves", notes: "2-port / 3-port motorised" },

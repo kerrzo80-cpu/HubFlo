@@ -167,6 +167,12 @@ export type HeatingPipeRun = {
   diameterMm?: HeatingPipeDiameterMm;
   pipeSpecId?: string;
   material?: string;
+  /** User-drawn run — keep when auto-route regenerates stubs. */
+  placedByUser?: boolean;
+  /** Spruce-style new vs existing install flag. */
+  existing?: boolean;
+  /** Optional design flow for plan labels (l/min). */
+  flowLpm?: number;
 };
 
 export type HeatingEmitterMode = "radiators" | "ufh" | "mixed";
