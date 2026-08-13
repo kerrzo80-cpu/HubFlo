@@ -441,10 +441,11 @@ export function TendersPanel({
       }
       if (result.job?.id) {
         const centreCount = result.jobCostCentres?.length || 0;
+        const docs = result.documentsCopied || 0;
         onNotice(
           result.recreated
-            ? `Missing job recreated — pending job ${result.job.ref}${centreCount ? ` · ${centreCount} cost centre(s) from BoQ` : ""}.`
-            : `Tender won — pending job ${result.job.ref} created${centreCount ? ` · ${centreCount} cost centre(s) from BoQ` : ""}.`,
+            ? `Missing job recreated — pending job ${result.job.ref}${centreCount ? ` · ${centreCount} cost centre(s) from BoQ` : ""}${docs ? ` · ${docs} document(s)` : ""}.`
+            : `Tender won — pending job ${result.job.ref} created${centreCount ? ` · ${centreCount} cost centre(s) from BoQ` : ""}${docs ? ` · ${docs} document(s)` : ""}.`,
         );
         onOpenPendingJob?.(result.job.id);
       } else {
@@ -459,7 +460,7 @@ export function TendersPanel({
     if (!selected?.convertedJobId) return;
     if (
       !window.confirm(
-        `Rebuild job cost centres for “${selected.name}” from the current BoQ?\n\nFloor sections and service centres (Heating, Hot & cold, …) will replace the current structure. Daywork centres are kept.`,
+        `Rebuild job cost centres for “${selected.name}” from the current BoQ?\n\nFloor sections and service centres (Heating, Hot & cold, …) will replace the current structure. Daywork centres are kept. Tender drawings/documents are synced onto the job.`,
       )
     ) {
       return;
@@ -468,14 +469,32 @@ export function TendersPanel({
       const result = await postAction({ action: "rebuild-job-cost-centres", id: selected.id });
       applyJobStructureFromResult(result);
       const centreCount = result.jobCostCentres?.length || 0;
+      const docs = result.documentsCopied || 0;
       onNotice(
-        `Rebuilt ${centreCount} cost centre(s) from BoQ onto job ${result.job?.ref || selected.convertedJobRef || ""}.`,
+        `Rebuilt ${centreCount} cost centre(s) from BoQ onto job ${result.job?.ref || selected.convertedJobRef || ""}${
+          docs ? ` · ${docs} document(s) synced` : ""
+        }.`,
       );
       if (result.job?.id || selected.convertedJobId) {
         onOpenPendingJob?.(result.job?.id || selected.convertedJobId!);
       }
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "Unable to rebuild cost centres");
+    }
+  }
+
+  async function syncJobDocuments() {
+    if (!selected?.convertedJobId) return;
+    try {
+      const result = await postAction({ action: "sync-job-documents", id: selected.id });
+      onNotice(
+        `Synced ${result.copied || 0} tender document(s) onto job ${selected.convertedJobRef || selected.convertedJobId}${
+          result.skipped ? ` · ${result.skipped} skipped` : ""
+        }.`,
+      );
+      if (selected.convertedJobId) onOpenPendingJob?.(selected.convertedJobId);
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to sync documents");
     }
   }
 
@@ -1444,17 +1463,27 @@ export function TendersPanel({
                   <strong>Job {selected.convertedJobRef || selected.convertedJobId}</strong>
                   <p>
                     If cost centres look wrong or only show a partial amount, rebuild them from the current BoQ
-                    (floors as sections, Heating / Hot & cold / Gas as cost centres).
+                    (floors as sections, Heating / Hot & cold / Gas as cost centres). Sync also copies drawings into the job Documents tab.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  className="primary-button"
-                  disabled={saving}
-                  onClick={() => void rebuildJobCostCentres()}
-                >
-                  Rebuild cost centres from BoQ
-                </button>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={saving}
+                    onClick={() => void rebuildJobCostCentres()}
+                  >
+                    Rebuild cost centres from BoQ
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={saving}
+                    onClick={() => void syncJobDocuments()}
+                  >
+                    Sync drawings to job
+                  </button>
+                </div>
               </div>
             ) : null}
             <label>

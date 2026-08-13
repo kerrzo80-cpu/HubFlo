@@ -14,6 +14,9 @@ import {
   archiveTenders,
   convertTenderToPendingJob,
   rebuildTenderJobCostCentres,
+  rebuildJobCostCentresFromSourceTender,
+  healJobCostCentresForJob,
+  syncTenderDocumentsToLinkedJob,
   importBoqIntoTender,
   listTenders,
   markTenderSubmitted,
@@ -75,8 +78,12 @@ export async function POST(request: NextRequest) {
       | "move-document"
       | "submit"
       | "convert-won"
-      | "rebuild-job-cost-centres";
+      | "rebuild-job-cost-centres"
+      | "sync-job-documents"
+      | "heal-job-cost-centres"
+      | "rebuild-job-cost-centres-from-job";
     id?: string;
+    jobId?: string;
     ids?: string[];
     documentId?: string;
     folderId?: string | null;
@@ -270,6 +277,26 @@ export async function POST(request: NextRequest) {
     if (body?.action === "rebuild-job-cost-centres") {
       if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
       const result = rebuildTenderJobCostCentres(body.id);
+      return NextResponse.json({ ...result, tenders: listTenders() });
+    }
+
+    if (body?.action === "sync-job-documents") {
+      if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const result = syncTenderDocumentsToLinkedJob(body.id);
+      return NextResponse.json({ ...result, tenders: listTenders() });
+    }
+
+    if (body?.action === "heal-job-cost-centres") {
+      const jobKey = body.jobId || body.id;
+      if (!jobKey) return NextResponse.json({ error: "jobId required" }, { status: 400 });
+      const result = healJobCostCentresForJob(jobKey);
+      return NextResponse.json({ ...result, tenders: listTenders() });
+    }
+
+    if (body?.action === "rebuild-job-cost-centres-from-job") {
+      const jobKey = body.jobId || body.id;
+      if (!jobKey) return NextResponse.json({ error: "jobId required" }, { status: 400 });
+      const result = rebuildJobCostCentresFromSourceTender(jobKey);
       return NextResponse.json({ ...result, tenders: listTenders() });
     }
 

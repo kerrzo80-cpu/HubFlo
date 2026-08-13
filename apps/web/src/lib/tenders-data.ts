@@ -11,8 +11,11 @@ import {
   BOQ_SHEET_MARKER,
   type WorkbookSheetRows,
 } from "@/lib/tenders-xlsx";
-import { createJob, getJob, updateJob } from "@/lib/workflow-data";
-import { applyTenderBoqStructureToJob } from "@/lib/tender-job-cost-centres";
+import { createJob, getJob, getJobs, updateJob } from "@/lib/workflow-data";
+import {
+  applyTenderBoqStructureToJob,
+  healStoredJobCostCentres,
+} from "@/lib/tender-job-cost-centres";
 import { createTakeoffProject, getTakeoffProject, updateTakeoffProject } from "@/lib/takeoff-data";
 import {
   SOURCE_TENDER_DOC_PREFIX,
@@ -23,13 +26,19 @@ import {
   restoreTenderStudioArchive,
   stashTenderSourcedDrawings,
 } from "@/lib/takeoff-tender-archive";
-import { deleteRecordDocumentByFileUrl, readRecordDocumentFile } from "@/lib/record-documents";
+import {
+  deleteRecordDocumentByFileUrl,
+  listRecordDocuments,
+  readRecordDocumentFile,
+  saveUploadedRecordDocument,
+} from "@/lib/record-documents";
 import {
   TENDER_DOCUMENT_FOLDER_MAX_DEPTH,
   isTenderDocumentKind,
   normalizeTenderDocumentFolders,
   resolveTenderDocumentFolderKind,
   tenderDocumentFolderDepth,
+  tenderDocumentFolderPathLabel,
   tenderDrawingSetLabel,
   type TenderDocumentFolder,
 } from "@/lib/tender-document-folders";
@@ -1731,6 +1740,7 @@ export function convertTenderToPendingJob(tenderId: string) {
   });
   const recreated = Boolean(tender.convertedJobId);
   const structure = applyTenderBoqStructureToJob(job, tender.boqLines, { replace: true });
+  const documentsSync = copyTenderDocumentsToJob(tender, structure.job);
   // Use upsert directly so we do not re-enter the Won auto-convert branch in updateTender.
   const updated = upsertTender({
     ...tender,
@@ -1748,6 +1758,8 @@ export function convertTenderToPendingJob(tenderId: string) {
     recreated,
     jobSections: structure.sections,
     jobCostCentres: structure.costCentres,
+    documentsCopied: documentsSync.copied,
+    documentsSkipped: documentsSync.skipped,
   };
 }
 
@@ -1763,6 +1775,7 @@ export function rebuildTenderJobCostCentres(tenderId: string) {
     throw new Error("Linked job is missing — recreate the job from this tender first.");
   }
   const structure = applyTenderBoqStructureToJob(job, tender.boqLines, { replace: true });
+  const documentsSync = copyTenderDocumentsToJob(tender, structure.job);
   const nextValue = structure.totalSell || computeBoqTotal(tender.boqLines) || tender.bidValue || job.value;
   const updatedTender = upsertTender({
     ...tender,
@@ -1781,7 +1794,200 @@ export function rebuildTenderJobCostCentres(tenderId: string) {
     job: getJob(structure.job.id) || structure.job,
     jobSections: structure.sections,
     jobCostCentres: structure.costCentres,
+    documentsCopied: documentsSync.copied,
+    documentsSkipped: documentsSync.skipped,
   };
+}
+
+const SOURCE_TENDER_DOC_LINK_PREFIX = "sourceTenderDoc:";
+
+function jobFolderIdForTenderDocument(
+  tender: Tender,
+  doc: { kind: TenderDocumentKind; folderId?: string },
+): string {
+  const kind = doc.folderId
+    ? resolveTenderDocumentFolderKind(tender.documentFolders || [], doc.folderId)
+    : doc.kind;
+  switch (kind) {
+    case "drawing":
+      return "drawings";
+    case "issued-boq":
+    case "priced-boq":
+      return "bill-of-quantities";
+    case "supplier-quote":
+      return "supplier-quotes";
+    case "specification":
+    case "form-of-tender":
+      return "forms-certificates";
+    default:
+      return "private-office";
+  }
+}
+
+function tenderDocumentDisplayName(tender: Tender, doc: Tender["documents"][number]) {
+  const folders = tender.documentFolders || [];
+  const setLabel =
+    doc.kind === "drawing"
+      ? tenderDrawingSetLabel(folders, doc.folderId)
+      : doc.folderId
+        ? tenderDocumentFolderPathLabel(folders, doc.folderId)
+        : "";
+  if (setLabel && setLabel !== "Drawings" && !doc.name.startsWith(`${setLabel} /`)) {
+    return `${setLabel} / ${doc.name}`;
+  }
+  return doc.name;
+}
+
+export type CopyTenderDocumentsToJobResult = {
+  copied: number;
+  skipped: number;
+  skippedMissing: number;
+  skippedDuplicate: number;
+  tenderDocumentCount: number;
+};
+
+/** Copy tender Documents (drawings, specs, BoQs) onto the linked job record-documents hub. */
+export function copyTenderDocumentsToJob(
+  tender: Tender,
+  job: Pick<{ id: string; ref: string }, "id" | "ref">,
+): CopyTenderDocumentsToJobResult {
+  const empty: CopyTenderDocumentsToJobResult = {
+    copied: 0,
+    skipped: 0,
+    skippedMissing: 0,
+    skippedDuplicate: 0,
+    tenderDocumentCount: tender.documents?.length || 0,
+  };
+  if (!job.ref || !tender.documents?.length) return empty;
+
+  const existing = listRecordDocuments("job", job.ref);
+  const existingBySource = new Set(
+    existing
+      .map((row) => {
+        const match = String(row.linkedTo || "").match(/sourceTenderDoc:([^\s|]+)/);
+        return match?.[1] || "";
+      })
+      .filter(Boolean),
+  );
+  const existingChecksum = new Set(existing.map((row) => row.checksum).filter(Boolean));
+  const existingNames = new Set(existing.map((row) => row.name));
+
+  let copied = 0;
+  let skippedMissing = 0;
+  let skippedDuplicate = 0;
+
+  for (const doc of tender.documents) {
+    if (existingBySource.has(doc.id)) {
+      skippedDuplicate += 1;
+      continue;
+    }
+    const recordId = recordDocumentIdFromUrl(doc.url);
+    const file = recordId ? readRecordDocumentFile(recordId) : null;
+    if (!file?.bytes?.length) {
+      skippedMissing += 1;
+      continue;
+    }
+    if (existingChecksum.has(file.record.checksum)) {
+      skippedDuplicate += 1;
+      continue;
+    }
+    const displayName = tenderDocumentDisplayName(tender, doc);
+    if (existingNames.has(displayName) || existingNames.has(doc.name)) {
+      skippedDuplicate += 1;
+      continue;
+    }
+    const folderId = jobFolderIdForTenderDocument(tender, doc);
+    const setLabel =
+      doc.kind === "drawing"
+        ? tenderDrawingSetLabel(tender.documentFolders || [], doc.folderId)
+        : "";
+    const linkedTo = [
+      job.ref,
+      setLabel && setLabel !== "Drawings" ? setLabel : null,
+      `${SOURCE_TENDER_DOC_LINK_PREFIX}${doc.id}`,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+    saveUploadedRecordDocument({
+      scope: "job",
+      recordRef: job.ref,
+      folderId,
+      visibility: doc.kind === "drawing" ? "Engineer" : "Private",
+      fileName: displayName,
+      mimeType: doc.mimeType || file.record.type || "application/octet-stream",
+      bytes: file.bytes,
+      linkedTo,
+    });
+    copied += 1;
+    existingNames.add(displayName);
+    existingBySource.add(doc.id);
+    if (file.record.checksum) existingChecksum.add(file.record.checksum);
+  }
+
+  return {
+    copied,
+    skipped: skippedMissing + skippedDuplicate,
+    skippedMissing,
+    skippedDuplicate,
+    tenderDocumentCount: tender.documents.length,
+  };
+}
+
+/** Sync drawings/docs for an already-converted job (repair path). */
+export function syncTenderDocumentsToLinkedJob(tenderId: string) {
+  const tender = getTender(tenderId);
+  if (!tender) throw new Error("Tender not found.");
+  if (!tender.convertedJobId) {
+    throw new Error("This tender has no linked job yet — use Create job from this tender first.");
+  }
+  const job = getJob(tender.convertedJobId);
+  if (!job) {
+    throw new Error("Linked job is missing — recreate the job from this tender first.");
+  }
+  return {
+    tender,
+    job,
+    ...copyTenderDocumentsToJob(tender, job),
+  };
+}
+
+/** Heal oversized/corrupt centres for a Core job (open-safe). Optionally keyed by job ref. */
+export function healJobCostCentresForJob(jobIdOrRef: string) {
+  const jobs = getJobs();
+  const job =
+    jobs.find((row) => row.id === jobIdOrRef) ||
+    jobs.find((row) => row.ref === jobIdOrRef) ||
+    getJob(jobIdOrRef);
+  if (!job) throw new Error("Job not found.");
+  const healed = healStoredJobCostCentres(job.id);
+  let documents: CopyTenderDocumentsToJobResult | null = null;
+  if (job.sourceTenderId) {
+    const tender = getTender(job.sourceTenderId);
+    if (tender) {
+      documents = copyTenderDocumentsToJob(tender, job);
+    }
+  }
+  return {
+    job,
+    ...healed,
+    documents,
+  };
+}
+
+/**
+ * Rebuild cost centres from the job's source tender (Jobs UI path when sourceTenderId is set).
+ */
+export function rebuildJobCostCentresFromSourceTender(jobIdOrRef: string) {
+  const jobs = getJobs();
+  const job =
+    jobs.find((row) => row.id === jobIdOrRef) ||
+    jobs.find((row) => row.ref === jobIdOrRef) ||
+    getJob(jobIdOrRef);
+  if (!job) throw new Error("Job not found.");
+  if (!job.sourceTenderId) {
+    throw new Error("This job is not linked to a tender.");
+  }
+  return rebuildTenderJobCostCentres(job.sourceTenderId);
 }
 
 function recordDocumentIdFromUrl(url?: string) {

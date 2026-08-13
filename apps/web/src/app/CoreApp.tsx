@@ -7476,10 +7476,13 @@ function refreshedEstimateCostCentresFromRateBook(
   catalogById: Map<string, CatalogItem>,
   settings: FinanceSettings,
 ) {
+  if (!Array.isArray(centres)) return [];
   let changed = false;
   const nextCentres = centres.map((centre) => {
-    let centreChanged = false;
-    const labour = centre.labour.map((line) => {
+    const materials = Array.isArray(centre?.materials) ? centre.materials : [];
+    const labourSource = Array.isArray(centre?.labour) ? centre.labour : [];
+    let centreChanged = materials !== centre.materials || labourSource !== centre.labour;
+    const labour = labourSource.map((line) => {
       const nextLine = refreshedEstimateLabourLineFromRates(line, catalogById, settings);
       if (nextLine !== line) centreChanged = true;
       return nextLine;
@@ -7487,7 +7490,13 @@ function refreshedEstimateCostCentresFromRateBook(
 
     if (!centreChanged) return centre;
     changed = true;
-    return { ...centre, labour };
+    return {
+      ...centre,
+      clientDescription: centre.clientDescription ?? "",
+      engineerDescription: centre.engineerDescription ?? "",
+      materials,
+      labour,
+    };
   });
 
   return changed ? nextCentres : centres;
@@ -7995,10 +8004,12 @@ function estimateLabourSell(line: EstimateLabourLine) {
 }
 
 function estimateCostCentreTotals(centre: EstimateCostCentre) {
-  const materialCost = centre.materials.reduce((total, line) => total + estimateMaterialCost(line), 0);
-  const materialSell = centre.materials.reduce((total, line) => total + estimateMaterialSell(line), 0);
-  const labourCost = centre.labour.reduce((total, line) => total + estimateLabourCost(line), 0);
-  const labourSell = centre.labour.reduce((total, line) => total + estimateLabourSell(line), 0);
+  const materials = Array.isArray(centre?.materials) ? centre.materials : [];
+  const labour = Array.isArray(centre?.labour) ? centre.labour : [];
+  const materialCost = materials.reduce((total, line) => total + estimateMaterialCost(line), 0);
+  const materialSell = materials.reduce((total, line) => total + estimateMaterialSell(line), 0);
+  const labourCost = labour.reduce((total, line) => total + estimateLabourCost(line), 0);
+  const labourSell = labour.reduce((total, line) => total + estimateLabourSell(line), 0);
   const totalCost = materialCost + labourCost;
   const totalSell = materialSell + labourSell;
   const profit = totalSell - totalCost;
@@ -9249,15 +9260,27 @@ export default function CoreApp() {
       });
     }
     if ((homeView === "job-record" || homeView === "cost-centre-record") && selectedJob) {
+      // Lightweight fingerprint — never JSON.stringify full BoQ material dumps (crashes / freezes job open).
+      const centres = jobEstimateCostCentres[selectedJob.id] ?? [];
       return JSON.stringify({
         type: "job",
         record: selectedJob,
-        costCentres: jobEstimateCostCentres[selectedJob.id] ?? [],
-        sections: jobSections[selectedJob.id] ?? makeDefaultJobSections(selectedJob),
-        schedule: jobSchedulePlans[selectedJob.id] ?? [],
-        variations: jobVariationSections[selectedJob.id] ?? [],
+        costCentres: centres.map((centre) => ({
+          id: centre.id,
+          name: centre.name,
+          sectionId: centre.sectionId,
+          materials: Array.isArray(centre.materials) ? centre.materials.length : 0,
+          labour: Array.isArray(centre.labour) ? centre.labour.length : 0,
+          sell: estimateCostCentreTotals(centre).totalSell,
+        })),
+        sections: (jobSections[selectedJob.id] ?? makeDefaultJobSections(selectedJob)).map((section) => ({
+          id: section.id,
+          name: section.name,
+        })),
+        schedule: (jobSchedulePlans[selectedJob.id] ?? []).length,
+        variations: (jobVariationSections[selectedJob.id] ?? []).length,
         review: jobReviewApprovals[selectedJob.id] ?? null,
-        delivery: jobDeliveryEvents.filter((event) => event.jobId === selectedJob.id),
+        delivery: jobDeliveryEvents.filter((event) => event.jobId === selectedJob.id).length,
       });
     }
     if (homeView === "invoice-record" && selectedInvoice) {
@@ -9770,14 +9793,22 @@ export default function CoreApp() {
   );
 
   const selectedJobEstimateCostCentres = useMemo(
-    () =>
-      selectedJob
-        ? refreshedEstimateCostCentresFromRateBook(
-            jobEstimateCostCentres[selectedJob.id] ?? makeDefaultEstimateCostCentres(selectedJob),
-            availableQuoteCatalogById,
-            normalizedFinanceSettings,
-          )
-        : [],
+    () => {
+      if (!selectedJob) return [];
+      const raw = jobEstimateCostCentres[selectedJob.id] ?? makeDefaultEstimateCostCentres(selectedJob);
+      const safe = (Array.isArray(raw) ? raw : []).map((centre) => ({
+        ...centre,
+        clientDescription: centre?.clientDescription ?? "",
+        engineerDescription: centre?.engineerDescription ?? "",
+        materials: Array.isArray(centre?.materials) ? centre.materials : [],
+        labour: Array.isArray(centre?.labour) ? centre.labour : [],
+      }));
+      return refreshedEstimateCostCentresFromRateBook(
+        safe,
+        availableQuoteCatalogById,
+        normalizedFinanceSettings,
+      );
+    },
     [availableQuoteCatalogById, jobEstimateCostCentres, normalizedFinanceSettings, selectedJob],
   );
 
@@ -10853,7 +10884,8 @@ export default function CoreApp() {
     }
 
     const lineCount = selectedJobEstimateCostCentres.reduce(
-      (total, centre) => total + centre.materials.length + centre.labour.length,
+      (total, centre) =>
+        total + (Array.isArray(centre.materials) ? centre.materials.length : 0) + (Array.isArray(centre.labour) ? centre.labour.length : 0),
       0,
     );
     const briefedCentres = selectedJobEstimateCostCentres.filter(
@@ -11299,8 +11331,30 @@ export default function CoreApp() {
             if (hubState.quoteSections) setQuoteSections(hubState.quoteSections);
             if (hubState.quoteSchedulePlans) setQuoteSchedulePlans(hubState.quoteSchedulePlans);
             if (hubState.jobSchedulePlans) setJobSchedulePlans(hubState.jobSchedulePlans);
-            if (hubState.jobCostCentres) setJobEstimateCostCentres(hubState.jobCostCentres);
-            if (hubState.jobSections) setJobSections(hubState.jobSections);
+            if (hubState.jobCostCentres) {
+              const nextCentres: Record<string, EstimateCostCentre[]> = {};
+              for (const [jobId, centres] of Object.entries(hubState.jobCostCentres)) {
+                if (!Array.isArray(centres)) {
+                  nextCentres[jobId] = [];
+                  continue;
+                }
+                nextCentres[jobId] = centres.map((centre) => ({
+                  ...centre,
+                  clientDescription: centre?.clientDescription ?? "",
+                  engineerDescription: centre?.engineerDescription ?? "",
+                  materials: Array.isArray(centre?.materials) ? centre.materials : [],
+                  labour: Array.isArray(centre?.labour) ? centre.labour : [],
+                }));
+              }
+              setJobEstimateCostCentres(nextCentres);
+            }
+            if (hubState.jobSections) {
+              const nextSections: Record<string, JobSection[]> = {};
+              for (const [jobId, sections] of Object.entries(hubState.jobSections)) {
+                nextSections[jobId] = Array.isArray(sections) ? sections : [];
+              }
+              setJobSections(nextSections);
+            }
           } else if (hubState.jobCostCentres) {
             // Keep local cost-centre edits, but never drop Field Daywork centres/sections.
             setJobEstimateCostCentres((current) => {
@@ -20869,6 +20923,227 @@ export default function CoreApp() {
     setActiveJobTab("summary");
     setHomeView("job-record");
     scrollWorkspaceToTop();
+    // Heal corrupt / oversized tender-BoQ centres before paint so J-1103-style jobs never white-screen.
+    void healSelectedJobCostCentresIfNeeded(jobId, job?.ref);
+  }
+
+  async function healSelectedJobCostCentresIfNeeded(jobId: string, jobRef?: string) {
+    const centres = jobEstimateCostCentres[jobId];
+    const materialCount = Array.isArray(centres)
+      ? centres.reduce((sum, centre) => sum + (Array.isArray(centre?.materials) ? centre.materials.length : 0), 0)
+      : 0;
+    const missingArrays = Array.isArray(centres)
+      ? centres.some((centre) => !Array.isArray(centre?.materials) || !Array.isArray(centre?.labour))
+      : false;
+    const needsHeal = missingArrays || materialCount > 400;
+    if (!needsHeal && !jobs.find((row) => row.id === jobId)?.sourceTenderId) return;
+    if (!needsHeal) {
+      // Still sync drawings quietly for tender-linked jobs that open cleanly.
+      return;
+    }
+    try {
+      const response = await fetch("/api/tenders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...requestHeadersRef.current },
+        body: JSON.stringify({ action: "heal-job-cost-centres", jobId: jobRef || jobId }),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        healed?: boolean;
+        reason?: string;
+        centres?: EstimateCostCentre[];
+        sections?: JobSection[];
+        documents?: { copied?: number } | null;
+        error?: string;
+      } | null;
+      if (!response.ok) return;
+      if (payload?.centres) {
+        setJobEstimateCostCentres((current) => ({
+          ...current,
+          [jobId]: payload.centres as EstimateCostCentre[],
+        }));
+      }
+      if (payload?.sections?.length) {
+        setJobSections((current) => ({
+          ...current,
+          [jobId]: payload.sections as JobSection[],
+        }));
+      }
+      if (payload?.healed) {
+        showNotice(
+          `Repaired cost centres on ${jobRef || jobId}${payload.reason ? ` (${payload.reason})` : ""}.`,
+        );
+      }
+      if (payload?.documents?.copied) {
+        // Refresh document list from server.
+        try {
+          const documentsResponse = await fetch("/api/record-documents", {
+            headers: requestHeadersRef.current,
+          });
+          if (documentsResponse.ok) {
+            const docsPayload = (await documentsResponse.json()) as {
+              documents?: Array<{
+                scope: RecordDocumentScope;
+                recordRef: string;
+                folderId: string;
+                name: string;
+                type: string;
+                visibility: "Private" | "Engineer" | "Public" | "Client";
+                linkedTo: string;
+                fileUrl: string;
+              }>;
+            };
+            const next: ManualRecordDocuments = {};
+            for (const document of docsPayload.documents ?? []) {
+              const key = recordDocumentStorageKey(document.scope, document.recordRef);
+              const visibility: DocumentVisibility =
+                document.visibility === "Public" ? "Client" : (document.visibility as DocumentVisibility);
+              next[key] = [
+                ...(next[key] ?? []),
+                {
+                  folderId: document.folderId,
+                  name: document.name,
+                  type: document.type,
+                  visibility,
+                  linkedTo: document.linkedTo,
+                  fileUrl: document.fileUrl,
+                },
+              ];
+            }
+            setManualRecordDocuments(next);
+          }
+        } catch {
+          // Non-fatal — cost centres already healed.
+        }
+      }
+    } catch {
+      // Opening must never throw; leave existing centres as-is.
+    }
+  }
+
+  async function rebuildSelectedJobCostCentresFromTender() {
+    if (!selectedJob?.sourceTenderId) {
+      showNotice("This job is not linked to a tender.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Rebuild cost centres for ${selectedJob.ref} from the linked tender BoQ?\n\nFloor sections and service centres will replace the current structure. Daywork centres are kept. Tender drawings are synced to Documents.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const response = await fetch("/api/tenders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...requestHeadersRef.current },
+        body: JSON.stringify({
+          action: "rebuild-job-cost-centres-from-job",
+          jobId: selectedJob.id,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        jobCostCentres?: EstimateCostCentre[];
+        jobSections?: JobSection[];
+        job?: Job;
+        documentsCopied?: number;
+        error?: string;
+      } | null;
+      if (!response.ok) {
+        throw new Error(payload?.error || "Unable to rebuild cost centres");
+      }
+      if (payload?.jobCostCentres) {
+        setJobEstimateCostCentres((current) => ({
+          ...current,
+          [selectedJob.id]: payload.jobCostCentres as EstimateCostCentre[],
+        }));
+      }
+      if (payload?.jobSections) {
+        setJobSections((current) => ({
+          ...current,
+          [selectedJob.id]: payload.jobSections as JobSection[],
+        }));
+      }
+      if (payload?.job && typeof payload.job.value === "number") {
+        setJobs((current) =>
+          current.map((row) => (row.id === selectedJob.id ? { ...row, value: payload.job!.value } : row)),
+        );
+      }
+      showNotice(
+        `Rebuilt ${payload?.jobCostCentres?.length || 0} cost centre(s) from BoQ${
+          payload?.documentsCopied ? ` · ${payload.documentsCopied} document(s) synced` : ""
+        }.`,
+      );
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to rebuild cost centres");
+    }
+  }
+
+  async function syncSelectedJobDocumentsFromTender() {
+    if (!selectedJob?.sourceTenderId) {
+      showNotice("This job is not linked to a tender.");
+      return;
+    }
+    try {
+      const response = await fetch("/api/tenders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...requestHeadersRef.current },
+        body: JSON.stringify({
+          action: "sync-job-documents",
+          id: selectedJob.sourceTenderId,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        copied?: number;
+        skipped?: number;
+        error?: string;
+      } | null;
+      if (!response.ok) {
+        throw new Error(payload?.error || "Unable to sync tender documents");
+      }
+      const documentsResponse = await fetch("/api/record-documents", {
+        headers: requestHeadersRef.current,
+      });
+      if (documentsResponse.ok) {
+        const docsPayload = (await documentsResponse.json()) as {
+          documents?: Array<{
+            scope: RecordDocumentScope;
+            recordRef: string;
+            folderId: string;
+            name: string;
+            type: string;
+            visibility: "Private" | "Engineer" | "Public" | "Client";
+            linkedTo: string;
+            fileUrl: string;
+          }>;
+        };
+        const next: ManualRecordDocuments = {};
+        for (const document of docsPayload.documents ?? []) {
+          const key = recordDocumentStorageKey(document.scope, document.recordRef);
+          const visibility: DocumentVisibility =
+            document.visibility === "Public" ? "Client" : (document.visibility as DocumentVisibility);
+          next[key] = [
+            ...(next[key] ?? []),
+            {
+              folderId: document.folderId,
+              name: document.name,
+              type: document.type,
+              visibility,
+              linkedTo: document.linkedTo,
+              fileUrl: document.fileUrl,
+            },
+          ];
+        }
+        setManualRecordDocuments(next);
+      }
+      showNotice(
+        `Synced ${payload?.copied || 0} tender document(s) onto ${selectedJob.ref}${
+          payload?.skipped ? ` · ${payload.skipped} already present/skipped` : ""
+        }.`,
+      );
+      setActiveJobTab("documents");
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to sync tender documents");
+    }
   }
 
   function openInvoiceRecord(invoiceId: string) {
@@ -39858,12 +40133,41 @@ export default function CoreApp() {
                                 <button className="record-text-link" type="button" onClick={() => openQuoteDrawer(selectedJobSourceQuote.id)}>
                                   {selectedJobSourceQuote.ref} · {selectedJobSourceQuote.status}
                                 </button>
+                              ) : selectedJob.sourceTenderId ? (
+                                `Tender · ${selectedJob.sourceTenderName || selectedJob.sourceTenderId}`
                               ) : (
                                 "Manual job"
                               )}
                             </dd>
                           </div>
                         </dl>
+                        {selectedJob.sourceTenderId ? (
+                          <div className="tenders-won-job-callout tenders-won-job-callout-secondary" role="status" style={{ marginTop: "0.85rem" }}>
+                            <div>
+                              <strong>Linked tender</strong>
+                              <p>
+                                Rebuild cost centres from the tender BoQ (floors as sections, Heating / Hot &amp; cold / Gas as cost centres),
+                                or sync drawings into Documents.
+                              </p>
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
+                              <button
+                                type="button"
+                                className="primary-button"
+                                onClick={() => void rebuildSelectedJobCostCentresFromTender()}
+                              >
+                                Rebuild cost centres from BoQ
+                              </button>
+                              <button
+                                type="button"
+                                className="secondary-button"
+                                onClick={() => void syncSelectedJobDocumentsFromTender()}
+                              >
+                                Sync drawings from tender
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                         <div className="simpro-summary-actions">
                           <button className="record-text-link" type="button" onClick={() => setActiveJobTab("documents")}>
                             Attachments

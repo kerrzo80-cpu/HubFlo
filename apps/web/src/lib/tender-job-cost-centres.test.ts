@@ -5,7 +5,10 @@ import path from "node:path";
 import test from "node:test";
 
 import { TAKEOFF_BOQ_SHEET_PREFIX } from "./takeoff-tender-export";
-import { buildJobStructureFromTenderBoq } from "./tender-job-cost-centres";
+import {
+  buildJobStructureFromTenderBoq,
+  healJobCostCentresShape,
+} from "./tender-job-cost-centres";
 import type { TenderBoqLine } from "./tenders-types";
 
 test("buildJobStructureFromTenderBoq maps floors to sections and services to cost centres", () => {
@@ -160,4 +163,51 @@ test("applyTenderBoqStructureToJob writes hub sections/centres and syncs job val
   const sections = (hub.jobSections as Record<string, unknown[]>)?.[job.id];
   assert.equal(centres?.length, 2);
   assert.equal(sections?.length, 1);
+});
+
+test("healJobCostCentresShape collapses oversized material dumps", () => {
+  const materials = Array.from({ length: 450 }, (_, index) => ({
+    id: `m-${index}`,
+    catalogItemId: "tender-boq",
+    description: `Line ${index}`,
+    quantity: 1,
+    unitCost: 10,
+    markupPercent: 0,
+  }));
+  const healed = healJobCostCentresShape("job-big", [
+    {
+      id: "cc-1",
+      name: "Heating",
+      sectionId: "sec-1",
+      clientDescription: "Heating",
+      engineerDescription: "BoQ",
+      materials,
+      labour: undefined as unknown as [],
+    },
+  ]);
+  assert.equal(healed.healed, true);
+  assert.equal(healed.centres[0]?.materials.length, 1);
+  assert.equal(healed.centres[0]?.materials[0]?.unitCost, 4500);
+  assert.ok(Array.isArray(healed.centres[0]?.labour));
+});
+
+test("buildJobStructureFromTenderBoq caps materials per cost centre", () => {
+  const lines: TenderBoqLine[] = Array.from({ length: 60 }, (_, index) => ({
+    id: `l-${index}`,
+    kind: "measured" as const,
+    description: `Pipe ${index}`,
+    quantity: 1,
+    rate: 5,
+    value: 5,
+    note: "Ground · guide",
+    sheet: `${TAKEOFF_BOQ_SHEET_PREFIX}Heating`,
+    section: "Pipework",
+  }));
+  const structure = buildJobStructureFromTenderBoq(
+    { id: "job-cap", ref: "J-CAP", description: "Cap test" },
+    lines,
+  );
+  assert.ok(structure.costCentres[0]);
+  assert.ok(structure.costCentres[0]!.materials.length <= 40);
+  assert.equal(structure.totalSell, 300);
 });

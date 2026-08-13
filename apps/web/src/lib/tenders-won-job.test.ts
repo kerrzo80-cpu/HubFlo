@@ -139,3 +139,82 @@ test("Won tender creates Pending Core job and can reopen without deleting it", a
   const hub = getHubDetailState();
   assert.ok(((hub.jobCostCentres as Record<string, unknown[]>)?.[first.job!.id] || []).length >= 1);
 });
+
+test("Won convert copies tender drawings onto the job documents hub", async (t) => {
+  const storeDir = mkdtempSync(path.join(tmpdir(), "hubflo-tender-docs-"));
+  process.env.NEXA_STORE_DIR = storeDir;
+  process.env.NEXA_STORE_PATH = "";
+  process.env.NEXA_WORKSPACE_MODE = "live";
+  t.after(() => rmSync(storeDir, { recursive: true, force: true }));
+
+  const { writeServerStore } = await import("./server-store");
+  writeServerStore("nexa-tenders-v1", { tenders: [] });
+  writeServerStore("workflow-store", { jobs: [], quotes: [], purchaseRequests: [] });
+  writeServerStore("hub-detail-store", { invoices: [], jobCostCentres: {}, jobSections: {} });
+  writeServerStore("record-documents-store", { documents: [] });
+  writeServerStore("people-store", {
+    clients: [],
+    clientSites: [],
+    employees: [],
+    contacts: [],
+    contractors: [],
+    auditEvents: [],
+  });
+
+  const { saveUploadedRecordDocument, listRecordDocuments } = await import("./record-documents");
+  const { convertTenderToPendingJob, upsertTender, syncTenderDocumentsToLinkedJob } = await import("./tenders-data");
+
+  const uploaded = saveUploadedRecordDocument({
+    scope: "tender",
+    recordRef: "tender-docs-1",
+    folderId: "drawing",
+    visibility: "Engineer",
+    fileName: "Ground Floor Heating.pdf",
+    mimeType: "application/pdf",
+    bytes: Buffer.from("%PDF-1.4 tender drawing"),
+  });
+
+  const tender = upsertTender({
+    id: "tender-docs-1",
+    name: "Queens Terrace",
+    client: "Matt",
+    category: "Heating",
+    area: "Aberdeen",
+    status: "In Progress",
+    owner: "Office",
+    documents: [
+      {
+        id: "tdoc-1",
+        kind: "drawing",
+        name: "Ground Floor Heating.pdf",
+        mimeType: "application/pdf",
+        url: uploaded.fileUrl,
+        uploadedAt: new Date().toISOString(),
+        folderId: "folder-heating",
+      },
+    ],
+    documentFolders: [{ id: "folder-heating", name: "Heating", parentId: "drawing" }],
+    boqLines: [
+      {
+        id: "l1",
+        kind: "measured",
+        description: "Radiator",
+        quantity: 1,
+        rate: 100,
+        value: 100,
+      },
+    ],
+  });
+
+  const converted = convertTenderToPendingJob(tender.id);
+  assert.ok(converted.job);
+  assert.equal(converted.documentsCopied, 1);
+  const jobDocs = listRecordDocuments("job", converted.job!.ref);
+  assert.equal(jobDocs.length, 1);
+  assert.match(jobDocs[0]!.name, /Heating/);
+  assert.equal(jobDocs[0]!.folderId, "drawings");
+
+  const syncedAgain = syncTenderDocumentsToLinkedJob(tender.id);
+  assert.equal(syncedAgain.copied, 0);
+  assert.equal(syncedAgain.skippedDuplicate, 1);
+});

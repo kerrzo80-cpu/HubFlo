@@ -53,6 +53,7 @@ export function saveUploadedRecordDocument(input: {
   fileName: string;
   mimeType: string;
   bytes: Buffer;
+  linkedTo?: string;
 }) {
   const id = `doc-${randomUUID()}`;
   const safeName = input.fileName.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 120) || "upload.bin";
@@ -69,7 +70,7 @@ export function saveUploadedRecordDocument(input: {
     name: input.fileName,
     type: input.mimeType || "Attachment",
     visibility: input.visibility,
-    linkedTo: input.recordRef,
+    linkedTo: input.linkedTo?.trim() || input.recordRef,
     fileUrl: `/api/record-documents/${encodeURIComponent(id)}/file`,
     checksum,
     size: input.bytes.length,
