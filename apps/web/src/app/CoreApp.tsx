@@ -7502,6 +7502,68 @@ function refreshedEstimateCostCentresFromRateBook(
   return changed ? nextCentres : centres;
 }
 
+/** Client-side safety net — keep Jobs open even if heal API is down / slow. */
+const JOB_UI_MAX_MATERIALS_PER_CENTRE = 40;
+const JOB_UI_MAX_MATERIALS_PER_JOB = 400;
+
+function collapseOversizedJobCostCentresForUi(jobId: string, centres: EstimateCostCentre[]): EstimateCostCentre[] {
+  if (!Array.isArray(centres) || centres.length === 0) return Array.isArray(centres) ? centres : [];
+  const safe = centres.map((centre) => ({
+    ...centre,
+    clientDescription: centre?.clientDescription ?? "",
+    engineerDescription: centre?.engineerDescription ?? "",
+    materials: Array.isArray(centre?.materials) ? centre.materials : [],
+    labour: Array.isArray(centre?.labour) ? centre.labour : [],
+  }));
+  const total = safe.reduce((sum, centre) => sum + centre.materials.length, 0);
+  if (total <= JOB_UI_MAX_MATERIALS_PER_JOB) {
+    return safe.map((centre) => {
+      if (centre.materials.length <= JOB_UI_MAX_MATERIALS_PER_CENTRE) return centre;
+      const kept = centre.materials.slice(0, JOB_UI_MAX_MATERIALS_PER_CENTRE - 1);
+      const overflow = centre.materials.slice(JOB_UI_MAX_MATERIALS_PER_CENTRE - 1);
+      const overflowSell = overflow.reduce(
+        (sum, line) => sum + Number(line.quantity || 0) * Number(line.unitCost || 0) * (1 + Number(line.markupPercent || 0) / 100),
+        0,
+      );
+      return {
+        ...centre,
+        materials: [
+          ...kept,
+          {
+            id: `${jobId}-ui-cap-${centre.id}`,
+            catalogItemId: "tender-boq",
+            description: `${overflow.length} further BoQ lines (capped for stability)`,
+            quantity: 1,
+            unitCost: Math.round(overflowSell * 100) / 100,
+            markupPercent: 0,
+          },
+        ],
+      };
+    });
+  }
+  return safe.map((centre) => {
+    if (!centre.materials.length) return centre;
+    const sell = centre.materials.reduce(
+      (sum, line) => sum + Number(line.quantity || 0) * Number(line.unitCost || 0) * (1 + Number(line.markupPercent || 0) / 100),
+      0,
+    );
+    return {
+      ...centre,
+      engineerDescription: `${centre.engineerDescription || "From tender BoQ"} · collapsed ${centre.materials.length} lines for stability.`,
+      materials: [
+        {
+          id: `${jobId}-ui-lump-${centre.id}`,
+          catalogItemId: "tender-boq",
+          description: `${centre.name} · tender BoQ package`,
+          quantity: 1,
+          unitCost: Math.round(sell * 100) / 100,
+          markupPercent: 0,
+        },
+      ],
+    };
+  });
+}
+
 /** True when the employee card has at least one weekday availability ticked. */
 function employeeHasAnyAvailability(employee: { profile?: { availability?: EmployeeAvailability } }) {
   return employeeAvailabilityHasTicks(employee.profile?.availability);
@@ -8454,6 +8516,8 @@ export default function CoreApp() {
   const [activeClientTab, setActiveClientTab] = useState<ClientTab>("overview");
   const [activeLeadTab, setActiveLeadTab] = useState<LeadTab>("details");
   const [activeJobTab, setActiveJobTab] = useState<JobDetailTab>("summary");
+  const [jobTenderActionBusy, setJobTenderActionBusy] = useState(false);
+  const [jobTenderActionError, setJobTenderActionError] = useState<string | null>(null);
   const [activeQuoteTab, setActiveQuoteTab] = useState<QuoteDetailTab>("setup");
   const [activeCostCentreTab, setActiveCostCentreTab] = useState<CostCentreTab>("summary");
   const [activeJobCostCentreListTab, setActiveJobCostCentreListTab] = useState<JobCostCentreListTab>("base");
@@ -9796,18 +9860,26 @@ export default function CoreApp() {
     () => {
       if (!selectedJob) return [];
       const raw = jobEstimateCostCentres[selectedJob.id] ?? makeDefaultEstimateCostCentres(selectedJob);
-      const safe = (Array.isArray(raw) ? raw : []).map((centre) => ({
-        ...centre,
-        clientDescription: centre?.clientDescription ?? "",
-        engineerDescription: centre?.engineerDescription ?? "",
-        materials: Array.isArray(centre?.materials) ? centre.materials : [],
-        labour: Array.isArray(centre?.labour) ? centre.labour : [],
-      }));
-      return refreshedEstimateCostCentresFromRateBook(
-        safe,
-        availableQuoteCatalogById,
-        normalizedFinanceSettings,
+      const safe = collapseOversizedJobCostCentresForUi(
+        selectedJob.id,
+        (Array.isArray(raw) ? raw : []).map((centre) => ({
+          ...centre,
+          clientDescription: centre?.clientDescription ?? "",
+          engineerDescription: centre?.engineerDescription ?? "",
+          materials: Array.isArray(centre?.materials) ? centre.materials : [],
+          labour: Array.isArray(centre?.labour) ? centre.labour : [],
+        })),
       );
+      try {
+        return refreshedEstimateCostCentresFromRateBook(
+          safe,
+          availableQuoteCatalogById,
+          normalizedFinanceSettings,
+        );
+      } catch {
+        // Rate-book refresh must never white-screen a tender-linked job.
+        return safe;
+      }
     },
     [availableQuoteCatalogById, jobEstimateCostCentres, normalizedFinanceSettings, selectedJob],
   );
@@ -20921,6 +20993,7 @@ export default function CoreApp() {
     setSelectedJobId(jobId);
     setSelectedCostCentreId(null);
     setActiveJobTab("summary");
+    setJobTenderActionError(null);
     setHomeView("job-record");
     scrollWorkspaceToTop();
     // Heal corrupt / oversized tender-BoQ centres before paint so J-1103-style jobs never white-screen.
@@ -20935,11 +21008,14 @@ export default function CoreApp() {
     const missingArrays = Array.isArray(centres)
       ? centres.some((centre) => !Array.isArray(centre?.materials) || !Array.isArray(centre?.labour))
       : false;
-    const needsHeal = missingArrays || materialCount > 400;
-    if (!needsHeal && !jobs.find((row) => row.id === jobId)?.sourceTenderId) return;
-    if (!needsHeal) {
-      // Still sync drawings quietly for tender-linked jobs that open cleanly.
-      return;
+    const needsHeal = missingArrays || materialCount > JOB_UI_MAX_MATERIALS_PER_JOB;
+    if (!needsHeal) return;
+    // Cap locally first so the job paints even if the heal API is slow/down.
+    if (Array.isArray(centres) && centres.length) {
+      setJobEstimateCostCentres((current) => ({
+        ...current,
+        [jobId]: collapseOversizedJobCostCentresForUi(jobId, centres as EstimateCostCentre[]),
+      }));
     }
     try {
       const response = await fetch("/api/tenders", {
@@ -20959,7 +21035,7 @@ export default function CoreApp() {
       if (payload?.centres) {
         setJobEstimateCostCentres((current) => ({
           ...current,
-          [jobId]: payload.centres as EstimateCostCentre[],
+          [jobId]: collapseOversizedJobCostCentresForUi(jobId, payload.centres as EstimateCostCentre[]),
         }));
       }
       if (payload?.sections?.length) {
@@ -21016,12 +21092,13 @@ export default function CoreApp() {
         }
       }
     } catch {
-      // Opening must never throw; leave existing centres as-is.
+      // Opening must never throw; leave local collapsed centres as-is.
     }
   }
 
   async function rebuildSelectedJobCostCentresFromTender() {
     if (!selectedJob?.sourceTenderId) {
+      setJobTenderActionError("This job is not linked to a tender.");
       showNotice("This job is not linked to a tender.");
       return;
     }
@@ -21032,13 +21109,16 @@ export default function CoreApp() {
     ) {
       return;
     }
+    const jobId = selectedJob.id;
+    setJobTenderActionBusy(true);
+    setJobTenderActionError(null);
     try {
       const response = await fetch("/api/tenders", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...requestHeadersRef.current },
         body: JSON.stringify({
           action: "rebuild-job-cost-centres-from-job",
-          jobId: selectedJob.id,
+          jobId,
         }),
       });
       const payload = (await response.json().catch(() => null)) as {
@@ -21049,23 +21129,23 @@ export default function CoreApp() {
         error?: string;
       } | null;
       if (!response.ok) {
-        throw new Error(payload?.error || "Unable to rebuild cost centres");
+        throw new Error(payload?.error || `Unable to rebuild cost centres (${response.status})`);
       }
       if (payload?.jobCostCentres) {
         setJobEstimateCostCentres((current) => ({
           ...current,
-          [selectedJob.id]: payload.jobCostCentres as EstimateCostCentre[],
+          [jobId]: collapseOversizedJobCostCentresForUi(jobId, payload.jobCostCentres as EstimateCostCentre[]),
         }));
       }
       if (payload?.jobSections) {
         setJobSections((current) => ({
           ...current,
-          [selectedJob.id]: payload.jobSections as JobSection[],
+          [jobId]: payload.jobSections as JobSection[],
         }));
       }
       if (payload?.job && typeof payload.job.value === "number") {
         setJobs((current) =>
-          current.map((row) => (row.id === selectedJob.id ? { ...row, value: payload.job!.value } : row)),
+          current.map((row) => (row.id === jobId ? { ...row, value: payload.job!.value } : row)),
         );
       }
       showNotice(
@@ -21074,22 +21154,30 @@ export default function CoreApp() {
         }.`,
       );
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : "Unable to rebuild cost centres");
+      const message = error instanceof Error ? error.message : "Unable to rebuild cost centres";
+      setJobTenderActionError(message);
+      showNotice(message);
+      // Keep the job open — never navigate away or clear centres on failure.
+    } finally {
+      setJobTenderActionBusy(false);
     }
   }
 
   async function syncSelectedJobDocumentsFromTender() {
     if (!selectedJob?.sourceTenderId) {
+      setJobTenderActionError("This job is not linked to a tender.");
       showNotice("This job is not linked to a tender.");
       return;
     }
+    setJobTenderActionBusy(true);
+    setJobTenderActionError(null);
     try {
       const response = await fetch("/api/tenders", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...requestHeadersRef.current },
         body: JSON.stringify({
-          action: "sync-job-documents",
-          id: selectedJob.sourceTenderId,
+          action: "sync-job-documents-from-job",
+          jobId: selectedJob.id,
         }),
       });
       const payload = (await response.json().catch(() => null)) as {
@@ -21098,7 +21186,7 @@ export default function CoreApp() {
         error?: string;
       } | null;
       if (!response.ok) {
-        throw new Error(payload?.error || "Unable to sync tender documents");
+        throw new Error(payload?.error || `Unable to sync tender documents (${response.status})`);
       }
       const documentsResponse = await fetch("/api/record-documents", {
         headers: requestHeadersRef.current,
@@ -21142,7 +21230,11 @@ export default function CoreApp() {
       );
       setActiveJobTab("documents");
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : "Unable to sync tender documents");
+      const message = error instanceof Error ? error.message : "Unable to sync tender documents";
+      setJobTenderActionError(message);
+      showNotice(message);
+    } finally {
+      setJobTenderActionBusy(false);
     }
   }
 
@@ -40149,18 +40241,25 @@ export default function CoreApp() {
                                 Rebuild cost centres from the tender BoQ (floors as sections, Heating / Hot &amp; cold / Gas as cost centres),
                                 or sync drawings into Documents.
                               </p>
+                              {jobTenderActionError ? (
+                                <p role="alert" style={{ color: "var(--danger, #b42318)", marginTop: "0.55rem" }}>
+                                  {jobTenderActionError}
+                                </p>
+                              ) : null}
                             </div>
                             <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
                               <button
                                 type="button"
                                 className="primary-button"
+                                disabled={jobTenderActionBusy}
                                 onClick={() => void rebuildSelectedJobCostCentresFromTender()}
                               >
-                                Rebuild cost centres from BoQ
+                                {jobTenderActionBusy ? "Working…" : "Rebuild cost centres from BoQ"}
                               </button>
                               <button
                                 type="button"
                                 className="secondary-button"
+                                disabled={jobTenderActionBusy}
                                 onClick={() => void syncSelectedJobDocumentsFromTender()}
                               >
                                 Sync drawings from tender

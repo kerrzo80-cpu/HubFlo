@@ -17,8 +17,11 @@ import {
   rebuildJobCostCentresFromSourceTender,
   healJobCostCentresForJob,
   syncTenderDocumentsToLinkedJob,
+  syncJobDocumentsFromSourceTender,
   importBoqIntoTender,
+  leanTenderForClient,
   listTenders,
+  listTendersLean,
   markTenderSubmitted,
   moveTenderDocument,
   removeTenderDocument,
@@ -80,6 +83,7 @@ export async function POST(request: NextRequest) {
       | "convert-won"
       | "rebuild-job-cost-centres"
       | "sync-job-documents"
+      | "sync-job-documents-from-job"
       | "heal-job-cost-centres"
       | "rebuild-job-cost-centres-from-job";
     id?: string;
@@ -271,33 +275,45 @@ export async function POST(request: NextRequest) {
     if (body?.action === "convert-won") {
       if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
       const result = convertTenderToPendingJob(body.id);
-      return NextResponse.json({ ...result, tenders: listTenders() });
+      return NextResponse.json({
+        ...result,
+        tender: result.tender ? leanTenderForClient(result.tender) : result.tender,
+        tenders: listTendersLean(),
+      });
     }
 
     if (body?.action === "rebuild-job-cost-centres") {
       if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
       const result = rebuildTenderJobCostCentres(body.id);
-      return NextResponse.json({ ...result, tenders: listTenders() });
+      return NextResponse.json({ ...result, tenders: listTendersLean() });
     }
 
     if (body?.action === "sync-job-documents") {
       if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
       const result = syncTenderDocumentsToLinkedJob(body.id);
-      return NextResponse.json({ ...result, tenders: listTenders() });
+      return NextResponse.json({ ...result, tenders: listTendersLean() });
+    }
+
+    if (body?.action === "sync-job-documents-from-job") {
+      const jobKey = body.jobId || body.id;
+      if (!jobKey) return NextResponse.json({ error: "jobId required" }, { status: 400 });
+      const result = syncJobDocumentsFromSourceTender(jobKey);
+      return NextResponse.json(result);
     }
 
     if (body?.action === "heal-job-cost-centres") {
       const jobKey = body.jobId || body.id;
       if (!jobKey) return NextResponse.json({ error: "jobId required" }, { status: 400 });
       const result = healJobCostCentresForJob(jobKey);
-      return NextResponse.json({ ...result, tenders: listTenders() });
+      // No tenders list — heal runs on every oversized job open and must stay tiny.
+      return NextResponse.json(result);
     }
 
     if (body?.action === "rebuild-job-cost-centres-from-job") {
       const jobKey = body.jobId || body.id;
       if (!jobKey) return NextResponse.json({ error: "jobId required" }, { status: 400 });
       const result = rebuildJobCostCentresFromSourceTender(jobKey);
-      return NextResponse.json({ ...result, tenders: listTenders() });
+      return NextResponse.json(result);
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });

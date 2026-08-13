@@ -311,7 +311,12 @@ export function healJobCostCentresShape(
 ): { centres: TenderJobCostCentre[]; healed: boolean; reason?: string } {
   const maxPerCentre = options?.maxPerCentre ?? MAX_TENDER_BOQ_MATERIALS_PER_CENTRE;
   const maxPerJob = options?.maxPerJob ?? MAX_TENDER_BOQ_MATERIALS_PER_JOB;
-  const inputJson = Array.isArray(centres) ? JSON.stringify(centres) : "[]";
+  const inputList = Array.isArray(centres) ? centres : [];
+  const inputWasCorrupt = inputList.some((row) => {
+    if (!row || typeof row !== "object") return true;
+    const centre = row as Record<string, unknown>;
+    return !Array.isArray(centre.materials) || !Array.isArray(centre.labour);
+  });
   const sanitized = sanitizeJobCostCentres(centres);
   const totalMaterials = sanitized.reduce((sum, centre) => sum + centre.materials.length, 0);
 
@@ -344,8 +349,9 @@ export function healJobCostCentresShape(
       materials: collapseMaterials(jobId, centre.id, centre.materials, maxPerCentre),
     };
   });
-  const healed = JSON.stringify(next) !== inputJson;
   const capped = next.some((centre, index) => centre.materials.length < (sanitized[index]?.materials.length || 0));
+  const shapeChanged = sanitized.length !== inputList.length || inputWasCorrupt;
+  const healed = capped || shapeChanged;
   return {
     centres: next,
     healed,
@@ -546,10 +552,17 @@ export function healStoredJobCostCentres(jobId: string): {
   const result = healJobCostCentresShape(jobId, nonDaywork);
   const sections = sanitizeJobSections(existingSections, jobId);
   const nextCentres = [...result.centres, ...sanitizeJobCostCentres(dayworkKept)];
-  const beforeJson = JSON.stringify(existingList);
-  const afterJson = JSON.stringify(nextCentres);
-  if (beforeJson === afterJson) {
-    return { healed: false, centres: result.centres.length ? nextCentres : sanitizeJobCostCentres(existingList), sections };
+  // Avoid JSON.stringify on huge dumps — that alone OOM'd Render when opening bad jobs.
+  const needsPersist =
+    result.healed ||
+    existingList.length !== nextCentres.length ||
+    existingList.some((centre) => !Array.isArray(centre.materials) || !Array.isArray(centre.labour));
+  if (!needsPersist) {
+    return {
+      healed: false,
+      centres: nextCentres.length ? nextCentres : sanitizeJobCostCentres(existingList),
+      sections,
+    };
   }
 
   saveHubDetailState({

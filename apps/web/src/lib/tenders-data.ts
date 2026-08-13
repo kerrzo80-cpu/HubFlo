@@ -329,6 +329,20 @@ export function listTenders() {
     });
 }
 
+/** Strip heavy BoQ payloads before returning tender metadata to the client. */
+export function leanTenderForClient(tender: Tender): Tender {
+  return {
+    ...tender,
+    boqLines: [],
+    boqTitle: tender.boqTitle,
+  };
+}
+
+/** Tracker-safe list — BoQ lines stripped so POST responses cannot OOM Render. */
+export function listTendersLean() {
+  return listTenders().map(leanTenderForClient);
+}
+
 export function getTender(id: string) {
   return readStore().tenders.find((tender) => tender.id === id) ?? null;
 }
@@ -1790,7 +1804,8 @@ export function rebuildTenderJobCostCentres(tenderId: string) {
     updateJob(structure.job.id, { value: nextValue });
   }
   return {
-    tender: updatedTender,
+    // Keep BoQ out of the JSON response — large Bills OOMed Render / crashed the job UI.
+    tender: leanTenderForClient(updatedTender),
     job: getJob(structure.job.id) || structure.job,
     jobSections: structure.sections,
     jobCostCentres: structure.costCentres,
@@ -1945,9 +1960,44 @@ export function syncTenderDocumentsToLinkedJob(tenderId: string) {
     throw new Error("Linked job is missing — recreate the job from this tender first.");
   }
   return {
-    tender,
+    tender: leanTenderForClient(tender),
     job,
     ...copyTenderDocumentsToJob(tender, job),
+  };
+}
+
+/**
+ * Sync tender drawings onto a Core job by the job's sourceTenderId (Jobs UI path).
+ * Does not require tender.convertedJobId — repairs stale/missing links.
+ */
+export function syncJobDocumentsFromSourceTender(jobIdOrRef: string) {
+  const jobs = getJobs();
+  const job =
+    jobs.find((row) => row.id === jobIdOrRef) ||
+    jobs.find((row) => row.ref === jobIdOrRef) ||
+    getJob(jobIdOrRef);
+  if (!job) throw new Error("Job not found.");
+  if (!job.sourceTenderId) {
+    throw new Error("This job is not linked to a tender.");
+  }
+  const tender = getTender(job.sourceTenderId);
+  if (!tender) {
+    throw new Error("Linked tender is missing — reopen the tender or clear the job link.");
+  }
+  if (tender.convertedJobId !== job.id) {
+    upsertTender({
+      ...tender,
+      convertedJobId: job.id,
+      convertedJobRef: job.ref,
+      status: tender.status === "Lost" ? tender.status : "Won",
+      id: tender.id,
+    });
+  }
+  const linked = getTender(tender.id) || tender;
+  return {
+    tender: leanTenderForClient(linked),
+    job,
+    ...copyTenderDocumentsToJob(linked, job),
   };
 }
 
@@ -1960,22 +2010,17 @@ export function healJobCostCentresForJob(jobIdOrRef: string) {
     getJob(jobIdOrRef);
   if (!job) throw new Error("Job not found.");
   const healed = healStoredJobCostCentres(job.id);
-  let documents: CopyTenderDocumentsToJobResult | null = null;
-  if (job.sourceTenderId) {
-    const tender = getTender(job.sourceTenderId);
-    if (tender) {
-      documents = copyTenderDocumentsToJob(tender, job);
-    }
-  }
+  // Do not copy drawings here — open-heal must stay cheap on 512MB Render.
   return {
     job,
     ...healed,
-    documents,
+    documents: null as CopyTenderDocumentsToJobResult | null,
   };
 }
 
 /**
  * Rebuild cost centres from the job's source tender (Jobs UI path when sourceTenderId is set).
+ * Applies to this job even when tender.convertedJobId is missing/stale.
  */
 export function rebuildJobCostCentresFromSourceTender(jobIdOrRef: string) {
   const jobs = getJobs();
@@ -1987,7 +2032,33 @@ export function rebuildJobCostCentresFromSourceTender(jobIdOrRef: string) {
   if (!job.sourceTenderId) {
     throw new Error("This job is not linked to a tender.");
   }
-  return rebuildTenderJobCostCentres(job.sourceTenderId);
+  const tender = getTender(job.sourceTenderId);
+  if (!tender) {
+    throw new Error("Linked tender is missing — reopen the tender or clear the job link.");
+  }
+  const structure = applyTenderBoqStructureToJob(job, tender.boqLines, { replace: true });
+  const documentsSync = copyTenderDocumentsToJob(tender, structure.job);
+  const nextValue = structure.totalSell || computeBoqTotal(tender.boqLines) || tender.bidValue || job.value;
+  const updatedTender = upsertTender({
+    ...tender,
+    status: tender.status === "Lost" ? tender.status : "Won",
+    convertedJobId: structure.job.id,
+    convertedJobRef: structure.job.ref,
+    tenderSum: nextValue,
+    bidValue: nextValue,
+    id: tender.id,
+  });
+  if (structure.job.value !== nextValue) {
+    updateJob(structure.job.id, { value: nextValue });
+  }
+  return {
+    tender: leanTenderForClient(updatedTender),
+    job: getJob(structure.job.id) || structure.job,
+    jobSections: structure.sections,
+    jobCostCentres: structure.costCentres,
+    documentsCopied: documentsSync.copied,
+    documentsSkipped: documentsSync.skipped,
+  };
 }
 
 function recordDocumentIdFromUrl(url?: string) {

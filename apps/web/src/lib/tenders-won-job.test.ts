@@ -140,6 +140,76 @@ test("Won tender creates Pending Core job and can reopen without deleting it", a
   assert.ok(((hub.jobCostCentres as Record<string, unknown[]>)?.[first.job!.id] || []).length >= 1);
 });
 
+test("rebuild from job works when tender.convertedJobId is stale or missing", async (t) => {
+  const storeDir = mkdtempSync(path.join(tmpdir(), "hubflo-tender-rebuild-job-"));
+  process.env.NEXA_STORE_DIR = storeDir;
+  process.env.NEXA_STORE_PATH = "";
+  process.env.NEXA_WORKSPACE_MODE = "live";
+  t.after(() => rmSync(storeDir, { recursive: true, force: true }));
+
+  const { writeServerStore } = await import("./server-store");
+  writeServerStore("nexa-tenders-v1", { tenders: [] });
+  writeServerStore("workflow-store", { jobs: [], quotes: [], purchaseRequests: [] });
+  writeServerStore("hub-detail-store", { invoices: [], jobCostCentres: {}, jobSections: {} });
+  writeServerStore("people-store", {
+    clients: [],
+    clientSites: [],
+    employees: [],
+    contacts: [],
+    contractors: [],
+    auditEvents: [],
+  });
+
+  const { upsertTender, rebuildJobCostCentresFromSourceTender, getTender } = await import("./tenders-data");
+  const { createJob, getJob } = await import("./workflow-data");
+  const { getHubDetailState } = await import("./hub-detail-store");
+
+  const tender = upsertTender({
+    id: "tender-stale-link",
+    name: "Queens Terrace",
+    client: "Matt",
+    category: "Heating",
+    area: "Aberdeen",
+    status: "Won",
+    owner: "Office",
+    // Intentionally no convertedJobId — Jobs UI only has sourceTenderId.
+    boqLines: [
+      {
+        id: "l1",
+        kind: "measured",
+        description: "Radiator",
+        quantity: 2,
+        rate: 150,
+        value: 300,
+        note: "Ground · guide",
+        sheet: "Heating",
+      },
+    ],
+  });
+
+  const job = createJob({
+    customer: "Matt",
+    site: "3 Queens",
+    description: "Heating",
+    manager: "Office",
+    status: "Pending",
+    value: 1,
+    next: "Schedule",
+    due: "2026-08-13",
+    sourceTenderId: tender.id,
+    sourceTenderName: tender.name,
+  });
+
+  const rebuilt = rebuildJobCostCentresFromSourceTender(job.id);
+  assert.equal(rebuilt.job.id, job.id);
+  assert.ok(rebuilt.jobCostCentres.length >= 1);
+  assert.equal(rebuilt.tender.boqLines.length, 0, "response tender must be lean (no BoQ dump)");
+  assert.equal(getTender(tender.id)?.convertedJobId, job.id);
+  assert.equal(getJob(job.id)?.value, 300);
+  const hub = getHubDetailState();
+  assert.ok(((hub.jobCostCentres as Record<string, unknown[]>)?.[job.id] || []).length >= 1);
+});
+
 test("Won convert copies tender drawings onto the job documents hub", async (t) => {
   const storeDir = mkdtempSync(path.join(tmpdir(), "hubflo-tender-docs-"));
   process.env.NEXA_STORE_DIR = storeDir;
