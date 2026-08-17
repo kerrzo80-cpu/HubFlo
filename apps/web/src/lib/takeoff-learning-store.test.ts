@@ -78,7 +78,11 @@ describe("takeoff learning habits", () => {
       takeoffLearningPreferences(),
     );
     assert.equal(ranked[0]?.code, "P-WHB");
-    assert.equal(ranked.find((row) => row.code === "P-WC")?.confidence, "Low");
+    assert.equal(
+      ranked.find((row) => row.code === "P-WC"),
+      undefined,
+      "rejected class must not come back on the next propose",
+    );
   });
 
   it("records scale choices", () => {

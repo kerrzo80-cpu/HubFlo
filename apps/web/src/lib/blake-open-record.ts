@@ -11,6 +11,7 @@ import {
   listBoqSheetTabs,
 } from "@/lib/tender-boq-sections";
 import { getTender, listTendersLean } from "@/lib/tenders-data";
+import { getTakeoffProject } from "@/lib/takeoff-data";
 import {
   boqProgress,
   computeBoqTotal,
@@ -24,6 +25,7 @@ export type BlakeScreenContext = {
   view?: string;
   tenderId?: string | null;
   jobId?: string | null;
+  takeoffId?: string | null;
 };
 
 export type BlakeBoqLineBrief = {
@@ -56,6 +58,7 @@ export type BlakeTenderSnapshot = {
   materialsNote?: string;
   qualifications: string[];
   documents: Partial<Record<TenderDocumentKind, number>>;
+  documentNames: Array<{ kind: TenderDocumentKind; name: string }>;
   boq: {
     title?: string;
     measured: number;
@@ -89,9 +92,20 @@ export type BlakeJobSnapshot = {
   costCentres: string[];
 };
 
+export type BlakeTakeoffSnapshot = {
+  kind: "takeoff";
+  id: string;
+  ref?: string;
+  name: string;
+  customer?: string;
+  drawings: string[];
+  otherDocs: string[];
+};
+
 export type BlakeOpenRecord = {
   tender?: BlakeTenderSnapshot;
   job?: BlakeJobSnapshot;
+  takeoff?: BlakeTakeoffSnapshot;
 };
 
 const DESCRIPTION_CAP = 140;
@@ -101,7 +115,7 @@ const SECTION_CAP = 10;
 const SHEET_CAP = 8;
 
 export function looksLikeFillRates(message: string) {
-  return /\b(price this|price the (tender|bill|job|boq)|fill (the |these |those )?(rates|prices)|budget[- ]price|apply (blake )?(budget |guide )?rates|qs this|price (the )?boq)\b/i.test(
+  return /\b(price this|price the (plumbing |heating |electrical )?(tender|bill|job|boq)|fill (the |these |those )?(rates|prices)|budget[- ]price|apply (blake )?(budget |guide )?rates|qs this|price (the )?boq)\b/i.test(
     message,
   );
 }
@@ -173,8 +187,12 @@ export function summariseTenderForBlake(tender: Tender): BlakeTenderSnapshot {
       };
     });
   const documents: Partial<Record<TenderDocumentKind, number>> = {};
+  const documentNames: Array<{ kind: TenderDocumentKind; name: string }> = [];
   for (const doc of tender.documents) {
     documents[doc.kind] = (documents[doc.kind] || 0) + 1;
+    if (documentNames.length < 12) {
+      documentNames.push({ kind: doc.kind, name: doc.name });
+    }
   }
   const highestPriced = priced
     .slice()
@@ -206,6 +224,7 @@ export function summariseTenderForBlake(tender: Tender): BlakeTenderSnapshot {
     materialsNote: tender.materialsNote?.trim() || undefined,
     qualifications: (tender.qualifications || []).slice(0, 6),
     documents,
+    documentNames,
     boq: {
       title: tender.boqTitle || undefined,
       measured: progress.measured,
@@ -270,6 +289,7 @@ export function resolveOpenRecord(screen?: BlakeScreenContext | null, message = 
   const record: BlakeOpenRecord = {};
   const tenderId = screen?.tenderId?.trim();
   const jobId = screen?.jobId?.trim();
+  const takeoffId = screen?.takeoffId?.trim();
 
   if (tenderId) {
     const tender = getTender(tenderId);
@@ -284,6 +304,28 @@ export function resolveOpenRecord(screen?: BlakeScreenContext | null, message = 
         const linked = getTender(job.sourceTenderId);
         if (linked) record.tender = summariseTenderForBlake(linked);
       }
+    }
+  }
+
+  const takeoffLookup = takeoffId || record.tender?.linkedTakeoff?.id;
+  if (takeoffLookup) {
+    const takeoff = getTakeoffProject(takeoffLookup);
+    if (takeoff) {
+      record.takeoff = {
+        kind: "takeoff",
+        id: takeoff.id,
+        ref: takeoff.reference,
+        name: takeoff.name,
+        customer: takeoff.customer,
+        drawings: takeoff.documents
+          .filter((doc) => doc.kind === "Drawing" || doc.kind === "Marked-up drawing")
+          .map((doc) => doc.fileName)
+          .slice(0, 8),
+        otherDocs: takeoff.documents
+          .filter((doc) => doc.kind !== "Drawing" && doc.kind !== "Marked-up drawing")
+          .map((doc) => `${doc.kind}: ${doc.fileName}`)
+          .slice(0, 6),
+      };
     }
   }
 
@@ -358,7 +400,22 @@ export function formatOpenRecordBrief(record: BlakeOpenRecord): string {
   const docBits = Object.entries(tender.documents)
     .filter(([, count]) => (count || 0) > 0)
     .map(([kind, count]) => `${kind.replace(/-/g, " ")} ${count}`);
-  if (docBits.length) parts.push(`Documents: ${docBits.join(", ")}.`);
+  if (docBits.length) parts.push(`Documents on this tender: ${docBits.join(", ")}.`);
+  if (tender.documentNames?.length) {
+    parts.push(`Files: ${tender.documentNames.map((doc) => doc.name).join("; ")}.`);
+  }
+  if (record.takeoff) {
+    parts.push(
+      `Linked takeoff ${record.takeoff.ref || record.takeoff.name}: ${
+        record.takeoff.drawings.length
+          ? `drawings ${record.takeoff.drawings.join(", ")}`
+          : "no drawings yet"
+      }.`,
+    );
+  }
+  parts.push(
+    "I can talk through these files by name and the live BoQ. I do not ingest a ChatGPT-style dump of six PDFs at once — put the bill in Tenders → Bill, then ask. Drawings: find CAD plumbing one sheet at a time.",
+  );
 
   if (tender.boq.blankExamples.length) {
     parts.push("Still blank (examples):");

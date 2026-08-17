@@ -8,6 +8,7 @@ import { resolveOpenAiApiKey } from "@/lib/openai-env";
 import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
 import { pushJobToSimpro } from "@/lib/simpro-bridge";
 import { getJobs, getQuotes, updateJob, type Job } from "@/lib/workflow-data";
+import { getTender } from "@/lib/tenders-data";
 import type { Employee, Weekday } from "@/lib/access";
 import {
   formatBudgetPriceOffer,
@@ -19,6 +20,20 @@ import {
   type BlakeOpenRecord,
   type BlakeScreenContext,
 } from "@/lib/blake-open-record";
+import {
+  BLAKE_FILE_DUMP_LIMIT,
+  looksLikeLastScanQuestion,
+  lineOutOfBlakeScope,
+  parseBlakeScopeInstruction,
+  type BlakeTradeScope,
+} from "@/lib/blake-trade-scope";
+import {
+  appendBlakeRecordMessages,
+  blakeRecordKey,
+  loadBlakeMemoryForScreen,
+  patchBlakeRecordScope,
+  recordBlakeRejectedCodes,
+} from "@/lib/blake-record-memory";
 
 type ScheduleAssignment = {
   id: string;
@@ -98,6 +113,7 @@ type PendingBudgetPrices = {
   tenderId: string;
   tenderName: string;
   forceRefresh: boolean;
+  lineIds?: string[];
 };
 
 type PendingStore = { actions: Array<PendingBooking | PendingFaultReport | PendingBudgetPrices> };
@@ -145,6 +161,7 @@ export type NexaAssistantResponse = {
     faultReference?: string;
   };
   aiUsed: boolean;
+  storedMessages?: Array<{ role: "assistant" | "user"; text: string }>;
 };
 
 const pendingStore = loadServerStore<PendingStore>("nexa-assistant-actions", { actions: [] });
@@ -589,6 +606,7 @@ async function conversationalReply(
   actorName: string,
   buddyContext?: BuddyClientContext,
   openRecord?: BlakeOpenRecord,
+  extras?: { scope?: BlakeTradeScope; lastScanSummary?: string },
 ): Promise<{ reply: string; aiUsed: boolean }> {
   const deterministic = deterministicBusinessReply(message);
   const apiKey = resolveOpenAiApiKey();
@@ -622,9 +640,11 @@ async function conversationalReply(
             content: [
               "You are Blake, the NeXa business assistant for Errol Watson Group field-service operations.",
               "Answer using only the supplied NeXa workspace JSON, the open Tender/Job snapshot, Blake learning notes, and the conversation.",
-              "If the user is looking at a tender or job, talk through THAT record first — BoQ progress, blanks, FoT, linked takeoff, qualifications.",
+              "If the user is looking at a tender, job or takeoff, talk through THAT record first — attached files by name, BoQ progress, blanks, FoT, last drawing scan.",
+              "You can have a back-and-forth. Honour scope notes: ignore electrical / ventilation / price plumbing only.",
               "Guide rates from the rate library / Blake budget prices are internal budgets, not firm tenders. Unsure lines stay blank, never NIL / £0.",
-              "Never claim you imported a ChatGPT conversation. You work from live HubFlo data.",
+              "Never claim you ingested a ChatGPT file dump of multiple PDFs. You see live HubFlo BoQ + document names + the last takeoff scan.",
+              BLAKE_FILE_DUMP_LIMIT,
               "If the data does not contain the answer, say what is missing. Never invent bookings, values, customers or availability.",
               "Do not change schedules, quote values, BoQ rates, variations or invoices yourself. Suggest and ask the user to confirm operational changes.",
               "When the user asks how to do something in NeXa, give a short numbered click-path (Tenders → open record → Bill → Blake budget prices).",
@@ -632,9 +652,11 @@ async function conversationalReply(
               "Keep answers concise, plain English, and useful for a commercial manager.",
               `The current user is ${actorName}.`,
               buddyContext ? `Blake learning notes JSON:\n${JSON.stringify(buddyContext)}` : "",
-              openRecord && (openRecord.tender || openRecord.job)
+              openRecord && (openRecord.tender || openRecord.job || openRecord.takeoff)
                 ? `Open record JSON (priority over the workspace summary):\n${JSON.stringify(openRecord)}`
                 : "",
+              extras?.scope ? `Scope the office already told you:\n${JSON.stringify(extras.scope)}` : "",
+              extras?.lastScanSummary ? `Last drawing scan:\n${extras.lastScanSummary}` : "",
               `Live NeXa workspace JSON:\n${JSON.stringify(context)}`,
             ].filter(Boolean).join("\n"),
           },
@@ -881,12 +903,29 @@ function offerBudgetPrices(
   actor: { id: string; name: string },
   message: string,
   now: Date,
+  scope?: BlakeTradeScope,
 ): NexaAssistantResponse {
   const forceRefresh = looksLikeRefreshRates(message);
   const offer = formatBudgetPriceOffer(record, forceRefresh);
   if (!offer.canApply || !record.tender) {
     return { reply: offer.reply, intent: { action: "chat" }, aiUsed: false };
   }
+
+  const tender = getTender(record.tender.id);
+  const lineIds = tender
+    ? tender.boqLines
+      .filter((line) => line.kind === "measured")
+      .filter((line) => !lineOutOfBlakeScope(line.description, line.section, scope))
+      .map((line) => line.id)
+    : undefined;
+  const skipped = tender && lineIds
+    ? tender.boqLines.filter((line) => line.kind === "measured").length - lineIds.length
+    : 0;
+  const scopeNote = skipped > 0
+    ? `\nLeaving ${skipped} electrical / ventilation / out-of-scope line(s) blank — you told me that is not our trade.`
+    : scope?.notes?.length
+      ? `\nScope: ${scope.notes.slice(-2).join(" ")}`
+      : "";
 
   refreshPendingStore();
   const pending: PendingBudgetPrices = {
@@ -899,22 +938,41 @@ function offerBudgetPrices(
     tenderId: record.tender.id,
     tenderName: record.tender.name,
     forceRefresh,
+    lineIds: lineIds?.length ? lineIds : undefined,
   };
   pendingStore.actions = [pending, ...pendingStore.actions.filter((action) => action.id !== pending.id)];
   persistPendingStore();
 
   return {
-    reply: offer.reply,
+    reply: `${offer.reply}${scopeNote}\nGuide rates only — not a firm tender. Confirm and I’ll write them onto this bill.`,
     intent: { action: "chat" },
     action: {
       id: pending.id,
       kind: "confirm_budget_prices",
       title: forceRefresh ? `Refresh guides · ${record.tender.name}` : `Price BoQ · ${record.tender.name}`,
-      detail: offer.detail,
+      detail: skipped > 0 ? `${offer.detail} · skip ${skipped} out of scope` : offer.detail,
       confirmLabel: forceRefresh ? "Refresh Blake budget prices" : "Apply Blake budget prices",
     },
     aiUsed: false,
   };
+}
+
+function chatKeysForScreen(screen?: BlakeScreenContext, openRecord?: BlakeOpenRecord): string[] {
+  const keys = [
+    screen?.takeoffId ? blakeRecordKey("takeoff", screen.takeoffId) : "",
+    openRecord?.takeoff?.id ? blakeRecordKey("takeoff", openRecord.takeoff.id) : "",
+    screen?.tenderId ? blakeRecordKey("tender", screen.tenderId) : "",
+    openRecord?.tender?.id ? blakeRecordKey("tender", openRecord.tender.id) : "",
+    screen?.jobId ? blakeRecordKey("job", screen.jobId) : "",
+    openRecord?.job?.id ? blakeRecordKey("job", openRecord.job.id) : "",
+  ].filter(Boolean);
+  return [...new Set(keys)];
+}
+
+function persistChatTurn(keys: string[], role: "user" | "assistant", text: string) {
+  for (const key of keys) {
+    appendBlakeRecordMessages(key, [{ role, text }]);
+  }
 }
 
 export async function handleNexaAssistantMessage(
@@ -930,14 +988,26 @@ export async function handleNexaAssistantMessage(
   } = {},
 ): Promise<NexaAssistantResponse> {
   const now = options.now ?? new Date();
-  const history = options.history ?? [];
   const hubState = getHubDetailState();
   const employees = (hubState.employees ?? []) as Employee[];
   const deterministic = deterministicIntent(message, employees, now);
   const openRecord = resolveOpenRecord(options.screenContext, message);
+  const chatKeys = chatKeysForScreen(options.screenContext, openRecord);
+  const memory = loadBlakeMemoryForScreen({
+    tenderId: options.screenContext?.tenderId || openRecord.tender?.id,
+    jobId: options.screenContext?.jobId || openRecord.job?.id,
+    takeoffId: options.screenContext?.takeoffId || openRecord.takeoff?.id,
+  });
+  const parsed = parseBlakeScopeInstruction(message, memory.scope);
+  if (parsed.changed && chatKeys.length) {
+    for (const key of chatKeys) patchBlakeRecordScope(key, parsed.scope);
+  }
+  if (parsed.rejectedHints.length && chatKeys.length) {
+    for (const key of chatKeys) recordBlakeRejectedCodes(key, parsed.rejectedHints);
+  }
+  const storedHistory = memory.messages.map((item) => ({ role: item.role, text: item.text }));
+  const history = (options.history?.length ? options.history : storedHistory).slice(-16);
 
-  // Fault reports must stay light — do not stack OpenAI intent + classify calls
-  // (that double-hit was hanging Render and spinning the Core tab).
   if (
     deterministic.action === "report_fault"
     || deterministic.action === "suggest_improvement"
@@ -949,16 +1019,50 @@ export async function handleNexaAssistantMessage(
     });
   }
 
-  if (looksLikeFillRates(message)) {
-    return offerBudgetPrices(openRecord, actor, message, now);
-  }
+  persistChatTurn(chatKeys, "user", message);
 
-  if (looksLikeOpenRecordQs(message) && (openRecord.tender || openRecord.job)) {
+  const finish = (result: NexaAssistantResponse): NexaAssistantResponse => {
+    persistChatTurn(chatKeys, "assistant", result.reply);
     return {
-      reply: formatOpenRecordBrief(openRecord),
+      ...result,
+      storedMessages: chatKeys[0]
+        ? loadBlakeMemoryForScreen({
+            takeoffId: options.screenContext?.takeoffId || openRecord.takeoff?.id,
+            tenderId: options.screenContext?.tenderId || openRecord.tender?.id,
+            jobId: options.screenContext?.jobId || openRecord.job?.id,
+          }).messages.map((item) => ({ role: item.role, text: item.text }))
+        : undefined,
+    };
+  };
+
+  if (looksLikeLastScanQuestion(message)) {
+    return finish({
+      reply: memory.lastScanSummary
+        ? `${memory.lastScanSummary}\nYou can type “ignore electrical” or “only pipework and sanitary” and I’ll use that on the next scan. Guide figures only — not a firm tender.`
+        : "I have not scanned this drawing in this chat yet. On Takeoff pick the Draw-as layer (Hot & cold / Heating / Waste), then Find CAD plumbing on this sheet.",
       intent: { action: "chat" },
       aiUsed: false,
-    };
+    });
+  }
+
+  if (looksLikeFillRates(message)) {
+    return finish(offerBudgetPrices(openRecord, actor, message, now, parsed.scope));
+  }
+
+  if (looksLikeOpenRecordQs(message) && (openRecord.tender || openRecord.job || openRecord.takeoff)) {
+    const chat = await conversationalReply(
+      message,
+      history,
+      actor.name,
+      options.buddyContext,
+      openRecord,
+      { scope: parsed.scope, lastScanSummary: memory.lastScanSummary },
+    );
+    return finish({
+      reply: chat.aiUsed ? chat.reply : `${formatOpenRecordBrief(openRecord)}\n\nYou can keep chatting: “ignore electrical”, “we don’t do ventilation”, “price the plumbing bill only”. Confirm before I write guide rates.`,
+      intent: { action: "chat" },
+      aiUsed: chat.aiUsed,
+    });
   }
 
   const ai = await aiIntent(message, employees, now);
@@ -978,13 +1082,14 @@ export async function handleNexaAssistantMessage(
         history,
         actor.name,
         options.buddyContext,
-        openRecord.tender || openRecord.job ? openRecord : undefined,
+        openRecord.tender || openRecord.job || openRecord.takeoff ? openRecord : undefined,
+        { scope: parsed.scope, lastScanSummary: memory.lastScanSummary },
       );
-      return {
+      return finish({
         reply: chat.reply,
         intent: { action: "chat" },
         aiUsed: chat.aiUsed,
-      };
+      });
     }
   }
 
@@ -1003,6 +1108,7 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
     try {
       const { tender, priced } = await applyBlakeBudgetPricesToTender(action.tenderId, {
         forceRefresh: action.forceRefresh,
+        lineIds: action.lineIds,
       });
       pendingStore.actions = pendingStore.actions.filter((item) => item.id !== action.id);
       persistPendingStore();

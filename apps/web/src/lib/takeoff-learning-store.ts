@@ -141,7 +141,8 @@ export function takeoffLearningPreferences(store = getTakeoffLearningStore()): T
   const trade = topKey(store.tradeCounts);
   const pipeSpecId = topKey(store.pipeSpecCounts) || DEFAULT_STUDIO_PIPE_SPEC_ID;
   const commonCodes = topKeys(store.confirmedCodeCounts, 12, 1);
-  const rejectedCodes = topKeys(store.rejectedCodeCounts, 12, MIN_PREF_COUNT);
+  /** One reject is enough — do not keep offering a class the office already threw out. */
+  const rejectedCodes = topKeys(store.rejectedCodeCounts, 24, 1);
   const preferredScaleLabel = topKey(store.scaleLabelCounts, 1);
   const eventCount = store.recentEvents.length;
 
@@ -164,24 +165,21 @@ export function takeoffLearningPreferences(store = getTakeoffLearningStore()): T
   };
 }
 
-/** Soft-rank measured rows using learned keep/reject codes. */
+/** Drop rejected classes, then soft-rank the rest using learned keep codes. */
 export function applyLearningToMeasuredRows<T extends { code: string; confidence?: string; notes?: string }>(
   rows: T[],
   prefs: TakeoffLearningPreferences,
+  extraRejectedCodes: string[] = [],
 ): T[] {
   if (!rows.length) return rows;
-  const reject = new Set(prefs.rejectedCodes.map((code) => code.toUpperCase()));
+  const reject = new Set(
+    [...prefs.rejectedCodes, ...extraRejectedCodes].map((code) => code.trim().toUpperCase()).filter(Boolean),
+  );
   const keep = new Set(prefs.commonCodes.map((code) => code.toUpperCase()));
   return [...rows]
+    .filter((row) => !reject.has(String(row.code || "").toUpperCase()))
     .map((row) => {
       const code = String(row.code || "").toUpperCase();
-      if (reject.has(code)) {
-        return {
-          ...row,
-          confidence: "Low" as const,
-          notes: [row.notes, "Blake usually rejects this code on your takeoffs"].filter(Boolean).join(" · "),
-        };
-      }
       if (keep.has(code) && row.confidence !== "High") {
         return {
           ...row,
@@ -194,8 +192,8 @@ export function applyLearningToMeasuredRows<T extends { code: string; confidence
     .sort((a, b) => {
       const aCode = String(a.code || "").toUpperCase();
       const bCode = String(b.code || "").toUpperCase();
-      const aScore = (keep.has(aCode) ? 2 : 0) - (reject.has(aCode) ? 2 : 0);
-      const bScore = (keep.has(bCode) ? 2 : 0) - (reject.has(bCode) ? 2 : 0);
+      const aScore = keep.has(aCode) ? 2 : 0;
+      const bScore = keep.has(bCode) ? 2 : 0;
       return bScore - aScore;
     });
 }

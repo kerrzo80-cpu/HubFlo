@@ -5,6 +5,7 @@ import {
   type TakeoffLearningEventType,
 } from "@/lib/takeoff-learning-store";
 import type { TakeoffTradeId } from "@/lib/takeoff-skill";
+import { blakeRecordKey, recordBlakeRejectedCodes } from "@/lib/blake-record-memory";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,6 +74,11 @@ export async function POST(req: Request) {
       scaleLabel: typeof body.scaleLabel === "string" ? body.scaleLabel : undefined,
       trade,
     });
+    const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
+    const rejected = asStringArray(body.rejectedCodes) || (type === "ai_reject" ? asStringArray(body.codes ?? body.code) : undefined);
+    if (projectId && rejected?.length) {
+      recordBlakeRejectedCodes(blakeRecordKey("takeoff", projectId), rejected);
+    }
 
     return NextResponse.json({ ok: true, preferences: takeoffLearningPreferences() });
   } catch (error) {

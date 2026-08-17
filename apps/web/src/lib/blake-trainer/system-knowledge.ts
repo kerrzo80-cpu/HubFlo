@@ -154,7 +154,7 @@ export const nexaSystemKnowledge: SystemKnowledgeTopic[] = [
     content: [
       "Tenders hold client bills of quantities, drawings, qualifications and the Form of Tender.",
       "Open the tender, import their BoQ on the Bill tab, then tick lines and run Blake budget prices (rate library first, UK trade ballpark for gaps).",
-      "Ask Blake from the sidebar while the tender (or a job raised from it) is open — he talks through the live BoQ and can fill blank rates after you confirm. That is not a ChatGPT paste-back.",
+      "Ask Blake from the sidebar while the tender (or a job raised from it) is open — type back and forth about this BoQ and the files on the record. He can fill blank rates after you confirm. That is not a ChatGPT dump of six PDFs.",
       "Guide rates stay internal until you amend them and export the FoT. Unsure lines stay blank, never NIL / £0. Won tenders convert to a Core job with cost centres from the BoQ.",
     ].join(" "),
     teachScript:
@@ -354,10 +354,10 @@ export const nexaSystemKnowledge: SystemKnowledgeTopic[] = [
       "NeXa Takeoffs works drawings, markups, BOQs and supplier lists.",
       "Takeoff outputs can feed quote cost centres and materials.",
       "Calibrate drawings and keep layers tidy so quantities stay trustworthy.",
-      "Use Takeoff when pricing from plans rather than only from a survey chat.",
+      "Open a drawing, pick the Draw-as layer (Hot & cold, Heating, Waste, Gas), then Find CAD plumbing on this sheet. Blake looks for that trade — not lighting switches or pendants on a plumbing job. Rejected pins stay rejected. Chat in the panel if he got the class wrong.",
     ].join(" "),
     teachScript:
-      "Takeoffs turns drawings into markups and BOQ quantities that feed quote cost centres. Keep calibration and layers clean.",
+      "Takeoffs turns drawings into markups and BOQ quantities that feed quote cost centres. Pick the Draw-as layer, find CAD plumbing, confirm pins. Reject lighting if it appears — Blake will not keep offering it.",
     checkPoints: ["takeoff", "drawing", "boq", "quote", "calibration"],
     checkPrompt: "What does Takeoff produce for the commercial team?",
   },

@@ -54,6 +54,22 @@ import {
 import { measureTakeoffPagesWithVision, type BlakeTextHint } from "@/lib/takeoff-blake-vision";
 import { appendAuditEvent } from "@/lib/people-data";
 import { POST as skillPost } from "../skill/route";
+import {
+  allowedFixtureCodesForScan,
+  clampTradeToScope,
+  filterFixtureRows,
+  lookingForLabel,
+  parseBlakeScopeInstruction,
+  scanBriefForLayer,
+} from "@/lib/blake-trade-scope";
+import {
+  blakeRecordKey,
+  getBlakeRecordMemory,
+  loadBlakeMemoryForScreen,
+  patchBlakeRecordScope,
+  recordBlakeRejectedCodes,
+  setBlakeLastScanSummary,
+} from "@/lib/blake-record-memory";
 
 export const runtime = "nodejs";
 
@@ -121,6 +137,9 @@ type BlakeRunBody = {
     drawingScope?: "current" | "project";
     focusDocumentId?: string;
     targets?: Array<"hot-cold" | "waste" | "heating" | "fixtures">;
+    layerId?: string;
+    instruction?: string;
+    includeElectrical?: boolean;
   };
 };
 
@@ -220,6 +239,7 @@ function pinCountOf(measured: MeasuredRow[]) {
 
 function measuredFromExtracts(
   extracts: Array<{ documentId: string; fileName: string; pages: ExtractedPdfPage[] }>,
+  discovery: { layerId?: string | null; includeElectrical?: boolean } = {},
 ): {
   measured: MeasuredRow[];
   diagnostics: {
@@ -243,7 +263,7 @@ function measuredFromExtracts(
     hasSelectableText = hasSelectableText || diagnostics.hasSelectableText;
     if (!sample && diagnostics.sample) sample = diagnostics.sample;
 
-    for (const group of discoverCommonFixtureTags(extract.pages)) {
+    for (const group of discoverCommonFixtureTags(extract.pages, discovery)) {
       const existing = byCode.get(group.code) || {
         id: `blake-fallback-${group.code}`,
         kind: "primary" as const,
@@ -283,7 +303,10 @@ function measuredFromExtracts(
   };
 }
 
-async function serverDiscoverPins(project: TakeoffProject) {
+async function serverDiscoverPins(
+  project: TakeoffProject,
+  discovery: { layerId?: string | null; includeElectrical?: boolean } = {},
+) {
   const drawings = project.documents.filter((doc) =>
     doc.kind === "Drawing"
     || doc.kind === "Marked-up drawing"
@@ -322,7 +345,7 @@ async function serverDiscoverPins(project: TakeoffProject) {
     }
   }
 
-  const fromExtracts = measuredFromExtracts(extracts);
+  const fromExtracts = measuredFromExtracts(extracts, discovery);
   return {
     measured: fromExtracts.measured,
     diagnostics: {
@@ -352,13 +375,13 @@ function emptyMessage(
     return "Blake saw colour on the sheet but couldn’t lock clean pipe runs yet. Next: Set scale → Draw as Cold/Hot → Length along the run (elbows/couplings auto).";
   }
   if (diagnostics.docsRead === 0 && diagnostics.docsMissing > 0 && diagnostics.docsExtractFailed === 0) {
-    return "The PDF file is missing from disk (host restart can drop files). Re-upload the drawing, keep it open until it loads, then Ask Blake again.";
+    return "The PDF file is missing from disk (host restart can drop files). Re-upload the drawing, keep it open until it loads, then find CAD plumbing again.";
   }
   if (diagnostics.docsRead === 0 && diagnostics.docsExtractFailed > 0) {
-    return "Blake couldn’t read vectors on this pass. Keep the sheet open until it finishes loading, Ask Blake again — or Draw as Cold/Hot and Length.";
+    return "Blake couldn’t read vectors on this pass. Keep the sheet open until it finishes loading, try Find CAD plumbing again — or Draw as Cold/Hot and Length.";
   }
   if (diagnostics.docsRead === 0) {
-    return "Keep the drawing open until it finishes loading, then Ask Blake again. If it still won’t open, re-upload the PDF.";
+    return "Keep the drawing open until it finishes loading, then find CAD plumbing again. If it still won’t open, re-upload the PDF.";
   }
   if (!diagnostics.hasSelectableText || diagnostics.textItemCount < 8) {
     return "Scanned / image PDF — Blake can’t auto-read text or vectors here. Set scale → Draw as Cold/Hot/Heating → Length (or Count for fixtures). Your marks still build the BOQ.";
@@ -525,8 +548,29 @@ export async function POST(
 
   const actor = request.headers.get(employeeHeaderName) || "Blake";
   const body = await parseJsonRequestBody<BlakeRunBody>(request);
+  const takeoffKey = blakeRecordKey("takeoff", id);
+  const tenderKey = project.sourceTenderId ? blakeRecordKey("tender", project.sourceTenderId) : "";
+  const recordMemory = loadBlakeMemoryForScreen({
+    takeoffId: id,
+    tenderId: project.sourceTenderId,
+  });
+  const layerId = String(body?.intent?.layerId || project.studio?.activeLayerId || "all");
+  const layerBrief = scanBriefForLayer(layerId);
+  const parsedInstruction = parseBlakeScopeInstruction(String(body?.intent?.instruction || ""), recordMemory.scope);
+  const scanScope = {
+    ...parsedInstruction.scope,
+    includeElectrical: Boolean(body?.intent?.includeElectrical) || parsedInstruction.scope.includeElectrical,
+  };
+  if (parsedInstruction.changed) {
+    patchBlakeRecordScope(takeoffKey, scanScope);
+    if (tenderKey) patchBlakeRecordScope(tenderKey, scanScope);
+  }
+  if (parsedInstruction.rejectedHints.length) {
+    recordBlakeRejectedCodes(takeoffKey, parsedInstruction.rejectedHints);
+  }
+  const defaultTargets = layerBrief.targets.length ? layerBrief.targets : ["hot-cold", "fixtures"];
   const intentTargets = new Set(
-    (Array.isArray(body?.intent?.targets) ? body!.intent!.targets : ["hot-cold", "waste", "fixtures"])
+    (Array.isArray(body?.intent?.targets) && body!.intent!.targets!.length ? body!.intent!.targets : defaultTargets)
       .map((item) => String(item)),
   );
   const wantHotCold = intentTargets.has("hot-cold");
@@ -579,9 +623,12 @@ export async function POST(
 
   try {
     const learning = takeoffLearningPreferences();
-    let trade: TakeoffTradeId = wantHeating && !wantHotCold && !wantWaste
-      ? "heating"
-      : (learning.defaultTrade || "plumbing");
+    const discovery = { layerId, includeElectrical: scanScope.includeElectrical };
+    let trade: TakeoffTradeId = clampTradeToScope(
+      wantHeating && !wantHotCold && !wantWaste ? "heating" : (learning.defaultTrade || layerBrief.trade),
+      scanScope,
+      layerId,
+    );
     let measured: MeasuredRow[] = [];
     let pinCount = 0;
     let usedFallback = false;
@@ -599,7 +646,7 @@ export async function POST(
 
     // Prefer client extracts first on phones — server PDF parse often fails while Studio shows the sheet.
     if (wantFixtures && clientExtracts.length) {
-      const fromClient = measuredFromExtracts(clientExtracts);
+      const fromClient = measuredFromExtracts(clientExtracts, discovery);
       diagnostics = fromClient.diagnostics;
       measured = fromClient.measured;
       pinCount = pinCountOf(measured);
@@ -610,14 +657,19 @@ export async function POST(
       const analysed = await skillJson(request, id, { action: "analyse", actor });
       const sheetTrade = tradeFromSheets(analysed.skill?.drawingIndex?.sheets);
       if (!(wantHeating && !wantHotCold && !wantWaste)) {
-        trade = sheetTrade.voteCount > 0
-          ? sheetTrade.trade
-          : (learning.defaultTrade || sheetTrade.trade);
+        trade = clampTradeToScope(
+          sheetTrade.voteCount > 0 ? sheetTrade.trade : (learning.defaultTrade || layerBrief.trade),
+          scanScope,
+          layerId,
+        );
+      } else {
+        trade = clampTradeToScope("heating", scanScope, layerId);
       }
-      const focusLabels = wantHeating && !wantHotCold && !wantWaste
-        ? focusOptionsForTrade("heating")
-        : focusOptionsForTrade(trade).filter((label) => {
+      const focusLabels = focusOptionsForTrade(trade).filter((label) => {
           const lower = label.toLowerCase();
+          if (!scanScope.includeElectrical && /(light|socket|outlet|cable|containment|distribution)/i.test(lower)) {
+            return false;
+          }
           if (wantHotCold && /(hot|cold|water|sanitar|tap|basin|sink)/i.test(lower)) return true;
           if (wantWaste && /(waste|soil|drain|stack)/i.test(lower)) return true;
           if (wantHeating && /(heat|radiator|boiler|ufh|flow|return)/i.test(lower)) return true;
@@ -654,16 +706,30 @@ export async function POST(
       };
     } catch {
       // Client-only path still useful when skill/server PDF parse fails.
-      trade = wantHeating && !wantHotCold && !wantWaste ? "heating" : (learning.defaultTrade || "plumbing");
+      trade = clampTradeToScope(
+        wantHeating && !wantHotCold && !wantWaste ? "heating" : (learning.defaultTrade || layerBrief.trade),
+        scanScope,
+        layerId,
+      );
     }
 
-    measured = wantFixtures ? applyLearningToMeasuredRows(measured, learning) : [];
+    const rejectedCodes = [
+      ...recordMemory.rejectedCodes,
+      ...getBlakeRecordMemory(takeoffKey).rejectedCodes,
+      ...parsedInstruction.rejectedHints,
+    ];
+    measured = wantFixtures
+      ? filterFixtureRows(
+        applyLearningToMeasuredRows(measured, learning, rejectedCodes),
+        { layerId, scope: scanScope, rejectedCodes },
+      )
+      : [];
     pinCount = pinCountOf(measured);
 
     if (wantFixtures && pinCount === 0) {
-      const fallback = await serverDiscoverPins(getTakeoffProject(id) || project);
+      const fallback = await serverDiscoverPins(getTakeoffProject(id) || project, discovery);
       if (pinCountOf(fallback.measured) > 0) {
-        measured = fallback.measured;
+        measured = filterFixtureRows(fallback.measured, { layerId, scope: scanScope, rejectedCodes });
         pinCount = pinCountOf(measured);
         usedFallback = true;
         diagnostics = fallback.diagnostics;
@@ -730,13 +796,25 @@ export async function POST(
               })),
           ),
         );
-        const vision = await measureTakeoffPagesWithVision(pageImages, { textHints });
+        const vision = await measureTakeoffPagesWithVision(pageImages, {
+          textHints,
+          lookingFor: lookingForLabel(
+            [...intentTargets] as Array<"hot-cold" | "waste" | "heating" | "fixtures">,
+            layerId,
+            scanScope,
+          ),
+          includeElectrical: scanScope.includeElectrical,
+          allowedFixtureCodes: [...allowedFixtureCodesForScan(layerId, scanScope)],
+        });
         if (vision.used) {
           if (wantFixtures && pinCount === 0 && vision.measured.length) {
-            measured = vision.measured.map((row) => ({
-              ...row,
-              tagMatches: row.tagMatches || [],
-            }));
+            measured = filterFixtureRows(
+              vision.measured.map((row) => ({
+                ...row,
+                tagMatches: row.tagMatches || [],
+              })),
+              { layerId, scope: scanScope, rejectedCodes },
+            );
             pinCount = pinCountOf(measured);
             usedFallback = true;
           }
@@ -901,20 +979,12 @@ export async function POST(
     const cold = pipeMetresFromStudio(nextStudio, "cold");
     const waste = pipeMetresFromStudio(nextStudio, "waste");
 
-    const intentBriefBits = [
-      body?.intent?.drawingScope === "current" || focusDocumentId
-        ? "this drawing only"
-        : drawings.length > 1
-          ? "up to 2 drawings this pass"
-          : "this drawing",
-      wantHotCold ? "hot & cold runs" : null,
-      wantWaste ? "waste / soil runs" : null,
-      wantHeating ? "heating flow & return colours + plant focus" : null,
-      wantFixtures ? "fixture / tag pins" : null,
-    ].filter(Boolean);
-    const intentBrief = intentBriefBits.length
-      ? `Looking for: ${intentBriefBits.join(" · ")}.`
-      : "";
+    const lookingFor = lookingForLabel(
+      [...intentTargets] as Array<"hot-cold" | "waste" | "heating" | "fixtures">,
+      layerId,
+      scanScope,
+    );
+    const intentBrief = `Blake is looking for: ${lookingFor} on this drawing.`;
 
     let message = emptyMessage(diagnostics, {
       colouredStrokeCount: pipeExtract.colouredStrokeCount,
@@ -968,6 +1038,7 @@ export async function POST(
     if (intentBrief) {
       message = `${intentBrief} ${message}`;
     }
+    setBlakeLastScanSummary(takeoffKey, message);
 
     try {
       appendAuditEvent({
@@ -976,8 +1047,8 @@ export async function POST(
         recordType: "takeoff_project",
         recordId: id,
         summary: useful
-          ? `Ask Blake · ${pinCount} pin(s) · ${pipeRunCount} pipe run(s)${visionUsed ? " · vision" : ""}`
-          : `Ask Blake · no auto quantities${visionUsed ? " · vision tried" : ""}`,
+          ? `Find CAD plumbing · ${pinCount} pin(s) · ${pipeRunCount} pipe run(s)${visionUsed ? " · vision" : ""} · ${lookingFor}`
+          : `Find CAD plumbing · no auto quantities · ${lookingFor}`,
         source: "takeoff add-on",
         importance: useful ? "high" : "normal",
       });
@@ -1011,11 +1082,12 @@ export async function POST(
             }.`
           : drawings.length <= 1
             ? "Blake ran on this drawing file."
-            : `Blake scanned ${Math.min(scannedDrawings.length || diagnostics.docsRead || 1, 2)} of ${drawings.length} drawing file(s) this pass (max 2 to keep live stable). BOQ totals still combine every sheet already measured — switch sheet and Ask Blake again for the rest.`,
+            : `Blake scanned ${Math.min(scannedDrawings.length || diagnostics.docsRead || 1, 2)} of ${drawings.length} drawing file(s) this pass (max 2 — not a ChatGPT dump of the whole set). Switch sheet and find CAD plumbing again for the rest.`,
     };
     if (coverage.note && !message.includes("Blake scanned") && !message.includes("Blake ran on this")) {
       message = `${message} ${coverage.note}`;
     }
+    setBlakeLastScanSummary(takeoffKey, message);
 
     return NextResponse.json({
       ok: true,

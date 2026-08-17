@@ -5,6 +5,7 @@
 
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
 import type { TakeoffConfidence, TakeoffMeasureMethod } from "@/lib/takeoff-skill";
+import { isElectricalFixtureClass } from "@/lib/blake-trade-scope";
 
 export type BlakePageImage = {
   documentId: string;
@@ -181,6 +182,7 @@ async function callVisionModel(
   preferredModel: string,
   images: BlakePageImage[],
   textHints: BlakeTextHint[],
+  brief?: { lookingFor?: string; includeElectrical?: boolean; allowedCodes?: string[] },
 ): Promise<{ text: string; model: string } | null> {
   const models = [preferredModel, ...VISION_MODELS].filter(
     (model, index, list) => Boolean(model) && list.indexOf(model) === index,
@@ -192,7 +194,16 @@ async function callVisionModel(
     return `- "${hint.text}" page ${hint.pageNumber} ≈ (${xPct.toFixed(2)}, ${yTopPct.toFixed(2)})`;
   });
 
-  const prompt = `You are Blake, a UK MEP takeoff assistant looking at a construction drawing screenshot.
+  const fixtureList = (brief?.allowedCodes || []).length
+    ? brief!.allowedCodes!.join(", ")
+    : "P-WC, P-WHB, P-BATH, P-SHR, P-SINK, P-APPL, P-SVP, H-RAD, H-BOILER";
+  const lookingFor = brief?.lookingFor || "hot/cold pipes, sanitary, heating";
+  const electricalRule = brief?.includeElectrical
+    ? "- Electrical lighting / sockets are in scope only because the office asked."
+    : "- Do NOT report light fittings, pendants, light switches, sockets, luminaires, GPO/SSO, or any electrical fixture. This is a plumbing / heating takeoff.";
+
+  const prompt = `You are Blake, a UK plumbing/heating takeoff assistant looking at a construction drawing screenshot.
+You are looking for: ${lookingFor}.
 Return JSON only:
 {
   "summary": string,
@@ -202,7 +213,9 @@ Return JSON only:
 Rules:
 - One fixture object PER instance (do not use count>1). Repeat the object for each WC/basin/etc.
 - Fixture xPct/yPct are REQUIRED (0=left/top, 1=right/bottom) at the symbol or label centre.
-- Prefer fixtures you can see labels/symbols for (WC, WHB, bath, shower, rad, sink, boiler).
+- Allowed fixture codes: ${fixtureList}.
+- Prefer fixtures you can see labels/symbols for from that allowed list only.
+${electricalRule}
 - For coloured pipe runs: return polylines with pointsPct (≥2 points) along the visible run.
 - Role from colour: red/magenta ≈ hot, blue ≈ cold, brown/orange ≈ waste. Skip grey grid lines.
 - approxMetres only if scale is obvious; otherwise omit.
@@ -376,7 +389,12 @@ function expandFixtureInstances(fixture: VisionFixture): VisionFixture[] {
 /** Run vision on page screenshots; returns measured rows for Studio review/BOQ. */
 export async function measureTakeoffPagesWithVision(
   images: BlakePageImage[],
-  options: { textHints?: BlakeTextHint[] } = {},
+  options: {
+    textHints?: BlakeTextHint[];
+    lookingFor?: string;
+    includeElectrical?: boolean;
+    allowedFixtureCodes?: string[];
+  } = {},
 ): Promise<{
   measured: BlakeVisionMeasuredRow[];
   pipeRuns: BlakeVisionPipeRun[];
@@ -398,7 +416,11 @@ export async function measureTakeoffPagesWithVision(
   if (!usable.length) return empty;
 
   const textHints = Array.isArray(options.textHints) ? options.textHints : [];
-  const result = await callVisionModel(config.apiKey, config.model, usable, textHints);
+  const result = await callVisionModel(config.apiKey, config.model, usable, textHints, {
+    lookingFor: options.lookingFor,
+    includeElectrical: options.includeElectrical,
+    allowedCodes: options.allowedFixtureCodes,
+  });
   if (!result) return { ...empty, model: null };
 
   const parsed = parseVisionJson(result.text);
@@ -413,6 +435,7 @@ export async function measureTakeoffPagesWithVision(
 
   for (const fixture of instances) {
     const mapped = normaliseCode(String(fixture.code || ""), String(fixture.description || ""));
+    if (!options.includeElectrical && isElectricalFixtureClass(mapped.code, mapped.description)) continue;
     const pageNumber = Math.max(1, Number(fixture.pageNumber) || pageMeta.pageNumber || 1);
     const image = usable.find((row) => row.pageNumber === pageNumber) || usable.find((row) => row.documentId === pageMeta.documentId) || pageMeta;
     const width = image.width || 1000;

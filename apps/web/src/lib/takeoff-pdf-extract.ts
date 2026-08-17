@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { allowedFixtureCodesForScan, type BlakeTradeScope } from "@/lib/blake-trade-scope";
 import { friendlyPdfEngineError } from "@/lib/pdf-engine-errors";
 import { loadPdfJsServer } from "@/lib/pdfjs-server";
 
@@ -191,7 +192,7 @@ export type CommonFixtureTagGroup = {
   patterns: RegExp[];
 };
 
-/** Broad count-tags Blake can still place when trade plan finds nothing. */
+/** Broad count-tags Blake can still place when trade plan finds nothing. Electrical only if asked. */
 export const COMMON_FIXTURE_TAG_GROUPS: CommonFixtureTagGroup[] = [
   { code: "P-WC", description: "WC", patterns: [/\bWC[-\s.]?\d*\b/i, /\bW\.C\.?\b/i, /\btoilet\b/i] },
   { code: "P-WHB", description: "Wash hand basin", patterns: [/\bWHB[-\s]?\d*\b/i, /\bWB[-\s]?\d+\b/i, /\bLAV[-\s]?\d*\b/i, /\bbasin\b/i] },
@@ -206,8 +207,25 @@ export const COMMON_FIXTURE_TAG_GROUPS: CommonFixtureTagGroup[] = [
   { code: "C-MH", description: "Manhole", patterns: [/\bMH[-\s]?\d+\b/i, /\bmanhole\b/i] },
 ];
 
-export function discoverCommonFixtureTags(pages: ExtractedPdfPage[]) {
+export function discoverCommonFixtureTags(
+  pages: ExtractedPdfPage[],
+  options: { layerId?: string | null; scope?: BlakeTradeScope | null; includeElectrical?: boolean } = {},
+) {
+  const includeElectrical = options.includeElectrical ?? options.scope?.includeElectrical ?? false;
+  const allowed = allowedFixtureCodesForScan(options.layerId, {
+    includeElectrical,
+    excludeVentilation: options.scope?.excludeVentilation ?? false,
+    tradeOnly: options.scope?.tradeOnly ?? null,
+    notes: options.scope?.notes ?? [],
+  });
   return COMMON_FIXTURE_TAG_GROUPS
+    .filter((group) => {
+      if (group.code.startsWith("E-") && !includeElectrical) return false;
+      if (allowed.size && !allowed.has(group.code.toUpperCase()) && !group.code.startsWith("C-")) {
+        return includeElectrical && group.code.startsWith("E-");
+      }
+      return !group.code.startsWith("E-") || includeElectrical;
+    })
     .map((group) => {
       const counted = countTextTagMatches(pages, group.patterns);
       return {

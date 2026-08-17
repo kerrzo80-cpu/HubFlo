@@ -44,6 +44,7 @@ type Props = {
   onApply: (measured: StudioAiReviewMeasuredQuantity[]) => Promise<void>;
   onFindTags?: () => Promise<void>;
   onReject?: () => Promise<void>;
+  onRejectClass?: (code: string, description: string) => void;
   onClose?: () => void;
 };
 
@@ -60,6 +61,7 @@ export default function TakeoffOverlayReview({
   onApply,
   onFindTags,
   onReject,
+  onRejectClass,
   onClose,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -274,6 +276,7 @@ export default function TakeoffOverlayReview({
     if (tool === "delete") {
       if (!hit) return;
       setPins((prev) => prev.map((pin) => (pin.id === hit.id ? { ...pin, excluded: true } : pin)));
+      onRejectClass?.(hit.code, hit.description);
       setSelectedPinId(null);
       return;
     }
@@ -494,12 +497,12 @@ export default function TakeoffOverlayReview({
           ) : null}
           {onReject ? (
             <button className="takeoff-skill-secondary danger" type="button" disabled={Boolean(busy)} onClick={() => void onReject()}>
-              Reject AI counts
+              Reject these pins
             </button>
           ) : null}
           <button className="takeoff-skill-primary" type="button" disabled={Boolean(busy)} onClick={() => void applyEdits()}>
             {busy ? <Loader2 className="spin" size={16} /> : <Check size={16} />}
-            {isAiReview ? "Confirm AI counts" : "Save & derive fittings"}
+            {isAiReview ? "Confirm pins (guide counts, not a firm price)" : "Save & derive fittings"}
           </button>
         </div>
 

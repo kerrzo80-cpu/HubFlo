@@ -20,8 +20,9 @@ function readScreenContext(input: unknown): BlakeScreenContext | undefined {
   const view = typeof raw.view === "string" ? raw.view.slice(0, 80) : undefined;
   const tenderId = typeof raw.tenderId === "string" ? raw.tenderId.slice(0, 120) : undefined;
   const jobId = typeof raw.jobId === "string" ? raw.jobId.slice(0, 120) : undefined;
-  if (!view && !tenderId && !jobId) return undefined;
-  return { view, tenderId, jobId };
+  const takeoffId = typeof raw.takeoffId === "string" ? raw.takeoffId.slice(0, 120) : undefined;
+  if (!view && !tenderId && !jobId && !takeoffId) return undefined;
+  return { view, tenderId, jobId, takeoffId };
 }
 
 type AssistantRequest = {
@@ -96,4 +97,25 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function GET(request: Request) {
+  const access = getAccessProfileFromHeaders(request.headers);
+  const canChat = access.showSchedule || access.showQuotes || access.showJobs || access.canCustomize || access.showFinance;
+  if (!canChat) {
+    return NextResponse.json({ error: "Your role cannot use Blake." }, { status: 403 });
+  }
+  const url = new URL(request.url);
+  const { loadBlakeMemoryForScreen } = await import("@/lib/blake-record-memory");
+  const memory = loadBlakeMemoryForScreen({
+    tenderId: url.searchParams.get("tenderId"),
+    jobId: url.searchParams.get("jobId"),
+    takeoffId: url.searchParams.get("takeoffId"),
+  });
+  return NextResponse.json({
+    messages: memory.messages,
+    scope: memory.scope,
+    lastScanSummary: memory.lastScanSummary || null,
+    rejectedCodes: memory.rejectedCodes,
+  });
 }

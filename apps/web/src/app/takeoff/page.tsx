@@ -92,6 +92,7 @@ import {
   type StudioBoqRow,
 } from "@/lib/takeoff-studio-pipe";
 import { recordTakeoffLearningClient } from "@/lib/takeoff-learning-client";
+import { lookingForLabel, scanBriefForLayer } from "@/lib/blake-trade-scope";
 import {
   applyTakeoffRatesToMaterials,
   priceAndExpandTakeoffMaterials,
@@ -189,6 +190,10 @@ export default function TakeoffStudioPage() {
   const [blakeAskWaste, setBlakeAskWaste] = useState(false);
   const [blakeAskHeating, setBlakeAskHeating] = useState(false);
   const [blakeAskFixtures, setBlakeAskFixtures] = useState(true);
+  const [blakeAskNote, setBlakeAskNote] = useState("");
+  const [blakeChatDraft, setBlakeChatDraft] = useState("");
+  const [blakeChatBusy, setBlakeChatBusy] = useState(false);
+  const [blakeChatMessages, setBlakeChatMessages] = useState<Array<{ role: "assistant" | "user"; text: string }>>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [boqOpen, setBoqOpen] = useState(false);
@@ -450,6 +455,25 @@ export default function TakeoffStudioPage() {
       draw: true,
       more: !selectedId,
     }));
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setBlakeChatMessages([]);
+      return;
+    }
+    void apiFetch(
+      `/api/nexa-assistant?takeoffId=${encodeURIComponent(selectedId)}`,
+      { skipAuthRedirect: true },
+    )
+      .then((response) => response.json().catch(() => null))
+      .then((payload: { messages?: Array<{ role: "assistant" | "user"; text: string }> } | null) => {
+        if (!payload?.messages?.length) return;
+        setBlakeChatMessages(payload.messages.map((item) => ({ role: item.role, text: item.text })));
+      })
+      .catch(() => {
+        // Chat hydrate is optional.
+      });
   }, [selectedId]);
 
   useEffect(() => {
@@ -986,9 +1010,14 @@ export default function TakeoffStudioPage() {
       return;
     }
     if (!activeDoc && !drawingDocs[0]) {
-      setError("Upload a PDF drawing first, then tap Ask Blake.");
+      setError("Upload a PDF drawing first, then find CAD plumbing on this sheet.");
       return;
     }
+    const brief = scanBriefForLayer(activeLayerId);
+    setBlakeAskHotCold(brief.targets.includes("hot-cold"));
+    setBlakeAskWaste(brief.targets.includes("waste"));
+    setBlakeAskHeating(brief.targets.includes("heating"));
+    setBlakeAskFixtures(brief.targets.includes("fixtures"));
     setError(null);
     setBlakeAskOpen(true);
   }
@@ -999,16 +1028,20 @@ export default function TakeoffStudioPage() {
       setError("Pick at least one thing for Blake to look for.");
       return;
     }
+    const instruction = (blakeChatDraft || blakeAskNote).trim();
+    if (instruction) setBlakeAskNote(instruction);
     setBlakeAskOpen(false);
     void runAiAssist({
       drawingScope: blakeAskScope,
       targets,
+      instruction,
     });
   }
 
   async function runAiAssist(intent?: {
     drawingScope: "current" | "project";
     targets: Array<"hot-cold" | "waste" | "heating" | "fixtures">;
+    instruction?: string;
   }) {
     const doc = activeDoc || drawingDocs[0] || null;
     if (!selected) {
@@ -1016,12 +1049,13 @@ export default function TakeoffStudioPage() {
       return;
     }
     if (!doc) {
-      setError("Upload a PDF drawing first, then tap Ask Blake.");
+      setError("Upload a PDF drawing first, then find CAD plumbing on this sheet.");
       return;
     }
+    const defaultTargets = scanBriefForLayer(activeLayerId).targets;
     const brief = intent || {
       drawingScope: "current" as const,
-      targets: ["hot-cold", "fixtures"] as Array<"hot-cold" | "waste" | "heating" | "fixtures">,
+      targets: (defaultTargets.length ? defaultTargets : ["hot-cold", "fixtures"]) as Array<"hot-cold" | "waste" | "heating" | "fixtures">,
     };
     const wantHotCold = brief.targets.includes("hot-cold");
     const wantWaste = brief.targets.includes("waste");
@@ -1031,19 +1065,13 @@ export default function TakeoffStudioPage() {
       ...(wantHotCold || wantHeating ? (["hot", "cold"] as const) : []),
       ...(wantWaste ? (["waste"] as const) : []),
     ]);
-    const lookingFor = [
-      brief.drawingScope === "current" ? "this drawing only" : "up to 2 drawings this pass",
-      wantHotCold ? "hot & cold" : null,
-      wantWaste ? "waste / soil" : null,
-      wantHeating ? "heating colours + plant focus" : null,
-      wantFixtures ? "fixture tags" : null,
-    ].filter(Boolean).join(" · ");
+    const lookingFor = lookingForLabel(brief.targets, activeLayerId);
 
     setBusy("ai");
     setError(null);
     setNotice(null);
     const steps = [
-      `Blake brief: ${lookingFor}`,
+      `Blake is looking for: ${lookingFor}`,
       "Reading the open PDF…",
       wantHotCold || wantWaste || wantHeating
         ? "Tracing coloured CAD pipe lines you asked for…"
@@ -1176,6 +1204,9 @@ export default function TakeoffStudioPage() {
             drawingScope: brief.drawingScope,
             focusDocumentId: doc.id,
             targets: brief.targets,
+            layerId: activeLayerId,
+            instruction: intent?.instruction || blakeAskNote.trim() || undefined,
+            includeElectrical: /electrical|lighting|socket|switch/.test(blakeAskNote.toLowerCase()) && /include|look for|price the electrical/.test(blakeAskNote.toLowerCase()),
           },
         }),
       });
@@ -1449,16 +1480,65 @@ export default function TakeoffStudioPage() {
         type: "ai_reject",
         projectId: selected.id,
         codes: aiReviewRows.map((row) => row.code).filter(Boolean),
+        rejectedCodes: aiReviewRows.map((row) => row.code).filter(Boolean),
         trade: "plumbing",
         actor: authName || "Office",
       });
       setReviewOpen(false);
-      show(`Fixture pins rejected — Blake pipe runs stay on the sheet/BOQ · ${authName || "Office"}.`);
+      setBlakeAskOpen(true);
+      setBlakeChatMessages((current) => [
+        ...current,
+        {
+          role: "assistant",
+          text: "Those pins will not come back. Tell me why if you want — e.g. “That was a light switch — I’m a plumber. Only pipework and sanitary.” That changes the next scan.",
+        },
+      ]);
+      show(`Pins rejected and remembered — they will not be re-proposed. Talk to Blake below · ${authName || "Office"}.`);
       void refreshTakeoffAudit(selected.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not reject AI counts.");
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function sendBlakeTakeoffChat() {
+    const text = blakeChatDraft.trim() || blakeAskNote.trim();
+    if (!selected || !text || blakeChatBusy) return;
+    setBlakeChatBusy(true);
+    setBlakeChatDraft("");
+    setBlakeAskNote("");
+    setBlakeChatMessages((current) => [...current, { role: "user", text }]);
+    try {
+      const response = await apiFetch("/api/nexa-assistant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          history: blakeChatMessages.concat({ role: "user", text }).map((item) => ({ role: item.role, text: item.text })),
+          screenContext: {
+            view: "takeoff",
+            takeoffId: selected.id,
+            tenderId: selected.sourceTenderId || undefined,
+            jobId: selected.linkedJobId || undefined,
+          },
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        reply?: string;
+        error?: string;
+      };
+      setBlakeChatMessages((current) => [
+        ...current,
+        { role: "assistant", text: payload.reply || payload.error || "Blake could not reply." },
+      ]);
+    } catch {
+      setBlakeChatMessages((current) => [
+        ...current,
+        { role: "assistant", text: "Could not reach Blake just now. Nothing was changed." },
+      ]);
+    } finally {
+      setBlakeChatBusy(false);
     }
   }
 
@@ -1981,7 +2061,7 @@ export default function TakeoffStudioPage() {
           {authName ? <span className="pill muted-pill">{authName}</span> : null}
           <button type="button" className="nexa-studio-ai" disabled={busy === "ai" || !selected} onClick={() => openBlakeAsk()}>
             {busy === "ai" ? <Loader2 className="spin" size={16} /> : <BuddyCharacter mood="idle" size="sm" interactive={false} />}
-            Ask Blake
+            {scanBriefForLayer(activeLayerId).title.replace(/ on this sheet$/i, "")}
           </button>
           <input ref={fileRef} type="file" accept="application/pdf,.pdf" multiple hidden onChange={(e) => void uploadDrawings(e)} />
         </div>
@@ -1991,9 +2071,9 @@ export default function TakeoffStudioPage() {
         <div className="nexa-studio-blake-overlay" role="dialog" aria-modal="true" aria-labelledby="blake-ask-title">
           <div className="nexa-studio-blake-card nexa-studio-blake-ask">
             <BuddyCharacter mood="guide" size="md" interactive={false} />
-            <strong id="blake-ask-title">What should Blake look for?</strong>
+            <strong id="blake-ask-title">{scanBriefForLayer(activeLayerId).title}</strong>
             <p>
-              Tell him the drawing and the services — he’ll only scan what you tick, then report what he found.
+              Blake is looking for: {lookingForLabel(blakeAskTargets(), activeLayerId)}. Not a mystery scan. Talk first if you want — then scan this sheet.
             </p>
 
             <fieldset className="nexa-studio-blake-ask-group">
@@ -2019,7 +2099,7 @@ export default function TakeoffStudioPage() {
                 />
                 <span>
                   <strong>This sheet + one more</strong>
-                  <em>Max 2 PDFs this pass (keeps live stable)</em>
+                  <em>Max 2 PDFs this pass — not a ChatGPT dump of the whole pack</em>
                 </span>
               </label>
             </fieldset>
@@ -2066,22 +2146,50 @@ export default function TakeoffStudioPage() {
                   onChange={(e) => setBlakeAskFixtures(e.target.checked)}
                 />
                 <span>
-                  <strong>Fixtures / tags</strong>
-                  <em>Text tags &amp; symbols → count pins to confirm</em>
+                  <strong>Sanitary / plant tags</strong>
+                  <em>WCs, basins, radiators on this layer — not light switches or pendants</em>
                 </span>
               </label>
             </fieldset>
 
             <p className="nexa-studio-blake-ask-note">
-              Blake reads coloured CAD strokes and text on the PDF — not your hand Length marks. Use Edit to trim before Push.
+              Blake reads coloured CAD strokes and text on the open PDF — not a ChatGPT dump of six files. Guide quantities only, not a firm tender. Type e.g. “ignore electrical”, “we don’t do ventilation”, “price the plumbing bill only”.
             </p>
 
+            {blakeChatMessages.length ? (
+              <div className="nexa-studio-blake-chat">
+                {blakeChatMessages.slice(-8).map((item, index) => (
+                  <p key={`${item.role}-${index}`} className={item.role === "user" ? "you" : "blake"}>
+                    <strong>{item.role === "user" ? "You" : "Blake"}</strong>
+                    {item.text}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+
+            <label className="nexa-studio-blake-chat-compose">
+              Talk to Blake
+              <textarea
+                value={blakeChatDraft}
+                onChange={(event) => setBlakeChatDraft(event.target.value)}
+                placeholder="ignore electrical — I’m a plumber. Only pipework and sanitary."
+                rows={3}
+              />
+            </label>
             <div className="nexa-studio-blake-ask-actions">
               <button type="button" className="ghost" onClick={() => setBlakeAskOpen(false)}>
-                Cancel
+                Close
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                disabled={blakeChatBusy || !(blakeChatDraft.trim() || blakeAskNote.trim())}
+                onClick={() => void sendBlakeTakeoffChat()}
+              >
+                {blakeChatBusy ? "Sending…" : "Send"}
               </button>
               <button type="button" className="go" onClick={() => confirmBlakeAsk()}>
-                Go Blake
+                Scan this sheet
               </button>
             </div>
           </div>
@@ -2979,6 +3087,16 @@ export default function TakeoffStudioPage() {
                 reviewStatus={studio.aiReviewStatus}
                 onApply={confirmAiReview}
                 onReject={studio.aiReviewStatus === "rejected" ? undefined : rejectAiReview}
+                onRejectClass={(code, description) => {
+                  recordTakeoffLearningClient({
+                    type: "ai_reject",
+                    projectId: selected.id,
+                    codes: [code],
+                    rejectedCodes: [code, description].filter(Boolean),
+                    trade: "plumbing",
+                    actor: authName || "Office",
+                  });
+                }}
                 onClose={() => setReviewOpen(false)}
               />
             </div>

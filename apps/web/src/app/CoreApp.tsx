@@ -8595,7 +8595,7 @@ export default function CoreApp() {
     {
       id: "buddy-welcome",
       role: "assistant",
-      text: "Hi — I'm Blake. Open a tender or job and I’ll talk through the live BoQ. You can also ask what’s missing on a quote, or say “report a problem”.",
+      text: "Hi — I'm Blake. This is a back-and-forth on the live record, not a ChatGPT dump. Open a tender, job or takeoff, talk through the files, then ask me to price. Guide rates only after you confirm.",
     },
   ]);
   const nexaAssistantMessagesRef = useRef<HTMLDivElement | null>(null);
@@ -9408,6 +9408,32 @@ export default function CoreApp() {
     if (!node) return;
     node.scrollTop = node.scrollHeight;
   }, [nexaAssistantMessages, nexaAssistantBusy, nexaAssistantOpen]);
+
+  useEffect(() => {
+    if (!blakeOpenTender?.id && !((homeView === "job-record" || homeView === "cost-centre-record") && selectedJob?.id)) {
+      return;
+    }
+    const params = new URLSearchParams();
+    if (blakeOpenTender?.id) params.set("tenderId", blakeOpenTender.id);
+    if ((homeView === "job-record" || homeView === "cost-centre-record") && selectedJob?.id) {
+      params.set("jobId", selectedJob.id);
+    }
+    void fetch(`/api/nexa-assistant?${params.toString()}`, { headers: requestHeaders, credentials: "include" })
+      .then((response) => response.json().catch(() => null))
+      .then((payload: { messages?: Array<{ role: "assistant" | "user"; text: string }> } | null) => {
+        if (!payload?.messages?.length) return;
+        setNexaAssistantMessages(
+          payload.messages.map((item, index) => ({
+            id: `stored-${index}-${item.role}`,
+            role: item.role,
+            text: item.text,
+          })),
+        );
+      })
+      .catch(() => {
+        // Stored chat is optional.
+      });
+  }, [blakeOpenTender?.id, homeView, selectedJob?.id]);
 
   useEffect(() => {
     setBuddyMemory(loadBuddyMemory());
@@ -34018,9 +34044,9 @@ export default function CoreApp() {
                 aria-label="Chat with Blake"
                 placeholder={
                   blakeOpenTender
-                    ? `Ask Blake about ${blakeOpenTender.name}…`
+                    ? `Talk about ${blakeOpenTender.name} — e.g. ignore electrical, price the plumbing bill only`
                     : (homeView === "job-record" || homeView === "cost-centre-record") && selectedJob
-                      ? `Ask Blake about ${selectedJob.ref}…`
+                      ? `Talk about ${selectedJob.ref} — files, BoQ, then a guide price`
                       : "Ask Blake… or report a problem / suggest an improvement"
                 }
                 value={nexaAssistantDraft}
