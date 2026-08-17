@@ -68,11 +68,22 @@ const defaults: PrebuildStore = {
   ],
 };
 
+function normalizeKit(kit: PrebuildKit): PrebuildKit {
+  return {
+    ...kit,
+    id: kit.id || uid("kit"),
+    name: String(kit.name || "Kit").trim() || "Kit",
+    category: String(kit.category || "General").trim() || "General",
+    lines: Array.isArray(kit.lines)
+      ? kit.lines.filter((line) => line && String(line.description || "").trim())
+      : [],
+  };
+}
+
 function readStore(): PrebuildStore {
   const stored = loadServerStore<PrebuildStore>(STORE, defaults);
-  return {
-    kits: stored.kits?.length ? stored.kits : defaults.kits,
-  };
+  const kits = (stored.kits?.length ? stored.kits : defaults.kits).map(normalizeKit);
+  return { kits };
 }
 
 function writeStore(store: PrebuildStore) {
@@ -99,16 +110,21 @@ export function upsertPrebuild(input: {
   const name = input.name.trim();
   if (!name) throw new Error("Kit name is required.");
   const lines: PrebuildLine[] = (input.lines || [])
-    .filter((line) => line.description.trim())
-    .map((line) => ({
-      id: line.id || uid("pbl"),
-      kind: line.kind,
-      description: line.description.trim(),
-      quantity: Math.max(0, Number(line.quantity) || 1),
-      unitCost: Math.max(0, Number(line.unitCost) || 0),
-      unitSell: line.unitSell !== undefined ? Math.max(0, Number(line.unitSell) || 0) : undefined,
-      unit: line.unit?.trim() || (line.kind === "Labour" ? "hrs" : "each"),
-    }));
+    .filter((line) => line?.description?.trim())
+    .map((line) => {
+      const rawQty = Number(line.quantity);
+      const quantity = Number.isFinite(rawQty) ? Math.max(0, rawQty) : line.kind === "Labour" ? 1 : 1;
+      return {
+        id: line.id || uid("pbl"),
+        kind: line.kind,
+        description: line.description.trim(),
+        quantity,
+        unitCost: Math.max(0, Number(line.unitCost) || 0),
+        unitSell: line.unitSell !== undefined ? Math.max(0, Number(line.unitSell) || 0) : undefined,
+        unit: line.unit?.trim() || (line.kind === "Labour" ? "hrs" : "each"),
+      };
+    })
+    .filter((line) => line.kind === "Labour" || line.quantity > 0);
   if (input.id) {
     const index = store.kits.findIndex((kit) => kit.id === input.id);
     if (index < 0) throw new Error("Kit not found.");
@@ -201,6 +217,8 @@ export function importKitsFromXlsx(
     updated,
     imported: incoming.length,
     skippedRows: parsed.skippedRows,
+    skippedOptional: parsed.skippedOptional,
+    rowErrors: parsed.rowErrors,
     sheetName: parsed.sheetName,
     mode,
   };

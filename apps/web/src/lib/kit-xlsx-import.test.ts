@@ -5,6 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { parseKitsFromXlsxBuffer, parseKitsFromXlsxRows } from "./kit-xlsx-import";
+import { explodeKitOntoJob } from "./kit-apply";
 
 test("parseKitsFromXlsxRows groups kit headers and labour lines", () => {
   const rows = [
@@ -59,4 +60,70 @@ test("office Pre builds template imports as bathroom kits", () => {
     parsed.kits.filter((kit) => /check depth|make sure valve/i.test(kit.name)).length,
     0,
   );
+});
+
+const BATH_KIT_ROWS: string[][] = [
+  ["Bath"],
+  ["1700x700mm bath", "1"],
+  ["1700mm bath panel", "1"],
+  ["700mm bath panel", "1"],
+  ["Bath filler", "1"],
+  ["Bath waste and overflow", "1"],
+  ["100x20mm timber 2.4m", "2"],
+  ['3/4" x 22mm flexi tap conector', "2"],
+  ["22mm copper pipe length", "1"],
+  ["22mm press elbow", "6"],
+  ["TMV?"],
+  ["40mm waste pipe length", "1"],
+  ["40mm bath trap", "1"],
+  ["40mm 90 degree bends", "2"],
+  ["40mm 45 degree bends", "2"],
+  ["40mm couplings", "1"],
+  ["Labour", "4"],
+];
+
+test("two-column Bath kit keeps components plus labour and skips blank TMV", () => {
+  const parsed = parseKitsFromXlsxRows(BATH_KIT_ROWS, "Bath");
+  assert.equal(parsed.kits.length, 1);
+  assert.equal(parsed.kits[0]?.name, "Bath");
+  const materials = parsed.kits[0]?.lines.filter((line) => line.kind === "Material") || [];
+  const labour = parsed.kits[0]?.lines.filter((line) => line.kind === "Labour") || [];
+  assert.equal(materials.length, 14);
+  assert.equal(labour.length, 1);
+  assert.equal(labour[0]?.quantity, 4);
+  assert.equal(
+    parsed.kits[0]?.lines.some((line) => /tmv/i.test(line.description)),
+    false,
+  );
+  assert.ok(parsed.skippedOptional >= 1);
+  assert.ok(parsed.rowErrors.some((row) => /tmv/i.test(row.message)));
+});
+
+test("blank TMV row does not crash or become its own kit", () => {
+  const parsed = parseKitsFromXlsxRows([
+    ["Bath", "1700x700mm bath", "", "1"],
+    ["", "TMV?", "", ""],
+    ["", "Labour", "", "4"],
+  ]);
+  assert.equal(parsed.kits.length, 1);
+  assert.equal(parsed.kits[0]?.lines.filter((line) => line.kind === "Material").length, 1);
+  assert.equal(parsed.kits[0]?.lines.at(-1)?.kind, "Labour");
+  assert.equal(parsed.kits[0]?.lines.at(-1)?.quantity, 4);
+});
+
+test("upload Bath spreadsheet then apply to a cost centre explodes materials plus 4h labour", () => {
+  const parsed = parseKitsFromXlsxRows(BATH_KIT_ROWS, "Bath");
+  const kit = parsed.kits[0];
+  assert.ok(kit);
+  const exploded = explodeKitOntoJob(
+    { id: "kit-bath", name: kit.name, lines: kit.lines },
+    [
+      { id: "labour-engineer", type: "Labour", name: "Engineer labour", costRate: 40, sellRate: 52 },
+      { id: "material-bath-1700", type: "Material", name: "1700x700mm bath", costRate: 220, sellRate: 286 },
+    ],
+    { now: 1 },
+  );
+  assert.equal(exploded.materials.length, 14);
+  assert.equal(exploded.labour.reduce((sum, line) => sum + line.hours, 0), 4);
+  assert.equal(exploded.materials.some((line) => /^bath$/i.test(line.description)), false);
 });

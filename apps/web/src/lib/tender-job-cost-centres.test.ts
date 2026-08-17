@@ -175,6 +175,57 @@ test("healJobCostCentresShape strips material dumps to empty arrays", () => {
   assert.match(healed.centres[0]?.engineerDescription || "", /4500|450 lines|stripped/i);
 });
 
+test("healJobCostCentresShape keeps exploded kit / catalogue lines on a tender-described centre", () => {
+  const healed = healJobCostCentresShape("job-kit", [
+    {
+      id: "cc-bath",
+      name: "Bathrooms",
+      sectionId: "sec-1",
+      templateName: "Tender BoQ",
+      clientDescription: "Bathrooms",
+      engineerDescription: "From tender BoQ · lean package",
+      materials: [
+        {
+          id: "kit-1",
+          catalogItemId: "one-off-material",
+          description: "1700x700mm bath",
+          quantity: 1,
+          unitCost: 0,
+          markupPercent: 30,
+        },
+        {
+          id: "kit-2",
+          catalogItemId: "material-panel-1700",
+          description: "1700mm bath panel",
+          quantity: 1,
+          unitCost: 45,
+          markupPercent: 30,
+        },
+        {
+          id: "dump",
+          catalogItemId: "tender-boq",
+          description: "BoQ dump",
+          quantity: 1,
+          unitCost: 10,
+          markupPercent: 0,
+        },
+      ],
+      labour: [
+        {
+          id: "lab-1",
+          role: "Labour",
+          hours: 4,
+          costRate: 40,
+          markupPercent: 30,
+        },
+      ],
+    },
+  ]);
+  assert.equal(healed.centres[0]?.materials.length, 2);
+  assert.equal(healed.centres[0]?.labour[0]?.hours, 4);
+  assert.ok(healed.centres[0]?.materials.every((line) => line.catalogItemId !== "tender-boq"));
+});
+
 test("buildJobStructureFromTenderBoq never emits BoQ line dumps", () => {
   const lines: TenderBoqLine[] = Array.from({ length: 60 }, (_, index) => ({
     id: `l-${index}`,

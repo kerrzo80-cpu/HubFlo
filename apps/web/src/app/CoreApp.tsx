@@ -104,6 +104,7 @@ import {
   commercialTermsSummary,
   resolveCommercialTerms,
 } from "@/lib/commercial-terms";
+import { explodeKitOntoJob, explodeKitOntoQuote, kitLinesOf } from "@/lib/kit-apply";
 import {
   applyRetentionWithCap,
   buildRetentionPortfolio,
@@ -7550,6 +7551,7 @@ const JOB_UI_LEAN_REBUILD_NOTICE = "Rebuilt lean centres (no line dump)";
 
 function isTenderBoqEstimateCentre(centre: EstimateCostCentre): boolean {
   const materials = Array.isArray(centre?.materials) ? centre.materials : [];
+  if (materials.some((line) => line?.catalogItemId && line.catalogItemId !== "tender-boq")) return false;
   if (materials.some((line) => line?.catalogItemId === "tender-boq")) return true;
   return /tender\s*boq|from tender|lean (package|sheet|centres)|collapsed .* lines|no line dump/i.test(
     `${centre?.engineerDescription || ""} ${centre?.templateName || ""}`,
@@ -7561,13 +7563,14 @@ function jobCentresLookFatForUi(centres: EstimateCostCentre[]): boolean {
   let approxChars = 0;
   for (const centre of centres) {
     const mats = Array.isArray(centre?.materials) ? centre.materials : [];
-    materials += mats.length;
+    const dumpCount = mats.filter((line) => line?.catalogItemId === "tender-boq").length;
+    materials += dumpCount;
     if (materials > 50) return true;
     approxChars += String(centre?.name || "").length + String(centre?.engineerDescription || "").length;
-    for (let i = 0; i < Math.min(mats.length, 8); i += 1) {
+    for (let i = 0; i < Math.min(dumpCount, 8); i += 1) {
       approxChars += String(mats[i]?.description || "").length + 48;
     }
-    if (mats.length > 8) approxChars += (mats.length - 8) * 64;
+    if (dumpCount > 8) approxChars += (dumpCount - 8) * 64;
     if (approxChars > 80_000) return true;
   }
   return materials > 50;
@@ -7582,16 +7585,18 @@ function stripJobCostCentresToEmptyMaterialsForUi(
   return centres.map((centre) => {
     const materials = Array.isArray(centre?.materials) ? centre.materials : [];
     const labour = Array.isArray(centre?.labour) ? centre.labour : [];
-    if (materials.length === 0) {
+    const kept = materials.filter((line) => line?.catalogItemId !== "tender-boq");
+    const dumps = materials.filter((line) => line?.catalogItemId === "tender-boq");
+    if (dumps.length === 0) {
       return {
         ...centre,
         clientDescription: centre?.clientDescription ?? "",
         engineerDescription: centre?.engineerDescription ?? "",
-        materials: [],
+        materials,
         labour,
       };
     }
-    const sell = materials.reduce(
+    const sell = dumps.reduce(
       (sum, line) =>
         sum + Number(line.quantity || 0) * Number(line.unitCost || 0) * (1 + Number(line.markupPercent || 0) / 100),
       0,
@@ -7599,11 +7604,14 @@ function stripJobCostCentresToEmptyMaterialsForUi(
     return {
       ...centre,
       clientDescription: centre?.clientDescription ?? "",
-      engineerDescription: `${centre.engineerDescription || "From tender BoQ"} · sheet total £${(Math.round(sell * 100) / 100).toFixed(2)} (${materials.length} lines stripped · no line dump)`.slice(
-        0,
-        480,
-      ),
-      materials: [],
+      engineerDescription:
+        kept.length > 0
+          ? centre?.engineerDescription ?? ""
+          : `${centre.engineerDescription || "From tender BoQ"} · sheet total £${(Math.round(sell * 100) / 100).toFixed(2)} (${dumps.length} lines stripped · no line dump)`.slice(
+              0,
+              480,
+            ),
+      materials: kept,
       labour,
     };
   });
@@ -7624,14 +7632,18 @@ function collapseOversizedJobCostCentresForUi(jobId: string, centres: EstimateCo
     materials: Array.isArray(centre?.materials) ? centre.materials : [],
     labour: Array.isArray(centre?.labour) ? centre.labour : [],
   }));
-  const total = safe.reduce((sum, centre) => sum + centre.materials.length, 0);
-  const jobOver = total > JOB_UI_MAX_MATERIALS_PER_JOB;
+  const dumpTotal = safe.reduce(
+    (sum, centre) => sum + centre.materials.filter((line) => line?.catalogItemId === "tender-boq").length,
+    0,
+  );
+  const jobOver = dumpTotal > JOB_UI_MAX_MATERIALS_PER_JOB;
 
   return safe.map((centre) => {
-    const tenderish = isTenderBoqEstimateCentre(centre);
-    const cap = tenderish ? 0 : JOB_UI_MAX_MATERIALS_PER_CENTRE;
-    const shouldStrip = centre.materials.length > cap || (jobOver && centre.materials.length > 0);
-    if (!shouldStrip) return centre;
+    const dumpCount = centre.materials.filter((line) => line?.catalogItemId === "tender-boq").length;
+    const tenderish = isTenderBoqEstimateCentre(centre) && dumpCount > 0;
+    const cap = JOB_UI_MAX_MATERIALS_PER_CENTRE;
+    const shouldStripDumps = dumpCount > cap || (jobOver && dumpCount > 0) || tenderish;
+    if (!shouldStripDumps) return centre;
     return stripJobCostCentresToEmptyMaterialsForUi(jobId, [centre])[0]!;
   });
 }
@@ -27079,7 +27091,13 @@ export default function CoreApp() {
       const response = await fetch("/api/prebuilds", { headers: requestHeaders });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Unable to load kits");
-      const kits = body.kits || [];
+      const kits = (Array.isArray(body.kits) ? body.kits : []).map((kit: { id?: string; name?: string; category?: string; notes?: string; lines?: unknown }, index: number) => ({
+        id: kit.id || `kit-${index + 1}`,
+        name: kit.name || "Kit",
+        category: kit.category || "General",
+        notes: kit.notes,
+        lines: Array.isArray(kit.lines) ? kit.lines : [],
+      }));
       setPrebuildKits(kits);
       if (!selectedPrebuildId && kits[0]?.id) setSelectedPrebuildId(kits[0].id);
       return kits as typeof prebuildKits;
@@ -27090,89 +27108,86 @@ export default function CoreApp() {
   }
 
   async function applySelectedPrebuildToJobCentre(centreId: string) {
-    const kits = await ensurePrebuildKitsLoaded();
-    const kit = kits.find((row) => row.id === selectedPrebuildId) || kits[0];
-    if (!kit) {
-      showNotice("Create a kit in Setup → Kits first.");
-      return;
+    try {
+      const kits = await ensurePrebuildKitsLoaded();
+      const kit = kits.find((row) => row.id === selectedPrebuildId) || kits[0];
+      if (!kit) {
+        showNotice("Create a kit in Setup → Kits first.");
+        return;
+      }
+      if (!kitLinesOf(kit).length) {
+        showNotice(`Kit “${kit.name}” has no component lines to apply.`);
+        return;
+      }
+      const exploded = explodeKitOntoJob(kit, availableQuoteCatalog, {
+        materialMarkupPercent: defaultMaterialMarkupPercent,
+        labourMarkupPercent: defaultMarkupForCatalogType("Labour", normalizedFinanceSettings),
+      });
+      if (!exploded.materials.length && !exploded.labour.length) {
+        showNotice(`Kit “${kit.name}” had no quantities to apply (optional blank rows were skipped).`);
+        return;
+      }
+      setJobCentresForSelected((centres) =>
+        centres.map((centre) => {
+          if (centre.id !== centreId) return centre;
+          const materials = Array.isArray(centre.materials) ? [...centre.materials] : [];
+          const labour = Array.isArray(centre.labour) ? [...centre.labour] : [];
+          materials.push(...exploded.materials);
+          labour.push(...exploded.labour);
+          return { ...centre, materials, labour };
+        }),
+      );
+      const labourHours = exploded.labour.reduce((sum, line) => sum + line.hours, 0);
+      showNotice(
+        `Applied kit “${kit.name}” as ${exploded.materials.length} material line(s)` +
+          (labourHours ? ` + ${labourHours} labour hour(s)` : "") +
+          (exploded.skipped ? ` · skipped ${exploded.skipped} optional row(s)` : "") +
+          ".",
+      );
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to apply kit to this cost centre.");
     }
-    const materialMarkup = defaultMaterialMarkupPercent;
-    const labourMarkup = defaultMarkupForCatalogType("Labour", normalizedFinanceSettings);
-    setJobCentresForSelected((centres) =>
-      centres.map((centre) => {
-        if (centre.id !== centreId) return centre;
-        const materials = [...centre.materials];
-        const labour = [...centre.labour];
-        kit.lines.forEach((line, index) => {
-          if (line.kind === "Labour") {
-            labour.push({
-              id: `labour-pb-${kit.id}-${Date.now()}-${index}`,
-              role: line.description,
-              hours: line.quantity,
-              costRate: line.unitCost,
-              markupPercent: line.unitSell && line.unitCost
-                ? Math.round(((line.unitSell / line.unitCost) - 1) * 100)
-                : labourMarkup,
-              rateSource: "manual",
-            });
-          } else {
-            materials.push({
-              id: `material-pb-${kit.id}-${Date.now()}-${index}`,
-              catalogItemId: `prebuild-${kit.id}`,
-              description: line.description,
-              quantity: line.quantity,
-              unitCost: line.unitCost,
-              markupPercent: line.unitSell && line.unitCost
-                ? Math.round(((line.unitSell / line.unitCost) - 1) * 100)
-                : materialMarkup,
-              rateSource: "manual",
-            });
-          }
-        });
-        return { ...centre, materials, labour };
-      }),
-    );
-    showNotice(`Applied kit “${kit.name}” (${kit.lines.length} lines).`);
   }
 
   async function applySelectedPrebuildToQuoteCentre(centreId: string) {
     if (!selectedQuote) return;
-    const kits = await ensurePrebuildKitsLoaded();
-    const kit = kits.find((row) => row.id === selectedPrebuildId) || kits[0];
-    if (!kit) {
-      showNotice("Create a kit in Setup → Kits first.");
-      return;
+    try {
+      const kits = await ensurePrebuildKitsLoaded();
+      const kit = kits.find((row) => row.id === selectedPrebuildId) || kits[0];
+      if (!kit) {
+        showNotice("Create a kit in Setup → Kits first.");
+        return;
+      }
+      if (!kitLinesOf(kit).length) {
+        showNotice(`Kit “${kit.name}” has no component lines to apply.`);
+        return;
+      }
+      const exploded = explodeKitOntoQuote(kit, availableQuoteCatalog, {
+        materialMarkupPercent: defaultMaterialMarkupPercent,
+        labourMarkupPercent: defaultMarkupForCatalogType("Labour", normalizedFinanceSettings),
+      });
+      if (!exploded.lines.length) {
+        showNotice(`Kit “${kit.name}” had no quantities to apply (optional blank rows were skipped).`);
+        return;
+      }
+      markCostCentreEdited();
+      setQuoteCostCentres((current) => ({
+        ...current,
+        [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((centre) => {
+          if (centre.id !== centreId) return centre;
+          const lines = Array.isArray(centre.lines) ? [...centre.lines] : [];
+          lines.push(...exploded.lines);
+          return { ...centre, lines };
+        }),
+      }));
+      showNotice(
+        `Applied kit “${kit.name}” to ${selectedQuote.ref} as ${exploded.lines.length} line(s)` +
+          (exploded.skipped ? ` · skipped ${exploded.skipped} optional row(s)` : "") +
+          ".",
+      );
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to apply kit to this cost centre.");
     }
-    const materialMarkup = defaultMaterialMarkupPercent;
-    const labourMarkup = defaultMarkupForCatalogType("Labour", normalizedFinanceSettings);
-    markCostCentreEdited();
-    setQuoteCostCentres((current) => ({
-      ...current,
-      [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((centre) => {
-        if (centre.id !== centreId) return centre;
-        const lines = [...centre.lines];
-        kit.lines.forEach((line, index) => {
-          const markup =
-            line.unitSell && line.unitCost
-              ? Math.round(((line.unitSell / line.unitCost) - 1) * 100)
-              : line.kind === "Labour"
-                ? labourMarkup
-                : materialMarkup;
-          const unitSell = line.unitSell ?? roundCurrencyValue(lineSellFromMarkup(line.unitCost, markup));
-          lines.push({
-            id: `quote-pb-${kit.id}-${Date.now()}-${index}`,
-            catalogItemId: line.kind === "Labour" ? "one-off-labour" : `prebuild-${kit.id}`,
-            description: `${line.description}${line.kind === "Labour" ? ` (${line.quantity} hrs)` : ""}`,
-            quantity: line.kind === "Labour" ? 1 : line.quantity,
-            unitCost: line.kind === "Labour" ? line.unitCost * line.quantity : line.unitCost,
-            unitSell: line.kind === "Labour" ? unitSell * line.quantity : unitSell,
-            rateSource: "manual",
-          });
-        });
-        return { ...centre, lines };
-      }),
-    }));
-    showNotice(`Applied kit “${kit.name}” to ${selectedQuote.ref}.`);
   }
 
   function addOneOffEstimateMaterialLine(centreId: string) {

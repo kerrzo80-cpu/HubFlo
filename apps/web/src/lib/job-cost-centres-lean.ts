@@ -45,6 +45,23 @@ function materialSell(line: {
   return roundMoney(qty * unit * (1 + markup / 100));
 }
 
+export function isBoqDumpCatalogItemId(catalogItemId?: string | null) {
+  return catalogItemId === "tender-boq";
+}
+
+export function isUserAuthoredMaterialLine(line: { catalogItemId?: string } | null | undefined) {
+  return Boolean(line) && !isBoqDumpCatalogItemId(line?.catalogItemId);
+}
+
+function dumpMaterialCount(materials: unknown): number {
+  if (!Array.isArray(materials)) return 0;
+  return materials.filter((row) => row && typeof row === "object" && isBoqDumpCatalogItemId((row as { catalogItemId?: string }).catalogItemId)).length;
+}
+
+function userAuthoredMaterials<T extends { catalogItemId?: string }>(materials: T[]): T[] {
+  return materials.filter((line) => isUserAuthoredMaterialLine(line));
+}
+
 /** True when this centre is (or was) a tender BoQ package dump. */
 export function isTenderBoqCostCentre(centre: {
   materials?: Array<{ catalogItemId?: string }> | null;
@@ -52,7 +69,9 @@ export function isTenderBoqCostCentre(centre: {
   templateName?: string | null;
 }): boolean {
   const materials = Array.isArray(centre.materials) ? centre.materials : [];
-  if (materials.some((line) => line?.catalogItemId === "tender-boq")) return true;
+  // Kit / catalogue / one-off lines must stay itemised — do not treat the centre as a lump.
+  if (materials.some((line) => isUserAuthoredMaterialLine(line))) return false;
+  if (materials.some((line) => isBoqDumpCatalogItemId(line?.catalogItemId))) return true;
   const note = `${centre.engineerDescription || ""} ${centre.templateName || ""}`;
   return /tender\s*boq|from tender|lean (package|sheet|centres)|collapsed .* lines|no line dump/i.test(note);
 }
@@ -115,7 +134,7 @@ export function jobCentresLookFat(centres: unknown): boolean {
     if (!raw || typeof raw !== "object") continue;
     const centre = raw as Record<string, unknown>;
     const mats = Array.isArray(centre.materials) ? centre.materials : [];
-    materials += mats.length;
+    materials += dumpMaterialCount(mats);
     if (materials > LEAN_FAT_MATERIALS_HEURISTIC) return true;
     approxChars += String(centre.name || "").length + String(centre.engineerDescription || "").length;
     for (let i = 0; i < Math.min(mats.length, 8); i += 1) {
@@ -155,6 +174,8 @@ export function stripCentresToEmptyMaterials(
     centre.clientDescription = String(centre.clientDescription ?? "");
     centre.engineerDescription = String(centre.engineerDescription ?? "");
 
+    const dumpLines = materialsRaw.filter((row) => isBoqDumpCatalogItemId(typeof row.catalogItemId === "string" ? row.catalogItemId : undefined));
+    const keptLines = forceAll ? [] : userAuthoredMaterials(materialsRaw as Array<{ catalogItemId?: string }>);
     const looksTender =
       forceAll ||
       isTenderBoqCostCentre({
@@ -163,7 +184,7 @@ export function stripCentresToEmptyMaterials(
         templateName: typeof centre.templateName === "string" ? centre.templateName : null,
       });
 
-    if (!looksTender && materialsRaw.length <= LEAN_MAX_MATERIALS_PER_CENTRE) {
+    if (!looksTender && dumpLines.length === 0) {
       if (!Array.isArray(centre.materials)) {
         centre.materials = [];
         changed = true;
@@ -171,23 +192,22 @@ export function stripCentresToEmptyMaterials(
       return centre;
     }
 
-    if (materialsRaw.length === 0 && Array.isArray(centre.materials)) {
+    if (dumpLines.length === 0 && keptLines.length === materialsRaw.length && Array.isArray(centre.materials)) {
       return centre;
     }
 
-    const sell = sumMaterialsSell(materialsRaw);
+    const sell = sumMaterialsSell(dumpLines.length ? dumpLines : materialsRaw);
     const id = typeof centre.id === "string" && centre.id ? centre.id : `cc-${index}`;
-    strippedMaterials += materialsRaw.length;
-    centre.materials = [];
-    if (sell > 0 || materialsRaw.length > 0) {
-      centre.engineerDescription = `${centre.engineerDescription || "From tender BoQ"} · sheet total £${sell.toFixed(2)} (${materialsRaw.length || 0} lines stripped · ${reason})`.slice(
+    strippedMaterials += dumpLines.length || (forceAll ? materialsRaw.length : 0);
+    centre.materials = keptLines;
+    if ((sell > 0 || dumpLines.length > 0) && keptLines.length === 0) {
+      centre.engineerDescription = `${centre.engineerDescription || "From tender BoQ"} · sheet total £${sell.toFixed(2)} (${(dumpLines.length || materialsRaw.length) || 0} lines stripped · ${reason})`.slice(
         0,
         480,
       );
     }
-    // Keep id stable for React keys
     if (!centre.id) centre.id = id;
-    changed = true;
+    if (keptLines.length !== materialsRaw.length || forceAll) changed = true;
     return centre;
   });
 
@@ -221,7 +241,7 @@ export function leanJobCostCentresList(
 
   if (fat) {
     const stripped = stripCentresToEmptyMaterials(jobId, centres, {
-      forceAll: true,
+      forceAll: false,
       reason: "fat dump collapsed",
     });
     return { centres: stripped.centres, changed: stripped.changed };
