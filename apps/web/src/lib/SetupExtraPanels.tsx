@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { Plus, RefreshCw, Shield, Tags, Warehouse, Boxes } from "lucide-react";
 
 type RequestHeaders = HeadersInit;
@@ -631,7 +631,6 @@ export function SetupPrebuildsPanel({
         <label className="full">
           Import kits .xlsx
           <input
-            ref={fileInputRef}
             accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             type="file"
             disabled={busy}
