@@ -2516,7 +2516,7 @@ type LoginDraft = {
 
 type NexaAssistantAction = {
   id: string;
-  kind: "confirm_booking" | "confirm_fault_report";
+  kind: "confirm_booking" | "confirm_fault_report" | "confirm_budget_prices";
   title: string;
   detail: string;
   confirmLabel: string;
@@ -2539,6 +2539,7 @@ type NexaAssistantApiResponse = {
   aiUsed?: boolean;
   assignment?: JobScheduleAssignment;
   jobId?: string;
+  tenderId?: string;
 };
 
 type ServerAuthUser = {
@@ -8574,13 +8575,15 @@ export default function CoreApp() {
   const [nexaAssistantOpen, setNexaAssistantOpen] = useState(false);
   const [nexaAssistantDraft, setNexaAssistantDraft] = useState("");
   const [nexaAssistantBusy, setNexaAssistantBusy] = useState(false);
+  const [blakeOpenTender, setBlakeOpenTender] = useState<{ id: string; name: string } | null>(null);
+  const [blakeTenderBoqRevision, setBlakeTenderBoqRevision] = useState(0);
   const [buddyMemory, setBuddyMemory] = useState<BuddyMemory>(() => defaultBuddyMemory());
   const [buddySendOverride, setBuddySendOverride] = useState(false);
   const [nexaAssistantMessages, setNexaAssistantMessages] = useState<NexaAssistantMessage[]>([
     {
       id: "buddy-welcome",
       role: "assistant",
-      text: "Hi — I'm Blake. Ask me what’s missing on a quote, how to finish work, or say “report a problem” / “suggest an improvement” and I’ll log it in Faults.",
+      text: "Hi — I'm Blake. Open a tender or job and I’ll talk through the live BoQ. You can also ask what’s missing on a quote, or say “report a problem”.",
     },
   ]);
   const nexaAssistantMessagesRef = useRef<HTMLDivElement | null>(null);
@@ -15730,8 +15733,8 @@ export default function CoreApp() {
     noticeClearTimeout.current = setTimeout(() => setSectionNotice(null), 4200);
   }
 
-  async function sendNexaAssistantMessage() {
-    const message = nexaAssistantDraft.trim();
+  async function sendNexaAssistantMessage(overrideText?: string) {
+    const message = (overrideText ?? nexaAssistantDraft).trim();
     if (!message || nexaAssistantBusy) return;
     const userMessage: NexaAssistantMessage = {
       id: `nexa-user-${crypto.randomUUID()}`,
@@ -15744,6 +15747,7 @@ export default function CoreApp() {
     setNexaAssistantMessages((current) => [...current, userMessage]);
     setNexaAssistantDraft("");
     setNexaAssistantBusy(true);
+    const lookingAtJob = homeView === "job-record" || homeView === "cost-centre-record";
     try {
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 25_000);
@@ -15758,6 +15762,11 @@ export default function CoreApp() {
             history,
             sourceRoute: typeof window !== "undefined" ? window.location.pathname : undefined,
             sourcePage: homeView,
+            screenContext: {
+              view: homeView,
+              tenderId: blakeOpenTender?.id || (lookingAtJob ? selectedJob?.sourceTenderId : undefined) || undefined,
+              jobId: lookingAtJob ? selectedJob?.id : undefined,
+            },
             buddyContext: {
               ...buddyMemoryPrompt(buddyMemory),
               quoteWatch: selectedQuote
@@ -15822,7 +15831,8 @@ export default function CoreApp() {
     setNexaAssistantBusy(true);
     try {
       const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 20_000);
+      const timeoutMs = action.kind === "confirm_budget_prices" ? 90_000 : 20_000;
+      const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
       let response: Response;
       try {
         response = await fetch("/api/nexa-assistant", {
@@ -15852,6 +15862,9 @@ export default function CoreApp() {
       if (response.ok) {
         if (action.kind === "confirm_fault_report") {
           showNotice(result.reply || "Fault logged.");
+        } else if (action.kind === "confirm_budget_prices") {
+          setBlakeTenderBoqRevision((current) => current + 1);
+          showNotice(result.reply || "Blake wrote guide rates onto the open BoQ.");
         } else if (result.assignment) {
           setJobSchedulePlans((current) => ({
             ...current,
@@ -15874,7 +15887,9 @@ export default function CoreApp() {
           id: `buddy-${crypto.randomUUID()}`,
           role: "assistant",
           text: timedOut
-            ? "Confirm timed out — check again in a moment. Nothing may have been saved."
+            ? action.kind === "confirm_budget_prices"
+              ? "Pricing is still running or timed out. Open Tenders → Bill and use Blake budget prices if the rates did not appear."
+              : "Confirm timed out — check again in a moment. Nothing may have been saved."
             : "The live booking could not be saved. Nothing was changed.",
         },
       ]);
@@ -33768,7 +33783,11 @@ export default function CoreApp() {
                 <div>
                   <strong>Blake</strong>
                   <small>
-                    {buddyMood === "alert"
+                    {blakeOpenTender && homeView === "tenders"
+                      ? `Open tender · ${blakeOpenTender.name}`
+                      : (homeView === "job-record" || homeView === "cost-centre-record") && selectedJob
+                        ? `Open job · ${selectedJob.ref}${selectedJob.sourceTenderName ? ` · ${selectedJob.sourceTenderName}` : ""}`
+                      : buddyMood === "alert"
                       ? "Spotted something that’s not right"
                       : buddyMood === "thinking"
                         ? "Working across Core for you"
@@ -33902,6 +33921,32 @@ export default function CoreApp() {
               {nexaAssistantBusy ? <p className="buddy-thinking">Blake is checking the live workspace...</p> : null}
             </div>
             <div className="buddy-report-chips" aria-label="Quick actions">
+              {blakeOpenTender || ((homeView === "job-record" || homeView === "cost-centre-record") && selectedJob) ? (
+                <>
+                  <button
+                    type="button"
+                    className="buddy-report-chip"
+                    disabled={nexaAssistantBusy}
+                    onClick={() =>
+                      void sendNexaAssistantMessage(
+                        blakeOpenTender || selectedJob?.sourceTenderId
+                          ? "walk me through this tender"
+                          : "walk me through this job",
+                      )
+                    }
+                  >
+                    Talk through this
+                  </button>
+                  <button
+                    type="button"
+                    className="buddy-report-chip"
+                    disabled={nexaAssistantBusy}
+                    onClick={() => void sendNexaAssistantMessage("price this bill using the rate library")}
+                  >
+                    Price this bill
+                  </button>
+                </>
+              ) : null}
               <button
                 type="button"
                 className="buddy-report-chip"
@@ -33956,7 +34001,13 @@ export default function CoreApp() {
             >
               <textarea
                 aria-label="Chat with Blake"
-                placeholder="Ask Blake… or report a problem / suggest an improvement"
+                placeholder={
+                  blakeOpenTender
+                    ? `Ask Blake about ${blakeOpenTender.name}…`
+                    : (homeView === "job-record" || homeView === "cost-centre-record") && selectedJob
+                      ? `Ask Blake about ${selectedJob.ref}…`
+                      : "Ask Blake… or report a problem / suggest an improvement"
+                }
                 value={nexaAssistantDraft}
                 onChange={(event) => setNexaAssistantDraft(event.target.value)}
                 onKeyDown={(event) => {
@@ -36900,6 +36951,8 @@ export default function CoreApp() {
               onNotice={showNotice}
               businessName={businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group Ltd"}
               actorName={activeEmployee?.name ?? "NeXa user"}
+              onOpenTenderChange={setBlakeOpenTender}
+              boqRefreshToken={blakeTenderBoqRevision}
               clients={clients.map((client) => ({
                 id: client.id,
                 name: client.name,

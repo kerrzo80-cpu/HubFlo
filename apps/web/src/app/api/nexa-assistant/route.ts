@@ -1,22 +1,34 @@
 import { NextResponse } from "next/server";
 
-import { getAccessProfileFromHeaders } from "@/lib/access";
+import { canEditTenders, getAccessProfileFromHeaders } from "@/lib/access";
+import type { BlakeScreenContext } from "@/lib/blake-open-record";
+import { parseJsonRequestBody } from "@/lib/http";
 import {
   confirmNexaAssistantAction,
   handleNexaAssistantMessage,
-  type BuddyClientContext,
   type BlakeHistoryMessage,
+  type BuddyClientContext,
 } from "@/lib/nexa-assistant";
-import { parseJsonRequestBody } from "@/lib/http";
 import { loadServerStore } from "@/lib/server-store";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+export const maxDuration = 90;
+
+function readScreenContext(input: unknown): BlakeScreenContext | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const raw = input as Record<string, unknown>;
+  const view = typeof raw.view === "string" ? raw.view.slice(0, 80) : undefined;
+  const tenderId = typeof raw.tenderId === "string" ? raw.tenderId.slice(0, 120) : undefined;
+  const jobId = typeof raw.jobId === "string" ? raw.jobId.slice(0, 120) : undefined;
+  if (!view && !tenderId && !jobId) return undefined;
+  return { view, tenderId, jobId };
+}
 
 type AssistantRequest = {
   message?: string;
   history?: BlakeHistoryMessage[];
   buddyContext?: BuddyClientContext;
+  screenContext?: BlakeScreenContext;
   confirmActionId?: string;
   sourceRoute?: string;
   sourcePage?: string;
@@ -45,7 +57,11 @@ export async function POST(request: Request) {
       });
       const pendingAction = pending.actions.find((item) => item.id === payload.confirmActionId);
       const isFaultConfirm = pendingAction?.kind === "fault_report";
-      if (!isFaultConfirm && !access.canEditJobs) {
+      const isBudgetConfirm = pendingAction?.kind === "budget_prices";
+      if (isBudgetConfirm && !canEditTenders(access)) {
+        return NextResponse.json({ error: "Your role can chat with Blake but cannot write tender rates." }, { status: 403 });
+      }
+      if (!isFaultConfirm && !isBudgetConfirm && !access.canEditJobs) {
         return NextResponse.json({ error: "Your role can chat with Blake but cannot create bookings." }, { status: 403 });
       }
       const result = await confirmNexaAssistantAction(payload.confirmActionId, actor);
@@ -66,6 +82,7 @@ export async function POST(request: Request) {
       await handleNexaAssistantMessage(message, actor, {
         history,
         buddyContext,
+        screenContext: readScreenContext(payload.screenContext),
         sourceRoute: payload.sourceRoute,
         sourcePage: payload.sourcePage,
       }),

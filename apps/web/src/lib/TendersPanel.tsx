@@ -129,6 +129,8 @@ export function TendersPanel({
   onOpenPendingJob,
   jobExists,
   onTenderJobStructure,
+  onOpenTenderChange,
+  boqRefreshToken = 0,
 }: {
   requestHeaders: RequestHeaders;
   onNotice: (message: string) => void;
@@ -151,6 +153,10 @@ export function TendersPanel({
     jobSections: Array<{ id: string; name: string; description: string }>;
     jobCostCentres: Array<Record<string, unknown>>;
   }) => void;
+  /** Lets Ask Blake talk about the open tender. */
+  onOpenTenderChange?: (tender: { id: string; name: string } | null) => void;
+  /** Increment after Blake writes rates from Ask Blake so the open Bill reloads. */
+  boqRefreshToken?: number;
 }) {
   const [tenders, setTenders] = useState<Tender[]>([]);
   const [loading, setLoading] = useState(true);
@@ -315,6 +321,18 @@ export function TendersPanel({
     void loadSelectedTenderBoq(selectedId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
+
+  useEffect(() => {
+    onOpenTenderChange?.(selected ? { id: selected.id, name: selected.name } : null);
+  }, [onOpenTenderChange, selected?.id, selected?.name]);
+
+  useEffect(() => () => onOpenTenderChange?.(null), [onOpenTenderChange]);
+
+  useEffect(() => {
+    if (!selectedId || !boqRefreshToken) return;
+    void loadSelectedTenderBoq(selectedId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boqRefreshToken]);
 
   useEffect(() => {
     if (selected && tenderNeedsJob(selected)) {

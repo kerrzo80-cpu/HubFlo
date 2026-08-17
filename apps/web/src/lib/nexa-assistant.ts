@@ -9,6 +9,16 @@ import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/li
 import { pushJobToSimpro } from "@/lib/simpro-bridge";
 import { getJobs, getQuotes, updateJob, type Job } from "@/lib/workflow-data";
 import type { Employee, Weekday } from "@/lib/access";
+import {
+  formatBudgetPriceOffer,
+  formatOpenRecordBrief,
+  looksLikeFillRates,
+  looksLikeOpenRecordQs,
+  looksLikeRefreshRates,
+  resolveOpenRecord,
+  type BlakeOpenRecord,
+  type BlakeScreenContext,
+} from "@/lib/blake-open-record";
 
 type ScheduleAssignment = {
   id: string;
@@ -78,7 +88,19 @@ type PendingFaultReport = {
   sourcePage?: string;
 };
 
-type PendingStore = { actions: Array<PendingBooking | PendingFaultReport> };
+type PendingBudgetPrices = {
+  kind: "budget_prices";
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  actorId: string;
+  actorName: string;
+  tenderId: string;
+  tenderName: string;
+  forceRefresh: boolean;
+};
+
+type PendingStore = { actions: Array<PendingBooking | PendingFaultReport | PendingBudgetPrices> };
 
 export type BlakeHistoryMessage = {
   role: "assistant" | "user";
@@ -109,7 +131,7 @@ export type NexaAssistantResponse = {
   intent: AssistantIntent;
   action?: {
     id: string;
-    kind: "confirm_booking" | "confirm_fault_report";
+    kind: "confirm_booking" | "confirm_fault_report" | "confirm_budget_prices";
     title: string;
     detail: string;
     confirmLabel: string;
@@ -507,7 +529,7 @@ function deterministicBusinessReply(message: string): string | null {
   const context = buildWorkspaceContext();
 
   if (/\b(hello|hi|hey|good (morning|afternoon|evening))\b/i.test(message)) {
-    return `Hi — I'm Blake, your NeXa business assistant. I can check the diary, quote pipeline, jobs and follow-ups using live NeXa data. What do you need?`;
+    return `Hi — I'm Blake, your NeXa business assistant. I can check the diary, quote pipeline, jobs, tenders and follow-ups using live NeXa data. What do you need?`;
   }
 
   if (/\b(help|what can you)\b/i.test(message)) {
@@ -517,6 +539,7 @@ function deterministicBusinessReply(message: string): string | null {
       "• Which quotes need follow-up?",
       "• Which jobs are open or unscheduled?",
       "• Which jobs are over their labour allowance?",
+      "• Open a tender or job and ask me to walk through the BoQ, or “price this bill” (rate library + Blake guides — confirm before I write rates).",
       "• Draft a booking — I will always ask you to confirm before writing the diary.",
     ].join("\n");
   }
@@ -565,6 +588,7 @@ async function conversationalReply(
   history: BlakeHistoryMessage[],
   actorName: string,
   buddyContext?: BuddyClientContext,
+  openRecord?: BlakeOpenRecord,
 ): Promise<{ reply: string; aiUsed: boolean }> {
   const deterministic = deterministicBusinessReply(message);
   const apiKey = resolveOpenAiApiKey();
@@ -597,14 +621,20 @@ async function conversationalReply(
             role: "system",
             content: [
               "You are Blake, the NeXa business assistant for Errol Watson Group field-service operations.",
-              "Answer using only the supplied NeXa workspace JSON, Blake learning notes, and the conversation.",
+              "Answer using only the supplied NeXa workspace JSON, the open Tender/Job snapshot, Blake learning notes, and the conversation.",
+              "If the user is looking at a tender or job, talk through THAT record first — BoQ progress, blanks, FoT, linked takeoff, qualifications.",
+              "Guide rates from the rate library / Blake budget prices are internal budgets, not firm tenders. Unsure lines stay blank, never NIL / £0.",
+              "Never claim you imported a ChatGPT conversation. You work from live HubFlo data.",
               "If the data does not contain the answer, say what is missing. Never invent bookings, values, customers or availability.",
-              "Do not change schedules, quote values, variations or invoices yourself. Suggest and ask the user to confirm operational changes.",
-              "When the user asks how to do something in NeXa, give a short numbered walkthrough.",
+              "Do not change schedules, quote values, BoQ rates, variations or invoices yourself. Suggest and ask the user to confirm operational changes.",
+              "When the user asks how to do something in NeXa, give a short numbered click-path (Tenders → open record → Bill → Blake budget prices).",
               "Use Blake learning notes (habits, repeated misses, quote watch) to personalise advice — evolve with how this team works.",
               "Keep answers concise, plain English, and useful for a commercial manager.",
               `The current user is ${actorName}.`,
               buddyContext ? `Blake learning notes JSON:\n${JSON.stringify(buddyContext)}` : "",
+              openRecord && (openRecord.tender || openRecord.job)
+                ? `Open record JSON (priority over the workspace summary):\n${JSON.stringify(openRecord)}`
+                : "",
               `Live NeXa workspace JSON:\n${JSON.stringify(context)}`,
             ].filter(Boolean).join("\n"),
           },
@@ -846,12 +876,54 @@ async function handleFaultReportMessage(
   };
 }
 
+function offerBudgetPrices(
+  record: BlakeOpenRecord,
+  actor: { id: string; name: string },
+  message: string,
+  now: Date,
+): NexaAssistantResponse {
+  const forceRefresh = looksLikeRefreshRates(message);
+  const offer = formatBudgetPriceOffer(record, forceRefresh);
+  if (!offer.canApply || !record.tender) {
+    return { reply: offer.reply, intent: { action: "chat" }, aiUsed: false };
+  }
+
+  refreshPendingStore();
+  const pending: PendingBudgetPrices = {
+    kind: "budget_prices",
+    id: `assistant-action-${crypto.randomUUID()}`,
+    createdAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 15 * 60 * 1000).toISOString(),
+    actorId: actor.id,
+    actorName: actor.name,
+    tenderId: record.tender.id,
+    tenderName: record.tender.name,
+    forceRefresh,
+  };
+  pendingStore.actions = [pending, ...pendingStore.actions.filter((action) => action.id !== pending.id)];
+  persistPendingStore();
+
+  return {
+    reply: offer.reply,
+    intent: { action: "chat" },
+    action: {
+      id: pending.id,
+      kind: "confirm_budget_prices",
+      title: forceRefresh ? `Refresh guides · ${record.tender.name}` : `Price BoQ · ${record.tender.name}`,
+      detail: offer.detail,
+      confirmLabel: forceRefresh ? "Refresh Blake budget prices" : "Apply Blake budget prices",
+    },
+    aiUsed: false,
+  };
+}
+
 export async function handleNexaAssistantMessage(
   message: string,
   actor: { id: string; name: string },
   options: {
     history?: BlakeHistoryMessage[];
     buddyContext?: BuddyClientContext;
+    screenContext?: BlakeScreenContext;
     now?: Date;
     sourceRoute?: string;
     sourcePage?: string;
@@ -862,6 +934,7 @@ export async function handleNexaAssistantMessage(
   const hubState = getHubDetailState();
   const employees = (hubState.employees ?? []) as Employee[];
   const deterministic = deterministicIntent(message, employees, now);
+  const openRecord = resolveOpenRecord(options.screenContext, message);
 
   // Fault reports must stay light — do not stack OpenAI intent + classify calls
   // (that double-hit was hanging Render and spinning the Core tab).
@@ -876,6 +949,18 @@ export async function handleNexaAssistantMessage(
     });
   }
 
+  if (looksLikeFillRates(message)) {
+    return offerBudgetPrices(openRecord, actor, message, now);
+  }
+
+  if (looksLikeOpenRecordQs(message) && (openRecord.tender || openRecord.job)) {
+    return {
+      reply: formatOpenRecordBrief(openRecord),
+      intent: { action: "chat" },
+      aiUsed: false,
+    };
+  }
+
   const ai = await aiIntent(message, employees, now);
   const intent = ai ?? deterministic;
 
@@ -888,7 +973,13 @@ export async function handleNexaAssistantMessage(
 
   if (deterministic.action === "chat" || (!deterministic.employeeName && deterministic.action !== "book")) {
     if (deterministic.action === "chat" || !looksLikeScheduling(message)) {
-      const chat = await conversationalReply(message, history, actor.name, options.buddyContext);
+      const chat = await conversationalReply(
+        message,
+        history,
+        actor.name,
+        options.buddyContext,
+        openRecord.tender || openRecord.job ? openRecord : undefined,
+      );
       return {
         reply: chat.reply,
         intent: { action: "chat" },
@@ -905,6 +996,48 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
   const action = pendingStore.actions.find((item) => item.id === actionId);
   if (!action || action.actorId !== actor.id) {
     return { ok: false as const, status: 404, reply: "That request has expired. Ask Blake again." };
+  }
+
+  if (action.kind === "budget_prices") {
+    const { applyBlakeBudgetPricesToTender } = await import("@/lib/tenders-data");
+    try {
+      const { tender, priced } = await applyBlakeBudgetPricesToTender(action.tenderId, {
+        forceRefresh: action.forceRefresh,
+      });
+      pendingStore.actions = pendingStore.actions.filter((item) => item.id !== action.id);
+      persistPendingStore();
+      appendAuditEvent({
+        actor: actor.name,
+        action: "tender.blake_budget_prices",
+        recordType: "tender",
+        recordId: tender.id,
+        summary: action.forceRefresh
+          ? `Blake Ask confirmed refresh · ${priced.targetedCount} selected · ${priced.blakeFilled} Blake · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`
+          : `Blake Ask confirmed budget prices · ${priced.targetedCount} selected · ${priced.blakeFilled} Blake · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`,
+        source: "Blake",
+        importance: "high",
+      });
+      const left = priced.leftBlank
+        ? `${priced.leftBlank} line(s) left blank because Blake was not sure — those are not free work.`
+        : "No measured lines were left blank this pass.";
+      return {
+        ok: true as const,
+        status: 200,
+        reply: [
+          `Guide rates written to ${tender.name}.`,
+          `FoT / priced BoQ: £${priced.budgetTotal.toFixed(2)} · ${priced.libraryFilled} library · ${priced.blakeFilled} Blake.`,
+          left,
+          "Amend on Tenders → Bill before you submit. Specialist plant still wants a supplier RFQ.",
+        ].join("\n"),
+        tenderId: tender.id,
+      };
+    } catch (error) {
+      return {
+        ok: false as const,
+        status: 409,
+        reply: error instanceof Error ? error.message : "Unable to apply Blake budget prices.",
+      };
+    }
   }
 
   if (action.kind === "fault_report") {

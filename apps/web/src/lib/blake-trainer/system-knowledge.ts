@@ -145,6 +145,24 @@ export const nexaSystemKnowledge: SystemKnowledgeTopic[] = [
     checkPrompt: "After a quote is accepted, what do you do next in Core?",
   },
   {
+    id: "sys-core-tenders",
+    title: "Core — Tenders",
+    kind: "guide",
+    area: "core",
+    roles: COMMERCIAL_ROLES,
+    tags: ["core", "tenders", "boq", "blake"],
+    content: [
+      "Tenders hold client bills of quantities, drawings, qualifications and the Form of Tender.",
+      "Open the tender, import their BoQ on the Bill tab, then tick lines and run Blake budget prices (rate library first, UK trade ballpark for gaps).",
+      "Ask Blake from the sidebar while the tender (or a job raised from it) is open — he talks through the live BoQ and can fill blank rates after you confirm. That is not a ChatGPT paste-back.",
+      "Guide rates stay internal until you amend them and export the FoT. Unsure lines stay blank, never NIL / £0. Won tenders convert to a Core job with cost centres from the BoQ.",
+    ].join(" "),
+    teachScript:
+      "Tenders is the client bill. Import their BoQ, use Blake budget prices as guides, then Ask Blake on the open record to talk through blanks and FoT. Confirm before he writes rates. Won tenders become jobs.",
+    checkPoints: ["tender", "boq", "blake", "form of tender", "job"],
+    checkPrompt: "How do you budget-price a client BoQ in Tenders, and when does it become a job?",
+  },
+  {
     id: "sys-core-jobs",
     title: "Core — Jobs",
     kind: "guide",
@@ -514,7 +532,7 @@ export function generateBlakeTrainerCatalog(options?: {
       "mod-core-commercial",
       "Core commercial path",
       "Leads → Quotes → Jobs → Invoices in Core.",
-      ["sys-core-nav", "sys-core-leads", "sys-core-quotes", "sys-core-jobs", "sys-core-invoices"],
+      ["sys-core-nav", "sys-core-leads", "sys-core-quotes", "sys-core-tenders", "sys-core-jobs", "sys-core-invoices"],
       18,
     ),
     moduleFromTopics(
