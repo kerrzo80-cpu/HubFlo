@@ -103,6 +103,8 @@ export function engineerScheduleToFieldItem(item: EngineerScheduleItem): FieldSc
     attachments: item.attachments.map(mapAttachment),
     photos: item.photos.map(mapAttachment),
     requirements: item.requirements.map(mapRequirement),
+    costCentreTemplate: item.costCentres?.[0]?.templateName || item.costCentre,
+    costCentreId: item.costCentres?.[0]?.id,
   };
 }
 

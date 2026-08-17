@@ -84,17 +84,30 @@ export function JobFieldLivePanel({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
+  const [stopGo, setStopGo] = useState<{
+    runs?: Array<{
+      run: { id: string; status: string; costCentreCode: string; currentGateKey: string; highPriorityFollowUp?: { open?: boolean } };
+      record?: { recordNumber?: string; pdfDocumentId?: string } | null;
+    }>;
+  } | null>(null);
+
   const load = useCallback(async () => {
     if (!jobId) return;
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/field/jobs/by-job/${encodeURIComponent(jobId)}`);
+      const [response, stopGoResponse] = await Promise.all([
+        fetch(`/api/field/jobs/by-job/${encodeURIComponent(jobId)}`),
+        fetch(`/api/workflow-runs?jobId=${encodeURIComponent(jobId)}`),
+      ]);
       const body = (await response.json().catch(() => ({}))) as FieldByJobResponse;
       if (!response.ok) {
         throw new Error(body.error || `Could not load Field data (${response.status}).`);
       }
       setData(body);
+      if (stopGoResponse.ok) {
+        setStopGo((await stopGoResponse.json().catch(() => null)) as typeof stopGo);
+      }
     } catch (loadError) {
       setData(null);
       setError(loadError instanceof Error ? loadError.message : "Could not load Field data.");
@@ -155,6 +168,34 @@ export function JobFieldLivePanel({
       </div>
 
       {error ? <div className="feedback error">{error}</div> : null}
+
+      {stopGo?.runs?.length ? (
+        <div className="job-field-visit">
+          <header>
+            <div>
+              <strong>Domestic stop/go records</strong>
+              <small>Mandatory gates. Completed PDFs store in Forms & Certificates.</small>
+            </div>
+          </header>
+          <ul>
+            {stopGo.runs.map((item) => (
+              <li key={item.run.id}>
+                <strong>{item.run.costCentreCode}</strong> · {item.run.status.replace(/_/g, " ")}
+                {item.run.highPriorityFollowUp?.open ? " · HIGH PRIORITY FOLLOW-UP" : ""}
+                {item.record?.recordNumber ? ` · ${item.record.recordNumber}` : ""}
+                {item.record?.pdfDocumentId ? (
+                  <>
+                    {" "}
+                    <a href={`/api/record-documents/${encodeURIComponent(item.record.pdfDocumentId)}/file`} target="_blank" rel="noreferrer">
+                      Open PDF
+                    </a>
+                  </>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {!loading && !error && visits.length === 0 ? (
         <p className="muted">No Field visits linked to this job yet.</p>

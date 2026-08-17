@@ -21,6 +21,8 @@ import { BlakeCharacter } from "@/components/field/BlakeCharacter";
 import { FileDropZone } from "@/components/FileDropZone";
 import { ProgrammeBoard } from "@/components/field/ProgrammeBoard";
 import { DayworkSheetForm } from "@/components/field/DayworkSheetForm";
+import { DomesticStopGoPanel } from "@/components/field/DomesticStopGoPanel";
+import { isDomesticStopGoCostCentre } from "@/lib/domestic-stop-go/cost-centres";
 import { useNexaClient } from "@/lib/field/nexa";
 import { toggleMockRequirement } from "@/lib/field/nexa/mock-data";
 import { readFieldJobPack, saveFieldJobPack } from "@/lib/field/field-job-pack-cache";
@@ -252,6 +254,11 @@ export default function JobDetailPage() {
   >([]);
   const [poNote, setPoNote] = useState("");
   const [outcomeNote, setOutcomeNote] = useState("");
+  const [stopGoComplete, setStopGoComplete] = useState(false);
+
+  const stopGoEnabled = Boolean(
+    job && isDomesticStopGoCostCentre(job.costCentreTemplate || job.costCentre),
+  );
 
   const orderedDayworkSheets = useMemo(() => {
     if (!job?.jobId) return dayworkSheets;
@@ -265,12 +272,13 @@ export default function JobDetailPage() {
 
   const canComplete = useMemo(() => {
     if (!job) return false;
+    if (stopGoEnabled) return stopGoComplete;
     // Daywork sheets never gate job Complete — including Handover signature steps
     // whose stage is not "Daywork" but whose stepId/id is daywork-scoped.
     return !job.requirements.some(
       (item) => item.status === "missing" && !isDayworkRequirement(item),
     );
-  }, [job]);
+  }, [job, stopGoComplete, stopGoEnabled]);
 
   const filteredSuppliers = useMemo(() => {
     const query = poSupplierQuery.trim().toLowerCase();
@@ -944,9 +952,15 @@ export default function JobDetailPage() {
         const restored = await backToJobChecklist({ quiet: true });
         if (restored) requirements = restored;
       }
-      const blocked = requirements.some((item) => item.status === "missing" && !isDayworkRequirement(item));
+      const blocked = stopGoEnabled
+        ? !stopGoComplete
+        : requirements.some((item) => item.status === "missing" && !isDayworkRequirement(item));
       if (blocked) {
-        setError("Cannot mark complete yet. Finish required checklist items first.");
+        setError(
+          stopGoEnabled
+            ? "Cannot mark complete yet. Finish the mandatory stop/go record first."
+            : "Cannot mark complete yet. Finish required checklist items first.",
+        );
         setTab("checklist");
         return;
       }
@@ -1446,6 +1460,13 @@ export default function JobDetailPage() {
                     : "Saved to Core — open this job → Cost centres → Variations → Daywork account.",
                 );
               }}
+            />
+          ) : stopGoEnabled ? (
+            <DomesticStopGoPanel
+              scheduleId={job.scheduleId}
+              jobId={job.jobId}
+              engineerName={job.engineerName}
+              onStatus={(_status, complete) => setStopGoComplete(complete)}
             />
           ) : (
             <>

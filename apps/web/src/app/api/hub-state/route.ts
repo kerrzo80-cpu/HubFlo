@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { ensureGasCertTrialInCore } from "@/lib/gas-cert-trial-core";
+import { ensureDomesticStopGoSeed } from "@/lib/domestic-stop-go/seed";
 import { reconcileDayworkVariationsFromEvidence } from "@/lib/engineer-flow";
 import { getHubDetailState, saveHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
 import { mergeHubDetailState } from "@/lib/hub-state-merge";
@@ -16,6 +17,7 @@ export async function GET(request: Request) {
   }
 
   ensureGasCertTrialInCore();
+  ensureDomesticStopGoSeed();
   try {
     reconcileDayworkVariationsFromEvidence();
   } catch {

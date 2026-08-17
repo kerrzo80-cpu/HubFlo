@@ -1132,6 +1132,23 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
       if (blocked) {
         throw new Error("Cannot mark complete yet. Finish required checklist items first.");
       }
+      try {
+        const { runBlocksJobComplete } = require("@/lib/domestic-stop-go/service") as {
+          runBlocksJobComplete: (
+            jobId: string,
+            costCentreName?: string,
+            costCentreId?: string,
+          ) => { blocked: boolean; message: string } | null;
+        };
+        const stopGo = runBlocksJobComplete(
+          job?.jobId || "",
+          job?.costCentre,
+          job?.costCentres?.[0]?.id,
+        );
+        if (stopGo?.blocked) throw new Error(stopGo.message);
+      } catch (error) {
+        if (error instanceof Error && /stop\/go|unsafe|warning/i.test(error.message)) throw error;
+      }
     }
 
     const outcome: EngineerWorkflowOutcome = {

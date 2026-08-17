@@ -1844,3 +1844,116 @@
   color: var(--steel);
   font-size: 12px;
 }
+
+.stopgo {
+  display: grid;
+  gap: 14px;
+}
+
+.stopgo-progress {
+  background: var(--line);
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.stopgo-progress-bar {
+  background: var(--teal);
+  height: 100%;
+}
+
+.stopgo-progress-copy {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.stopgo-progress-copy strong {
+  font-family: var(--font-display);
+}
+
+.stopgo-sync {
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  margin-left: auto;
+}
+
+.stopgo-sync.is-synced {
+  color: #2e8c7d;
+}
+
+.stopgo-sync.is-device {
+  color: #704a05;
+}
+
+.stopgo-sync.is-problem {
+  color: #b43737;
+}
+
+.stopgo-alert {
+  background: var(--danger-soft);
+  border: 1px solid rgba(180, 55, 55, 0.35);
+  border-radius: 16px;
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.stopgo-alert p {
+  margin: 4px 0 10px;
+}
+
+.stopgo-choices,
+.stopgo-status,
+.stopgo-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stopgo-choice {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-weight: 700;
+  min-height: 44px;
+  padding: 8px 14px;
+}
+
+.stopgo-choice.is-on {
+  background: var(--teal-soft);
+  border-color: var(--teal);
+  color: var(--teal);
+}
+
+.stopgo-critical {
+  border-color: rgba(180, 55, 55, 0.4);
+}
+
+.stopgo-field-error {
+  color: #b43737;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.stopgo-nav {
+  justify-content: space-between;
+  position: sticky;
+  bottom: calc(var(--field-tabbar-height) + 8px);
+}
+
+.visually-hidden {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}

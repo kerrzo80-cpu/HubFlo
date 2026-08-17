@@ -251,6 +251,10 @@ const JobFieldLivePanel = dynamic(
   () => import("@/components/JobFieldLivePanel").then((mod) => mod.JobFieldLivePanel),
   { ssr: false, loading: () => panelSkeleton("Loading Field live…") },
 );
+const DomesticStopGoOfficeBoard = dynamic(
+  () => import("@/components/DomesticStopGoOfficeBoard").then((mod) => mod.DomesticStopGoOfficeBoard),
+  { ssr: false, loading: () => panelSkeleton("Loading stop/go board…") },
+);
 const GasSafeLgsrCertificate = dynamic(
   () => import("@/components/GasSafeLgsrCertificate").then((mod) => mod.GasSafeLgsrCertificate),
   { ssr: false, loading: () => panelSkeleton("Loading gas certificate…") },
@@ -3479,6 +3483,13 @@ const costCentreTemplates = [
   "General plumbing",
   "Heating remedials",
   "Reactive maintenance",
+  "Gas Boiler Installation & Commissioning",
+  "Gas Boiler Service",
+  "Landlord Gas Safety Record",
+  "Gas Warning / Unsafe Situation Record",
+  "Gas Repair and Breakdown",
+  "Oil Boiler Installation & Commissioning",
+  "Oil Boiler Service and Tank Inspection",
 ];
 
 const setupCategories: Array<{ key: SetupCategory; label: string; detail: string; subItems?: string[] }> = [
@@ -40379,7 +40390,14 @@ export default function CoreApp() {
                     </div>
 
                     {selectedJob ? (
-                      <JobFieldLivePanel jobId={selectedJob.id} jobRef={selectedJob.ref} />
+                      <>
+                        <JobFieldLivePanel jobId={selectedJob.id} jobRef={selectedJob.ref} />
+                        {/gas|oil|landlord|unsafe|boiler service|J-TRIAL-GS/i.test(
+                          `${selectedJob.description} ${selectedJob.ref}`,
+                        ) || selectedJob.id.startsWith("job-dom-") ? (
+                          <DomesticStopGoOfficeBoard />
+                        ) : null}
+                      </>
                     ) : null}
                     {selectedJobPurchaseRequests.some((request) => request.status === "Requested") ? (
                       <section className="job-scheduling-panel" style={{ marginTop: "1rem" }}>

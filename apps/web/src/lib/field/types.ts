@@ -75,6 +75,8 @@ export type FieldScheduleItem = {
   attachments: FieldAttachment[];
   photos: FieldAttachment[];
   requirements: FieldRequirement[];
+  costCentreTemplate?: string;
+  costCentreId?: string;
 };
 
 export type TimeCheckLineStatus = "pending" | "confirmed" | "amended";
