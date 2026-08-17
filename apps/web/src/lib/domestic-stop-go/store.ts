@@ -128,9 +128,15 @@ export function seedDomesticCostCentresIdempotent() {
     store.settings.oilClassifications = DEFAULT_OIL_CLASSIFICATIONS;
     changed = true;
   }
-  if (!store.competencies?.length) {
-    store.competencies = emptyStore().competencies;
-    changed = true;
+  if (!store.competencies) store.competencies = [];
+  for (const seeded of emptyStore().competencies) {
+    const exists = store.competencies.some(
+      (item) => item.id === seeded.id || (item.employeeId === seeded.employeeId && item.scheme === seeded.scheme),
+    );
+    if (!exists) {
+      store.competencies.push(seeded);
+      changed = true;
+    }
   }
   if (changed) persist();
   return clone(store.costCentres);

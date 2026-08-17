@@ -9,6 +9,7 @@ import { findDomesticCostCentre } from "@/lib/domestic-stop-go/cost-centres";
 import { getPublishedTemplate, getPublishedTemplateById } from "@/lib/domestic-stop-go/templates";
 import { evaluateRules } from "@/lib/domestic-stop-go/rules-engine";
 import { createDomesticWorkRecordPdf } from "@/lib/domestic-stop-go/pdf";
+import { annotateAttendanceHelp, buildAttendancePrefill, scheduledSlotLabel } from "@/lib/domestic-stop-go/prefill";
 import {
   assertTenant,
   getDomesticStopGoStore,
@@ -163,37 +164,33 @@ function deriveStatus(run: WorkflowRun, template: WorkflowTemplate, gateErrors: 
   return "in_progress";
 }
 
-function systemAnswers(run: WorkflowRun, actor: string, job: ReturnType<typeof getJobs>[number] | undefined, scheduleId?: string): AnswerPatch[] {
-  const schedule = scheduleId ? getEngineerScheduleItem(scheduleId) : null;
-  const address = schedule?.address || job?.site || "";
-  const postcode = address.split(",").at(-1)?.trim() || "";
-  return [
-    { fieldKey: "attendance.job_number", value: job?.ref || run.jobId },
-    { fieldKey: "attendance.appointment_id", value: scheduleId || run.scheduleId || "" },
-    { fieldKey: "attendance.property_address", value: address },
-    { fieldKey: "attendance.postcode", value: postcode },
-    { fieldKey: "attendance.attendance_date", value: new Date().toISOString().slice(0, 10) },
-    { fieldKey: "attendance.arrival_time", value: schedule?.start || new Date().toISOString().slice(11, 16) },
-    { fieldKey: "attendance.engineer_user_id", value: actor },
-    { fieldKey: "lgsr.property_address", value: address },
-    { fieldKey: "review.engineer_name", value: schedule?.engineerName || actor },
-    { fieldKey: "review.completion_timestamp", value: nowIso() },
-    { fieldKey: "unsafe.linked_origin", value: run.originatingRunId || "" },
-  ];
+function isBlankAnswer(value: unknown) {
+  if (value == null) return true;
+  if (typeof value === "string") return value.trim() === "";
+  return false;
 }
 
-function writeAnswers(run: WorkflowRun, patches: AnswerPatch[], actor: string, source: WorkflowAnswer["source"] = "engineer") {
+function writeAnswers(
+  run: WorkflowRun,
+  patches: AnswerPatch[],
+  actor: string,
+  source: WorkflowAnswer["source"] = "engineer",
+  options?: { fillEmptyOnly?: boolean },
+) {
   const store = getDomesticStopGoStore();
   const template = getTemplateForRun(run);
   if (!template) throw new Error("Published workflow template not found.");
   if (run.status === "complete") throw new Error("Completed records cannot be silently edited. Create a revision.");
   const existing = answersForRun(run.id);
+  let wrote = false;
   for (const patch of patches) {
     const repeatGroupId = patch.repeatGroupId ?? null;
     const field = template.fields.find((item) => item.fieldKey === patch.fieldKey);
     if (!field) continue;
     if (patch.syncId && existing.some((item) => item.syncId === patch.syncId)) continue;
     const current = existing.find((item) => item.fieldKey === patch.fieldKey && (item.repeatGroupId || null) === repeatGroupId);
+    if (options?.fillEmptyOnly && !isBlankAnswer(current?.value)) continue;
+    if (options?.fillEmptyOnly && isBlankAnswer(patch.value)) continue;
     const nextStatus: FieldAnswerStatus = patch.answerStatus || current?.answerStatus || "answered";
     const next: WorkflowAnswer = {
       id: current?.id || newId("ans"),
@@ -217,6 +214,7 @@ function writeAnswers(run: WorkflowRun, patches: AnswerPatch[], actor: string, s
       audit(run.id, actor, "invalidated_downstream", { fieldKey: field.fieldKey, beforeJson: current.value, afterJson: next.value });
     }
     store.answers = [next, ...store.answers.filter((item) => item.id !== next.id)];
+    wrote = true;
     audit(run.id, actor, "answer_saved", {
       fieldKey: patch.fieldKey,
       beforeJson: current?.value,
@@ -224,7 +222,7 @@ function writeAnswers(run: WorkflowRun, patches: AnswerPatch[], actor: string, s
       syncId: patch.syncId,
     });
   }
-  saveDomesticStopGoStore();
+  if (wrote) saveDomesticStopGoStore();
 }
 
 export function startWorkflowRun(input: {
@@ -285,7 +283,19 @@ export function startWorkflowRun(input: {
     revision: 1,
   };
   store.runs.unshift(run);
-  writeAnswers(run, systemAnswers(run, input.actorName || input.actorId, job, input.scheduleId), input.actorId, "system");
+  writeAnswers(
+    run,
+    buildAttendancePrefill({
+      run,
+      actorId: input.actorId,
+      actorName: input.actorName,
+      job,
+      scheduleId: input.scheduleId,
+      costCentreName: catalogue.displayName,
+    }),
+    input.actorId,
+    "system",
+  );
   writeAnswers(
     run,
     [
@@ -517,6 +527,12 @@ export async function completeRun(runId: string, actorId: string, tenantId?: str
   const engineerSig = signaturesForRun(run.id).find((item) => item.role === "engineer");
   if (!engineerSig) throw new Error("Engineer signature is required to complete.");
   const job = getJobs().find((item) => item.id === run.jobId);
+  writeAnswers(
+    run,
+    [{ fieldKey: "review.completion_timestamp", value: nowIso() }],
+    actorId,
+    "system",
+  );
   const store = getDomesticStopGoStore();
   const settings = store.settings;
   const recordNumber = `${settings.recordPrefix}-${String(settings.nextRecordNumber).padStart(4, "0")}`;
@@ -666,12 +682,37 @@ function buildSnapshot(run: WorkflowRun, template: WorkflowTemplate) {
   };
 }
 
+function hydrateAttendancePrefill(run: WorkflowRun) {
+  if (FINAL_STATUSES.includes(run.status)) return;
+  const job = getJobs().find((item) => item.id === run.jobId);
+  const schedule = run.scheduleId ? getEngineerScheduleItem(run.scheduleId) : null;
+  writeAnswers(
+    run,
+    buildAttendancePrefill({
+      run,
+      actorId: run.startedBy,
+      actorName: schedule?.engineerName,
+      job,
+      scheduleId: run.scheduleId,
+    }),
+    run.startedBy,
+    "system",
+    { fillEmptyOnly: true },
+  );
+}
+
 export function serializeRun(run: WorkflowRun) {
+  hydrateAttendancePrefill(run);
   const template = getTemplateForRun(run);
   const answers = answersForRun(run.id);
   const evidence = evidenceForRun(run.id);
   const signatures = signaturesForRun(run.id);
   const record = getDomesticStopGoStore().records.find((item) => item.runId === run.id && !item.supersedesId);
+  const schedule = run.scheduleId ? getEngineerScheduleItem(run.scheduleId) : null;
+  const job = getJobs().find((item) => item.id === run.jobId);
+  const displayTemplate = template
+    ? annotateAttendanceHelp(template, scheduledSlotLabel(schedule, job))
+    : template;
   const gateErrors = template
     ? evaluateRules({ template, answers, evidence, signatures, gateKey: run.currentGateKey, mode: "gate" })
     : [];
@@ -682,7 +723,7 @@ export function serializeRun(run: WorkflowRun) {
   const currentIndex = template ? Math.max(0, template.gates.findIndex((item) => item.key === run.currentGateKey)) : 0;
   return {
     run: { ...run },
-    template,
+    template: displayTemplate,
     currentGate,
     progress: {
       index: currentIndex,

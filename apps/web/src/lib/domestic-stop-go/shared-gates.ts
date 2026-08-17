@@ -30,8 +30,12 @@ export function attendanceFields(fuel: "gas" | "oil"): WorkflowField[] {
     text("attendance.postcode", "Postcode", A, { systemPopulated: true }),
     yesNo("attendance.address_confirmed", "Property address confirmed", A),
     yesNo("attendance.domestic_confirmed", "This is a domestic property", A, { safetySeverity: "critical" }),
-    dateField("attendance.attendance_date", "Attendance date", A, { systemPopulated: true }),
-    timeField("attendance.arrival_time", "Arrival time", A, { systemPopulated: true }),
+    dateField("attendance.attendance_date", "Attendance date (actual)", A, {
+      helpText: "Defaults to the scheduled diary slot. Change if you attended on a different day.",
+    }),
+    timeField("attendance.arrival_time", "Arrival time (actual)", A, {
+      helpText: "Defaults to the scheduled start. Change if you arrived later.",
+    }),
     text("attendance.engineer_user_id", "Engineer user ID", A, { systemPopulated: true }),
     text("attendance.customer_name", "Customer / landlord / agent name", A),
     text("attendance.customer_contact", "Customer contact details", A),

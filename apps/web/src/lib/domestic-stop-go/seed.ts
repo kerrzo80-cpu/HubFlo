@@ -4,6 +4,7 @@ import { getPublishedTemplate } from "@/lib/domestic-stop-go/templates";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { addClientRecord, addClientSiteRecord, getClients, getClientSites, updateClientRecord, updateClientSiteRecord } from "@/lib/people-data";
 import { createJob, getJob, updateJob, type Job } from "@/lib/workflow-data";
+import type { Employee, EmployeeLicense } from "@/lib/access";
 
 export const GAS_SERVICE_TRIAL = {
   jobId: "job-dom-gas-service-trial",
@@ -18,6 +19,10 @@ export const GAS_SERVICE_TRIAL = {
   siteAddress: "22 Beech Grove, Harrogate, HG1 5AA",
   engineerId: "eng-chris",
   engineerName: "Chris Lawson",
+  customerPhone: "+44 1423 000001",
+  customerEmail: "office@trial.example",
+  gasSafeNumber: "123456789012",
+  oftecNumber: "OFTEC-TRIAL-001",
 } as const;
 
 function mergeCostCentreTypes(current: unknown): string[] {
@@ -63,9 +68,9 @@ function ensureClientAndSite() {
       name: GAS_SERVICE_TRIAL.customer,
       accountReference: "C-TRIAL-GS",
       status: "Active",
-      primaryContact: "Chris Lawson",
-      email: "office@trial.example",
-      phone: "+44 1423 000001",
+      primaryContact: "Occupier",
+      email: GAS_SERVICE_TRIAL.customerEmail,
+      phone: GAS_SERVICE_TRIAL.customerPhone,
       billingAddress: GAS_SERVICE_TRIAL.siteAddress,
       commercialOwner: GAS_SERVICE_TRIAL.engineerName,
       notes: "Pilot domestic Gas Boiler Service stop/go trial.",
@@ -76,6 +81,9 @@ function ensureClientAndSite() {
     updateClientRecord(GAS_SERVICE_TRIAL.clientId, {
       name: GAS_SERVICE_TRIAL.customer,
       billingAddress: GAS_SERVICE_TRIAL.siteAddress,
+      primaryContact: "Occupier",
+      email: GAS_SERVICE_TRIAL.customerEmail,
+      phone: GAS_SERVICE_TRIAL.customerPhone,
     });
   }
   const existingSite = getClientSites().find((site) => site.id === GAS_SERVICE_TRIAL.siteId);
@@ -98,6 +106,58 @@ function ensureClientAndSite() {
       address: GAS_SERVICE_TRIAL.siteAddress,
       serviceLine: "Gas Boiler Service",
     });
+  }
+}
+
+function license(id: string, type: string, reference: string): EmployeeLicense {
+  return { id, type, reference, expiresOn: "2028-12-31", status: "Current" };
+}
+
+function ensureChrisEmployeeCard() {
+  const hub = getHubDetailState();
+  const employees = Array.isArray(hub.employees) ? [...(hub.employees as Employee[])] : [];
+  const matchIndex = employees.findIndex((item) => {
+    const name = String(item?.name || "").toLowerCase();
+    return item?.id === GAS_SERVICE_TRIAL.engineerId || (name.includes("chris") && name.includes("lawson"));
+  });
+  const required: EmployeeLicense[] = [
+    license("lic-chris-gas-safe", "Gas Safe", GAS_SERVICE_TRIAL.gasSafeNumber),
+    license("lic-chris-oftec", "OFTEC", GAS_SERVICE_TRIAL.oftecNumber),
+  ];
+  if (matchIndex < 0) {
+    employees.push({
+      id: GAS_SERVICE_TRIAL.engineerId,
+      name: GAS_SERVICE_TRIAL.engineerName,
+      role: "Engineer",
+      permissions: {},
+      profile: {
+        roleLabel: "Heating engineer",
+        licenses: required,
+      },
+    });
+    saveHubDetailState({ ...hub, employees });
+    return;
+  }
+  const existing = { ...employees[matchIndex] };
+  const profile = { ...(existing.profile || {}) };
+  const licenses = Array.isArray(profile.licenses) ? [...profile.licenses] : [];
+  let changed = false;
+  for (const item of required) {
+    const has = licenses.some((licenseItem) => {
+      const type = String(licenseItem.type || "");
+      const sameType = type.toLowerCase() === item.type.toLowerCase();
+      const hasRef = String(licenseItem.reference || "").replace(/\D/g, "") === item.reference.replace(/\D/g, "")
+        || String(licenseItem.reference || "") === item.reference;
+      return sameType && hasRef;
+    });
+    if (!has) {
+      licenses.push(item);
+      changed = true;
+    }
+  }
+  if (changed) {
+    employees[matchIndex] = { ...existing, profile: { ...profile, licenses } };
+    saveHubDetailState({ ...hub, employees });
   }
 }
 
@@ -191,6 +251,7 @@ let ensured = false;
 
 export function ensureDomesticStopGoSeed() {
   seedDomesticStopGoHubTypes();
+  ensureChrisEmployeeCard();
   if (ensured) return getJob(GAS_SERVICE_TRIAL.jobId) ?? null;
   ensureClientAndSite();
   const job = ensureJob();
