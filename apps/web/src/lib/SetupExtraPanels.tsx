@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { Plus, RefreshCw, Shield, Tags, Warehouse, Boxes } from "lucide-react";
 
 type RequestHeaders = HeadersInit;
@@ -462,9 +462,10 @@ export function SetupPrebuildsPanel({
   const [kits, setKits] = useState<PrebuildKit[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
   const [draft, setDraft] = useState({
     name: "",
-    category: "Boiler",
+    category: "Bathroom",
     notes: "",
     materialName: "",
     materialQty: "1",
@@ -479,10 +480,10 @@ export function SetupPrebuildsPanel({
     try {
       const response = await fetch("/api/prebuilds", { headers: requestHeaders });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Unable to load pre-builds");
+      if (!response.ok) throw new Error(body.error || "Unable to load kits");
       setKits(body.kits || []);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Unable to load pre-builds");
+      setError(loadError instanceof Error ? loadError.message : "Unable to load kits");
     }
   }
 
@@ -493,7 +494,7 @@ export function SetupPrebuildsPanel({
 
   async function saveKit() {
     if (!draft.name.trim()) {
-      onNotice("Enter a pre-build name.");
+      onNotice("Enter a kit name.");
       return;
     }
     const lines = [];
@@ -528,7 +529,7 @@ export function SetupPrebuildsPanel({
         }),
       });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Unable to save pre-build");
+      if (!response.ok) throw new Error(body.error || "Unable to save kit");
       setKits(body.kits || []);
       setDraft((current) => ({
         ...current,
@@ -537,9 +538,9 @@ export function SetupPrebuildsPanel({
         materialName: "",
         labourName: "",
       }));
-      onNotice("Pre-build saved. Use it from quote/job cost centres.");
+      onNotice("Kit saved. Apply it from quote/job cost centres.");
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Unable to save pre-build");
+      setError(saveError instanceof Error ? saveError.message : "Unable to save kit");
     } finally {
       setBusy(false);
     }
@@ -556,9 +557,44 @@ export function SetupPrebuildsPanel({
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Unable to archive");
       setKits(body.kits || []);
-      onNotice("Pre-build archived.");
+      onNotice("Kit archived.");
     } catch (archiveError) {
       setError(archiveError instanceof Error ? archiveError.message : "Unable to archive");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importKitsFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!/\.xlsx$/i.test(file.name)) {
+      onNotice("Use an Excel .xlsx kits file (the Pre builds template).");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const form = new FormData();
+      form.set("action", "import-xlsx");
+      form.set("mode", importMode);
+      form.set("file", file);
+      const response = await fetch("/api/prebuilds", {
+        method: "POST",
+        headers: requestHeaders,
+        body: form,
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to import kits");
+      setKits(body.kits || []);
+      onNotice(
+        `Imported ${body.imported || 0} kit(s)${
+          body.created ? ` · ${body.created} new` : ""
+        }${body.updated ? ` · ${body.updated} updated` : ""}. Apply from quote/job cost centres.`,
+      );
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : "Unable to import kits");
     } finally {
       setBusy(false);
     }
@@ -569,16 +605,43 @@ export function SetupPrebuildsPanel({
       <header className="ops-module-header">
         <div>
           <span className="permission-heading">Catalogue</span>
-          <h2><Boxes size={18} /> Pre-builds</h2>
-          <p>Reusable material + labour kits that expand onto a quote or job cost centre in one click.</p>
+          <h2><Boxes size={18} /> Kits</h2>
+          <p>
+            Reusable material + labour kits that expand onto a quote or job cost centre in one click.
+            Import your office Pre builds Excel sheet here — NeXa calls them kits.
+          </p>
         </div>
         <button className="secondary-button" type="button" onClick={() => void load()} disabled={busy}>
           <RefreshCw size={15} /> Refresh
         </button>
       </header>
       {error ? <p className="ops-module-error">{error}</p> : null}
+
+      <div className="ops-form-grid" style={{ marginBottom: 12 }}>
+        <label>
+          Import mode
+          <select
+            value={importMode}
+            onChange={(event) => setImportMode(event.target.value === "replace" ? "replace" : "merge")}
+          >
+            <option value="merge">Merge (update matching kit names)</option>
+            <option value="replace">Replace (archive current kits first)</option>
+          </select>
+        </label>
+        <label className="full">
+          Import kits .xlsx
+          <input
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            type="file"
+            disabled={busy}
+            onChange={(event) => void importKitsFile(event)}
+          />
+          <small>Column A = kit name, B = item, D = qty. Labour rows are detected automatically.</small>
+        </label>
+      </div>
+
       <div className="ops-table">
-        <div className="ops-table-head"><span>Pre-build</span><span>Category</span><span>Lines</span><span /><span /></div>
+        <div className="ops-table-head"><span>Kit</span><span>Category</span><span>Lines</span><span /><span /></div>
         {kits.map((kit) => (
           <div className="ops-table-row" key={kit.id}>
             <strong>{kit.name}</strong>
@@ -590,10 +653,10 @@ export function SetupPrebuildsPanel({
             </button>
           </div>
         ))}
-        {!kits.length ? <p className="muted">No pre-builds yet.</p> : null}
+        {!kits.length ? <p className="muted">No kits yet — import your Excel template or add one below.</p> : null}
       </div>
       <div className="ops-form-grid">
-        <label>Name<input value={draft.name} onChange={(e) => setDraft((c) => ({ ...c, name: e.target.value }))} placeholder="e.g. Combi boiler install kit" /></label>
+        <label>Name<input value={draft.name} onChange={(e) => setDraft((c) => ({ ...c, name: e.target.value }))} placeholder="e.g. Close coupled toilet" /></label>
         <label>Category<input value={draft.category} onChange={(e) => setDraft((c) => ({ ...c, category: e.target.value }))} /></label>
         <label className="full">Notes<input value={draft.notes} onChange={(e) => setDraft((c) => ({ ...c, notes: e.target.value }))} /></label>
         <label>Material line<input value={draft.materialName} onChange={(e) => setDraft((c) => ({ ...c, materialName: e.target.value }))} placeholder="Optional starter material" /></label>
@@ -604,7 +667,7 @@ export function SetupPrebuildsPanel({
         <label>Labour £/hr<input value={draft.labourCost} onChange={(e) => setDraft((c) => ({ ...c, labourCost: e.target.value }))} /></label>
       </div>
       <button className="primary-button" type="button" disabled={busy} onClick={() => void saveKit()}>
-        <Plus size={15} /> Add pre-build
+        <Plus size={15} /> Add kit
       </button>
     </section>
   );
