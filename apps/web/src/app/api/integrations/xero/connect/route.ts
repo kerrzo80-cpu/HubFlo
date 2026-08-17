@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const started = startXeroAuthorization();
+    const started = startXeroAuthorization(request);
     return NextResponse.redirect(started.authUrl, 302);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to start Xero connect.";

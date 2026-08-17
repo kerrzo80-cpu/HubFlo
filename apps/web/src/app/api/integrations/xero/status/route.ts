@@ -9,5 +9,5 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  return NextResponse.json(getXeroAuthStatus());
+  return NextResponse.json(getXeroAuthStatus(request));
 }

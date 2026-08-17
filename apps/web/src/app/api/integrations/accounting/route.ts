@@ -27,8 +27,8 @@ export async function GET(request: Request) {
   }
 
   const stored = getStoredAccountingProviderConfig();
-  const app = resolveXeroAppCredentials();
-  const xero = getXeroAuthStatus();
+  const app = resolveXeroAppCredentials(request);
+  const xero = getXeroAuthStatus(request);
 
   return NextResponse.json({
     provider: getAccountingProvider(),
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
       clientIdSet: Boolean(app.clientId),
       clientSecretSet: Boolean(app.clientSecret),
       redirectUri: app.redirectUri,
-      defaultRedirectUri: defaultXeroRedirectUri(),
+      defaultRedirectUri: defaultXeroRedirectUri(request),
       redirectUrisToRegister: [XERO_PILOT_CALLBACK_URI, XERO_LIVE_CALLBACK_URI],
       /** Masked preview for Setup form (never return secret). */
       clientIdPreview: stored.xeroClientId
@@ -99,7 +99,7 @@ export async function POST(request: Request) {
   return NextResponse.json({
     ok: true,
     provider: saved.provider || "none",
-    xero: getXeroAuthStatus(),
-    app: resolveXeroAppCredentials(),
+    xero: getXeroAuthStatus(request),
+    app: resolveXeroAppCredentials(request),
   });
 }

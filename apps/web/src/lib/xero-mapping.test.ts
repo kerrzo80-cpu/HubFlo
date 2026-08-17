@@ -6,7 +6,6 @@ import {
   mergeXeroCostCentreMappings,
   normalizeXeroDefaultAccounts,
   normalizeXeroTaxCodeMappings,
-  SEEDED_XERO_DEFAULT_ACCOUNTS,
 } from "./xero-mapping";
 
 test("seeds simPRO default account codes", () => {
@@ -16,10 +15,11 @@ test("seeds simPRO default account codes", () => {
   assert.equal(defaults.expense.accountCode, "310");
   assert.equal(defaults.expense.taxType, "INPUT2");
   assert.equal(defaults.contractorInvoice.accountCode, "312");
-  assert.equal(defaults.retentionAsset.accountCode, "502");
-  assert.equal(defaults.freight.accountCode, "433");
+  assert.equal(defaults.retentionAsset.accountCode, "630");
+  assert.equal(defaults.retentionAsset.accountName, "Retention");
+  assert.equal(defaults.freight.accountCode, "429");
   assert.equal(defaults.freight.taxType, "EXEMPTINPUT");
-  assert.equal(defaults.cisTaxSuffered.accountCode, "825");
+  assert.equal(defaults.cisTaxSuffered.accountCode, "821");
   assert.equal(defaults.cisLiability.accountCode, "826");
   assert.equal(defaults.deposit.accountName, "Petty Cash");
   assert.equal(defaults.deposit.accountCode, "");
@@ -82,7 +82,13 @@ test("matchXeroAccount prefers code then petty-cash name", () => {
   assert.equal(matchXeroAccount({ accountCode: "", accountName: "Petty Cash" }, accounts)?.code, "090");
 });
 
-test("default seed object matches screenshot income/expense", () => {
-  assert.equal(SEEDED_XERO_DEFAULT_ACCOUNTS.income.accountName, "Sales");
-  assert.equal(SEEDED_XERO_DEFAULT_ACCOUNTS.expense.accountName, "Cost of Goods Sold");
+test("superseded first-dump codes move to the current screenshot", () => {
+  const defaults = normalizeXeroDefaultAccounts({
+    retentionAsset: { accountCode: "502", accountName: "Retentions", taxType: "NONE" },
+    freight: { accountCode: "433", accountName: "Postage, Freight & Courier", taxType: "EXEMPTINPUT" },
+    cisTaxSuffered: { accountCode: "825", accountName: "CIS Liability", taxType: "NONE" },
+  });
+  assert.equal(defaults.retentionAsset.accountCode, "630");
+  assert.equal(defaults.freight.accountCode, "429");
+  assert.equal(defaults.cisTaxSuffered.accountCode, "821");
 });

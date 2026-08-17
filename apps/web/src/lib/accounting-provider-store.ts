@@ -2,17 +2,20 @@ import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
 /**
  * Per-workspace accounting connector settings.
- * Platform/env Xero app credentials remain an optional fallback; companies
- * normally pick a provider and connect from Setup (simPRO-style), without a
- * Render environment per customer.
+ *
+ * Xero OAuth: one NeXa/HubFlo Web App registered by the platform. Client ID
+ * and secret live on Render (`XERO_CLIENT_ID` / `XERO_CLIENT_SECRET`). Offices
+ * never open developer.xero.com — they click Connect, sign in on Xero, and
+ * approve NeXa for their organisation.
  */
+
 const STORE_NAME = "nexa-accounting-provider-v1";
 
 export type AccountingProvider = "none" | "xero" | "quickbooks" | "sage";
 
 export type StoredAccountingProviderConfig = {
   provider?: AccountingProvider;
-  /** Optional in-app Xero OAuth app (overrides env when set). */
+  /** Leftover/local-only Xero app credentials. Production uses Render env. */
   xeroClientId?: string;
   xeroClientSecret?: string;
   xeroRedirectUri?: string;
@@ -34,7 +37,7 @@ export const ACCOUNTING_PROVIDER_OPTIONS: Array<{
   {
     key: "xero",
     label: "Xero",
-    detail: "Connect your Xero organisation from Setup — same pattern as simPRO.",
+    detail: "Sign in to Xero and approve NeXa — no developer account.",
     available: true,
   },
   {
@@ -70,14 +73,14 @@ export function saveAccountingProviderConfig(
   const next: StoredAccountingProviderConfig = {
     provider: input.provider ?? existing.provider ?? "none",
     xeroClientId:
-      input.xeroClientId !== undefined ? input.xeroClientId.trim() : existing.xeroClientId,
+      input.xeroClientId !== undefined ? sanitizeXeroCredential(input.xeroClientId) : existing.xeroClientId,
     xeroClientSecret:
       input.xeroClientSecret !== undefined
-        ? input.xeroClientSecret.trim()
+        ? sanitizeXeroCredential(input.xeroClientSecret)
         : existing.xeroClientSecret,
     xeroRedirectUri:
       input.xeroRedirectUri !== undefined
-        ? input.xeroRedirectUri.trim()
+        ? sanitizeXeroCredential(input.xeroRedirectUri)
         : existing.xeroRedirectUri,
     updatedAt: new Date().toISOString(),
   };
@@ -87,6 +90,40 @@ export function saveAccountingProviderConfig(
 
 export const XERO_PILOT_CALLBACK_URI = "https://nexa-pilot.onrender.com/api/integrations/xero/callback";
 export const XERO_LIVE_CALLBACK_URI = "https://nexa-live.onrender.com/api/integrations/xero/callback";
+
+/** Strip env-dashboard typos (wrapping quotes / whitespace) that make Xero reject the client. */
+export function sanitizeXeroCredential(value: unknown) {
+  let text = String(value ?? "").trim();
+  if (
+    (text.startsWith('"') && text.endsWith('"') && text.length >= 2) ||
+    (text.startsWith("'") && text.endsWith("'") && text.length >= 2)
+  ) {
+    text = text.slice(1, -1).trim();
+  }
+  return text;
+}
+
+const PLACEHOLDER_CLIENT_ID =
+  /^(your[-_ ]?client[-_ ]?id|changeme|placeholder|dummy|example|x+|test([-_ ]?client[-_ ]?id)?|todo|client[_-]?id|nexa[-_ ]?client[-_ ]?id)$/i;
+const PLACEHOLDER_CLIENT_SECRET =
+  /^(changeme|placeholder|dummy|secret|your[-_ ]?client[-_ ]?secret|x+)$/i;
+
+export function isUsableXeroClientId(value: unknown) {
+  const id = sanitizeXeroCredential(value);
+  if (id.length < 20) return false;
+  if (PLACEHOLDER_CLIENT_ID.test(id)) return false;
+  const compact = id.replace(/-/g, "");
+  if (compact.length < 20) return false;
+  if (/^(.)\1+$/.test(compact)) return false;
+  return true;
+}
+
+export function isUsableXeroClientSecret(value: unknown) {
+  const secret = sanitizeXeroCredential(value);
+  if (secret.length < 8) return false;
+  if (PLACEHOLDER_CLIENT_SECRET.test(secret)) return false;
+  return true;
+}
 
 export function nexaPublicOrigin(request?: Request) {
   const fromEnv = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || "";
@@ -106,25 +143,38 @@ export function nexaPublicOrigin(request?: Request) {
     : "https://nexa-pilot.onrender.com";
 }
 
-/** This deploy’s callback — must be listed exactly in the Xero developer app. */
+/** This deploy’s callback — listed once on the platform NeXa Xero app, not per customer. */
 export function defaultXeroRedirectUri(request?: Request) {
   return `${nexaPublicOrigin(request)}/api/integrations/xero/callback`;
 }
 
-/** Resolve Xero OAuth app identity: env wins, then Setup-saved credentials. */
+/**
+ * Resolve the platform Xero Web App identity.
+ * Render env is the intended source. Stored Setup values are a last-resort
+ * leftover (not an office path) and are ignored if they look like placeholders.
+ */
 export function resolveXeroAppCredentials(request?: Request) {
   const stored = getStoredAccountingProviderConfig();
-  const envClientId = process.env.XERO_CLIENT_ID?.trim() || "";
-  const envClientSecret = process.env.XERO_CLIENT_SECRET?.trim() || "";
-  const envRedirect = process.env.XERO_REDIRECT_URI?.trim() || "";
+  const envClientId = sanitizeXeroCredential(process.env.XERO_CLIENT_ID);
+  const envClientSecret = sanitizeXeroCredential(process.env.XERO_CLIENT_SECRET);
+  const envRedirect = sanitizeXeroCredential(process.env.XERO_REDIRECT_URI);
+  const storedClientId = sanitizeXeroCredential(stored.xeroClientId);
+  const storedClientSecret = sanitizeXeroCredential(stored.xeroClientSecret);
 
-  const clientId = envClientId || stored.xeroClientId?.trim() || "";
-  const clientSecret = envClientSecret || stored.xeroClientSecret?.trim() || "";
+  const envReady = isUsableXeroClientId(envClientId) && isUsableXeroClientSecret(envClientSecret);
+  const storedReady =
+    !envClientId &&
+    !envClientSecret &&
+    isUsableXeroClientId(storedClientId) &&
+    isUsableXeroClientSecret(storedClientSecret);
+
+  const clientId = envReady ? envClientId : storedReady ? storedClientId : "";
+  const clientSecret = envReady ? envClientSecret : storedReady ? storedClientSecret : "";
   const redirectUri = envRedirect || defaultXeroRedirectUri(request);
 
   let source: "env" | "setup" | "none" = "none";
-  if (envClientId && envClientSecret) source = "env";
-  else if (stored.xeroClientId?.trim() && stored.xeroClientSecret?.trim()) source = "setup";
+  if (envReady) source = "env";
+  else if (storedReady) source = "setup";
 
   return {
     clientId,
@@ -132,6 +182,6 @@ export function resolveXeroAppCredentials(request?: Request) {
     redirectUri,
     source,
     ready: Boolean(clientId && clientSecret && redirectUri),
-    hasSetupCredentials: Boolean(stored.xeroClientId?.trim() && stored.xeroClientSecret?.trim()),
+    hasSetupCredentials: storedReady,
   };
 }

@@ -61,9 +61,10 @@ test("xeroAccountCodesFromFinanceSettings reads nested codes, payment alias and 
   assert.equal(codes.contractorInvoice, "312");
 });
 
-test("retention seed is 502 when not overridden", () => {
+test("retention seed is 630 when not overridden", () => {
   const codes = xeroAccountCodesFromFinanceSettings({});
-  assert.equal(codes.salesRetention, "502");
-  assert.equal(codes.freight, "433");
+  assert.equal(codes.salesRetention, "630");
+  assert.equal(codes.freight, "429");
+  assert.equal(codes.cisTaxSuffered, "821");
 });
 

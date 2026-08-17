@@ -67,13 +67,20 @@ export const SEEDED_XERO_DEFAULT_ACCOUNTS: Record<XeroDefaultAccountKey, XeroMap
   deposit: { ...PETTY },
   expense: { accountCode: "310", accountName: "Cost of Goods Sold", taxType: "INPUT2" },
   contractorInvoice: { accountCode: "312", accountName: "Sub-Contractors", taxType: "INPUT2" },
-  retentionAsset: { accountCode: "502", accountName: "Retentions", taxType: "NONE" },
+  retentionAsset: { accountCode: "630", accountName: "Retention", taxType: "NONE" },
   retentionLiability: { ...PETTY },
   financeCharge: { ...PETTY },
-  freight: { accountCode: "433", accountName: "Postage, Freight & Courier", taxType: "EXEMPTINPUT" },
+  freight: { accountCode: "429", accountName: "Postage, Freight & Courier", taxType: "EXEMPTINPUT" },
   restockingFee: { ...PETTY },
-  cisTaxSuffered: { accountCode: "825", accountName: "CIS Liability", taxType: "NONE" },
+  cisTaxSuffered: { accountCode: "821", accountName: "CIS Liability", taxType: "NONE" },
   cisLiability: { accountCode: "826", accountName: "CIS Asset", taxType: "NONE" },
+};
+
+/** First simPRO dump codes that this screenshot replaced — migrate if still exactly those seeds. */
+const SUPERSEDED_XERO_DEFAULT_CODES: Partial<Record<XeroDefaultAccountKey, string[]>> = {
+  retentionAsset: ["502"],
+  freight: ["433"],
+  cisTaxSuffered: ["825"],
 };
 
 export const XERO_DEFAULT_ACCOUNT_FIELDS: Array<{
@@ -154,9 +161,18 @@ function clean(value: unknown) {
   return String(value ?? "").trim();
 }
 
-function slot(raw: Partial<XeroMappedSlot> | undefined, seed: XeroMappedSlot): XeroMappedSlot {
+function slot(
+  key: XeroDefaultAccountKey,
+  raw: Partial<XeroMappedSlot> | undefined,
+  seed: XeroMappedSlot,
+): XeroMappedSlot {
+  const superseded = SUPERSEDED_XERO_DEFAULT_CODES[key];
+  const storedCode = raw && "accountCode" in raw ? clean(raw.accountCode) : "";
+  if (superseded?.includes(storedCode)) {
+    return { ...seed };
+  }
   return {
-    accountCode: raw && "accountCode" in raw ? clean(raw.accountCode) : seed.accountCode,
+    accountCode: raw && "accountCode" in raw ? storedCode : seed.accountCode,
     accountName: clean(raw?.accountName) || seed.accountName,
     taxType: clean(raw?.taxType) || seed.taxType,
   };
@@ -168,7 +184,7 @@ export function normalizeXeroDefaultAccounts(
   const raw = input && typeof input === "object" ? input : {};
   const next = {} as Record<XeroDefaultAccountKey, XeroMappedSlot>;
   for (const field of XERO_DEFAULT_ACCOUNT_FIELDS) {
-    next[field.key] = slot(raw[field.key], SEEDED_XERO_DEFAULT_ACCOUNTS[field.key]);
+    next[field.key] = slot(field.key, raw[field.key], SEEDED_XERO_DEFAULT_ACCOUNTS[field.key]);
   }
   return next;
 }

@@ -3781,8 +3781,8 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Working bridge",
     },
     Xero: {
-      summary: "Connect Xero with Xero’s own login, then map defaults, cost centres and tax codes like simPRO.",
-      focus: ["Connect organisation", "Default account mapping", "Cost centres and tax codes"],
+      summary: "Click Connect Xero, sign in to Xero, and approve NeXa. You don’t need a developer account. Then map defaults, cost centres and tax codes.",
+      focus: ["Sign in and approve NeXa", "Default account mapping", "Cost centres and tax codes"],
       status: "Editable now",
     },
     SumUp: {
@@ -3830,8 +3830,8 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Threshold in Workflow rules",
     },
     Xero: {
-      summary: "Connect Xero with Xero’s own login, then map defaults, cost centres and tax codes like simPRO.",
-      focus: ["Connect organisation", "Default account mapping", "Cost centres and tax codes"],
+      summary: "Click Connect Xero, sign in to Xero, and approve NeXa. You don’t need a developer account. Then map defaults, cost centres and tax codes.",
+      focus: ["Sign in and approve NeXa", "Default account mapping", "Cost centres and tax codes"],
       status: "Editable now",
     },
   },
@@ -8778,7 +8778,6 @@ export default function CoreApp() {
   const [simproReconnectStatus, setSimproReconnectStatus] = useState<SimproReconnectStatus | null>(null);
   const [xeroConnectionStatus, setXeroConnectionStatus] = useState<XeroConnectionStatus | null>(null);
   const [accountingSetupStatus, setAccountingSetupStatus] = useState<AccountingSetupStatus | null>(null);
-  const [xeroAppDraft, setXeroAppDraft] = useState({ clientId: "", clientSecret: "", redirectUri: "" });
   const [xeroCatalog, setXeroCatalog] = useState<{ accounts: XeroChartAccount[]; taxRates: XeroChartTaxRate[]; error?: string }>({
     accounts: [],
     taxRates: [],
@@ -20291,11 +20290,6 @@ export default function CoreApp() {
       const body = (await response.json()) as AccountingSetupStatus;
       setAccountingSetupStatus(body);
       setXeroConnectionStatus(body.xero);
-      setXeroAppDraft((current) => ({
-        clientId: current.clientId,
-        clientSecret: current.clientSecret,
-        redirectUri: current.redirectUri || body.xeroApp.redirectUri || body.xeroApp.defaultRedirectUri,
-      }));
       if (!options?.silent) {
         const providerLabel =
           body.options.find((item) => item.key === body.provider)?.label || body.provider;
@@ -20303,8 +20297,8 @@ export default function CoreApp() {
           body.xero.configured
             ? `${providerLabel} connected${body.xero.tenantName ? ` · ${body.xero.tenantName}` : ""}.`
             : body.xero.canConnect
-              ? `${providerLabel} app ready — click Connect to authorise your organisation.`
-              : "Choose Xero under Setup → Finance, save Client ID / Secret, then Connect (no Render env per company).",
+              ? `${providerLabel} is ready — click Connect Xero, sign in, and approve NeXa.`
+              : "NeXa’s Xero app is not set on this server yet. Ask whoever hosts NeXa to set it on Render, then click Connect Xero. You don’t need a developer account.",
         );
       }
       return body;
@@ -20333,39 +20327,13 @@ export default function CoreApp() {
       await refreshAccountingSetupStatus({ silent: true });
       showNotice(
         provider === "xero"
-          ? "Xero selected. Save your Xero app credentials below (if needed), then Connect."
+          ? "Xero selected. Click Connect Xero, sign in, and approve NeXa. You don’t need a developer account."
           : provider === "none"
             ? "Accounts set to CSV only."
             : "Provider saved.",
       );
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to save accounts provider.");
-    } finally {
-      setIsSavingAccountingSetup(false);
-    }
-  }
-
-  async function saveXeroAppCredentialsFromSetup() {
-    setIsSavingAccountingSetup(true);
-    try {
-      const response = await fetch("/api/integrations/accounting", {
-        method: "POST",
-        headers: { ...requestHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider: "xero",
-          ...(xeroAppDraft.clientId.trim() ? { xeroClientId: xeroAppDraft.clientId.trim() } : {}),
-          ...(xeroAppDraft.clientSecret.trim() ? { xeroClientSecret: xeroAppDraft.clientSecret.trim() } : {}),
-          ...(xeroAppDraft.redirectUri.trim() ? { xeroRedirectUri: xeroAppDraft.redirectUri.trim() } : {}),
-        }),
-      });
-      const body = (await response.json().catch(() => null)) as { error?: string; xero?: XeroConnectionStatus } | null;
-      if (!response.ok) throw new Error(body?.error || "Unable to save Xero app credentials.");
-      if (body?.xero) setXeroConnectionStatus(body.xero);
-      await refreshAccountingSetupStatus({ silent: true });
-      setXeroAppDraft((current) => ({ ...current, clientId: "", clientSecret: "" }));
-      showNotice("Xero app credentials saved in Finance. Click Connect Xero to authorise your organisation.");
-    } catch (error) {
-      showNotice(error instanceof Error ? error.message : "Unable to save Xero credentials.");
     } finally {
       setIsSavingAccountingSetup(false);
     }
@@ -20396,7 +20364,7 @@ export default function CoreApp() {
       if (statusBody && !statusBody.xero.canConnect) {
         showNotice(
           statusBody.xero.officeMessage ||
-            "Xero is not set up on this server yet. Ask office IT to set XERO_CLIENT_ID and XERO_CLIENT_SECRET, then click Connect Xero.",
+            "NeXa’s Xero app is not set on this server yet. Ask whoever hosts NeXa to set XERO_CLIENT_ID on Render, then click Connect Xero. You don’t need a developer account.",
         );
         setIsConnectingXero(false);
         return;
@@ -34635,8 +34603,13 @@ export default function CoreApp() {
                   <button
                     className="primary-button"
                     type="button"
-                    disabled={isConnectingXero}
+                    disabled={isConnectingXero || xeroConnectionStatus?.canConnect === false}
                     onClick={() => void connectXeroOAuth()}
+                    title={
+                      xeroConnectionStatus?.canConnect === false
+                        ? "NeXa’s Xero app is not set on this server yet. You don’t need a developer account."
+                        : "Opens Xero so you can sign in and approve NeXa"
+                    }
                   >
                     {isConnectingXero
                       ? "Opening Xero…"
@@ -43734,7 +43707,7 @@ export default function CoreApp() {
                           ? "Token stored"
                           : xeroConnectionStatus?.canConnect
                             ? "Connect available"
-                            : "App credentials needed"}
+                            : "Waiting for NeXa’s Xero app"}
                       </strong>
                       <small>
                         {xeroConnectionStatus?.officeMessage ||
@@ -43754,8 +43727,13 @@ export default function CoreApp() {
                     <button
                       className="primary-button"
                       type="button"
-                      disabled={isConnectingXero}
+                      disabled={isConnectingXero || xeroConnectionStatus?.canConnect === false}
                       onClick={() => void connectXeroOAuth()}
+                      title={
+                        xeroConnectionStatus?.canConnect === false
+                          ? "NeXa’s Xero app is not set on this server yet. You don’t need a developer account."
+                          : "Opens Xero so you can sign in and approve NeXa"
+                      }
                     >
                       {isConnectingXero
                         ? "Opening Xero…"
@@ -48246,8 +48224,8 @@ export default function CoreApp() {
                           <span className="permission-heading">Finance</span>
                           <h2>Xero</h2>
                           <p>
-                            Click Connect Xero to open Xero’s login. Sign in on Xero (not in NeXa), then map defaults,
-                            cost centres and tax codes the same way as simPRO.
+                            Click Connect Xero. You’ll sign in to Xero and approve NeXa. You don’t need a Xero developer
+                            account — then map defaults, cost centres and tax codes.
                           </p>
                         </div>
                         <div className="setup-template-actions">
@@ -48268,9 +48246,13 @@ export default function CoreApp() {
 	                              <button
 	                                className="primary-button"
 	                                type="button"
-	                                disabled={isConnectingXero}
+	                                disabled={isConnectingXero || xeroConnectionStatus?.canConnect === false}
 	                                onClick={() => void connectXeroOAuth()}
-	                                title="Opens Xero’s login so you can sign in on Xero"
+	                                title={
+	                                  xeroConnectionStatus?.canConnect === false
+	                                    ? "NeXa’s Xero app is not set on this server yet. You don’t need a developer account."
+	                                    : "Opens Xero so you can sign in and approve NeXa"
+	                                }
 	                              >
 	                                {isConnectingXero
 	                                  ? "Opening Xero…"
@@ -48296,15 +48278,8 @@ export default function CoreApp() {
 	                            </div>
 	                          </header>
 	                          <small>
-	                            Connect opens Xero’s own login screen. Enter your Xero email and password there — NeXa never
-	                            collects them. Redirect URIs to paste in developer.xero.com:{" "}
-	                            {(accountingSetupStatus?.xeroApp.redirectUrisToRegister ||
-	                              xeroConnectionStatus?.redirectUrisToRegister || [
-	                                "https://nexa-pilot.onrender.com/api/integrations/xero/callback",
-	                                "https://nexa-live.onrender.com/api/integrations/xero/callback",
-	                              ]
-	                            ).join("  and  ")}
-	                            .
+	                            You’ll sign in to Xero and approve NeXa. You don’t need a developer account. NeXa never asks
+	                            for your Xero password.
 	                          </small>
 	                          {xeroConnectionStatus?.officeMessage && !xeroConnectionStatus.configured ? (
 	                            <p className="ops-module-error">{xeroConnectionStatus.officeMessage}</p>
@@ -48335,63 +48310,11 @@ export default function CoreApp() {
 	                            </label>
 	                          </div>
 	                          {(accountingSetupStatus?.provider || xeroConnectionStatus?.provider || "none") === "xero" ? (
-	                            <>
-	                              <div className="setup-form-grid">
-	                                <label className="span-2">
-	                                  Xero Client ID
-	                                  <input
-	                                    value={xeroAppDraft.clientId}
-	                                    onChange={(event) => setXeroAppDraft((current) => ({ ...current, clientId: event.target.value }))}
-	                                    placeholder={
-	                                      accountingSetupStatus?.xeroApp.clientIdPreview ||
-	                                      "Paste from developer.xero.com (or leave blank if platform env is set)"
-	                                    }
-	                                    autoComplete="off"
-	                                  />
-	                                </label>
-	                                <label className="span-2">
-	                                  Xero Client Secret
-	                                  <input
-	                                    type="password"
-	                                    value={xeroAppDraft.clientSecret}
-	                                    onChange={(event) => setXeroAppDraft((current) => ({ ...current, clientSecret: event.target.value }))}
-	                                    placeholder={
-	                                      accountingSetupStatus?.xeroApp.clientSecretSet
-	                                        ? "Saved — paste only to replace"
-	                                        : "Paste Client Secret"
-	                                    }
-	                                    autoComplete="new-password"
-	                                  />
-	                                </label>
-	                                <label className="span-2">
-	                                  Redirect URI (this deploy)
-	                                  <input
-	                                    value={
-	                                      xeroConnectionStatus?.redirectUri ||
-	                                      accountingSetupStatus?.xeroApp.redirectUri ||
-	                                      accountingSetupStatus?.xeroApp.defaultRedirectUri ||
-	                                      ""
-	                                    }
-	                                    readOnly
-	                                  />
-	                                </label>
-	                              </div>
-	                              <div className="setup-inline-actions">
-	                                <button
-	                                  className="primary-button"
-	                                  type="button"
-	                                  disabled={isSavingAccountingSetup}
-	                                  onClick={() => void saveXeroAppCredentialsFromSetup()}
-	                                >
-	                                  {isSavingAccountingSetup ? "Saving…" : "Save Xero app credentials"}
-	                                </button>
-	                              </div>
-	                              <small>
-	                                Create a Xero app at developer.xero.com if office IT has not already. Paste Client ID / Secret only if they are not on Render.
-	                                This is not your Xero login. Credentials source: {xeroConnectionStatus?.credentialSource || accountingSetupStatus?.xeroApp.source || "none"}
-	                                {xeroConnectionStatus?.tenantName ? ` · Organisation: ${xeroConnectionStatus.tenantName}` : ""}.
-	                              </small>
-	                            </>
+	                            <small>
+	                              {xeroConnectionStatus?.canConnect
+	                                ? `Ready to connect${xeroConnectionStatus?.tenantName ? ` · ${xeroConnectionStatus.tenantName}` : ""}.`
+	                                : "Waiting for the NeXa Xero app on this server. The person who hosts NeXa sets that once — you only sign in on Xero."}
+	                            </small>
 	                          ) : (
 	                            <small>CSV export still works from the Xero module when no live accounts system is connected.</small>
 	                          )}
@@ -48399,7 +48322,7 @@ export default function CoreApp() {
 	                            <article>
 	                              <span>App credentials</span>
 	                              <strong>{xeroConnectionStatus?.canConnect ? "Ready" : "Needed"}</strong>
-	                              <small>{xeroConnectionStatus?.canConnect ? "Connect Xero to open Xero login." : "Render env or Save Client ID / Secret first."}</small>
+	                              <small>{xeroConnectionStatus?.canConnect ? "Click Connect, sign in to Xero, and approve NeXa." : "Waiting for the platform Xero app on this server."}</small>
 	                            </article>
 	                            <article>
 	                              <span>Organisation</span>
@@ -48408,7 +48331,7 @@ export default function CoreApp() {
 	                                  ? xeroConnectionStatus.tenantName || "Connected"
 	                                  : "Not connected"}
 	                              </strong>
-	                              <small>Authorised when you click Connect Xero.</small>
+	                              <small>Authorised when you click Connect Xero and approve NeXa.</small>
 	                            </article>
 	                            <article>
 	                              <span>Export queues</span>

@@ -47,9 +47,17 @@ const STORE = "nexa-xero-auth-v1";
 const tokenStore = loadServerStore<XeroAuthStore>(STORE, {});
 const XERO_AUTHORIZE_URL = "https://login.xero.com/identity/connect/authorize";
 const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
+const XERO_DEFAULT_SCOPES =
+  "openid profile email offline_access accounting.transactions accounting.contacts accounting.settings";
+
+export const XERO_OFFICE_CONNECT_COPY =
+  "Click Connect Xero. You’ll sign in to Xero and approve NeXa for your organisation. You don’t need a Xero developer account. NeXa never asks for your Xero password.";
 
 export const XERO_MISSING_CREDENTIALS_MESSAGE =
-  "Xero is not set up on this server yet. Ask office IT to set XERO_CLIENT_ID and XERO_CLIENT_SECRET on Render (nexa-pilot / nexa-live). Then click Connect Xero — you sign in on Xero’s website, not in NeXa. Do not enter your Xero password here.";
+  "NeXa’s Xero app is not set up on this server yet. You don’t need a developer account — you only sign in to Xero and approve NeXa. Ask the person who hosts NeXa to set XERO_CLIENT_ID and XERO_CLIENT_SECRET on Render (nexa-pilot and nexa-live, one shared NeXa Web App), then click Connect Xero again.";
+
+export const XERO_UNAUTHORIZED_CLIENT_MESSAGE =
+  "Xero did not recognise NeXa’s app on this server (unknown or disabled Client ID). You still don’t need a developer account. Ask the person who hosts NeXa to check XERO_CLIENT_ID / XERO_CLIENT_SECRET on Render — they must be the enabled NeXa Web App, not a draft or Custom Connection — then try Connect Xero again.";
 
 function persistTokenStore() {
   tokenStore.updatedAt = new Date().toISOString();
@@ -61,10 +69,7 @@ function env(name: string) {
 }
 
 function scopes() {
-  return (
-    env("XERO_SCOPES") ||
-    "openid profile email offline_access accounting.transactions accounting.contacts accounting.settings.read"
-  );
+  return env("XERO_SCOPES") || XERO_DEFAULT_SCOPES;
 }
 
 function base64Url(buffer: Buffer) {
@@ -82,21 +87,30 @@ export function xeroRedirectUrisToRegister() {
 }
 
 export function getXeroOfficeMessage(appReady = resolveXeroAppCredentials().ready) {
-  if (appReady) {
-    return `Click Connect Xero to open Xero’s login. Sign in with your Xero email and password on Xero — NeXa never asks for them. Redirect URIs to paste in the Xero developer app: ${xeroRedirectUrisToRegister().join("  and  ")}.`;
-  }
-  return XERO_MISSING_CREDENTIALS_MESSAGE;
+  return appReady ? XERO_OFFICE_CONNECT_COPY : XERO_MISSING_CREDENTIALS_MESSAGE;
 }
 
-export function getXeroAuthStatus(): XeroAuthStatus {
-  const app = resolveXeroAppCredentials();
+export function officeMessageForXeroOAuthError(error: string, description?: string) {
+  const code = error.trim().toLowerCase();
+  const detail = `${description || ""} ${error}`.toLowerCase();
+  if (code === "unauthorized_client" || detail.includes("unknown client") || detail.includes("client not enabled")) {
+    return XERO_UNAUTHORIZED_CLIENT_MESSAGE;
+  }
+  if (code === "access_denied") {
+    return "Xero connect was cancelled. Click Connect Xero again when you are ready to approve NeXa.";
+  }
+  return (description || error || "Xero connect failed.").trim();
+}
+
+export function getXeroAuthStatus(request?: Request): XeroAuthStatus {
+  const app = resolveXeroAppCredentials(request);
   const provider = getAccountingProvider();
   const tenantId = env("XERO_TENANT_ID") || tokenStore.tenantId || "";
   const staticToken = env("XERO_ACCESS_TOKEN");
   const missing: string[] = [];
 
-  if (!app.clientId) missing.push("Xero Client ID (Setup or Render env)");
-  if (!app.clientSecret) missing.push("Xero Client Secret (Setup or Render env)");
+  if (!app.clientId) missing.push("Platform XERO_CLIENT_ID on Render");
+  if (!app.clientSecret) missing.push("Platform XERO_CLIENT_SECRET on Render");
   if (!app.redirectUri) missing.push("Xero redirect URI");
 
   const hasRefreshToken = Boolean(tokenStore.refreshToken?.trim());
@@ -149,8 +163,8 @@ export function clearXeroConnection() {
   persistTokenStore();
 }
 
-export function startXeroAuthorization() {
-  const app = resolveXeroAppCredentials();
+export function startXeroAuthorization(request?: Request) {
+  const app = resolveXeroAppCredentials(request);
   if (!app.ready) {
     throw new Error(XERO_MISSING_CREDENTIALS_MESSAGE);
   }
@@ -172,8 +186,8 @@ export function startXeroAuthorization() {
   return { authUrl: url.toString(), redirectUri: app.redirectUri, state };
 }
 
-async function xeroTokenRequest(body: URLSearchParams) {
-  const app = resolveXeroAppCredentials();
+async function xeroTokenRequest(body: URLSearchParams, request?: Request) {
+  const app = resolveXeroAppCredentials(request);
   const response = await fetch(XERO_TOKEN_URL, {
     method: "POST",
     headers: {
@@ -235,8 +249,11 @@ export async function resolveXeroAccessToken() {
   return env("XERO_ACCESS_TOKEN") || tokenStore.accessToken || "";
 }
 
-export async function exchangeXeroAuthorizationCode(code: string, options?: { tenantIdHint?: string; state?: string }) {
-  const app = resolveXeroAppCredentials();
+export async function exchangeXeroAuthorizationCode(
+  code: string,
+  options?: { tenantIdHint?: string; state?: string; request?: Request },
+) {
+  const app = resolveXeroAppCredentials(options?.request);
   if (!app.ready) {
     throw new Error(XERO_MISSING_CREDENTIALS_MESSAGE);
   }
@@ -252,13 +269,14 @@ export async function exchangeXeroAuthorizationCode(code: string, options?: { te
   });
   if (tokenStore.codeVerifier) tokenBody.set("code_verifier", tokenStore.codeVerifier);
 
-  const { response, json } = await xeroTokenRequest(tokenBody);
+  const { response, json } = await xeroTokenRequest(tokenBody, options?.request);
   if (!response.ok) {
-    throw new Error(
+    const errorCode = typeof json.error === "string" ? json.error : "";
+    const description =
       (typeof json.error_description === "string" && json.error_description) ||
-        (typeof json.error === "string" && json.error) ||
-        `Xero code exchange failed (${response.status}).`,
-    );
+      errorCode ||
+      `Xero code exchange failed (${response.status}).`;
+    throw new Error(officeMessageForXeroOAuthError(errorCode || "error", description));
   }
 
   const accessToken = typeof json.access_token === "string" ? json.access_token : "";

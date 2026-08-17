@@ -23,7 +23,7 @@ export type XeroAccountCodes = {
   salesMaterials: string;
   /** Deposit invoices */
   salesDeposit: string;
-  /** Retention release invoices */
+  /** Retention release invoices (office chart 630 Retention) */
   salesRetention: string;
   /** Credit notes */
   salesCreditNote: string;
@@ -37,7 +37,7 @@ export type XeroAccountCodes = {
   contractorInvoice: string;
   /** Postage / freight overhead */
   freight: string;
-  /** CIS tax suffered (screenshot: 825 CIS Liability) */
+  /** CIS tax suffered (office chart 821 CIS Liability) */
   cisTaxSuffered: string;
   /** CIS liability (screenshot: 826 CIS Asset) */
   cisLiability: string;
@@ -48,14 +48,14 @@ export const DEFAULT_XERO_ACCOUNT_CODES: XeroAccountCodes = {
   salesLabour: "",
   salesMaterials: "",
   salesDeposit: "",
-  salesRetention: "502",
+  salesRetention: "630",
   salesCreditNote: "",
   salesCis: "",
   purchaseBill: "310",
   paymentBank: "",
   contractorInvoice: "312",
-  freight: "433",
-  cisTaxSuffered: "825",
+  freight: "429",
+  cisTaxSuffered: "821",
   cisLiability: "826",
 };
 
@@ -71,9 +71,10 @@ export type XeroSalesClaimType =
   | string
   | undefined;
 
-function cleanCode(value: unknown, fallback = "") {
+function cleanCode(value: unknown, fallback = "", superseded: string[] = []) {
   const text = String(value ?? "").trim();
-  return text || fallback;
+  if (!text || superseded.includes(text)) return fallback;
+  return text;
 }
 
 export function normalizeXeroAccountCodes(input?: Partial<XeroAccountCodes> | null): XeroAccountCodes {
@@ -83,14 +84,14 @@ export function normalizeXeroAccountCodes(input?: Partial<XeroAccountCodes> | nu
     salesLabour: cleanCode(raw.salesLabour),
     salesMaterials: cleanCode(raw.salesMaterials),
     salesDeposit: cleanCode(raw.salesDeposit),
-    salesRetention: cleanCode(raw.salesRetention, DEFAULT_XERO_ACCOUNT_CODES.salesRetention),
+    salesRetention: cleanCode(raw.salesRetention, DEFAULT_XERO_ACCOUNT_CODES.salesRetention, ["502"]),
     salesCreditNote: cleanCode(raw.salesCreditNote),
     salesCis: cleanCode(raw.salesCis),
     purchaseBill: cleanCode(raw.purchaseBill, DEFAULT_XERO_ACCOUNT_CODES.purchaseBill),
     paymentBank: cleanCode(raw.paymentBank),
     contractorInvoice: cleanCode(raw.contractorInvoice, DEFAULT_XERO_ACCOUNT_CODES.contractorInvoice),
-    freight: cleanCode(raw.freight, DEFAULT_XERO_ACCOUNT_CODES.freight),
-    cisTaxSuffered: cleanCode(raw.cisTaxSuffered, DEFAULT_XERO_ACCOUNT_CODES.cisTaxSuffered),
+    freight: cleanCode(raw.freight, DEFAULT_XERO_ACCOUNT_CODES.freight, ["433"]),
+    cisTaxSuffered: cleanCode(raw.cisTaxSuffered, DEFAULT_XERO_ACCOUNT_CODES.cisTaxSuffered, ["825"]),
     cisLiability: cleanCode(raw.cisLiability, DEFAULT_XERO_ACCOUNT_CODES.cisLiability),
   };
 }
@@ -261,8 +262,8 @@ export const XERO_ACCOUNT_CODE_FIELDS: Array<{
   {
     key: "salesRetention",
     label: "Retention release",
-    hint: "Retention release invoices (simPRO 502 Retentions)",
-    placeholder: "502",
+    hint: "Retention release invoices (office chart 630 Retention)",
+    placeholder: "630",
   },
   {
     key: "salesCreditNote",
@@ -291,19 +292,19 @@ export const XERO_ACCOUNT_CODE_FIELDS: Array<{
   {
     key: "freight",
     label: "Freight",
-    hint: "Postage, freight & courier (simPRO 433)",
-    placeholder: "433",
+    hint: "Postage, freight & courier (office chart 429)",
+    placeholder: "429",
   },
   {
     key: "cisTaxSuffered",
     label: "CIS tax suffered",
-    hint: "simPRO 825 CIS Liability",
-    placeholder: "825",
+    hint: "Office chart 821 CIS Liability",
+    placeholder: "821",
   },
   {
     key: "cisLiability",
     label: "CIS liability",
-    hint: "simPRO 826 CIS Asset",
+    hint: "Office chart 826 CIS Asset",
     placeholder: "826",
   },
   {
