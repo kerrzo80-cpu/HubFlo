@@ -28,6 +28,12 @@ services:
         sync: false
       - key: NEXT_PUBLIC_APP_URL
         value: https://nexa-pilot.onrender.com
+      - key: XERO_CLIENT_ID
+        sync: false
+      - key: XERO_CLIENT_SECRET
+        sync: false
+      - key: XERO_REDIRECT_URI
+        value: https://nexa-pilot.onrender.com/api/integrations/xero/callback
       # simPRO — prefer OAuth refresh (same pattern as nexa-live)
       - key: SIMPRO_BASE_URL
         sync: false

@@ -17,6 +17,7 @@ const publicApiPrefixes = [
   "/api/invoice-portal",
   "/api/client-portal",
   "/api/integrations/sumup/webhook",
+  "/api/integrations/xero/callback",
 ];
 const userAuthPublicPaths = new Set([
   "/api/auth/login",

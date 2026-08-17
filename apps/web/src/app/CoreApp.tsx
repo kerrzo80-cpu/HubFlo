@@ -146,10 +146,22 @@ import {
 import { compareReferenceDesc, numberedReference } from "@/lib/numbering";
 import {
   DEFAULT_XERO_ACCOUNT_CODES,
-  XERO_ACCOUNT_CODE_FIELDS,
   normalizeXeroAccountCodes,
+  xeroAccountCodesFromDefaultAccounts,
   type XeroAccountCodes,
 } from "@/lib/xero-account-codes";
+import {
+  mergeXeroCostCentreMappings,
+  normalizeXeroDefaultAccounts,
+  normalizeXeroTaxCodeMappings,
+  type XeroChartAccount,
+  type XeroChartTaxRate,
+  type XeroCostCentreMapping,
+  type XeroDefaultAccountKey,
+  type XeroMappedSlot,
+  type XeroTaxCodeMapping,
+} from "@/lib/xero-mapping";
+import { XeroMappingPanel } from "@/lib/XeroMappingPanel";
 import {
   DIRECTORY_ALPHABET_LETTERS,
   filterDirectoryList,
@@ -1915,6 +1927,9 @@ type FinanceSettings = {
   deletedLabourRateIds?: string[];
   /** simPRO-style Xero chart mapping for sales / bills / payments. */
   xeroAccountCodes?: XeroAccountCodes;
+  xeroDefaultAccounts?: Record<XeroDefaultAccountKey, XeroMappedSlot>;
+  xeroCostCentreMappings?: XeroCostCentreMapping[];
+  xeroTaxCodeMappings?: XeroTaxCodeMapping[];
 };
 
 type IntegrationMode = "Not connected" | "Queued handoff" | "One-way push" | "Two-way sync";
@@ -2432,13 +2447,14 @@ type XeroConnectionStatus = {
   hasRefreshToken: boolean;
   hasAccessToken: boolean;
   accessTokenExpiresAt?: string;
-  authUrl?: string;
   checkedAt: string;
   credentialSource?: "env" | "setup" | "none";
   provider?: "none" | "xero" | "quickbooks" | "sage";
   canConnect?: boolean;
   redirectUri?: string;
+  redirectUrisToRegister?: string[];
   tenantName?: string;
+  officeMessage?: string;
 };
 
 type AccountingProviderOption = {
@@ -2459,6 +2475,7 @@ type AccountingSetupStatus = {
     clientSecretSet: boolean;
     redirectUri: string;
     defaultRedirectUri: string;
+    redirectUrisToRegister?: string[];
     clientIdPreview: string;
   };
   xero: XeroConnectionStatus;
@@ -3510,7 +3527,7 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "tax-codes", label: "Tax codes", detail: "VAT treatments mapped for Xero" },
   { key: "email-templates", label: "Email templates", detail: "Quote, invoice, PO and follow-up wording" },
   { key: "security", label: "Security groups", detail: "Role permission templates for employee cards" },
-  { key: "integrations", label: "Integrations", detail: "API keys and software bridges that connect tools into NeXa", subItems: ["Blake AI", "simPRO", "SumUp", "Import from simPRO"] },
+  { key: "integrations", label: "Integrations", detail: "API keys and software bridges that connect tools into NeXa", subItems: ["Blake AI", "simPRO", "Xero", "SumUp", "Import from simPRO"] },
   { key: "communications", label: "Communications", detail: "Mailbox (Outlook / Gmail / iCloud), WhatsApp and supplier doorway settings", subItems: ["Outlook", "WhatsApp", "Supplier emails"] },
   { key: "finance", label: "Finance", detail: "Invoices, VAT, payment terms, Xero accounts and approval gates", subItems: ["Invoices", "Valuations", "PO approvals", "Xero"] },
 ];
@@ -3763,6 +3780,11 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       focus: ["Connection status", "One-way quote and job push", "Scheduler handoff readiness"],
       status: "Working bridge",
     },
+    Xero: {
+      summary: "Connect Xero with Xero’s own login, then map defaults, cost centres and tax codes like simPRO.",
+      focus: ["Connect organisation", "Default account mapping", "Cost centres and tax codes"],
+      status: "Editable now",
+    },
     SumUp: {
       summary: "Connect SumUp for hosted checkout on the invoice portal. Merchant code and API key live here.",
       focus: ["API key", "Merchant code", "Pay online on invoice portal"],
@@ -3808,8 +3830,8 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Threshold in Workflow rules",
     },
     Xero: {
-      summary: "Connect Xero and map sales types to chart codes — standard, CIS, retention, deposits — like simPRO’s Xero setup.",
-      focus: ["Connect organisation", "Map sales / CIS / retention codes", "Tax codes under Setup → Tax codes"],
+      summary: "Connect Xero with Xero’s own login, then map defaults, cost centres and tax codes like simPRO.",
+      focus: ["Connect organisation", "Default account mapping", "Cost centres and tax codes"],
       status: "Editable now",
     },
   },
@@ -4653,6 +4675,9 @@ const defaultFinanceSettings: FinanceSettings = {
   labourRates: defaultLabourRateSettings,
   deletedLabourRateIds: [],
   xeroAccountCodes: { ...DEFAULT_XERO_ACCOUNT_CODES },
+  xeroDefaultAccounts: normalizeXeroDefaultAccounts(),
+  xeroCostCentreMappings: mergeXeroCostCentreMappings(),
+  xeroTaxCodeMappings: normalizeXeroTaxCodeMappings(),
 };
 
 const integrationModes: IntegrationMode[] = ["Not connected", "Queued handoff", "One-way push", "Two-way sync"];
@@ -7348,9 +7373,13 @@ function normalizeFinanceSettings(settings?: Partial<FinanceSettings>): FinanceS
     ...settings,
     labourRates: [...defaultRates, ...extraRates],
     deletedLabourRateIds,
-    xeroAccountCodes: normalizeXeroAccountCodes(
-      (settings as FinanceSettings).xeroAccountCodes || defaultFinanceSettings.xeroAccountCodes,
-    ),
+    xeroDefaultAccounts: normalizeXeroDefaultAccounts((settings as FinanceSettings)?.xeroDefaultAccounts),
+    xeroCostCentreMappings: mergeXeroCostCentreMappings((settings as FinanceSettings)?.xeroCostCentreMappings),
+    xeroTaxCodeMappings: normalizeXeroTaxCodeMappings((settings as FinanceSettings)?.xeroTaxCodeMappings),
+    xeroAccountCodes: normalizeXeroAccountCodes({
+      ...xeroAccountCodesFromDefaultAccounts((settings as FinanceSettings)?.xeroDefaultAccounts),
+      ...((settings as FinanceSettings).xeroAccountCodes || defaultFinanceSettings.xeroAccountCodes),
+    }),
   };
 }
 
@@ -8750,6 +8779,10 @@ export default function CoreApp() {
   const [xeroConnectionStatus, setXeroConnectionStatus] = useState<XeroConnectionStatus | null>(null);
   const [accountingSetupStatus, setAccountingSetupStatus] = useState<AccountingSetupStatus | null>(null);
   const [xeroAppDraft, setXeroAppDraft] = useState({ clientId: "", clientSecret: "", redirectUri: "" });
+  const [xeroCatalog, setXeroCatalog] = useState<{ accounts: XeroChartAccount[]; taxRates: XeroChartTaxRate[]; error?: string }>({
+    accounts: [],
+    taxRates: [],
+  });
   const [isSavingAccountingSetup, setIsSavingAccountingSetup] = useState(false);
   const [isConnectingXero, setIsConnectingXero] = useState(false);
   const [selectedSimproImportEntities, setSelectedSimproImportEntities] = useState<SimproSyncEntity[]>(
@@ -8921,6 +8954,10 @@ export default function CoreApp() {
   );
 
   const normalizedFinanceSettings = useMemo(() => normalizeFinanceSettings(financeSettings), [financeSettings]);
+  const xeroCostCentreMappings = useMemo(
+    () => mergeXeroCostCentreMappings(normalizedFinanceSettings.xeroCostCentreMappings, costCentreTypeOptions),
+    [costCentreTypeOptions, normalizedFinanceSettings.xeroCostCentreMappings],
+  );
   const numberingSetupRows = useMemo(
     () => [
       {
@@ -12242,6 +12279,9 @@ export default function CoreApp() {
     const message = params.get("message");
     if (xeroResult === "connected") {
       showNotice("Xero connected. Invoice export can use the live API when a tenant is present.");
+      setHomeView("settings");
+      setActiveSetupCategory("finance");
+      setActiveSetupSubItem("Xero");
       void (async () => {
         try {
           const response = await fetch("/api/integrations/xero/status", { headers: requestHeaders });
@@ -12258,6 +12298,51 @@ export default function CoreApp() {
     const next = params.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`);
   }, [hasHydratedLocalData]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData) return;
+    const onXeroSetup =
+      (homeView === "settings" &&
+        ((activeSetupCategory === "finance" && activeSetupSubItem === "Xero") ||
+          (activeSetupCategory === "integrations" && activeSetupSubItem === "Xero"))) ||
+      homeView === "xero";
+    if (!onXeroSetup || !xeroConnectionStatus?.configured) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/integrations/xero/catalog", { headers: requestHeaders });
+        const body = (await response.json().catch(() => null)) as {
+          accounts?: XeroChartAccount[];
+          taxRates?: XeroChartTaxRate[];
+          error?: string;
+        } | null;
+        if (cancelled) return;
+        setXeroCatalog({
+          accounts: body?.accounts || [],
+          taxRates: body?.taxRates || [],
+          error: body?.error,
+        });
+      } catch (error) {
+        if (!cancelled) {
+          setXeroCatalog({
+            accounts: [],
+            taxRates: [],
+            error: error instanceof Error ? error.message : "Unable to load Xero chart.",
+          });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeSetupCategory,
+    activeSetupSubItem,
+    hasHydratedLocalData,
+    homeView,
+    requestHeaders,
+    xeroConnectionStatus?.configured,
+  ]);
 
   useEffect(() => {
     // Stock cost rollup only matters for Reports / Stock — don't compete with hub hydrate.
@@ -16813,17 +16898,41 @@ export default function CoreApp() {
     setFinanceSettings((current) => ({ ...current, ...patch }));
   }
 
-  function updateXeroAccountCode(key: keyof XeroAccountCodes, value: string) {
+  function updateXeroDefaultAccount(key: XeroDefaultAccountKey, next: XeroMappedSlot) {
     markSetupEdited();
-    const cleaned = value.trim();
+    setFinanceSettings((current) => {
+      const xeroDefaultAccounts = {
+        ...normalizeXeroDefaultAccounts(current.xeroDefaultAccounts),
+        [key]: next,
+      };
+      return {
+        ...current,
+        xeroDefaultAccounts,
+        xeroAccountCodes: normalizeXeroAccountCodes({
+          ...normalizeXeroAccountCodes(current.xeroAccountCodes),
+          ...xeroAccountCodesFromDefaultAccounts(xeroDefaultAccounts),
+        }),
+      };
+    });
+  }
+
+  function updateXeroCostCentreMapping(costCentre: string, patch: Partial<XeroCostCentreMapping>) {
+    markSetupEdited();
     setFinanceSettings((current) => ({
       ...current,
-      xeroAccountCodes: {
-        ...normalizeXeroAccountCodes(current.xeroAccountCodes),
-        [key]: cleaned,
-      },
-      // Alias for payment-push readers that look at financeSettings.xeroPaymentAccountCode.
-      ...(key === "paymentBank" ? ({ xeroPaymentAccountCode: cleaned } as Partial<FinanceSettings>) : {}),
+      xeroCostCentreMappings: mergeXeroCostCentreMappings(current.xeroCostCentreMappings, costCentreTypeOptions).map(
+        (row) => (row.costCentre === costCentre ? { ...row, ...patch } : row),
+      ),
+    }));
+  }
+
+  function updateXeroTaxCodeMapping(code: string, patch: Partial<XeroTaxCodeMapping>) {
+    markSetupEdited();
+    setFinanceSettings((current) => ({
+      ...current,
+      xeroTaxCodeMappings: normalizeXeroTaxCodeMappings(current.xeroTaxCodeMappings).map((row) =>
+        row.code === code ? { ...row, ...patch } : row,
+      ),
     }));
   }
 
@@ -20283,16 +20392,16 @@ export default function CoreApp() {
   async function connectXeroOAuth() {
     setIsConnectingXero(true);
     try {
-      await refreshAccountingSetupStatus({ silent: true });
-      const response = await fetch("/api/integrations/xero/connect", { headers: requestHeaders });
-      const body = (await response.json().catch(() => null)) as
-        | { authUrl?: string; error?: string; status?: XeroConnectionStatus }
-        | null;
-      if (body?.status) setXeroConnectionStatus(body.status);
-      if (!response.ok || !body?.authUrl) {
-        throw new Error(body?.error || "Unable to start Xero OAuth connect.");
+      const statusBody = await refreshAccountingSetupStatus({ silent: true });
+      if (statusBody && !statusBody.xero.canConnect) {
+        showNotice(
+          statusBody.xero.officeMessage ||
+            "Xero is not set up on this server yet. Ask office IT to set XERO_CLIENT_ID and XERO_CLIENT_SECRET, then click Connect Xero.",
+        );
+        setIsConnectingXero(false);
+        return;
       }
-      window.location.assign(body.authUrl);
+      window.location.assign("/api/integrations/xero/connect");
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to start Xero connect.");
       setIsConnectingXero(false);
@@ -34524,6 +34633,18 @@ export default function CoreApp() {
                     Back to dashboard
                   </button>
                   <button
+                    className="primary-button"
+                    type="button"
+                    disabled={isConnectingXero}
+                    onClick={() => void connectXeroOAuth()}
+                  >
+                    {isConnectingXero
+                      ? "Opening Xero…"
+                      : xeroConnectionStatus?.configured
+                        ? "Reconnect Xero"
+                        : "Connect Xero"}
+                  </button>
+                  <button
                     className="secondary-button"
                     type="button"
                     onClick={() => {
@@ -43302,8 +43423,8 @@ export default function CoreApp() {
                 </div>
                 <span className={`status-pill ${xeroConnectionStatus?.configured ? "green" : "amber"}`}>
                   {xeroConnectionStatus?.configured
-                    ? `Connected · ${xeroConnectionStatus.mode}`
-                    : xeroConnectionStatus?.authUrl
+                    ? `Connected${xeroConnectionStatus.tenantName ? ` · ${xeroConnectionStatus.tenantName}` : ""}`
+                    : xeroConnectionStatus?.canConnect
                       ? "Ready to connect"
                       : "CSV / setup needed"}
                 </span>
@@ -43598,43 +43719,50 @@ export default function CoreApp() {
                       <small>{xeroConnectionStatus?.mode || "CSV fallback available"}</small>
                     </article>
                     <article>
-                      <span>Tenant</span>
-                      <strong>{xeroConnectionStatus?.tenantIdPresent ? "Present" : "Missing"}</strong>
-                      <small>{integrationSettings.xeroTenantName || "Organisation not named yet"}</small>
+                      <span>Organisation</span>
+                      <strong>
+                        {xeroConnectionStatus?.configured
+                          ? xeroConnectionStatus.tenantName || integrationSettings.xeroTenantName || "Connected"
+                          : "Not connected"}
+                      </strong>
+                      <small>{xeroConnectionStatus?.tenantIdPresent ? "Tenant id stored" : "Click Connect Xero"}</small>
                     </article>
                     <article>
                       <span>OAuth</span>
                       <strong>
                         {xeroConnectionStatus?.hasRefreshToken
                           ? "Token stored"
-                          : xeroConnectionStatus?.authUrl
+                          : xeroConnectionStatus?.canConnect
                             ? "Connect available"
-                            : "Env incomplete"}
+                            : "App credentials needed"}
                       </strong>
                       <small>
-                        {xeroConnectionStatus?.missing?.length
-                          ? `Missing: ${xeroConnectionStatus.missing.join(", ")}`
-                          : "Live push when a token is present; otherwise CSV import pack."}
+                        {xeroConnectionStatus?.officeMessage ||
+                          (xeroConnectionStatus?.missing?.length
+                            ? `Missing: ${xeroConnectionStatus.missing.join(", ")}`
+                            : "Live push when connected; otherwise CSV pack.")}
                       </small>
                     </article>
                   </div>
+                  {xeroConnectionStatus?.officeMessage && !xeroConnectionStatus.configured ? (
+                    <p className="muted" style={{ marginTop: "0.75rem" }}>{xeroConnectionStatus.officeMessage}</p>
+                  ) : null}
                   <div className="setup-template-actions" style={{ marginTop: "1rem" }}>
                     <button className="secondary-button" type="button" onClick={() => void recheckXeroConfiguration()}>
                       Recheck connection
                     </button>
-                    {xeroConnectionStatus?.authUrl ? (
-                      <button
-                        className="primary-button"
-                        type="button"
-                        disabled={isConnectingXero}
-                        onClick={() => {
-                          setIsConnectingXero(true);
-                          window.location.href = xeroConnectionStatus.authUrl!;
-                        }}
-                      >
-                        {isConnectingXero ? "Opening Xero…" : "Connect Xero"}
-                      </button>
-                    ) : null}
+                    <button
+                      className="primary-button"
+                      type="button"
+                      disabled={isConnectingXero}
+                      onClick={() => void connectXeroOAuth()}
+                    >
+                      {isConnectingXero
+                        ? "Opening Xero…"
+                        : xeroConnectionStatus?.configured
+                          ? "Reconnect Xero"
+                          : "Connect Xero"}
+                    </button>
                     <button
                       className="secondary-button"
                       type="button"
@@ -48110,15 +48238,16 @@ export default function CoreApp() {
                     </section>
                   ) : null}
 
-                  {activeSetupCategory === "finance" && activeSetupSubItem === "Xero" ? (
+                  {(activeSetupCategory === "finance" && activeSetupSubItem === "Xero") ||
+                  (activeSetupCategory === "integrations" && activeSetupSubItem === "Xero") ? (
                     <section className="setup-panel">
                       <div className="documents-toolbar">
                         <div>
                           <span className="permission-heading">Finance</span>
                           <h2>Xero</h2>
                           <p>
-                            Connect Xero, then map sales types to your chart of accounts — same idea as simPRO’s Xero setup
-                            (standard, CIS, retention, deposits, credit notes).
+                            Click Connect Xero to open Xero’s login. Sign in on Xero (not in NeXa), then map defaults,
+                            cost centres and tax codes the same way as simPRO.
                           </p>
                         </div>
                         <div className="setup-template-actions">
@@ -48139,17 +48268,13 @@ export default function CoreApp() {
 	                              <button
 	                                className="primary-button"
 	                                type="button"
-	                                disabled={isConnectingXero || !xeroConnectionStatus?.canConnect}
+	                                disabled={isConnectingXero}
 	                                onClick={() => void connectXeroOAuth()}
-	                                title={
-	                                  xeroConnectionStatus?.canConnect
-	                                    ? "Authorise your Xero organisation"
-	                                    : "Save Xero Client ID and Secret below first"
-	                                }
+	                                title="Opens Xero’s login so you can sign in on Xero"
 	                              >
 	                                {isConnectingXero
 	                                  ? "Opening Xero…"
-	                                  : xeroConnectionStatus?.hasRefreshToken
+	                                  : xeroConnectionStatus?.hasRefreshToken || xeroConnectionStatus?.configured
 	                                    ? "Reconnect Xero"
 	                                    : "Connect Xero"}
 	                              </button>
@@ -48171,9 +48296,19 @@ export default function CoreApp() {
 	                            </div>
 	                          </header>
 	                          <small>
-	                            Connect Xero under Finance — each company authorises their own organisation here.
-	                            No Render environment variables per company. QuickBooks and Sage will use this same Finance pattern.
+	                            Connect opens Xero’s own login screen. Enter your Xero email and password there — NeXa never
+	                            collects them. Redirect URIs to paste in developer.xero.com:{" "}
+	                            {(accountingSetupStatus?.xeroApp.redirectUrisToRegister ||
+	                              xeroConnectionStatus?.redirectUrisToRegister || [
+	                                "https://nexa-pilot.onrender.com/api/integrations/xero/callback",
+	                                "https://nexa-live.onrender.com/api/integrations/xero/callback",
+	                              ]
+	                            ).join("  and  ")}
+	                            .
 	                          </small>
+	                          {xeroConnectionStatus?.officeMessage && !xeroConnectionStatus.configured ? (
+	                            <p className="ops-module-error">{xeroConnectionStatus.officeMessage}</p>
+	                          ) : null}
 	                          <div className="setup-form-grid">
 	                            <label className="span-2">
 	                              Accounts system
@@ -48229,11 +48364,15 @@ export default function CoreApp() {
 	                                  />
 	                                </label>
 	                                <label className="span-2">
-	                                  Redirect URI
+	                                  Redirect URI (this deploy)
 	                                  <input
-	                                    value={xeroAppDraft.redirectUri}
-	                                    onChange={(event) => setXeroAppDraft((current) => ({ ...current, redirectUri: event.target.value }))}
-	                                    placeholder={accountingSetupStatus?.xeroApp.defaultRedirectUri || "https://…/api/integrations/xero/callback"}
+	                                    value={
+	                                      xeroConnectionStatus?.redirectUri ||
+	                                      accountingSetupStatus?.xeroApp.redirectUri ||
+	                                      accountingSetupStatus?.xeroApp.defaultRedirectUri ||
+	                                      ""
+	                                    }
+	                                    readOnly
 	                                  />
 	                                </label>
 	                              </div>
@@ -48248,8 +48387,8 @@ export default function CoreApp() {
 	                                </button>
 	                              </div>
 	                              <small>
-	                                Create a free Xero app at developer.xero.com, add the redirect URI above, then paste Client ID / Secret here and Connect.
-	                                Credentials source: {xeroConnectionStatus?.credentialSource || accountingSetupStatus?.xeroApp.source || "none"}
+	                                Create a Xero app at developer.xero.com if office IT has not already. Paste Client ID / Secret only if they are not on Render.
+	                                This is not your Xero login. Credentials source: {xeroConnectionStatus?.credentialSource || accountingSetupStatus?.xeroApp.source || "none"}
 	                                {xeroConnectionStatus?.tenantName ? ` · Organisation: ${xeroConnectionStatus.tenantName}` : ""}.
 	                              </small>
 	                            </>
@@ -48259,8 +48398,8 @@ export default function CoreApp() {
 	                          <div className="setup-readiness-grid setup-sync-grid">
 	                            <article>
 	                              <span>App credentials</span>
-	                              <strong>{xeroConnectionStatus?.canConnect ? "Ready" : "Needed in Finance"}</strong>
-	                              <small>Saved in this workspace — not a Render env per company.</small>
+	                              <strong>{xeroConnectionStatus?.canConnect ? "Ready" : "Needed"}</strong>
+	                              <small>{xeroConnectionStatus?.canConnect ? "Connect Xero to open Xero login." : "Render env or Save Client ID / Secret first."}</small>
 	                            </article>
 	                            <article>
 	                              <span>Organisation</span>
@@ -48284,33 +48423,18 @@ export default function CoreApp() {
 	                          </div>
 	                        </article>
 
-                        <article className="setup-integration-card">
-                          <header>
-                            <div>
-                              <span>Chart of accounts</span>
-                              <strong>Sales & bill codes</strong>
-                            </div>
-                          </header>
-                          <small>
-                            Enter the Xero account codes from your chart of accounts. Blank optional fields fall back to
-                            Standard sales. Tax types still come from Setup → Tax codes (OUTPUT2 / NONE / RRCOUTPUT).
-                          </small>
-                          <div className="setup-form-grid">
-                            {XERO_ACCOUNT_CODE_FIELDS.map((field) => (
-                              <label key={field.key}>
-                                {field.label}
-                                <input
-                                  value={String(normalizedFinanceSettings.xeroAccountCodes?.[field.key] ?? "")}
-                                  onChange={(event) => updateXeroAccountCode(field.key, event.target.value)}
-                                  placeholder={field.placeholder}
-                                  inputMode="numeric"
-                                  autoComplete="off"
-                                />
-                                <small>{field.hint}</small>
-                              </label>
-                            ))}
-                          </div>
-                        </article>
+                        <XeroMappingPanel
+                          connected={Boolean(xeroConnectionStatus?.configured)}
+                          catalogError={xeroCatalog.error}
+                          accounts={xeroCatalog.accounts}
+                          taxRates={xeroCatalog.taxRates}
+                          defaults={normalizeXeroDefaultAccounts(normalizedFinanceSettings.xeroDefaultAccounts)}
+                          costCentres={xeroCostCentreMappings}
+                          taxCodes={normalizeXeroTaxCodeMappings(normalizedFinanceSettings.xeroTaxCodeMappings)}
+                          onDefaultChange={updateXeroDefaultAccount}
+                          onCostCentreChange={updateXeroCostCentreMapping}
+                          onTaxCodeChange={updateXeroTaxCodeMapping}
+                        />
                       </div>
                     </section>
                   ) : null}

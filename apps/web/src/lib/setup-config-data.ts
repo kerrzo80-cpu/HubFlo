@@ -21,6 +21,8 @@ export type SetupTaxCode = {
   name: string;
   rate: number;
   xeroTaxType?: string;
+  xeroTaxTypeIncome?: string;
+  xeroTaxTypeExpense?: string;
   archived?: boolean;
 };
 
@@ -90,9 +92,12 @@ const defaults: SetupConfigStore = {
     { id: "lost-no-response", label: "No response" },
   ],
   taxCodes: [
-    { id: "tax-std", code: "OUTPUT2", name: "Standard 20%", rate: 20, xeroTaxType: "OUTPUT2" },
-    { id: "tax-zero", code: "NONE", name: "Zero rated", rate: 0, xeroTaxType: "NONE" },
-    { id: "tax-drc", code: "RRCOUT", name: "Domestic reverse charge", rate: 0, xeroTaxType: "RRCOUTPUT" },
+    { id: "tax-std", code: "OUTPUT2", name: "Standard 20%", rate: 20, xeroTaxType: "OUTPUT2", xeroTaxTypeIncome: "OUTPUT2", xeroTaxTypeExpense: "INPUT2" },
+    { id: "tax-vat", code: "VAT", name: "VAT 20%", rate: 20, xeroTaxType: "OUTPUT2", xeroTaxTypeIncome: "OUTPUT2", xeroTaxTypeExpense: "INPUT2" },
+    { id: "tax-zero", code: "NONE", name: "Zero rated", rate: 0, xeroTaxType: "ZERORATEDOUTPUT", xeroTaxTypeIncome: "ZERORATEDOUTPUT", xeroTaxTypeExpense: "ZERORATEDINPUT" },
+    { id: "tax-exc", code: "EXC", name: "Zero rated", rate: 0, xeroTaxType: "ZERORATEDOUTPUT", xeroTaxTypeIncome: "ZERORATEDOUTPUT", xeroTaxTypeExpense: "ZERORATEDINPUT" },
+    { id: "tax-drc", code: "RRCOUT", name: "Domestic reverse charge", rate: 0, xeroTaxType: "RRCOUTPUT", xeroTaxTypeIncome: "RRCOUTPUT", xeroTaxTypeExpense: "RRCINPUT" },
+    { id: "tax-code-drc", code: "DRC", name: "Domestic reverse charge", rate: 0, xeroTaxType: "RRCOUTPUT", xeroTaxTypeIncome: "RRCOUTPUT", xeroTaxTypeExpense: "RRCINPUT" },
   ],
   emailTemplates: [
     {
@@ -247,6 +252,22 @@ const defaults: SetupConfigStore = {
   ],
 };
 
+function ensureSeededTaxCodes(stored: SetupTaxCode[]): SetupTaxCode[] {
+  const byCode = new Map(stored.map((row) => [String(row.code || "").toUpperCase(), row]));
+  const next = [...stored];
+  for (const seed of defaults.taxCodes) {
+    const existing = byCode.get(seed.code.toUpperCase());
+    if (!existing) {
+      next.push(seed);
+      byCode.set(seed.code.toUpperCase(), seed);
+      continue;
+    }
+    existing.xeroTaxTypeIncome = existing.xeroTaxTypeIncome || seed.xeroTaxTypeIncome;
+    existing.xeroTaxTypeExpense = existing.xeroTaxTypeExpense || seed.xeroTaxTypeExpense;
+  }
+  return next;
+}
+
 function readStore(): SetupConfigStore {
   const stored = loadServerStore<SetupConfigStore>(STORE, defaults);
   const existingTemplates = stored.emailTemplates?.length ? stored.emailTemplates : defaults.emailTemplates;
@@ -258,7 +279,7 @@ function readStore(): SetupConfigStore {
   return {
     statuses: stored.statuses?.length ? stored.statuses : defaults.statuses,
     lostReasons: stored.lostReasons?.length ? stored.lostReasons : defaults.lostReasons,
-    taxCodes: stored.taxCodes?.length ? stored.taxCodes : defaults.taxCodes,
+    taxCodes: ensureSeededTaxCodes(stored.taxCodes?.length ? stored.taxCodes : defaults.taxCodes),
     emailTemplates: mergedTemplates,
     assetTypes: stored.assetTypes?.length ? stored.assetTypes : defaults.assetTypes,
     securityGroups: stored.securityGroups?.length ? stored.securityGroups : defaults.securityGroups,

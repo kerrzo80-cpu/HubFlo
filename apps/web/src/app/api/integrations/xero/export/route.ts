@@ -35,6 +35,7 @@ type XeroExportInvoice = {
   creditOfRef?: string;
   creditOfXeroInvoiceId?: string;
   xeroInvoiceId?: string;
+  costCentre?: string;
   lines: Array<{
     description: string;
     category: string;
@@ -44,13 +45,21 @@ type XeroExportInvoice = {
 };
 
 function exportCoding(invoice: XeroExportInvoice) {
-  const codes = xeroAccountCodesFromFinanceSettings(getHubDetailState().financeSettings);
+  const finance = getHubDetailState().financeSettings;
+  const codes = xeroAccountCodesFromFinanceSettings(finance);
   const setupTaxCodes = getSetupConfig().taxCodes;
+  const financeRecord = finance && typeof finance === "object" ? (finance as Record<string, unknown>) : {};
   const taxType = resolveSalesTaxType({
     vatRate: invoice.vatRate,
     vatTreatment: invoice.vatTreatment,
     setupTaxCodes,
+    taxCodeMappings: Array.isArray(financeRecord.xeroTaxCodeMappings)
+      ? financeRecord.xeroTaxCodeMappings
+      : undefined,
   });
+  const costCentreMappings = Array.isArray(financeRecord.xeroCostCentreMappings)
+    ? financeRecord.xeroCostCentreMappings
+    : undefined;
   return {
     codes,
     taxType,
@@ -60,6 +69,8 @@ function exportCoding(invoice: XeroExportInvoice) {
         claimType: invoice.claimType,
         lineCategory,
         cis: Boolean(invoice.cisInvoice),
+        costCentre: invoice.costCentre,
+        costCentreMappings,
       });
     },
   };

@@ -85,14 +85,34 @@ export function saveAccountingProviderConfig(
   return next;
 }
 
-export function defaultXeroRedirectUri() {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || "";
-  if (appUrl) return `${appUrl}/api/integrations/xero/callback`;
-  return "https://nexa-live.onrender.com/api/integrations/xero/callback";
+export const XERO_PILOT_CALLBACK_URI = "https://nexa-pilot.onrender.com/api/integrations/xero/callback";
+export const XERO_LIVE_CALLBACK_URI = "https://nexa-live.onrender.com/api/integrations/xero/callback";
+
+export function nexaPublicOrigin(request?: Request) {
+  const fromEnv = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || "";
+  if (fromEnv) return fromEnv;
+  if (request) {
+    const host = (request.headers.get("x-forwarded-host") || request.headers.get("host") || "").split(",")[0].trim();
+    const proto = (request.headers.get("x-forwarded-proto") || "").split(",")[0].trim() || (host.includes("localhost") ? "http" : "https");
+    if (host) return `${proto}://${host}`;
+    try {
+      return new URL(request.url).origin;
+    } catch {
+      // fall through
+    }
+  }
+  return process.env.NEXA_WORKSPACE_MODE?.trim().toLowerCase() === "live"
+    ? "https://nexa-live.onrender.com"
+    : "https://nexa-pilot.onrender.com";
+}
+
+/** This deploy’s callback — must be listed exactly in the Xero developer app. */
+export function defaultXeroRedirectUri(request?: Request) {
+  return `${nexaPublicOrigin(request)}/api/integrations/xero/callback`;
 }
 
 /** Resolve Xero OAuth app identity: env wins, then Setup-saved credentials. */
-export function resolveXeroAppCredentials() {
+export function resolveXeroAppCredentials(request?: Request) {
   const stored = getStoredAccountingProviderConfig();
   const envClientId = process.env.XERO_CLIENT_ID?.trim() || "";
   const envClientSecret = process.env.XERO_CLIENT_SECRET?.trim() || "";
@@ -100,7 +120,7 @@ export function resolveXeroAppCredentials() {
 
   const clientId = envClientId || stored.xeroClientId?.trim() || "";
   const clientSecret = envClientSecret || stored.xeroClientSecret?.trim() || "";
-  const redirectUri = envRedirect || stored.xeroRedirectUri?.trim() || defaultXeroRedirectUri();
+  const redirectUri = envRedirect || defaultXeroRedirectUri(request);
 
   let source: "env" | "setup" | "none" = "none";
   if (envClientId && envClientSecret) source = "env";

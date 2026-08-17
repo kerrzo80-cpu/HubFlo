@@ -46,6 +46,12 @@ services:
         sync: false
       - key: NEXT_PUBLIC_APP_URL
         value: https://nexa-live.onrender.com
+      - key: XERO_CLIENT_ID
+        sync: false
+      - key: XERO_CLIENT_SECRET
+        sync: false
+      - key: XERO_REDIRECT_URI
+        value: https://nexa-live.onrender.com/api/integrations/xero/callback
       # Preferred: direct simPRO OAuth for quote/job push while NeXa is the front end
       - key: SIMPRO_BASE_URL
         sync: false

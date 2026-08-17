@@ -3,6 +3,17 @@
  * Xero account codes. Configured under Setup → Finance → Xero.
  */
 
+import {
+  normalizeXeroDefaultAccounts,
+  normalizeXeroTaxCodeMappings,
+  resolveCostCentrePurchaseAccount,
+  resolveCostCentreSalesAccount,
+  type XeroCostCentreMapping,
+  type XeroDefaultAccountKey,
+  type XeroMappedSlot,
+  type XeroTaxCodeMapping,
+} from "@/lib/xero-mapping";
+
 export type XeroAccountCodes = {
   /** Standard sales / progress claims / invoice in full */
   salesStandard: string;
@@ -22,6 +33,14 @@ export type XeroAccountCodes = {
   purchaseBill: string;
   /** Bank / clearing account used when posting payments */
   paymentBank: string;
+  /** Contractor / subcontractor bills */
+  contractorInvoice: string;
+  /** Postage / freight overhead */
+  freight: string;
+  /** CIS tax suffered (screenshot: 825 CIS Liability) */
+  cisTaxSuffered: string;
+  /** CIS liability (screenshot: 826 CIS Asset) */
+  cisLiability: string;
 };
 
 export const DEFAULT_XERO_ACCOUNT_CODES: XeroAccountCodes = {
@@ -29,12 +48,18 @@ export const DEFAULT_XERO_ACCOUNT_CODES: XeroAccountCodes = {
   salesLabour: "",
   salesMaterials: "",
   salesDeposit: "",
-  salesRetention: "",
+  salesRetention: "502",
   salesCreditNote: "",
   salesCis: "",
   purchaseBill: "310",
   paymentBank: "",
+  contractorInvoice: "312",
+  freight: "433",
+  cisTaxSuffered: "825",
+  cisLiability: "826",
 };
+
+export type { XeroCostCentreMapping, XeroDefaultAccountKey, XeroMappedSlot, XeroTaxCodeMapping };
 
 export type XeroSalesClaimType =
   | "deposit"
@@ -58,11 +83,32 @@ export function normalizeXeroAccountCodes(input?: Partial<XeroAccountCodes> | nu
     salesLabour: cleanCode(raw.salesLabour),
     salesMaterials: cleanCode(raw.salesMaterials),
     salesDeposit: cleanCode(raw.salesDeposit),
-    salesRetention: cleanCode(raw.salesRetention),
+    salesRetention: cleanCode(raw.salesRetention, DEFAULT_XERO_ACCOUNT_CODES.salesRetention),
     salesCreditNote: cleanCode(raw.salesCreditNote),
     salesCis: cleanCode(raw.salesCis),
     purchaseBill: cleanCode(raw.purchaseBill, DEFAULT_XERO_ACCOUNT_CODES.purchaseBill),
     paymentBank: cleanCode(raw.paymentBank),
+    contractorInvoice: cleanCode(raw.contractorInvoice, DEFAULT_XERO_ACCOUNT_CODES.contractorInvoice),
+    freight: cleanCode(raw.freight, DEFAULT_XERO_ACCOUNT_CODES.freight),
+    cisTaxSuffered: cleanCode(raw.cisTaxSuffered, DEFAULT_XERO_ACCOUNT_CODES.cisTaxSuffered),
+    cisLiability: cleanCode(raw.cisLiability, DEFAULT_XERO_ACCOUNT_CODES.cisLiability),
+  };
+}
+
+export function xeroAccountCodesFromDefaultAccounts(
+  defaults?: Partial<Record<XeroDefaultAccountKey, Partial<XeroMappedSlot>>> | null,
+): Partial<XeroAccountCodes> {
+  const mapped = normalizeXeroDefaultAccounts(defaults);
+  return {
+    salesStandard: mapped.income.accountCode || DEFAULT_XERO_ACCOUNT_CODES.salesStandard,
+    salesDeposit: mapped.deposit.accountCode,
+    salesRetention: mapped.retentionAsset.accountCode || DEFAULT_XERO_ACCOUNT_CODES.salesRetention,
+    purchaseBill: mapped.expense.accountCode || DEFAULT_XERO_ACCOUNT_CODES.purchaseBill,
+    paymentBank: mapped.deposit.accountCode,
+    contractorInvoice: mapped.contractorInvoice.accountCode,
+    freight: mapped.freight.accountCode,
+    cisTaxSuffered: mapped.cisTaxSuffered.accountCode,
+    cisLiability: mapped.cisLiability.accountCode,
   };
 }
 
@@ -72,11 +118,16 @@ export function xeroAccountCodesFromFinanceSettings(financeSettings: unknown): X
     financeSettings && typeof financeSettings === "object"
       ? (financeSettings as Record<string, unknown>)
       : {};
-  const nested = normalizeXeroAccountCodes(
-    settings.xeroAccountCodes && typeof settings.xeroAccountCodes === "object"
+  const nested = normalizeXeroAccountCodes({
+    ...(settings.xeroDefaultAccounts && typeof settings.xeroDefaultAccounts === "object"
+      ? xeroAccountCodesFromDefaultAccounts(
+          settings.xeroDefaultAccounts as Partial<Record<XeroDefaultAccountKey, Partial<XeroMappedSlot>>>,
+        )
+      : {}),
+    ...(settings.xeroAccountCodes && typeof settings.xeroAccountCodes === "object"
       ? (settings.xeroAccountCodes as Partial<XeroAccountCodes>)
-      : null,
-  );
+      : {}),
+  });
   // Back-compat: lone payment bank field used by SumUp → Xero push.
   if (!nested.paymentBank) {
     nested.paymentBank = cleanCode(settings.xeroPaymentAccountCode);
@@ -89,12 +140,22 @@ export function resolveSalesAccountCode(options: {
   claimType?: XeroSalesClaimType;
   lineCategory?: string;
   cis?: boolean;
+  costCentre?: string;
+  costCentreMappings?: XeroCostCentreMapping[] | null;
 }) {
   const codes = normalizeXeroAccountCodes(options.codes);
   if (options.cis && codes.salesCis) return codes.salesCis;
   if (options.claimType === "credit-note" && codes.salesCreditNote) return codes.salesCreditNote;
   if (options.claimType === "retention-release" && codes.salesRetention) return codes.salesRetention;
-  if (options.claimType === "deposit" && codes.salesDeposit) return codes.salesDeposit;
+  if (options.claimType === "deposit" && (codes.salesDeposit || codes.paymentBank)) {
+    return codes.salesDeposit || codes.paymentBank;
+  }
+  const fromCostCentre = resolveCostCentreSalesAccount({
+    mappings: options.costCentreMappings,
+    costCentre: options.costCentre,
+    fallbackCode: "",
+  });
+  if (fromCostCentre) return fromCostCentre;
 
   const category = String(options.lineCategory || "").toLowerCase();
   if (category === "labour" && codes.salesLabour) return codes.salesLabour;
@@ -104,8 +165,19 @@ export function resolveSalesAccountCode(options: {
   return codes.salesStandard || DEFAULT_XERO_ACCOUNT_CODES.salesStandard;
 }
 
-export function resolvePurchaseAccountCode(codes?: Partial<XeroAccountCodes> | null) {
-  return normalizeXeroAccountCodes(codes).purchaseBill || DEFAULT_XERO_ACCOUNT_CODES.purchaseBill;
+export function resolvePurchaseAccountCode(
+  codes?: Partial<XeroAccountCodes> | null,
+  options?: { costCentre?: string; costCentreMappings?: XeroCostCentreMapping[] | null; contractor?: boolean },
+) {
+  const nested = normalizeXeroAccountCodes(codes);
+  if (options?.contractor && nested.contractorInvoice) return nested.contractorInvoice;
+  const fromCostCentre = resolveCostCentrePurchaseAccount({
+    mappings: options?.costCentreMappings,
+    costCentre: options?.costCentre,
+    fallbackCode: "",
+  });
+  if (fromCostCentre) return fromCostCentre;
+  return nested.purchaseBill || DEFAULT_XERO_ACCOUNT_CODES.purchaseBill;
 }
 
 /**
@@ -115,19 +187,35 @@ export function resolvePurchaseAccountCode(codes?: Partial<XeroAccountCodes> | n
 export function resolveSalesTaxType(options: {
   vatRate?: number;
   vatTreatment?: string;
-  setupTaxCodes?: Array<{ name?: string; code?: string; rate?: number; xeroTaxType?: string; archived?: boolean }>;
+  setupTaxCodes?: Array<{
+    name?: string;
+    code?: string;
+    rate?: number;
+    xeroTaxType?: string;
+    xeroTaxTypeIncome?: string;
+    archived?: boolean;
+  }>;
+  taxCodeMappings?: XeroTaxCodeMapping[] | null;
 }) {
   const treatment = String(options.vatTreatment || "").toLowerCase();
   const setup = (options.setupTaxCodes || []).filter((row) => !row.archived);
+  const mapped = normalizeXeroTaxCodeMappings(options.taxCodeMappings);
+
+  const mappedType = (needle: string) =>
+    mapped.find((row) => row.code.toLowerCase() === needle || row.name.toLowerCase().includes(needle))
+      ?.incomeTaxType;
 
   const byName = (needle: string) =>
-    setup.find((row) => String(row.name || "").toLowerCase().includes(needle))?.xeroTaxType?.trim();
+    setup.find((row) => String(row.name || "").toLowerCase().includes(needle) || String(row.code || "").toLowerCase() === needle)
+      ?.xeroTaxTypeIncome?.trim() ||
+    setup.find((row) => String(row.name || "").toLowerCase().includes(needle) || String(row.code || "").toLowerCase() === needle)
+      ?.xeroTaxType?.trim();
 
-  if (treatment.includes("reverse")) {
-    return byName("reverse") || byName("drc") || "RRCOUTPUT";
+  if (treatment.includes("reverse") || treatment === "drc") {
+    return byName("reverse") || byName("drc") || mappedType("drc") || "RRCOUTPUT";
   }
-  if (treatment.includes("zero")) {
-    return byName("zero") || "NONE";
+  if (treatment.includes("zero") || treatment === "exc") {
+    return byName("zero") || byName("exc") || mappedType("exc") || "ZERORATEDOUTPUT";
   }
   if (treatment.includes("custom")) {
     const rate = Number(options.vatRate) || 0;
@@ -136,8 +224,8 @@ export function resolveSalesTaxType(options: {
   }
 
   const rate = Number(options.vatRate) || 0;
-  if (rate <= 0) return byName("zero") || "NONE";
-  return byName("standard") || "OUTPUT2";
+  if (rate <= 0) return byName("zero") || mappedType("exc") || "ZERORATEDOUTPUT";
+  return byName("standard") || byName("vat") || mappedType("vat") || "OUTPUT2";
 }
 
 export const XERO_ACCOUNT_CODE_FIELDS: Array<{
@@ -173,8 +261,8 @@ export const XERO_ACCOUNT_CODE_FIELDS: Array<{
   {
     key: "salesRetention",
     label: "Retention release",
-    hint: "Retention release invoices",
-    placeholder: "Same as standard",
+    hint: "Retention release invoices (simPRO 502 Retentions)",
+    placeholder: "502",
   },
   {
     key: "salesCreditNote",
@@ -191,13 +279,37 @@ export const XERO_ACCOUNT_CODE_FIELDS: Array<{
   {
     key: "purchaseBill",
     label: "Purchase bills",
-    hint: "Supplier / PO bills",
+    hint: "Supplier / PO bills (simPRO 310 COGS)",
     placeholder: "310",
+  },
+  {
+    key: "contractorInvoice",
+    label: "Contractor invoices",
+    hint: "Subcontractor bills (simPRO 312)",
+    placeholder: "312",
+  },
+  {
+    key: "freight",
+    label: "Freight",
+    hint: "Postage, freight & courier (simPRO 433)",
+    placeholder: "433",
+  },
+  {
+    key: "cisTaxSuffered",
+    label: "CIS tax suffered",
+    hint: "simPRO 825 CIS Liability",
+    placeholder: "825",
+  },
+  {
+    key: "cisLiability",
+    label: "CIS liability",
+    hint: "simPRO 826 CIS Asset",
+    placeholder: "826",
   },
   {
     key: "paymentBank",
     label: "Payment bank / clearing",
-    hint: "Account used when posting SumUp or recorded payments into Xero",
-    placeholder: "Auto-pick bank if blank",
+    hint: "Petty Cash / bank used for deposits and posted payments",
+    placeholder: "Petty Cash if blank",
   },
 ];

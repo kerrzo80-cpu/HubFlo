@@ -4,6 +4,8 @@ import {
   ACCOUNTING_PROVIDER_OPTIONS,
   defaultXeroRedirectUri,
   getAccountingProvider,
+  XERO_LIVE_CALLBACK_URI,
+  XERO_PILOT_CALLBACK_URI,
   getStoredAccountingProviderConfig,
   resolveXeroAppCredentials,
   saveAccountingProviderConfig,
@@ -39,6 +41,7 @@ export async function GET(request: Request) {
       clientSecretSet: Boolean(app.clientSecret),
       redirectUri: app.redirectUri,
       defaultRedirectUri: defaultXeroRedirectUri(),
+      redirectUrisToRegister: [XERO_PILOT_CALLBACK_URI, XERO_LIVE_CALLBACK_URI],
       /** Masked preview for Setup form (never return secret). */
       clientIdPreview: stored.xeroClientId
         ? `${stored.xeroClientId.slice(0, 6)}…`

@@ -1,24 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { nexaPublicOrigin } from "@/lib/accounting-provider-store";
 import { exchangeXeroAuthorizationCode, getXeroAuthStatus } from "@/lib/xero-auth";
 
 export const runtime = "nodejs";
+
+function appOrigin(request: NextRequest) {
+  return nexaPublicOrigin(request);
+}
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code") || "";
   const error = url.searchParams.get("error") || "";
-  const origin = url.origin;
+  const state = url.searchParams.get("state") || "";
+  const origin = appOrigin(request);
 
   if (error) {
-    return NextResponse.redirect(`${origin}/?xero=error&message=${encodeURIComponent(error)}`);
+    const description = url.searchParams.get("error_description") || error;
+    return NextResponse.redirect(`${origin}/?xero=error&message=${encodeURIComponent(description)}`);
   }
   if (!code) {
-    return NextResponse.redirect(`${origin}/?xero=error&message=${encodeURIComponent("Missing authorisation code")}`);
+    return NextResponse.redirect(
+      `${origin}/?xero=error&message=${encodeURIComponent("Missing authorisation code")}`,
+    );
   }
 
   try {
-    await exchangeXeroAuthorizationCode(code);
+    await exchangeXeroAuthorizationCode(code, { state });
     return NextResponse.redirect(`${origin}/?xero=connected`);
   } catch (exchangeError) {
     const message = exchangeError instanceof Error ? exchangeError.message : "Xero connect failed";
@@ -27,9 +36,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const body = (await request.json().catch(() => null)) as { code?: string } | null;
+  const body = (await request.json().catch(() => null)) as { code?: string; state?: string } | null;
   try {
-    const result = await exchangeXeroAuthorizationCode(body?.code || "");
+    const result = await exchangeXeroAuthorizationCode(body?.code || "", { state: body?.state });
     return NextResponse.json({
       ok: true,
       ...result,

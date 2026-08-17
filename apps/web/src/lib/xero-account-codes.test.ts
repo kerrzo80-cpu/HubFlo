@@ -49,7 +49,7 @@ test("resolveSalesTaxType uses Setup tax codes and VAT treatment", () => {
   );
 });
 
-test("xeroAccountCodesFromFinanceSettings reads nested codes and payment alias", () => {
+test("xeroAccountCodesFromFinanceSettings reads nested codes, payment alias and default seeds", () => {
   const codes = xeroAccountCodesFromFinanceSettings({
     xeroPaymentAccountCode: "090",
     xeroAccountCodes: { salesStandard: "200", salesRetention: "241" },
@@ -57,4 +57,13 @@ test("xeroAccountCodesFromFinanceSettings reads nested codes and payment alias",
   assert.equal(codes.salesStandard, "200");
   assert.equal(codes.salesRetention, "241");
   assert.equal(codes.paymentBank, "090");
+  assert.equal(codes.purchaseBill, "310");
+  assert.equal(codes.contractorInvoice, "312");
 });
+
+test("retention seed is 502 when not overridden", () => {
+  const codes = xeroAccountCodesFromFinanceSettings({});
+  assert.equal(codes.salesRetention, "502");
+  assert.equal(codes.freight, "433");
+});
+
