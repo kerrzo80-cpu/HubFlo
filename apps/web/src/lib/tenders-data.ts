@@ -9,6 +9,7 @@ import {
   getServerStoreDirectory,
 } from "@/lib/server-store";
 import {
+  isBoqSheetEchoHeader,
   looksLikeSupplierQuoteSheetName,
   looksLikeTakeoffPipeMetreLine,
 } from "@/lib/tender-boq-sections";
@@ -1388,6 +1389,148 @@ export function deleteBoqLines(tenderId: string, lineIds: string[]) {
   if (!remove.size) throw new Error("No BoQ lines selected to delete.");
   const boqLines = existing.boqLines.filter((line) => !remove.has(line.id));
   return persistBoqLines(tenderId, boqLines);
+}
+
+function resolveBoqSheetKey(lines: TenderBoqLine[], name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const used = usedBoqSheetNames(lines);
+  if (used.has(trimmed)) return trimmed;
+  for (const key of used) {
+    if (key.toLowerCase() === trimmed.toLowerCase()) return key;
+  }
+  return null;
+}
+
+function stampBoqLineOntoSheet(line: TenderBoqLine, fromKey: string, toKey: string): TenderBoqLine {
+  const from = fromKey.trim();
+  const section = (line.section || "").trim();
+  const sheet = (line.sheet || "").trim();
+  const echoedHome = !section || section === from || section === sheet;
+  return {
+    ...line,
+    sheet: toKey,
+    section: echoedHome ? toKey : line.section,
+  };
+}
+
+/**
+ * Move selected BoQ lines onto another workbook tab (existing or new).
+ * Unique ids are kept. Other sheets are left in place — only `sheet` (and echoed
+ * section labels) change on the moved rows, then they are appended after the dest tab.
+ */
+export function moveBoqLinesToSheet(
+  tenderId: string,
+  lineIds: string[],
+  targetName: string,
+  options?: {
+    sourceSheet?: string | null;
+    mergeWholeSource?: boolean;
+    removeEmptySource?: boolean;
+  },
+): { tender: Tender; sheetKey: string; movedCount: number } {
+  const existing = getTender(tenderId);
+  if (!existing) throw new Error("Tender not found.");
+  const destInput = targetName.trim();
+  if (!destInput) throw new Error("Sheet name required.");
+
+  const sourceKey = options?.sourceSheet?.trim() || "";
+  const requested = new Set(lineIds.filter(Boolean));
+  const moveIds = new Set<string>();
+
+  if (options?.mergeWholeSource) {
+    const home = sourceKey || [...new Set(
+      existing.boqLines.filter((line) => requested.has(line.id)).map((line) => (line.sheet || "").trim()),
+    )].find(Boolean) || "";
+    if (!home) throw new Error("Sheet not found.");
+    for (const line of existing.boqLines) {
+      if ((line.sheet || "").trim() !== home) continue;
+      if (isBoqSheetEchoHeader(line)) continue;
+      moveIds.add(line.id);
+    }
+  } else {
+    for (const line of existing.boqLines) {
+      if (!requested.has(line.id)) continue;
+      if (isBoqSheetEchoHeader(line)) continue;
+      moveIds.add(line.id);
+    }
+  }
+
+  if (!moveIds.size) throw new Error("No BoQ lines selected to move.");
+
+  const existingDest = resolveBoqSheetKey(existing.boqLines, destInput);
+  const sheetKey =
+    existingDest || nextUniqueBoqSheetName(destInput, usedBoqSheetNames(existing.boqLines));
+
+  const moving: TenderBoqLine[] = [];
+  const staying: TenderBoqLine[] = [];
+  const sourceKeys = new Set<string>();
+  for (const line of existing.boqLines) {
+    if (!moveIds.has(line.id)) {
+      staying.push(line);
+      continue;
+    }
+    const from = (line.sheet || "").trim();
+    if (from) sourceKeys.add(from);
+    if (from === sheetKey) {
+      staying.push(line);
+      continue;
+    }
+    moving.push(stampBoqLineOntoSheet(line, from, sheetKey));
+  }
+
+  if (!moving.length) throw new Error("Those lines are already on that sheet.");
+
+  let kept = staying;
+  if (options?.removeEmptySource) {
+    const remainingBySheet = new Map<string, TenderBoqLine[]>();
+    for (const line of kept) {
+      const key = (line.sheet || "").trim();
+      if (!key) continue;
+      const list = remainingBySheet.get(key) || [];
+      list.push(line);
+      remainingBySheet.set(key, list);
+    }
+    const dropKeys = new Set<string>();
+    const candidates = sourceKey ? [sourceKey] : [...sourceKeys];
+    for (const key of candidates) {
+      if (!key || key === sheetKey) continue;
+      const remain = remainingBySheet.get(key) || [];
+      if (!remain.length || remain.every((line) => isBoqSheetEchoHeader(line))) {
+        dropKeys.add(key);
+      }
+    }
+    if (dropKeys.size) {
+      kept = kept.filter((line) => !dropKeys.has((line.sheet || "").trim()));
+    }
+  }
+
+  let insertAt = kept.length;
+  for (let i = kept.length - 1; i >= 0; i -= 1) {
+    if ((kept[i]?.sheet || "").trim() === sheetKey) {
+      insertAt = i + 1;
+      break;
+    }
+  }
+  const boqLines = [...kept.slice(0, insertAt), ...moving, ...kept.slice(insertAt)];
+  return { tender: persistBoqLines(tenderId, boqLines), sheetKey, movedCount: moving.length };
+}
+
+/** Move selected (or whole source tab) onto dest, then drop an emptied source tab. */
+export function mergeBoqLinesIntoSheet(
+  tenderId: string,
+  options: {
+    lineIds?: string[];
+    targetName: string;
+    sourceSheet?: string | null;
+    mergeWholeSource?: boolean;
+  },
+) {
+  return moveBoqLinesToSheet(tenderId, options.lineIds || [], options.targetName, {
+    sourceSheet: options.sourceSheet,
+    mergeWholeSource: Boolean(options.mergeWholeSource),
+    removeEmptySource: true,
+  });
 }
 
 /**

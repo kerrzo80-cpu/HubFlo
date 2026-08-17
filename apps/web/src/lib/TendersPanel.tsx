@@ -63,6 +63,19 @@ function money(value: number | null | undefined) {
 
 type TabKey = "overview" | "boq" | "documents" | "submit";
 
+const BOQ_EDITOR_ACTIONS = new Set([
+  "import-boq",
+  "clear-boq",
+  "update-boq-line",
+  "add-boq-line",
+  "delete-boq-lines",
+  "add-boq-sheet",
+  "rename-boq-sheet",
+  "delete-boq-sheet",
+  "move-boq-lines",
+  "merge-boq-lines",
+]);
+
 const DOC_KINDS: Array<{ kind: TenderDocumentKind; label: string }> = [
   { kind: "issued-boq", label: "Issued BoQ" },
   { kind: "priced-boq", label: "Priced BoQ return" },
@@ -176,6 +189,8 @@ export function TendersPanel({
   const blakeBudgetAbortRef = useRef<AbortController | null>(null);
   const [boqBlakeLineIds, setBoqBlakeLineIds] = useState<string[]>([]);
   const [boqSheetTab, setBoqSheetTab] = useState<string | null>(null);
+  const [boqSheetMoveMode, setBoqSheetMoveMode] = useState<"move" | "merge" | null>(null);
+  const [boqMoveTarget, setBoqMoveTarget] = useState("__new__");
   const [uploadTarget, setUploadTarget] = useState<DocTargetValue>("kind:drawing");
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderParent, setNewFolderParent] = useState<DocTargetValue>("kind:drawing");
@@ -212,11 +227,24 @@ export function TendersPanel({
     () => filterSelectedMeasuredLineIds(selected?.boqLines || [], boqBlakeLineIds).length,
     [boqBlakeLineIds, selected?.boqLines],
   );
+  const boqSheetHasVisibleRows = useMemo(
+    () =>
+      boqVisibleLines.some(
+        (line) => !(boqSheetTabs.length > 0 && isBoqSheetEchoHeader(line)),
+      ),
+    [boqSheetTabs.length, boqVisibleLines],
+  );
+  const boqOtherSheetTabs = useMemo(
+    () => boqSheetTabs.filter((tab) => tab.key !== activeBoqSheet),
+    [activeBoqSheet, boqSheetTabs],
+  );
 
   useEffect(() => {
     setBoqBlakeLineIds([]);
     setBoqSheetTab(null);
     setBoqImportMode("append");
+    setBoqSheetMoveMode(null);
+    setBoqMoveTarget("__new__");
   }, [selectedId]);
 
   useEffect(() => {
@@ -354,6 +382,7 @@ export function TendersPanel({
         tenders?: Tender[];
         tender?: Tender;
         sheetKey?: string;
+        movedCount?: number;
         addedSheets?: string[];
         job?: { id: string; ref: string; value?: number } | null;
         alreadyConverted?: boolean;
@@ -364,20 +393,38 @@ export function TendersPanel({
         documentsCopied?: number;
       };
       if (!response.ok) throw new Error(payload.error || "Request failed");
-      if (Array.isArray(payload.tenders)) {
-        // Lean POST responses strip boqLines to protect Render memory — keep open BoQs.
-        setTenders((current) => {
-          const previousById = new Map(current.map((row) => [row.id, row]));
-          return payload.tenders!.map((row) => {
+      const editor = payload.tender;
+      const editorIncludesBoq =
+        Boolean(editor?.id) &&
+        BOQ_EDITOR_ACTIONS.has(String(body.action || "")) &&
+        Array.isArray(editor?.boqLines);
+      // Lean POST list strips boqLines to protect Render memory. Keep the open
+      // Bill unless this action returned the full editor payload (add line / move / etc).
+      setTenders((current) => {
+        const previousById = new Map(current.map((row) => [row.id, row]));
+        let next = current;
+        if (Array.isArray(payload.tenders)) {
+          next = payload.tenders.map((row) => {
             const previous = previousById.get(row.id);
             if (previous?.boqLines?.length && !(row.boqLines && row.boqLines.length)) {
               return { ...row, boqLines: previous.boqLines, boqTitle: row.boqTitle || previous.boqTitle };
             }
             return row;
           });
-        });
-      }
-      if (payload.tender?.id) setSelectedId(payload.tender.id);
+        }
+        if (!editor?.id) return next;
+        const existingRow = next.find((row) => row.id === editor.id);
+        const merged: Tender = editorIncludesBoq
+          ? editor
+          : {
+              ...(existingRow || editor),
+              ...editor,
+              boqLines: existingRow?.boqLines?.length ? existingRow.boqLines : editor.boqLines || [],
+            };
+        if (!existingRow) return [merged, ...next];
+        return next.map((row) => (row.id === editor.id ? { ...row, ...merged } : row));
+      });
+      if (editor?.id) setSelectedId(editor.id);
       return payload;
     } finally {
       setSaving(false);
@@ -968,6 +1015,69 @@ export function TendersPanel({
       onNotice(`Deleted ${count} line${count === 1 ? "" : "s"}.`);
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "Unable to delete BoQ lines");
+    }
+  }
+
+  function openBoqSheetMove(mode: "move" | "merge") {
+    const fallback = boqOtherSheetTabs[0]?.key || "__new__";
+    setBoqMoveTarget(fallback);
+    setBoqSheetMoveMode(mode);
+  }
+
+  async function applyBoqSheetMove() {
+    if (!selected || !boqSheetMoveMode) return;
+    const lineIds = filterSelectedMeasuredLineIds(selected.boqLines, boqBlakeLineIds);
+    const mergeWholeSource =
+      boqSheetMoveMode === "merge" &&
+      Boolean(activeBoqSheet) &&
+      activeSheetMeasuredIds.length > 0 &&
+      activeSheetMeasuredIds.every((id) => lineIds.includes(id));
+    if (!lineIds.length && !mergeWholeSource) {
+      onNotice("Tick the lines you want to move, or Select sheet then Merge into tab.");
+      return;
+    }
+    let dest = boqMoveTarget.trim();
+    if (!dest || dest === "__new__") {
+      const suggested = window.prompt(
+        "New sheet tab name",
+        activeBoqSheet && /general/i.test(activeBoqSheet) ? "Heating" : "Sheet",
+      );
+      if (suggested === null) return;
+      dest = suggested.trim();
+    }
+    if (!dest) {
+      onNotice("Sheet name required.");
+      return;
+    }
+    if (activeBoqSheet && dest.toLowerCase() === activeBoqSheet.toLowerCase() && dest !== "__new__") {
+      const existingKey = boqSheetTabs.find((tab) => tab.key.toLowerCase() === dest.toLowerCase())?.key;
+      if (existingKey === activeBoqSheet) {
+        onNotice("Pick a different sheet, or type a new tab name.");
+        return;
+      }
+    }
+    try {
+      const result = await postAction({
+        action: boqSheetMoveMode === "merge" ? "merge-boq-lines" : "move-boq-lines",
+        id: selected.id,
+        lineIds,
+        sheetName: dest,
+        sourceSheet: activeBoqSheet || undefined,
+        mergeWholeSource: mergeWholeSource || undefined,
+      });
+      const sheetKey = typeof result.sheetKey === "string" ? result.sheetKey : dest;
+      const moved = typeof result.movedCount === "number" ? result.movedCount : lineIds.length;
+      setBoqSheetTab(sheetKey);
+      setBoqBlakeLineIds([]);
+      setBoqSheetMoveMode(null);
+      setTab("boq");
+      onNotice(
+        boqSheetMoveMode === "merge"
+          ? `Merged ${moved} line${moved === 1 ? "" : "s"} into “${sheetKey}”.`
+          : `Moved ${moved} line${moved === 1 ? "" : "s"} to “${sheetKey}”.`,
+      );
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to move BoQ lines");
     }
   }
 
@@ -1713,7 +1823,7 @@ export function TendersPanel({
                   Supplier priced PDF/Excel as extra lines: keep Add to BoQ (default when lines exist), then drop the file below — it appends new sheet tab(s) named from the file only (paste box is ignored and cleared). Supplier quote PDFs (Filpumps, William Wilson, etc.) merge into one tab named from the filename; other multi-page BoQ PDFs keep Page 1, Page 2…; Excel keeps worksheet names; duplicates get “ (2)”. Documents → Supplier quotes only stores the file; it does not pull lines into the bill. Use Replace BoQ only when you intend to wipe current lines.
                 </p>
                 <p className="tenders-boq-blake-note">
-                  Sheet tabs: + Sheet / Rename / Remove sheet (confirm if not empty). Lines: Add line on the active sheet, edit cells, trash a row, or tick lines and Delete selected. Tick measured lines (or a whole sheet/section header) then run Blake — only ticked lines are budget-priced. Library first, then UK trade ballpark for gaps. Guide rates only; unsure lines stay blank.
+                  Sheet tabs: + Sheet / Rename / Remove sheet. Lines: Add line on the open sheet, edit cells, trash a row, or tick lines and Delete selected / Move to sheet… / Merge into tab…. Merge selected into another tab (or new); if the whole sheet is ticked, the empty tab is removed. Tick measured lines then run Blake — only ticked lines are budget-priced. Guide rates only; unsure lines stay blank.
                 </p>
                 <div className="tenders-boq-blake-actions">
                   <button
@@ -2004,6 +2114,65 @@ export function TendersPanel({
                   <Plus size={15} />
                   Add line
                 </button>
+                {boqSheetMoveMode ? (
+                  <div className="tenders-boq-move-picker">
+                    <label>
+                      {boqSheetMoveMode === "merge" ? "Merge into" : "Move to"}
+                      <select
+                        value={boqMoveTarget}
+                        disabled={saving || blakeBudgetBusy}
+                        aria-label={
+                          boqSheetMoveMode === "merge" ? "Sheet to merge into" : "Sheet to move lines onto"
+                        }
+                        onChange={(event) => setBoqMoveTarget(event.target.value)}
+                      >
+                        {boqOtherSheetTabs.map((tab) => (
+                          <option key={tab.key} value={tab.key}>
+                            {tab.label}
+                          </option>
+                        ))}
+                        <option value="__new__">New sheet…</option>
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      className="primary-button"
+                      disabled={saving || blakeBudgetBusy}
+                      onClick={() => void applyBoqSheetMove()}
+                    >
+                      {boqSheetMoveMode === "merge" ? "Merge" : "Move"}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={saving || blakeBudgetBusy}
+                      onClick={() => setBoqSheetMoveMode(null)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={saving || blakeBudgetBusy || !boqBlakeSelectedCount}
+                      onClick={() => openBoqSheetMove("move")}
+                      title="Move ticked lines onto another sheet tab (or create a new one)"
+                    >
+                      Move to sheet…
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={saving || blakeBudgetBusy || !boqBlakeSelectedCount}
+                      onClick={() => openBoqSheetMove("merge")}
+                      title="Merge ticked lines into another tab. Tick Select sheet first to merge the whole tab and remove it when empty."
+                    >
+                      Merge into tab…
+                    </button>
+                  </>
+                )}
                 <button
                   type="button"
                   className="secondary-button"
@@ -2040,7 +2209,7 @@ export function TendersPanel({
                     </tr>
                   </thead>
                   <tbody>
-                    {boqVisibleLines.length ? (
+                    {boqSheetHasVisibleRows ? (
                       boqVisibleLines.map((line) => {
                         if (line.kind === "header") {
                           if (boqSheetTabs.length > 0 && isBoqSheetEchoHeader(line)) return null;
@@ -2271,9 +2440,22 @@ export function TendersPanel({
                     ) : (
                       <tr>
                         <td colSpan={9}>
-                          {selected.boqLines.length
-                            ? "No lines on this sheet — use Add line, or import with Add to BoQ."
-                            : "No BoQ lines yet — import their issued Excel/CSV bill, or Add line / Add sheet."}
+                          <div className="tenders-boq-empty">
+                            <span>
+                              {selected.boqLines.length
+                                ? "No lines on this sheet — add a measured line here, or import with Add to BoQ."
+                                : "No BoQ lines yet — import their issued Excel/CSV bill, or add a line / sheet."}
+                            </span>
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              disabled={saving || blakeBudgetBusy}
+                              onClick={() => void addBoqLine()}
+                            >
+                              <Plus size={15} />
+                              Add line
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )}

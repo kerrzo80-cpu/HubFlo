@@ -40296,6 +40296,42 @@ button.nexa-kpi-card,
   border-bottom: 1px solid #e2e8f0;
 }
 
+.tenders-boq-move-picker {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.tenders-boq-move-picker label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 650;
+  color: #334155;
+}
+
+.tenders-boq-move-picker select {
+  min-width: 10rem;
+  max-width: 16rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #0f172a;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.tenders-boq-empty {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+}
+
 .tenders-boq-row-actions-col {
   width: 2.25rem;
   text-align: center;

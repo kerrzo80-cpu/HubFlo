@@ -23,6 +23,8 @@ import {
   listTendersLean,
   getTender,
   markTenderSubmitted,
+  mergeBoqLinesIntoSheet,
+  moveBoqLinesToSheet,
   moveTenderDocument,
   removeTenderDocument,
   removeTenderDocumentFolder,
@@ -93,6 +95,8 @@ export async function POST(request: NextRequest) {
       | "add-boq-sheet"
       | "rename-boq-sheet"
       | "delete-boq-sheet"
+      | "move-boq-lines"
+      | "merge-boq-lines"
       | "delete-document"
       | "create-document-folder"
       | "delete-document-folder"
@@ -124,6 +128,8 @@ export async function POST(request: NextRequest) {
     appendSheetLabel?: string;
     sheetKey?: string;
     sheetName?: string;
+    sourceSheet?: string;
+    mergeWholeSource?: boolean;
     line?: Partial<TenderBoqLine>;
     tenderSum?: number;
     status?: TenderStatus;
@@ -260,6 +266,42 @@ export async function POST(request: NextRequest) {
       }
       const tender = deleteBoqSheetTab(body.id, body.sheetKey);
       return NextResponse.json({ tender, tenders: leanList() });
+    }
+
+    if (body?.action === "move-boq-lines") {
+      if (!body.id || !body.lineIds?.length || !body.sheetName?.trim()) {
+        return NextResponse.json({ error: "id, lineIds and sheetName required" }, { status: 400 });
+      }
+      const result = moveBoqLinesToSheet(body.id, body.lineIds, body.sheetName, {
+        sourceSheet: body.sourceSheet || body.sheetKey,
+      });
+      return NextResponse.json({
+        tender: result.tender,
+        tenders: leanList(),
+        sheetKey: result.sheetKey,
+        movedCount: result.movedCount,
+      });
+    }
+
+    if (body?.action === "merge-boq-lines") {
+      if (!body.id || !body.sheetName?.trim()) {
+        return NextResponse.json({ error: "id and sheetName required" }, { status: 400 });
+      }
+      if (!body.mergeWholeSource && !body.lineIds?.length) {
+        return NextResponse.json({ error: "lineIds required" }, { status: 400 });
+      }
+      const result = mergeBoqLinesIntoSheet(body.id, {
+        lineIds: body.lineIds,
+        targetName: body.sheetName,
+        sourceSheet: body.sourceSheet || body.sheetKey,
+        mergeWholeSource: Boolean(body.mergeWholeSource),
+      });
+      return NextResponse.json({
+        tender: result.tender,
+        tenders: leanList(),
+        sheetKey: result.sheetKey,
+        movedCount: result.movedCount,
+      });
     }
 
     if (body?.action === "delete-document") {
