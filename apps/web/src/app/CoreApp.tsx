@@ -3491,7 +3491,7 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "workflow-rules", label: "Triggers & rules", detail: "Quote archive triggers, lead chases, follow-ups and approval gates", subItems: ["Triggers", "Leads", "Quotes", "Approvals"] },
   { key: "imports", label: "Data import", detail: "Bring existing business records into Core", subItems: ["Employees", "Customers", "Sites", "Suppliers", "Contacts", "Contractors", "Leads", "Quotes", "Jobs", "Invoices"] },
   { key: "catalogue", label: "Catalogue import", detail: "Import and manage reusable priced items", subItems: ["Materials", "Labour", "Suppliers"] },
-  { key: "prebuilds", label: "Pre-builds", detail: "Material + labour kits that expand onto cost centres" },
+  { key: "prebuilds", label: "Kits", detail: "Material + labour kits that expand onto cost centres" },
   { key: "rates", label: "Rates & markups", detail: "Default labour rates and markup percentages", subItems: ["Labour rates", "Default markups", "Supplier pricing"] },
   { key: "stock-setup", label: "Stock locations", detail: "Warehouse and van stock locations" },
   { key: "asset-types", label: "Asset types", detail: "Gas, oil, pipework and service intervals" },
@@ -26975,13 +26975,13 @@ export default function CoreApp() {
     try {
       const response = await fetch("/api/prebuilds", { headers: requestHeaders });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Unable to load pre-builds");
+      if (!response.ok) throw new Error(body.error || "Unable to load kits");
       const kits = body.kits || [];
       setPrebuildKits(kits);
       if (!selectedPrebuildId && kits[0]?.id) setSelectedPrebuildId(kits[0].id);
       return kits as typeof prebuildKits;
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : "Unable to load pre-builds.");
+      showNotice(error instanceof Error ? error.message : "Unable to load kits.");
       return [] as typeof prebuildKits;
     }
   }
@@ -26990,7 +26990,7 @@ export default function CoreApp() {
     const kits = await ensurePrebuildKitsLoaded();
     const kit = kits.find((row) => row.id === selectedPrebuildId) || kits[0];
     if (!kit) {
-      showNotice("Create a pre-build in Setup → Pre-builds first.");
+      showNotice("Create a kit in Setup → Kits first.");
       return;
     }
     const materialMarkup = defaultMaterialMarkupPercent;
@@ -27029,7 +27029,7 @@ export default function CoreApp() {
         return { ...centre, materials, labour };
       }),
     );
-    showNotice(`Applied pre-build “${kit.name}” (${kit.lines.length} lines).`);
+    showNotice(`Applied kit “${kit.name}” (${kit.lines.length} lines).`);
   }
 
   async function applySelectedPrebuildToQuoteCentre(centreId: string) {
@@ -27037,7 +27037,7 @@ export default function CoreApp() {
     const kits = await ensurePrebuildKitsLoaded();
     const kit = kits.find((row) => row.id === selectedPrebuildId) || kits[0];
     if (!kit) {
-      showNotice("Create a pre-build in Setup → Pre-builds first.");
+      showNotice("Create a kit in Setup → Kits first.");
       return;
     }
     const materialMarkup = defaultMaterialMarkupPercent;
@@ -27069,7 +27069,7 @@ export default function CoreApp() {
         return { ...centre, lines };
       }),
     }));
-    showNotice(`Applied pre-build “${kit.name}” to ${selectedQuote.ref}.`);
+    showNotice(`Applied kit “${kit.name}” to ${selectedQuote.ref}.`);
   }
 
   function addOneOffEstimateMaterialLine(centreId: string) {
@@ -39648,13 +39648,13 @@ export default function CoreApp() {
                             </div>
                             <div className="quote-catalogue-toolbar" style={{ gap: "0.6rem", flexWrap: "wrap" }}>
                               <label>
-                                Pre-build
+                                Kit
                                 <select
                                   value={selectedPrebuildId}
                                   onFocus={() => void ensurePrebuildKitsLoaded()}
                                   onChange={(event) => setSelectedPrebuildId(event.target.value)}
                                 >
-                                  {(prebuildKits.length ? prebuildKits : [{ id: "", name: "Load pre-builds…", category: "" }]).map((kit) => (
+                                  {(prebuildKits.length ? prebuildKits : [{ id: "", name: "Load kits…", category: "" }]).map((kit) => (
                                     <option key={kit.id || "empty"} value={kit.id}>{kit.name}{kit.category ? ` · ${kit.category}` : ""}</option>
                                   ))}
                                 </select>
@@ -39668,7 +39668,7 @@ export default function CoreApp() {
                                   void applySelectedPrebuildToQuoteCentre(selectedQuoteCostCentre.id);
                                 }}
                               >
-                                Apply pre-build to cost centre
+                                Apply kit to cost centre
                               </button>
                               <button
                                 className="secondary-button"
@@ -39678,7 +39678,7 @@ export default function CoreApp() {
                                   setActiveSetupCategory("prebuilds");
                                 }}
                               >
-                                Manage pre-builds
+                                Manage kits
                               </button>
                             </div>
 
@@ -42581,13 +42581,13 @@ export default function CoreApp() {
                             </div>
                             <div className="quote-catalogue-toolbar" style={{ gap: "0.6rem", flexWrap: "wrap" }}>
                               <label>
-                                Pre-build
+                                Kit
                                 <select
                                   value={selectedPrebuildId}
                                   onFocus={() => void ensurePrebuildKitsLoaded()}
                                   onChange={(event) => setSelectedPrebuildId(event.target.value)}
                                 >
-                                  {(prebuildKits.length ? prebuildKits : [{ id: "", name: "Load pre-builds…", category: "" }]).map((kit) => (
+                                  {(prebuildKits.length ? prebuildKits : [{ id: "", name: "Load kits…", category: "" }]).map((kit) => (
                                     <option key={kit.id || "empty"} value={kit.id}>{kit.name}{kit.category ? ` · ${kit.category}` : ""}</option>
                                   ))}
                                 </select>
@@ -42601,7 +42601,7 @@ export default function CoreApp() {
                                   void applySelectedPrebuildToJobCentre(selectedCostCentre.id);
                                 }}
                               >
-                                Apply pre-build to cost centre
+                                Apply kit to cost centre
                               </button>
                               <button
                                 className="secondary-button"
@@ -42611,7 +42611,7 @@ export default function CoreApp() {
                                   setActiveSetupCategory("prebuilds");
                                 }}
                               >
-                                Manage pre-builds
+                                Manage kits
                               </button>
                             </div>
 

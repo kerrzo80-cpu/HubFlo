@@ -1,4 +1,5 @@
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
+import { draftsToPrebuildKits, parseKitsFromXlsxBuffer } from "@/lib/kit-xlsx-import";
 
 export type PrebuildLineKind = "Material" | "Labour";
 
@@ -29,6 +30,15 @@ const STORE = "nexa-prebuilds-v1";
 
 function uid(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.round(Math.random() * 1000)}`;
+}
+
+function slugId(name: string) {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return `kit-${slug || "item"}`;
 }
 
 const defaults: PrebuildStore = {
@@ -75,6 +85,9 @@ export function listPrebuilds(includeArchived = false) {
   return store.kits.filter((kit) => includeArchived || !kit.archived);
 }
 
+/** Product name: Kits (store/API still use prebuild ids for compatibility). */
+export const listKits = listPrebuilds;
+
 export function upsertPrebuild(input: {
   id?: string;
   name: string;
@@ -84,7 +97,7 @@ export function upsertPrebuild(input: {
 }) {
   const store = readStore();
   const name = input.name.trim();
-  if (!name) throw new Error("Pre-build name is required.");
+  if (!name) throw new Error("Kit name is required.");
   const lines: PrebuildLine[] = (input.lines || [])
     .filter((line) => line.description.trim())
     .map((line) => ({
@@ -98,7 +111,7 @@ export function upsertPrebuild(input: {
     }));
   if (input.id) {
     const index = store.kits.findIndex((kit) => kit.id === input.id);
-    if (index < 0) throw new Error("Pre-build not found.");
+    if (index < 0) throw new Error("Kit not found.");
     const current = store.kits[index]!;
     store.kits[index] = {
       ...current,
@@ -109,7 +122,7 @@ export function upsertPrebuild(input: {
     };
   } else {
     store.kits.unshift({
-      id: uid("pb"),
+      id: uid("kit"),
       name,
       category: input.category?.trim() || "General",
       notes: input.notes?.trim() || undefined,
@@ -122,7 +135,73 @@ export function upsertPrebuild(input: {
 export function archivePrebuild(id: string) {
   const store = readStore();
   const kit = store.kits.find((row) => row.id === id);
-  if (!kit) throw new Error("Pre-build not found.");
+  if (!kit) throw new Error("Kit not found.");
   kit.archived = true;
   return writeStore(store);
+}
+
+/**
+ * Import kits from the office Pre builds .xlsx template.
+ * merge = upsert by kit name (case-insensitive); replace = archive existing then insert imported.
+ */
+export function importKitsFromXlsx(
+  buffer: Buffer,
+  options?: { mode?: "merge" | "replace"; fileName?: string },
+) {
+  const mode = options?.mode === "replace" ? "replace" : "merge";
+  const parsed = parseKitsFromXlsxBuffer(buffer, options?.fileName || "kits.xlsx");
+  const store = readStore();
+
+  if (mode === "replace") {
+    for (const kit of store.kits) kit.archived = true;
+  }
+
+  const usedIds = new Set(store.kits.map((kit) => kit.id));
+  const idForName = (name: string) => {
+    const base = slugId(name);
+    if (!usedIds.has(base)) {
+      usedIds.add(base);
+      return base;
+    }
+    let n = 2;
+    while (usedIds.has(`${base}-${n}`)) n += 1;
+    const id = `${base}-${n}`;
+    usedIds.add(id);
+    return id;
+  };
+
+  const incoming = draftsToPrebuildKits(parsed.kits, idForName);
+  let created = 0;
+  let updated = 0;
+
+  for (const kit of incoming) {
+    const existingIndex = store.kits.findIndex(
+      (row) => !row.archived && row.name.trim().toLowerCase() === kit.name.trim().toLowerCase(),
+    );
+    if (existingIndex >= 0) {
+      const current = store.kits[existingIndex]!;
+      store.kits[existingIndex] = {
+        ...current,
+        category: kit.category || current.category,
+        notes: kit.notes || current.notes,
+        lines: kit.lines,
+        archived: false,
+      };
+      updated += 1;
+    } else {
+      store.kits.unshift(kit);
+      created += 1;
+    }
+  }
+
+  writeStore(store);
+  return {
+    kits: listPrebuilds(false),
+    created,
+    updated,
+    imported: incoming.length,
+    skippedRows: parsed.skippedRows,
+    sheetName: parsed.sheetName,
+    mode,
+  };
 }
