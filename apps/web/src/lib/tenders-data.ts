@@ -1575,6 +1575,107 @@ export function mergeBoqLinesIntoSheet(
 }
 
 /**
+ * Move selected BoQ lines under a different section header on the same sheet.
+ * Lines are removed from their current position and inserted after the last
+ * existing line in the target section (or directly after the section header if
+ * it has no lines yet).  If `targetSectionId` is `"__new__"`, a new header is
+ * created with `newSectionName`.
+ */
+export function moveBoqLinesToSection(
+  tenderId: string,
+  lineIds: string[],
+  options: {
+    sheetKey?: string | null;
+    targetSectionId: string;
+    newSectionName?: string;
+  },
+): { tender: Tender; movedCount: number; sectionLabel: string } {
+  const existing = getTender(tenderId);
+  if (!existing) throw new Error("Tender not found.");
+
+  const sheetKey = (options.sheetKey || "").trim() || null;
+  const requested = new Set(lineIds.filter(Boolean));
+  if (!requested.size) throw new Error("No lines selected.");
+
+  // Validate all requested lines exist and belong to the active sheet.
+  const movingIds = new Set<string>();
+  for (const line of existing.boqLines) {
+    if (!requested.has(line.id)) continue;
+    if (line.kind === "header") continue; // don't move headers
+    if (sheetKey && (line.sheet || "").trim() !== sheetKey) continue;
+    movingIds.add(line.id);
+  }
+  if (!movingIds.size) throw new Error("No movable lines selected on this sheet.");
+
+  let targetHeaderId: string;
+  let sectionLabel: string;
+  let newHeader: TenderBoqLine | null = null;
+
+  if (options.targetSectionId === "__new__") {
+    const name = (options.newSectionName || "").trim();
+    if (!name) throw new Error("Section name required.");
+    newHeader = {
+      id: uid("boq"),
+      kind: "header",
+      description: name,
+      sheet: sheetKey || undefined,
+      section: name,
+    };
+    targetHeaderId = newHeader.id;
+    sectionLabel = name;
+  } else {
+    const header = existing.boqLines.find(
+      (line) => line.id === options.targetSectionId && line.kind === "header",
+    );
+    if (!header) throw new Error("Target section header not found.");
+    targetHeaderId = header.id;
+    sectionLabel = (header.section || header.description || "").trim();
+  }
+
+  // Pull lines out, update their section stamp, then splice them after target section.
+  const moving: TenderBoqLine[] = [];
+  const rest: TenderBoqLine[] = [];
+  for (const line of existing.boqLines) {
+    if (movingIds.has(line.id)) {
+      moving.push({ ...line, section: sectionLabel });
+    } else {
+      rest.push(line);
+    }
+  }
+
+  // If creating a new header, append it at the end of the sheet.
+  if (newHeader) {
+    let insertAt = rest.length;
+    if (sheetKey) {
+      for (let i = rest.length - 1; i >= 0; i -= 1) {
+        if ((rest[i]?.sheet || "").trim() === sheetKey) {
+          insertAt = i + 1;
+          break;
+        }
+      }
+    }
+    rest.splice(insertAt, 0, newHeader);
+  }
+
+  // Find the insert point: after the last line belonging to the target section.
+  const headerIdx = rest.findIndex((line) => line.id === targetHeaderId);
+  let insertAt = headerIdx + 1;
+  for (let i = headerIdx + 1; i < rest.length; i += 1) {
+    const line = rest[i]!;
+    if (line.kind === "header") break; // next section
+    if (sheetKey && (line.sheet || "").trim() !== sheetKey) break;
+    insertAt = i + 1;
+  }
+
+  const boqLines = [...rest.slice(0, insertAt), ...moving, ...rest.slice(insertAt)];
+  return {
+    tender: persistBoqLines(tenderId, boqLines),
+    movedCount: moving.length,
+    sectionLabel,
+  };
+}
+
+/**
  * Add an empty workbook sheet tab (echo header so the tab appears).
  * Unsheeted existing lines are stamped onto “Issued BoQ” first when introducing tabs.
  */

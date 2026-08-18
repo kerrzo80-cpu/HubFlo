@@ -24,6 +24,7 @@ import {
   getTender,
   markTenderSubmitted,
   mergeBoqLinesIntoSheet,
+  moveBoqLinesToSection,
   moveBoqLinesToSheet,
   moveTenderDocument,
   removeTenderDocument,
@@ -96,6 +97,7 @@ export async function POST(request: NextRequest) {
       | "rename-boq-sheet"
       | "delete-boq-sheet"
       | "move-boq-lines"
+      | "move-boq-lines-to-section"
       | "merge-boq-lines"
       | "delete-document"
       | "create-document-folder"
@@ -301,6 +303,23 @@ export async function POST(request: NextRequest) {
         tenders: leanList(),
         sheetKey: result.sheetKey,
         movedCount: result.movedCount,
+      });
+    }
+
+    if (body?.action === "move-boq-lines-to-section") {
+      if (!body.id || !body.lineIds?.length || !body.targetSectionId) {
+        return NextResponse.json({ error: "id, lineIds and targetSectionId required" }, { status: 400 });
+      }
+      const result = moveBoqLinesToSection(body.id, body.lineIds, {
+        sheetKey: body.sheetKey || body.sourceSheet,
+        targetSectionId: body.targetSectionId,
+        newSectionName: body.newSectionName,
+      });
+      return NextResponse.json({
+        tender: result.tender,
+        tenders: leanList(),
+        movedCount: result.movedCount,
+        sectionLabel: result.sectionLabel,
       });
     }
 

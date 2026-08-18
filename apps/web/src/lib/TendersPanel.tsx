@@ -73,6 +73,7 @@ const BOQ_EDITOR_ACTIONS = new Set([
   "rename-boq-sheet",
   "delete-boq-sheet",
   "move-boq-lines",
+  "move-boq-lines-to-section",
   "merge-boq-lines",
 ]);
 
@@ -191,6 +192,8 @@ export function TendersPanel({
   const [boqSheetTab, setBoqSheetTab] = useState<string | null>(null);
   const [boqSheetMoveMode, setBoqSheetMoveMode] = useState<"move" | "merge" | null>(null);
   const [boqMoveTarget, setBoqMoveTarget] = useState("__new__");
+  const [boqSectionMoveOpen, setBoqSectionMoveOpen] = useState(false);
+  const [boqSectionMoveTarget, setBoqSectionMoveTarget] = useState("__new__");
   const [uploadTarget, setUploadTarget] = useState<DocTargetValue>("kind:drawing");
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderParent, setNewFolderParent] = useState<DocTargetValue>("kind:drawing");
@@ -383,6 +386,7 @@ export function TendersPanel({
         tender?: Tender;
         sheetKey?: string;
         movedCount?: number;
+        sectionLabel?: string;
         addedSheets?: string[];
         job?: { id: string; ref: string; value?: number } | null;
         alreadyConverted?: boolean;
@@ -1021,6 +1025,7 @@ export function TendersPanel({
   function openBoqSheetMove(mode: "move" | "merge") {
     const fallback = boqOtherSheetTabs[0]?.key || "__new__";
     setBoqMoveTarget(fallback);
+    setBoqSectionMoveOpen(false);
     setBoqSheetMoveMode(mode);
   }
 
@@ -1078,6 +1083,52 @@ export function TendersPanel({
       );
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "Unable to move BoQ lines");
+    }
+  }
+
+  function openBoqSectionMove() {
+    const first = boqSections.find((s) => s.headerId);
+    setBoqSectionMoveTarget(first?.key || "__new__");
+    setBoqSheetMoveMode(null);
+    setBoqSectionMoveOpen(true);
+  }
+
+  async function applyBoqSectionMove() {
+    if (!selected) return;
+    const lineIds = filterSelectedMeasuredLineIds(selected.boqLines, boqBlakeLineIds);
+    if (!lineIds.length) {
+      onNotice("Tick the lines you want to move into a section.");
+      return;
+    }
+    let targetSectionId = boqSectionMoveTarget;
+    let newSectionName: string | undefined;
+    if (!targetSectionId || targetSectionId === "__new__") {
+      const suggested = window.prompt("New section name", "Heating");
+      if (suggested === null) return;
+      if (!suggested.trim()) {
+        onNotice("Section name required.");
+        return;
+      }
+      targetSectionId = "__new__";
+      newSectionName = suggested.trim();
+    }
+    try {
+      const result = await postAction({
+        action: "move-boq-lines-to-section",
+        id: selected.id,
+        lineIds,
+        sheetKey: activeBoqSheet || undefined,
+        targetSectionId,
+        newSectionName,
+      });
+      const moved = typeof result.movedCount === "number" ? result.movedCount : lineIds.length;
+      const label = typeof result.sectionLabel === "string" ? result.sectionLabel : "section";
+      setBoqBlakeLineIds([]);
+      setBoqSectionMoveOpen(false);
+      setTab("boq");
+      onNotice(`Moved ${moved} line${moved === 1 ? "" : "s"} into "${label}".`);
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Unable to move lines to section");
     }
   }
 
@@ -1823,7 +1874,7 @@ export function TendersPanel({
                   Supplier priced PDF/Excel as extra lines: keep Add to BoQ (default when lines exist), then drop the file below — it appends new sheet tab(s) named from the file only (paste box is ignored and cleared). Supplier quote PDFs (Filpumps, William Wilson, etc.) merge into one tab named from the filename; other multi-page BoQ PDFs keep Page 1, Page 2…; Excel keeps worksheet names; duplicates get “ (2)”. Documents → Supplier quotes only stores the file; it does not pull lines into the bill. Use Replace BoQ only when you intend to wipe current lines.
                 </p>
                 <p className="tenders-boq-blake-note">
-                  Sheet tabs: + Sheet / Rename / Remove sheet. Lines: Add line on the open sheet, edit cells, trash a row, or tick lines and Delete selected / Move to sheet… / Merge into tab…. Merge selected into another tab (or new); if the whole sheet is ticked, the empty tab is removed. Takeoff push uses one tab per house type with Heating / Hot & cold / Gas as section headers inside. Tick measured lines then run Blake — only ticked lines are budget-priced. Guide rates only; unsure lines stay blank.
+                  Sheet tabs: + Sheet / Rename / Remove sheet. Lines: Add line on the open sheet, edit cells, trash a row, or tick lines and Delete selected / Move to sheet… / Merge into tab… / Move to section…. Merge selected into another tab (or new); if the whole sheet is ticked, the empty tab is removed. Move to section assigns ticked lines to a section header (Heating, Hot & cold, Gas, etc.) on the same sheet — useful for orphaned lines after a merge. Takeoff push uses one tab per house type with Heating / Hot & cold / Gas as section headers inside. Tick measured lines then run Blake — only ticked lines are budget-priced. Guide rates only; unsure lines stay blank.
                 </p>
                 <div className="tenders-boq-blake-actions">
                   <button
@@ -2114,7 +2165,44 @@ export function TendersPanel({
                   <Plus size={15} />
                   Add line
                 </button>
-                {boqSheetMoveMode ? (
+                {boqSectionMoveOpen ? (
+                  <div className="tenders-boq-move-picker">
+                    <label>
+                      Move to section
+                      <select
+                        value={boqSectionMoveTarget}
+                        disabled={saving || blakeBudgetBusy}
+                        aria-label="Section to move lines into"
+                        onChange={(event) => setBoqSectionMoveTarget(event.target.value)}
+                      >
+                        {boqSections
+                          .filter((s) => s.headerId)
+                          .map((s) => (
+                            <option key={s.key} value={s.key}>
+                              {s.label}
+                            </option>
+                          ))}
+                        <option value="__new__">New section…</option>
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      className="primary-button"
+                      disabled={saving || blakeBudgetBusy}
+                      onClick={() => void applyBoqSectionMove()}
+                    >
+                      Move
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={saving || blakeBudgetBusy}
+                      onClick={() => setBoqSectionMoveOpen(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : boqSheetMoveMode ? (
                   <div className="tenders-boq-move-picker">
                     <label>
                       {boqSheetMoveMode === "merge" ? "Merge into" : "Move to"}
@@ -2170,6 +2258,15 @@ export function TendersPanel({
                       title="Merge ticked lines into another tab. Tick Select sheet first to merge the whole tab and remove it when empty."
                     >
                       Merge into tab…
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={saving || blakeBudgetBusy || !boqBlakeSelectedCount}
+                      onClick={() => openBoqSectionMove()}
+                      title="Move ticked lines under a section header on this sheet (e.g. Heating, Hot & cold, Gas)"
+                    >
+                      Move to section…
                     </button>
                   </>
                 )}
