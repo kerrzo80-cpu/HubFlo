@@ -80,6 +80,7 @@ import {
 } from "lucide-react";
 import { checkInvoiceReadiness, type InvoiceReadinessInput } from "@hubflo/domain";
 import type { Job, PurchaseRequest, PurchaseStatus, Quote, QuoteStatus } from "@/lib/workflow-data";
+import { isPlaceholderBankDetails } from "@/lib/commercial-safeguards";
 import {
   businessImportLabels,
   businessImportTemplateHeaders,
@@ -3054,6 +3055,8 @@ type PdfDocumentPreviewProps = {
   scheduleLines?: string[];
   internalSummary?: string;
   supportingNote?: string;
+  /** Only show “acceptance recorded” when the quote was actually accepted. */
+  acceptanceRecorded?: boolean;
 };
 
 function PdfDocumentPreview({
@@ -3074,6 +3077,7 @@ function PdfDocumentPreview({
   scheduleLines = [],
   internalSummary,
   supportingNote,
+  acceptanceRecorded = false,
 }: PdfDocumentPreviewProps) {
   const showQuantity = rows.some((row) => row.quantity);
   const showUnitRate = rows.some((row) => row.unitRate);
@@ -3182,7 +3186,10 @@ function PdfDocumentPreview({
 
         {template.includeAcceptance ? (
           <section className="pdf-document-acceptance">
-            <div><span>Accepted by</span><strong>{chrome.acceptanceLabel}</strong></div>
+            <div>
+              <span>Accepted by</span>
+              <strong>{acceptanceRecorded ? chrome.acceptanceLabel : "________________"}</strong>
+            </div>
             <div><span>Date</span><strong>________________</strong></div>
           </section>
         ) : null}
@@ -4671,10 +4678,10 @@ const defaultFinanceSettings: FinanceSettings = {
   applicationNextNumber: "1001",
   purchaseOrderPrefix: "PO",
   purchaseOrderNextNumber: "1001",
-  bankName: "Business Bank",
-  accountName: "Company",
-  sortCode: "00-00-00",
-  accountNumber: "00000000",
+  bankName: "",
+  accountName: "",
+  sortCode: "",
+  accountNumber: "",
   defaultMaterialMarkupPercent: "30",
   defaultPlantMarkupPercent: "25",
   defaultSubcontractorMarkupPercent: "20",
@@ -7761,7 +7768,15 @@ function formatScheduleDate(value: string, options?: Intl.DateTimeFormatOptions)
 
 function percentValue(numerator: number, denominator: number) {
   if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return 0;
-  return Math.round((numerator / denominator) * 100);
+  const raw = Math.round((numerator / denominator) * 100);
+  // Guard impossible ratios from mixed revenue/cost bases in reports.
+  if (!Number.isFinite(raw)) return 0;
+  return Math.max(-999, Math.min(999, raw));
+}
+
+function finiteHours(value: unknown) {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 function reportDateValue(value?: string) {
@@ -14683,15 +14698,22 @@ export default function CoreApp() {
   );
 
   const reportScheduleClashes = useMemo(() => {
+    const { start, end } = reportDateRangeBounds(reportDateRange, reportCustomStartDate, reportCustomEndDate);
+    const inRange = (assignment: JobScheduleAssignment) => {
+      if (reportDateRange === "All time" || !start || !end) return true;
+      const day = String(assignment.startDate || "").slice(0, 10);
+      return day >= start && day <= end;
+    };
+    const scoped = reportAssignments.filter(inRange);
     let total = 0;
-    reportAssignments.forEach((assignment, index) => {
-      reportAssignments.slice(index + 1).forEach((nextAssignment) => {
+    scoped.forEach((assignment, index) => {
+      scoped.slice(index + 1).forEach((nextAssignment) => {
         if (assignment.employeeId !== nextAssignment.employeeId) return;
         if (scheduleAssignmentsOverlap(assignment, nextAssignment)) total += 1;
       });
     });
     return total;
-  }, [reportAssignments]);
+  }, [reportAssignments, reportCustomEndDate, reportCustomStartDate, reportDateRange]);
 
   const reportAvailableHours = useMemo(() => {
     if (reportDateRange === "All time") return 1880;
@@ -25161,9 +25183,11 @@ export default function CoreApp() {
     let recordUpdateWarning = "";
 
     try {
+      const nextStatus = (quote.status === "Draft" || quote.status === "Sent")
+        ? ("Sent" as QuoteStatus)
+        : quote.status;
       await persistQuotePatch(quote.id, {
-        status: "Sent" as QuoteStatus,
-        next: "Await customer response",
+        ...(nextStatus !== quote.status ? { status: nextStatus, next: "Await customer response" } : {}),
         portalToken,
         portalUrl,
         outlookMessageId,
@@ -38565,7 +38589,12 @@ export default function CoreApp() {
                                 subtotal={selectedQuoteTotals.sell}
                                 vat={vatAmount}
                                 total={selectedQuoteTotals.sell + vatAmount}
-                                bankDetails={`${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · ${normalizedFinanceSettings.sortCode} · ${normalizedFinanceSettings.accountNumber}`}
+                                bankDetails={
+                                  isPlaceholderBankDetails(normalizedFinanceSettings)
+                                    ? undefined
+                                    : `${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · ${normalizedFinanceSettings.sortCode} · ${normalizedFinanceSettings.accountNumber}`
+                                }
+                                acceptanceRecorded={selectedQuote.status === "Accepted" || selectedQuote.status === "Converted"}
                                 internalSummary={`Internal preview · Cost ${currency(selectedQuoteTotals.cost)} · Profit ${currency(selectedQuoteTotals.profit)} · ${FORM_PRESENTATION_OPTIONS.find((item) => item.key === presentation)?.label ?? presentation}`}
                                 supportingNote={surveyPack.clientVisible.length ? `${surveyPack.clientVisible.length} client-visible survey attachment(s) will accompany this document.` : undefined}
                               />
@@ -45201,7 +45230,11 @@ export default function CoreApp() {
                           vatRate={selectedInvoice.vatRate}
                           status={selectedInvoice.valuationStatus ?? "Draft valuation"}
                           useAgreedValues={selectedInvoice.claimType === "progress-claim"}
-                          bankDetails={`${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · Sort code ${normalizedFinanceSettings.sortCode} · Account ${normalizedFinanceSettings.accountNumber}`}
+                          bankDetails={
+                            isPlaceholderBankDetails(normalizedFinanceSettings)
+                              ? undefined
+                              : `${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · Sort code ${normalizedFinanceSettings.sortCode} · Account ${normalizedFinanceSettings.accountNumber}`
+                          }
                         />
                       ) : (
                         <PdfDocumentPreview
@@ -45222,7 +45255,11 @@ export default function CoreApp() {
                           subtotal={selectedInvoice.chargeTotal}
                           vat={selectedInvoiceFinancials.vatAmount}
                           total={selectedInvoiceFinancials.grandTotal}
-                          bankDetails={`${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · Sort code ${normalizedFinanceSettings.sortCode} · Account ${normalizedFinanceSettings.accountNumber}`}
+                          bankDetails={
+                            isPlaceholderBankDetails(normalizedFinanceSettings)
+                              ? undefined
+                              : `${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · Sort code ${normalizedFinanceSettings.sortCode} · Account ${normalizedFinanceSettings.accountNumber}`
+                          }
                           internalSummary={`Internal preview · Cost ${currency(selectedInvoice.costTotal)} · Profit ${currency(selectedInvoiceFinancials.profit)}`}
                         />
                       )}

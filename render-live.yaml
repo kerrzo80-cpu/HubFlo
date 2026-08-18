@@ -99,6 +99,54 @@ services:
         sync: false
       - key: NEXA_POSTCODE_LOOKUP_VERSION
         value: street-list-v3
+      - key: NEXA_BACKUP_CRON_SECRET
+        sync: false
+      - key: NEXA_BACKUP_DIR
+        value: /var/data/backups
+      - key: BACKUP_RETENTION_DAYS
+        value: "30"
+      - key: BACKUP_S3_BUCKET
+        sync: false
+      - key: BACKUP_S3_ACCESS_KEY_ID
+        sync: false
+      - key: BACKUP_S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: BACKUP_S3_REGION
+        sync: false
+      - key: BACKUP_S3_ENDPOINT
+        sync: false
+      - key: BACKUP_S3_PREFIX
+        sync: false
+
+  # Nightly office backup onto /var/data/backups (+ S3 when BACKUP_S3_* is set).
+  - type: cron
+    name: nexa-live-nightly-backup
+    runtime: node
+    region: frankfurt
+    plan: starter
+    schedule: "20 2 * * *"
+    buildCommand: echo "nexa-live-office-backup-cron"
+    startCommand: >-
+      node --input-type=module -e "
+      const secret = process.env.NEXA_BACKUP_CRON_SECRET;
+      if (!secret) { console.error('NEXA_BACKUP_CRON_SECRET missing — set the same value on nexa-live and this cron'); process.exit(1); }
+      const res = await fetch('https://nexa-live.onrender.com/api/office-backup/cron', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-nexa-backup-secret': secret,
+        },
+        body: '{}',
+      });
+      const text = await res.text();
+      console.log(res.status, text.slice(0, 2000));
+      if (!res.ok) process.exit(1);
+      "
+    envVars:
+      - key: NODE_VERSION
+        value: 24.14.0
+      - key: NEXA_BACKUP_CRON_SECRET
+        sync: false
 
   # Weekday end-of-day pull of fresh simPRO data into NeXa (same working set as Apply).
   # Set the same NEXA_IMPORT_TICK_SECRET on this cron and on nexa-live.

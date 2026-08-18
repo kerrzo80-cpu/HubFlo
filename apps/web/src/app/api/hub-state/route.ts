@@ -9,6 +9,7 @@ import { mergeHubDetailState } from "@/lib/hub-state-merge";
 import { leanJobCostCentresMap } from "@/lib/job-cost-centres-lean";
 import { parseJsonRequestBody } from "@/lib/http";
 import { stripDayworkBlobsForPoll } from "@/lib/daywork-poll-strip";
+import { assertNoHubScheduleClashes, type HubScheduleAssignment } from "@/lib/schedule-clash";
 import { useDemoSeedData } from "@/lib/workspace-mode";
 
 export async function GET(request: Request) {
@@ -52,6 +53,16 @@ export async function PUT(request: Request) {
 
   const current = getHubDetailState();
   const merged = mergeHubDetailState(current, payload);
+
+  if (payload.jobSchedulePlans !== undefined) {
+    const clashError = assertNoHubScheduleClashes(
+      (merged.jobSchedulePlans || {}) as Record<string, HubScheduleAssignment[]>,
+    );
+    if (clashError) {
+      return NextResponse.json({ error: clashError, code: "SCHEDULE_CLASH" }, { status: 409 });
+    }
+  }
+
   const saved = saveHubDetailState(merged);
   try {
     reconcileDayworkVariationsFromEvidence();

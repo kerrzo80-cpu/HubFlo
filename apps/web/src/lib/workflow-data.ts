@@ -11,7 +11,27 @@ import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { useDemoSeedData } from "@/lib/workspace-mode";
 
 export type JobHealth = "red" | "amber" | "green" | "blue";
+
 export type QuoteStatus = "Draft" | "Sent" | "Accepted" | "Declined" | "Converted" | "Lost";
+
+const QUOTE_STATUS_TRANSITIONS: Record<QuoteStatus, QuoteStatus[]> = {
+  Draft: ["Sent", "Lost"],
+  Sent: ["Accepted", "Declined", "Lost", "Sent"],
+  Accepted: ["Converted", "Lost"],
+  Declined: ["Lost", "Draft"],
+  Converted: [],
+  Lost: ["Draft"],
+};
+
+export function assertQuoteStatusTransition(from: QuoteStatus | string, to: QuoteStatus | string): string | null {
+  if (from === to) return null;
+  const allowed = QUOTE_STATUS_TRANSITIONS[from as QuoteStatus];
+  if (!allowed) return `Unknown quote status “${from}”.`;
+  if (!allowed.includes(to as QuoteStatus)) {
+    return `Cannot move quote from ${from} to ${to}.`;
+  }
+  return null;
+}
 export type PurchaseStatus =
   | "Requested"
   | "Draft"
@@ -594,6 +614,7 @@ export function updateQuoteStatus(id: string, status: QuoteStatus): Quote | null
   if (index < 0) return null;
   const current = store.quotes[index];
   if (!current) return null;
+  if (assertQuoteStatusTransition(current.status, status)) return null;
 
   const updated: Quote = {
     ...current,
@@ -610,6 +631,9 @@ export function updateQuote(id: string, patch: Partial<Quote>): Quote | null {
   if (index < 0) return null;
   const current = store.quotes[index];
   if (!current) return null;
+  if (patch.status && assertQuoteStatusTransition(current.status, patch.status)) {
+    return null;
+  }
   const resolvedClient = (patch.clientId ?? current.clientId)
     ? findClient(patch.clientId ?? current.clientId, patch.customer ?? current.customer)
     : undefined;

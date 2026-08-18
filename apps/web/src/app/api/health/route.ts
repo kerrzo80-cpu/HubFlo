@@ -35,6 +35,8 @@ export async function GET() {
       lastOkAt: officeBackup.lastOkAt || null,
       lastFilename: officeBackup.lastFilename || null,
       lastError: officeBackup.lastError || null,
+      neverBackedUp: !officeBackup.lastOkAt,
+      s3Hint: "Set BACKUP_S3_* on nexa-live for off-site copies. Local Render disk alone is not durable.",
     },
     openai: {
       connected: openaiConnected,
@@ -193,7 +195,7 @@ export async function GET() {
       mailboxIcloudFix: "hydrate-dirty-v1",
       mailboxPersist: "verify-disk-v2",
       takeoffSkill: "drawing-first-v8-routes-page",
-      liveAuditSafeguards: "commercial-gates-v1",
+      liveAuditSafeguards: "commercial-gates-v2",
       takeoffMacScroll: "studio-rail-body-scroll-v4",
       takeoffAiConfirm: "pins-only-v2",
       takeoffBlakePipeRuns: "vector-stroke-v1",
