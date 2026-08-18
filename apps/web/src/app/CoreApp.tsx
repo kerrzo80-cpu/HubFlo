@@ -14252,6 +14252,7 @@ export default function CoreApp() {
           jobId,
           jobRef: job?.ref ?? booking.ref,
           customer: job?.customer ?? booking.customer ?? booking.customerName,
+          description: job?.description ?? booking.description ?? booking.costCentreName ?? "",
           employeeName: booking.surveyor,
           date: booking.date,
           hours,
@@ -45958,8 +45959,8 @@ export default function CoreApp() {
               {schedulePane === "timesheets" ? (
                 <section className="timesheet-week-board-wrap" aria-label="Timesheet week board">
                   <p className="timesheet-week-hint">
-                    {timesheetWeekLabel} · Click a bar to edit · Drag the right edge to change hours · Confirm the day to charge
-                    labour and push hours to Payroll — stay on this board (no job hop).
+                    {timesheetWeekLabel} · Same week layout as Schedule work — click a job card to edit hours or the job,
+                    then Confirm day to charge labour and push hours to Payroll.
                   </p>
 
                   <div className="timesheet-week-board scheduler-week-board">
@@ -45971,11 +45972,17 @@ export default function CoreApp() {
                         </time>
                       ))}
                     </div>
-                    {schedulerDiaryPeople.map((engineer) => (
+                    {schedulerDiaryPeople.map((engineer) => {
+                      const weekHours = timesheetWeekBlocks
+                        .filter((block) => block.employeeName === engineer)
+                        .reduce((total, block) => total + block.hours, 0);
+                      return (
                       <div className="scheduler-week-row timesheet-week-row" key={engineer}>
                         <header>
                           <strong>{engineer}</strong>
-                          <span>Week hours</span>
+                          <span>
+                            Week hours · {weekHours.toFixed(weekHours % 1 ? 2 : 0)}h
+                          </span>
                         </header>
                         {timesheetWeekDays.map((day) => {
                           const blocks = timesheetWeekBlocks.filter(
@@ -45994,72 +46001,32 @@ export default function CoreApp() {
                             >
                               <small>
                                 {blocks.length
-                                  ? `${dayHours.toFixed(dayHours % 1 ? 2 : 0)}h`
+                                  ? `${dayHours.toFixed(dayHours % 1 ? 2 : 0)}h scheduled`
                                   : "No schedule"}
                               </small>
-                              <div className="timesheet-day-track" aria-label={`${engineer} on ${day}`}>
-                                {blocks.map((block) => {
-                                  const widthPct = Math.min(100, Math.max(12, (block.hours / 10) * 100));
-                                  return (
-                                    <div
-                                      key={block.key}
-                                      className={
-                                        timesheetActiveBlockKey === block.key
-                                          ? `timesheet-hour-bar active${block.confirmed ? " confirmed" : ""}`
-                                          : `timesheet-hour-bar${block.confirmed ? " confirmed" : ""}`
-                                      }
-                                      style={{ width: `${widthPct}%` }}
-                                      title={`${block.jobRef} · ${block.hours}h · ${block.customer}`}
-                                    >
-                                      <button
-                                        type="button"
-                                        className="timesheet-hour-bar-main"
-                                        onClick={() => setTimesheetActiveBlockKey(block.key)}
-                                      >
-                                        <strong>{block.jobRef}</strong>
-                                        <span>{block.hours}h</span>
-                                      </button>
-                                      <span
-                                        className="timesheet-hour-bar-handle"
-                                        role="slider"
-                                        aria-label={`Resize hours for ${block.jobRef}`}
-                                        aria-valuemin={0.25}
-                                        aria-valuemax={12}
-                                        aria-valuenow={block.hours}
-                                        tabIndex={0}
-                                        onPointerDown={(event) => {
-                                          event.preventDefault();
-                                          event.stopPropagation();
-                                          (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-                                          timesheetResizeRef.current = {
-                                            key: block.key,
-                                            startX: event.clientX,
-                                            startHours: block.hours,
-                                          };
-                                        }}
-                                        onPointerMove={(event) => {
-                                          const drag = timesheetResizeRef.current;
-                                          if (!drag || drag.key !== block.key) return;
-                                          const deltaHours = (event.clientX - drag.startX) / 36;
-                                          const next = Math.max(
-                                            0.25,
-                                            Math.min(12, Math.round((drag.startHours + deltaHours) * 4) / 4),
-                                          );
-                                          setTimesheetHourOverrides((current) => ({
-                                            ...current,
-                                            [block.key]: next,
-                                          }));
-                                        }}
-                                        onPointerUp={() => {
-                                          timesheetResizeRef.current = null;
-                                        }}
-                                        onPointerCancel={() => {
-                                          timesheetResizeRef.current = null;
-                                        }}
-                                      />
-                                    </div>
-                                  );
-                                })}
+                              <div className="timesheet-day-bookings" aria-label={`${engineer} on ${day}`}>
+                                {blocks.map((block) => (
+                                  <button
+                                    key={block.key}
+                                    type="button"
+                                    className={
+                                      timesheetActiveBlockKey === block.key
+                                        ? `scheduler-booking timesheet-booking active${block.confirmed ? " confirmed" : ""}`
+                                        : `scheduler-booking timesheet-booking${block.confirmed ? " confirmed" : ""}`
+                                    }
+                                    title={`${block.time} · ${block.jobRef} · ${block.customer} · ${block.hours}h`}
+                                    onClick={() => setTimesheetActiveBlockKey(block.key)}
+                                  >
+                                    <time>
+                                      {block.time || "—"} · {block.hours.toFixed(block.hours % 1 ? 2 : 0)}h
+                                    </time>
+                                    <strong>
+                                      {block.jobRef}
+                                      {block.customer ? ` · ${block.customer}` : ""}
+                                    </strong>
+                                    <span>{block.description || "Scheduled work"}</span>
+                                  </button>
+                                ))}
                               </div>
                               {blocks.length ? (
                                 <button
@@ -46074,7 +46041,8 @@ export default function CoreApp() {
                           );
                         })}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   {timesheetActiveBlock ? (

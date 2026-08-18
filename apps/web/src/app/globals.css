@@ -15903,13 +15903,70 @@ button.record-folder-card-button.is-active {
 }
 
 .timesheet-week-cell {
-  border-radius: 12px !important;
+  border-radius: 0 !important;
   gap: 8px;
+  min-height: 168px;
 }
 
 .timesheet-week-cell.confirmed {
   background: #f3faf6;
   border-color: #b7dcc6;
+}
+
+.timesheet-week-board.scheduler-week-board .scheduler-week-row {
+  grid-template-columns: 158px repeat(7, minmax(168px, 1fr));
+  min-width: 1334px;
+}
+
+.timesheet-day-bookings {
+  display: grid;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 72px;
+}
+
+.timesheet-booking.scheduler-booking {
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+  width: 100%;
+}
+
+.timesheet-booking.scheduler-booking strong,
+.timesheet-booking.scheduler-booking span {
+  display: -webkit-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.timesheet-booking.scheduler-booking strong {
+  -webkit-line-clamp: 2;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.timesheet-booking.scheduler-booking span {
+  -webkit-line-clamp: 3;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.timesheet-booking.scheduler-booking time {
+  font-size: 11px;
+}
+
+.timesheet-booking.active {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px rgba(21, 127, 168, 0.22), 0 8px 18px rgba(22, 41, 52, 0.08);
+}
+
+.timesheet-booking.confirmed {
+  background: #f3faf6;
+  border-color: #9ecfb3;
+  border-left-color: #2f8f5b;
 }
 
 .timesheet-day-track {
@@ -15978,13 +16035,14 @@ button.record-folder-card-button.is-active {
   appearance: none;
   background: #fff;
   border: 1px solid #c5d4dc;
-  border-radius: 999px;
+  border-radius: 10px;
   color: #24414e;
   cursor: pointer;
   font: inherit;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 750;
+  padding: 8px 10px;
+  width: 100%;
 }
 
 .timesheet-day-confirm.done {
