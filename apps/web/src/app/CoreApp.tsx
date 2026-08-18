@@ -8575,6 +8575,8 @@ export default function CoreApp() {
   const [activeQuoteFolderKey, setActiveQuoteFolderKey] = useState("all");
   const [activeJobFolderKey, setActiveJobFolderKey] = useState("all");
   const [activeActionQueueKey, setActiveActionQueueKey] = useState<ActionQueueKey>("unassigned");
+  /** Highlight a specific variation / timesheet after opening from Action notifications. */
+  const [focusedActionRecordId, setFocusedActionRecordId] = useState<string | null>(null);
   const [activeLeadFolderKey, setActiveLeadFolderKey] = useState("all");
   const [activeInvoiceFolderKey, setActiveInvoiceFolderKey] = useState("all");
   const [activeDayworkFolderKey, setActiveDayworkFolderKey] = useState<"review" | "completed" | "all">("review");
@@ -8711,6 +8713,20 @@ export default function CoreApp() {
     const valid = new Set(quoteBuildTabs.map((tab) => tab.key));
     if (!valid.has(activeQuoteBuildTab)) setActiveQuoteBuildTab("summary");
   }, [activeQuoteBuildTab]);
+
+  useEffect(() => {
+    if (!focusedActionRecordId) return;
+    const timer = window.setTimeout(() => {
+      const node =
+        document.getElementById(`variation-card-${focusedActionRecordId}`) ||
+        document.getElementById(`action-focus-${focusedActionRecordId}`) ||
+        document.querySelector(`[data-action-focus="true"]`);
+      if (node && "scrollIntoView" in node) {
+        (node as HTMLElement).scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [focusedActionRecordId, homeView, activeJobFolderKey, activeJobCostCentreListTab]);
 
   useEffect(() => {
     setDirectorySelectedIds({
@@ -13523,7 +13539,7 @@ export default function CoreApp() {
   const dashboardVariationApprovals = useMemo(
     () =>
       jobs.flatMap((job) =>
-        buildJobVariations(job)
+        buildVariationsForJob(job)
           .filter(
             (variation) =>
               variation.requiresClientApproval &&
@@ -13531,7 +13547,7 @@ export default function CoreApp() {
           )
           .map((variation) => ({ job, variation })),
       ),
-    [jobs],
+    [dayworkSheets, flowStepEvidence, jobDeliveryEvents, jobEstimateCostCentres, jobs],
   );
 
   const dayworkTerminalStatuses = useMemo(
@@ -14112,12 +14128,8 @@ export default function CoreApp() {
               why: "Timesheet awaiting approval",
               detail: `${event.hours ?? 0}h submitted${event.summary ? ` — ${event.summary}` : ""}`,
               status: event.status || "Submitted",
-              onOpen: () => {
-                setSchedulePane("timesheets");
-                setHomeView("schedule");
-                scrollWorkspaceToTop();
-              },
-              actionLabel: "Open timesheets",
+              onOpen: () => openTimesheetApproval(event, job),
+              actionLabel: "Approve timesheet",
             };
           }),
           ...overdueTimesheetJobs.map((job) => ({
@@ -14128,8 +14140,8 @@ export default function CoreApp() {
             why: "Timesheet overdue",
             detail: job.next || "Chase the engineer to submit hours in Field",
             status: job.status,
-            onOpen: () => openJobDrawer(job.id),
-            actionLabel: "Open job",
+            onOpen: () => openTimesheetApproval(undefined, job),
+            actionLabel: "Open timesheets",
           })),
         ],
       },
@@ -14180,8 +14192,8 @@ export default function CoreApp() {
           why: "Variation awaiting approval",
           detail: `${variation.reference ? `${variation.reference} · ` : ""}${variation.status || "Needs client / office approval"}`,
           status: variation.status,
-          onOpen: () => openJobDrawer(job.id),
-          actionLabel: "Open job",
+          onOpen: () => openVariationRecord(job.id, variation),
+          actionLabel: "Open variation",
         })),
       },
       {
@@ -14253,8 +14265,8 @@ export default function CoreApp() {
           why: "Past booked date",
           detail: `Booked ${job.scheduledDate}${job.scheduledTime ? ` at ${job.scheduledTime}` : ""} — reschedule or complete`,
           status: job.status,
-          onOpen: () => openJobDrawer(job.id),
-          actionLabel: "Open job",
+          onOpen: () => openUnassignedJobsOnSchedule(job),
+          actionLabel: "Open on schedule",
         })),
       },
       {
@@ -14270,8 +14282,8 @@ export default function CoreApp() {
           why: primary?.label ?? "Needs follow-up",
           detail: primary?.detail ?? job.next,
           status: job.status,
-          onOpen: () => openJobDrawer(job.id),
-          actionLabel: "Open job",
+          onOpen: () => openAttentionJob(job, primary),
+          actionLabel: "Open",
         })),
       },
       {
@@ -14287,8 +14299,8 @@ export default function CoreApp() {
           why: primary?.label ?? "Blocked",
           detail: primary?.detail ?? job.next,
           status: job.status,
-          onOpen: () => openJobDrawer(job.id),
-          actionLabel: "Open job",
+          onOpen: () => openAttentionJob(job, primary),
+          actionLabel: "Open",
         })),
       },
     ];
@@ -24338,6 +24350,125 @@ export default function CoreApp() {
       showNotice(found ? "Daywork Account opened — Field sheet loaded." : "Daywork Account opened in Engineer Flow.");
     });
     scrollWorkspaceToTop();
+  }
+
+  /** Open the variation itself (Daywork sheet or Job → Variations), not a bare job summary. */
+  function openVariationRecord(jobId: string, variation: JobVariation) {
+    const job = jobs.find((item) => item.id === jobId);
+    const event =
+      jobDeliveryEvents.find((row) => row.id === variation.id && row.jobId === jobId) ||
+      jobDeliveryEvents.find(
+        (row) =>
+          row.jobId === jobId &&
+          row.kind === "variation" &&
+          (row.summary === variation.title || row.summary === variation.description),
+      );
+
+    setFocusedActionRecordId(variation.id);
+
+    if (
+      variation.id.startsWith("daywork-") ||
+      variation.reason === "Daywork account" ||
+      event?.formType === "daywork"
+    ) {
+      openDayworkAccountRecord(jobId, {
+        costCentreId: event?.costCentreId || `${jobId}-daywork-account`,
+      });
+      return;
+    }
+
+    rememberOpenWorkspaceTab({
+      kind: "job",
+      recordId: jobId,
+      ref: job?.ref || "Job",
+      title: job?.customer || job?.description || "Job",
+    });
+    setSelectedLeadId(null);
+    setSelectedQuoteId(null);
+    setSelectedInvoiceId(null);
+    setSelectedPurchaseRequestId(null);
+    setSelectedJobId(jobId);
+
+    if (event?.costCentreId) {
+      const centres = jobEstimateCostCentres[jobId] ?? [];
+      const centre = centres.find((item) => item.id === event.costCentreId);
+      if (centre) {
+        setActiveJobTab("cost-centres");
+        setActiveJobCostCentreListTab(centre.variation ? "variations" : "base");
+        setSelectedCostCentreId(centre.id);
+        setActiveCostCentreTab("summary");
+        setHomeView("cost-centre-record");
+        scrollWorkspaceToTop();
+        showNotice(`${variation.reference || "Variation"} opened — review costs / approval here.`);
+        return;
+      }
+    }
+
+    setSelectedCostCentreId(null);
+    setActiveJobTab("cost-centres");
+    setActiveJobCostCentreListTab("variations");
+    setHomeView("job-record");
+    scrollWorkspaceToTop();
+    showNotice(`${variation.reference || "Variation"} opened on the Variations tab.`);
+  }
+
+  /** Open Jobs → Timesheets (approve/reject), optionally snapped to the submission week. */
+  function openTimesheetApproval(event?: JobDeliveryEvent, job?: Job) {
+    const targetJob = job || (event ? jobs.find((item) => item.id === event.jobId) : undefined);
+    if (event?.id) setFocusedActionRecordId(event.id);
+    else if (targetJob) setFocusedActionRecordId(`ts-overdue-${targetJob.id}`);
+
+    if (event?.workDate) {
+      setTimesheetWeekStart(startOfScheduleWeek(event.workDate));
+    }
+
+    setActiveJobFolderKey("timesheets");
+    setHomeView("jobs");
+    scrollWorkspaceToTop();
+    showNotice(
+      event
+        ? `Timesheet from ${event.actor || "engineer"} — approve or reject below.`
+        : targetJob
+          ? `${targetJob.ref} — timesheet overdue; chase or open the job.`
+          : "Timesheets queue opened.",
+    );
+  }
+
+  /** Route Attention/Blocked rows to the best surface for the primary reason. */
+  function openAttentionJob(job: Job, primary?: { code?: string; label?: string } | null) {
+    const code = primary?.code || "";
+    const label = (primary?.label || "").toLowerCase();
+
+    if (code === "approval_required" || label.includes("approval")) {
+      const variation = buildVariationsForJob(job).find(
+        (row) =>
+          row.requiresClientApproval &&
+          !["Client approved", "Approved", "Proceed"].includes(row.status),
+      );
+      if (variation) {
+        openVariationRecord(job.id, variation);
+        return;
+      }
+    }
+
+    if (code === "overdue_schedule" || code === "overdue_due" || label.includes("past booked") || label.includes("past due")) {
+      openUnassignedJobsOnSchedule(job);
+      return;
+    }
+
+    const daywork = dashboardDayworkReviews.find((row) => row.jobId === job.id);
+    if (daywork && (label.includes("daywork") || /daywork/i.test(job.next || ""))) {
+      openDayworkAccountRecord(job.id, { costCentreId: daywork.costCentreId });
+      return;
+    }
+
+    const pendingTs = pendingTimesheetApprovals.find((row) => row.jobId === job.id);
+    if (pendingTs && (label.includes("timesheet") || /timesheet/i.test(job.next || ""))) {
+      openTimesheetApproval(pendingTs, job);
+      return;
+    }
+
+    openJobDrawer(job.id);
   }
 
   function openPurchaseOrderRegisterRow(request: PurchaseRequest) {
@@ -36145,16 +36276,44 @@ export default function CoreApp() {
                           <span>Next action</span>
                           <span>Options</span>
                         </div>
-                        {group.items.map((job) => (
+                        {group.items.map((job) => {
+                          const timesheetFocus =
+                            activeJobFolderKey === "timesheets" &&
+                            (focusedActionRecordId === `ts-overdue-${job.id}` ||
+                              pendingTimesheetApprovals.some(
+                                (event) => event.jobId === job.id && event.id === focusedActionRecordId,
+                              ));
+                          return (
                           <article
-                            className="quote-row clickable"
+                            className={`quote-row clickable${timesheetFocus ? " is-action-focused" : ""}`}
                             key={job.id}
+                            id={timesheetFocus ? `action-focus-${focusedActionRecordId}` : undefined}
                             role="button"
                             tabIndex={0}
-                            onClick={() => openJobDrawer(job.id)}
+                            onClick={() => {
+                              if (activeJobFolderKey === "daywork") {
+                                const first = dashboardDayworkReviews.find((item) => item.jobId === job.id);
+                                openDayworkAccountRecord(job.id, { costCentreId: first?.costCentreId });
+                                return;
+                              }
+                              if (activeJobFolderKey === "timesheets") {
+                                const pending = pendingTimesheetApprovals.find((event) => event.jobId === job.id);
+                                if (pending) {
+                                  setFocusedActionRecordId(pending.id);
+                                  showNotice(`Approve or reject ${pending.actor || "engineer"}'s ${pending.hours ?? 0}h below.`);
+                                  return;
+                                }
+                              }
+                              openJobDrawer(job.id);
+                            }}
                             onKeyDown={(event) => {
                               if (event.key === "Enter" || event.key === " ") {
                                 event.preventDefault();
+                                if (activeJobFolderKey === "daywork") {
+                                  const first = dashboardDayworkReviews.find((item) => item.jobId === job.id);
+                                  openDayworkAccountRecord(job.id, { costCentreId: first?.costCentreId });
+                                  return;
+                                }
                                 openJobDrawer(job.id);
                               }
                             }}
@@ -36319,7 +36478,8 @@ export default function CoreApp() {
                               { label: "Delete", onClick: () => deleteJobFromDirectory(job), danger: true },
                             ])}
                           </article>
-                        ))}
+                          );
+                        })}
                       </>
                     )}
                   </section>
@@ -42438,7 +42598,12 @@ export default function CoreApp() {
                               </div>
                             ) : null}
                             {selectedJobVariations.map((variation) => (
-                              <article className="variation-card" key={variation.id}>
+                              <article
+                                className={`variation-card${focusedActionRecordId === variation.id ? " is-action-focused" : ""}`}
+                                key={variation.id}
+                                id={`variation-card-${variation.id}`}
+                                data-action-focus={focusedActionRecordId === variation.id ? "true" : undefined}
+                              >
                                 <header>
                                   <div>
                                     <strong>{variation.reference}</strong>
