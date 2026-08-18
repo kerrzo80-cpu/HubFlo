@@ -94,3 +94,8 @@ export function applySoftGuidePricesToKit(lines: KitLine[]): KitLine[] {
     return line;
   });
 }
+
+/** Soft budget material £ for a description/unit — used by Blake takeoff import. */
+export function softGuideUnitCost(description: string, unit: string): number {
+  return softGuide(description, unit || "nr");
+}

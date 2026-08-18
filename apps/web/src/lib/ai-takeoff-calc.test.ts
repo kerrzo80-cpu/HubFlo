@@ -96,3 +96,34 @@ test("tool handlers create house types and takeoff items", () => {
   assert.equal(item.ok, true);
   assert.equal(item.state.lines.length, 1);
 });
+
+test("set_single_area_project skips housing plot nag for commercial jobs", () => {
+  const tenderId = `test-ai-takeoff-single-${Date.now()}`;
+  const result = executeAiTakeoffTool(tenderId, "set_single_area_project", { areaName: "Health Club" });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.state.houseTypes, ["Health Club"]);
+  assert.deepEqual(result.state.plots, [{ plot: "1", houseType: "Health Club" }]);
+  assert.equal(validatePlotRegister(result.state.plots, result.state.houseTypes).length, 0);
+
+  const priced = executeAiTakeoffTool(tenderId, "update_pricing_rules", {
+    labourRatePerHour: 70,
+    materialsMarkupPercent: 30,
+  });
+  assert.equal(priced.ok, true);
+  assert.equal(priced.state.pricingRules.labourRatePerHour, 70);
+  assert.equal(priced.state.pricingRules.materialsMarkupPercent, 30);
+
+  const item = executeAiTakeoffTool(tenderId, "add_takeoff_item", {
+    description: "22mm copper",
+    quantity: 10,
+    unit: "m",
+    unitCost: 7.8,
+  });
+  assert.equal(item.ok, true);
+  assert.equal(item.state.lines[0]?.houseType, "Health Club");
+  assert.equal(item.state.lines[0]?.plotNumber, "1");
+});
+
+test("house types without a plot register do not fail validation", () => {
+  assert.equal(validatePlotRegister([], ["Health Club"]).length, 0);
+});

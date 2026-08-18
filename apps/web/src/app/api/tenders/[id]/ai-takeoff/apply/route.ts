@@ -33,7 +33,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "No proposed/accepted AI takeoff lines to apply." }, { status: 422 });
   }
 
-  const sheetName = body?.sheetName?.trim() || `AI Takeoff · ${new Date().toISOString().slice(0, 10)}`;
+  const sheetName = body?.sheetName?.trim() || `Blake Takeoff · ${new Date().toISOString().slice(0, 10)}`;
   const unpricedMeasured = sourceLines.filter((line) => {
     if (line.kind === "header" || line.kind === "note") return false;
     const calc = calculateTakeoffLine(line, state.pricingRules);

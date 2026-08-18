@@ -155,9 +155,13 @@ export function validatePlotRegister(
       errors.push(`Plot ${plot} uses unknown house type “${row.houseType}”.`);
     }
   }
-  for (const houseType of houseTypes) {
-    if (!plots.some((plot) => plot.houseType === houseType)) {
-      errors.push(`House type “${houseType}” has no plots assigned.`);
+  // Only require every area/house type to have plots when a plot register is in use
+  // (multi-plot housing). Single-area commercial jobs may have areas without a plot schedule.
+  if (plots.length > 0) {
+    for (const houseType of houseTypes) {
+      if (!plots.some((plot) => plot.houseType === houseType)) {
+        errors.push(`House type “${houseType}” has no plots assigned.`);
+      }
     }
   }
   return errors;

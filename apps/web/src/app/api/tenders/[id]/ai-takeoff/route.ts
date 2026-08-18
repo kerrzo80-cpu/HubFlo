@@ -21,19 +21,32 @@ type ChatBody = {
   pricingRules?: Record<string, unknown>;
 };
 
-const SYSTEM_PROMPT = `You are NeXa AI Takeoff Assistant for plumbing & heating tenders.
-You identify quantities, house types, plots, assumptions and exclusions from tender documents and chat.
-NeXa’s code calculates all money (qty × cost, markups, labour, VAT, reconciliation). Never invent final project totals yourself — call calculate_house_total / generate_nexa_import tools.
-Rules (also stored in NeXa and editable):
+const SYSTEM_PROMPT = `You are Blake — NeXa’s plumbing & heating takeoff estimator inside Tenders.
+Speak as Blake (never call yourself “AI Takeoff Assistant”). Be direct, practical, and UK trade-aware.
+
+Project types:
+- Housing estates: house types + plot registers are useful.
+- Commercial / refurb / health club / plant / school / single building: do NOT demand house types or plot schedules. Call set_single_area_project with a sensible area name (e.g. “Health Club”) and move on.
+- If the user says there are no house types / plots / it is not a house — believe them immediately. Never loop asking for house types.
+
+When issued BoQ / Plumbing.xlsx is already on the tender Documents tab (see tender snapshot):
+1) update_pricing_rules if the user gave labour £/h or markup %
+2) set_single_area_project when it is not a multi-plot housing job
+3) import_issued_boq_lines (use documentNameHint if they named a file)
+4) generate_nexa_import and tell them to click Apply to BoQ
+
+Do not ask the user how to upload if Documents already lists the file — import it.
+Do not paste fake money totals — NeXa calculates via tools. Prefer tools over long Q&A.
+
+Rules (editable in NeXa; defaults already applied):
 - Labour £70/h, daywork £60/h, materials markup 30%, sanitaryware 20% where applicable
 - Round labour to nearest 0.5h
 - Sprinklers by others unless specifically included
 - Never hide provisional quantities
 - Pipework in metres; fittings as nr / lot / set
-- Split 1st fix, 2nd fix, commissioning, return visits
-- Every plot must reconcile to its house type; no missing/duplicate plots
-- Never silently override a confirmed user correction — highlight conflicts
-Use tools to create structured records. Prefer asking clarifying questions when drawings are ambiguous.`;
+- Split 1st fix, 2nd fix, commissioning, return visits when the bill supports it
+- On housing jobs only: plots must reconcile to house types
+- Never silently override a confirmed user correction — highlight conflicts`;
 
 export async function GET(request: NextRequest, { params }: Params) {
   const access = getAccessProfileFromHeaders(request.headers);
@@ -123,7 +136,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   const ai = getTakeoffOpenAiConfig();
 
   if (!ai.connected) {
-    const reply = "Blake / OpenAI is not connected. Set NEXA_OPENAI_API_KEY on Render or add a key in Setup → Integrations → NeXa AI. You can still add house types, plots and lines manually in this workspace.";
+    const reply = "Blake / OpenAI is not connected. Set NEXA_OPENAI_API_KEY on Render or add a key in Setup → Integrations → NeXa AI. You can still set a single area, import an issued BoQ, and add lines manually in this workspace.";
     appendAiTakeoffMessage(id, { role: "assistant", text: reply });
     return NextResponse.json({
       state: getTenderAiTakeoffState(id),
@@ -145,6 +158,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     lineCount: state.lines.length,
     openAssumptions: state.assumptions.filter((row) => row.status === "open").map((row) => row.text),
     documents: docSummary,
+    hint:
+      "If Documents lists an issued BoQ (.xlsx), call import_issued_boq_lines. If this is not multi-plot housing, call set_single_area_project first — do not keep asking for house types.",
   };
 
   try {

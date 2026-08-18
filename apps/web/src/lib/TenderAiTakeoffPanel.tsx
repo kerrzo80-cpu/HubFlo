@@ -64,7 +64,7 @@ export function TenderAiTakeoffPanel({
     });
     const payload = (await response.json().catch(() => null)) as ApiPayload | null;
     if (!response.ok) {
-      onNotice(payload?.error || "Could not load AI Takeoff workspace.");
+      onNotice(payload?.error || "Could not load Blake takeoff workspace.");
       return;
     }
     if (payload?.state) setState(payload.state);
@@ -96,7 +96,7 @@ export function TenderAiTakeoffPanel({
       if (payload?.validation) setValidation(payload.validation);
       if (payload?.ai) setAiMeta(payload.ai);
       if (!response.ok) {
-        onNotice(payload?.error || "AI Takeoff request failed.");
+        onNotice(payload?.error || "Blake takeoff request failed.");
         return false;
       }
       return true;
@@ -127,7 +127,7 @@ export function TenderAiTakeoffPanel({
       }
       if (payload?.state) setState(payload.state);
       onNotice(
-        `Applied ${payload?.applied || 0} AI takeoff line(s) to BoQ sheet “${payload?.sheetName || "AI Takeoff"}”.`,
+        `Applied ${payload?.applied || 0} Blake takeoff line(s) to BoQ sheet “${payload?.sheetName || "Blake Takeoff"}”.`,
       );
       onBoqApplied?.();
     } finally {
@@ -142,7 +142,7 @@ export function TenderAiTakeoffPanel({
   if (!state) {
     return (
       <div className="tenders-ai-takeoff">
-        <p className="setup-inline-note">Loading AI Takeoff Assistant…</p>
+        <p className="setup-inline-note">Loading Blake…</p>
       </div>
     );
   }
@@ -154,13 +154,14 @@ export function TenderAiTakeoffPanel({
     <div className="tenders-ai-takeoff">
       <div className="tenders-ai-takeoff-header">
         <div>
-          <span className="permission-heading">AI proposes · NeXa calculates</span>
+          <span className="permission-heading">Blake proposes · NeXa calculates</span>
           <h3>
-            <Sparkles size={16} /> AI Takeoff Assistant
+            <Sparkles size={16} /> Blake
           </h3>
           <p>
-            Chat-controlled estimating for <strong>{tenderName}</strong>. Quantities and house/plot structure come from
-            AI; sell totals, markups and plot reconciliation are calculated in NeXa before anything hits the BoQ.
+            Takeoff chat for <strong>{tenderName}</strong>. Works for housing estates <em>and</em> commercial /
+            single-building jobs — no fake house types required. Upload the issued BoQ under Documents, then ask Blake
+            to import and price it. Sell totals and markups are calculated in NeXa before Apply to BoQ.
           </p>
         </div>
         <div className="tenders-toolbar-actions">
@@ -258,13 +259,13 @@ export function TenderAiTakeoffPanel({
           <div className="tenders-ai-takeoff-messages">
             {state.messages.length === 0 ? (
               <p className="setup-inline-note">
-                Try: “Create house types HT-A and HT-B, assign plots 1–10 to HT-A and 11–20 to HT-B, then take off first-fix
-                heating for HT-A from the drawings.”
+                Try: “This is a health club refurb — treat as one area, import Plumbing.xlsx from Documents, price with
+                30% materials markup and labour at £70/h, then I’ll Apply to BoQ.”
               </p>
             ) : (
               state.messages.map((row) => (
                 <article key={row.id} className={`tenders-ai-msg tenders-ai-msg-${row.role}`}>
-                  <span>{row.role === "user" ? "You" : row.role === "assistant" ? "Assistant" : "System"}</span>
+                  <span>{row.role === "user" ? "You" : row.role === "assistant" ? "Blake" : "System"}</span>
                   <p>{row.text}</p>
                   {row.toolCalls?.length ? (
                     <ul>

@@ -1535,7 +1535,7 @@ export function TendersPanel({
               ["overview", "Overview"],
               ["boq", "BoQ pricing"],
               ["documents", "Documents"],
-              ["ai-takeoff", "AI Takeoff"],
+              ["ai-takeoff", "Blake"],
               ["submit", "Submit pack"],
             ] as const
           ).map(([key, label]) => (
