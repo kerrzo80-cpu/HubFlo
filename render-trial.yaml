@@ -42,3 +42,22 @@ services:
         sync: false
       - key: NEXT_PUBLIC_APP_URL
         value: https://nexa-trial.onrender.com
+      # Optional — same pattern as live/pilot if the trial should keep nightly backups
+      - key: NEXA_BACKUP_CRON_SECRET
+        sync: false
+      - key: NEXA_BACKUP_DIR
+        value: /var/data/backups
+      - key: BACKUP_RETENTION_DAYS
+        value: "14"
+      - key: BACKUP_S3_BUCKET
+        sync: false
+      - key: BACKUP_S3_ACCESS_KEY_ID
+        sync: false
+      - key: BACKUP_S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: BACKUP_S3_REGION
+        sync: false
+      - key: BACKUP_S3_ENDPOINT
+        sync: false
+      - key: BACKUP_S3_PREFIX
+        sync: false
