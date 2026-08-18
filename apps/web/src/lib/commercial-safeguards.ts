@@ -96,3 +96,34 @@ export function isPlaceholderBankDetails(input: {
   if (name === "company") return true;
   return false;
 }
+
+/** True when VAT / company registration should be omitted from PDF chrome (blank or demo junk). */
+export function isPlaceholderCompanyRegistration(input: {
+  vatNumber?: string;
+  companyNumber?: string;
+}): boolean {
+  const vat = String(input.vatNumber || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+  const company = String(input.companyNumber || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+  const vatPlaceholder =
+    !vat ||
+    vat === "gb000000000" ||
+    vat === "000000000" ||
+    vat === "vatnumber" ||
+    vat === "tba" ||
+    vat === "n/a" ||
+    vat === "na";
+  const companyPlaceholder =
+    !company ||
+    company === "00000000" ||
+    company === "companynumber" ||
+    company === "tba" ||
+    company === "n/a" ||
+    company === "na";
+  return vatPlaceholder && companyPlaceholder;
+}

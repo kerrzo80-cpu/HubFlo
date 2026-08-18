@@ -80,7 +80,9 @@ import {
 } from "lucide-react";
 import { checkInvoiceReadiness, type InvoiceReadinessInput } from "@hubflo/domain";
 import type { Job, PurchaseRequest, PurchaseStatus, Quote, QuoteStatus } from "@/lib/workflow-data";
-import { isPlaceholderBankDetails } from "@/lib/commercial-safeguards";
+import { isPlaceholderBankDetails, isPlaceholderCompanyRegistration } from "@/lib/commercial-safeguards";
+import { DEFAULT_OVERHEAD_PERCENT } from "@/lib/reports-board-pack";
+import { assertNoHubScheduleClashes } from "@/lib/schedule-clash";
 import {
   businessImportLabels,
   businessImportTemplateHeaders,
@@ -3098,7 +3100,11 @@ function PdfDocumentPreview({
               <strong>{chrome.tradingName}</strong>
               <span>{chrome.address}</span>
               <span>{chrome.phone} · {chrome.contactEmail}</span>
-              {chrome.showVatCompanyNumbers ? (
+              {chrome.showVatCompanyNumbers &&
+              !isPlaceholderCompanyRegistration({
+                vatNumber: chrome.vatNumber,
+                companyNumber: chrome.companyNumber,
+              }) ? (
                 <span>VAT {chrome.vatNumber} · Company {chrome.companyNumber}</span>
               ) : null}
             </div>
@@ -3276,7 +3282,11 @@ function ApplicationPaymentPreview({
               <strong>{chrome.tradingName}</strong>
               <span>{chrome.address}</span>
               <span>{chrome.phone} · {chrome.contactEmail}</span>
-              {chrome.showVatCompanyNumbers ? (
+              {chrome.showVatCompanyNumbers &&
+              !isPlaceholderCompanyRegistration({
+                vatNumber: chrome.vatNumber,
+                companyNumber: chrome.companyNumber,
+              }) ? (
                 <span>VAT {chrome.vatNumber} · Company {chrome.companyNumber}</span>
               ) : null}
             </div>
@@ -14576,15 +14586,15 @@ export default function CoreApp() {
           const jobTimesheets = jobDeliveryEvents.filter(
             (event) => event.jobId === job.id && event.kind === "timesheet" && event.status === "Approved",
           );
-          const workedHours = jobTimesheets.reduce((total, event) => total + (event.hours ?? 0), 0);
+          const workedHours = jobTimesheets.reduce((total, event) => total + finiteHours(event.hours), 0);
           const actualLabourCost = jobTimesheets.reduce((total, event) => {
             if (event.costValue !== undefined) return total + event.costValue;
             const hourlyRate = employeeHourlyRateByName.get(event.actor) ?? Number(fallbackLabourRateSetting.costRate);
-            return total + (event.hours ?? 0) * hourlyRate;
+            return total + finiteHours(event.hours) * hourlyRate;
           }, 0);
           const scheduledHours = reportAssignments
             .filter((assignment) => assignment.jobId === job.id)
-            .reduce((total, assignment) => total + assignment.plannedHours, 0);
+            .reduce((total, assignment) => total + finiteHours(assignment.plannedHours), 0);
           const quotedSell = estimateTotals.totalSell || job.value;
           const estimatedCost = estimateTotals.totalCost || Math.round(job.value * 0.68);
           const actualCost = actualMaterialCost + actualLabourCost;
@@ -14738,14 +14748,14 @@ export default function CoreApp() {
               assignment.employeeName === name &&
               reportDateIsInRange(reportDateValue(assignment.startDate), reportDateRange, reportCustomStartDate, reportCustomEndDate),
             )
-            .reduce((total, assignment) => total + assignment.plannedHours, 0);
+            .reduce((total, assignment) => total + finiteHours(assignment.plannedHours), 0);
           const workedHours = jobDeliveryEvents
             .filter((event) =>
               event.kind === "timesheet" &&
               event.actor === name &&
               reportDateIsInRange(reportDateForRecord(event), reportDateRange, reportCustomStartDate, reportCustomEndDate),
             )
-            .reduce((total, event) => total + (event.hours ?? 0), 0);
+            .reduce((total, event) => total + finiteHours(event.hours), 0);
           const managedJobs = reportJobRows.filter(
             (row) =>
               row.job.manager === name ||
@@ -14857,7 +14867,10 @@ export default function CoreApp() {
     const visibleRevenue = revenue || quotedRevenue || fallbackRevenue;
     const cost = reportInvoiceRows.reduce((total, row) => total + row.cost, 0) || reportJobRows.reduce((total, row) => total + row.projectedCost, 0);
     const grossProfit = visibleRevenue - cost;
-    const overheadAllowance = Math.round(visibleRevenue * 0.12);
+    const overheadPercentRaw = Number((businessSettings as { overheadPercent?: number }).overheadPercent);
+    const overheadPercent =
+      Number.isFinite(overheadPercentRaw) && overheadPercentRaw >= 0 ? overheadPercentRaw : DEFAULT_OVERHEAD_PERCENT;
+    const overheadAllowance = Math.round(visibleRevenue * (overheadPercent / 100));
     const netProfit = grossProfit - overheadAllowance;
     const cashOwed = reportInvoiceRows.reduce((total, row) => total + row.owed, 0);
     const revenueForRange = (range: ReportDateRange) =>
@@ -14892,7 +14905,7 @@ export default function CoreApp() {
       lossMakingJobs,
       unallocatedJobs,
     };
-  }, [invoices, reportAssignments, reportInvoiceRows, reportJobRows, reportQuoteRows]);
+  }, [businessSettings, invoices, reportAssignments, reportInvoiceRows, reportJobRows, reportQuoteRows]);
 
   const reportCashReconcile = useMemo(() => {
     const payments = reportInvoiceRows.flatMap((row) =>
@@ -25505,6 +25518,15 @@ export default function CoreApp() {
     if (!selectedJob || !jobPlannerWhatIfMode || selectedJobPlannerAssignments.length === 0) return;
     const firstAssignment = selectedJobPlannerAssignments[0];
     if (!firstAssignment) return;
+    const nextPlans = {
+      ...jobSchedulePlans,
+      [selectedJob.id]: selectedJobPlannerAssignments,
+    };
+    const clashError = assertNoHubScheduleClashes(nextPlans);
+    if (clashError) {
+      showNotice(clashError);
+      return;
+    }
     const updated = await patchSelectedJob(
       {
         manager: firstAssignment.employeeName,
@@ -35939,7 +35961,7 @@ export default function CoreApp() {
                     <div className="report-kpi-list">
                       <article><span>Revenue in filter</span><strong>{currency(reportExecutive.visibleRevenue)}</strong><small>Invoices first, then secured jobs/quotes if invoices are not present.</small></article>
                       <article><span>Gross margin</span><strong>{reportExecutive.grossMargin}%</strong><small>{currency(reportExecutive.cost)} estimated, committed and actual cost tracked.</small></article>
-                      <article><span>Net margin</span><strong>{reportExecutive.netMargin}%</strong><small>Uses a 12% overhead allowance until full overhead setup is added.</small></article>
+                      <article><span>Net margin</span><strong>{reportExecutive.netMargin}%</strong><small>Uses the board-pack overhead allowance ({DEFAULT_OVERHEAD_PERCENT}% default).</small></article>
                       <article><span>Forecast secured</span><strong>{currency(reportQuoteRows.filter((row) => row.quote.status === "Accepted" || row.quote.status === "Converted").reduce((total, row) => total + row.sell, 0))}</strong><small>Accepted and converted quotes.</small></article>
                     </div>
                   </section>

@@ -40649,6 +40649,148 @@ button.nexa-kpi-card,
   gap: 14px;
 }
 
+.tenders-ai-takeoff {
+  display: grid;
+  gap: 16px;
+}
+
+.tenders-ai-takeoff-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.tenders-ai-takeoff-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 6px;
+}
+
+.tenders-ai-takeoff-header p {
+  margin: 0;
+  max-width: 52rem;
+  color: #475569;
+}
+
+.tenders-ai-takeoff-rules {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.tenders-ai-takeoff-validation {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff7ed;
+  color: #9a3412;
+  border: 1px solid #fed7aa;
+}
+
+.tenders-ai-takeoff-validation p {
+  margin: 0 0 4px;
+}
+
+.tenders-ai-takeoff-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1.6fr) minmax(220px, 0.8fr);
+}
+
+.tenders-ai-takeoff-chat,
+.tenders-ai-takeoff-side {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+}
+
+.tenders-ai-takeoff-messages {
+  display: grid;
+  gap: 10px;
+  max-height: 360px;
+  overflow: auto;
+  margin-bottom: 12px;
+}
+
+.tenders-ai-msg span {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  margin-bottom: 2px;
+}
+
+.tenders-ai-msg p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.tenders-ai-msg ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: #475569;
+  font-size: 12px;
+}
+
+.tenders-ai-msg-user {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #eff6ff;
+}
+
+.tenders-ai-msg-assistant {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.tenders-ai-takeoff-composer {
+  display: grid;
+  gap: 8px;
+}
+
+.tenders-ai-takeoff-composer textarea {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+}
+
+.tenders-ai-takeoff-side {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.tenders-ai-takeoff-side h4 {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+
+.tenders-ai-takeoff-side p,
+.tenders-ai-takeoff-side ul {
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .tenders-ai-takeoff-grid,
+  .tenders-ai-takeoff-rules {
+    grid-template-columns: 1fr;
+  }
+}
+
 .tenders-boq-summary,
 .tenders-boq-import,
 .tenders-docs,

@@ -164,6 +164,29 @@ export function SetupLiveReadinessPanel() {
     }
   }
 
+  async function runOfficeRestoreDryRun(filename: string) {
+    setBackupNote("Office restore dry-run…");
+    try {
+      const response = await fetch("/api/office-backup/restore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename, dryRun: true }),
+      });
+      const body = await response.json();
+      if (!response.ok) {
+        setBackupNote(body.error || `Office restore dry-run failed (${response.status})`);
+        return;
+      }
+      const written = body.result?.written?.length ?? body.result?.verification?.storeCount;
+      setBackupNote(
+        body.message ||
+          `Office restore dry-run OK for ${filename}${written != null ? ` · ${written} stores` : ""}.`,
+      );
+    } catch (err) {
+      setBackupNote(err instanceof Error ? err.message : "Office restore dry-run failed");
+    }
+  }
+
   async function runOpenAiSmoke() {
     setSmoke("Checking…");
     try {
@@ -275,6 +298,16 @@ export function SetupLiveReadinessPanel() {
             >
               Download latest
             </a>
+          ) : null}
+          {latestBackup ? (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={officeBackupBusy}
+              onClick={() => void runOfficeRestoreDryRun(latestBackup.filename)}
+            >
+              Test restore
+            </button>
           ) : null}
           <span className={statusClass(backupStatus)}>
             {officeBackupBusy || officeBackup?.running

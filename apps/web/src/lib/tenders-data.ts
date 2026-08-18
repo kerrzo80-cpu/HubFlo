@@ -1301,6 +1301,20 @@ export function importBoqRowsIntoTender(
   return applyBoqImport(id, stampAppendSheetOnParsedLines(parseBoqFromRows(rows, title), options), options);
 }
 
+/** Import already-structured BoQ lines (e.g. AI Takeoff → tender bill) without re-parsing CSV. */
+export function importBoqLinesIntoTender(
+  id: string,
+  lines: TenderBoqLine[],
+  title?: string,
+  options?: BoqImportOptions,
+) {
+  return applyBoqImport(
+    id,
+    stampAppendSheetOnParsedLines({ title: title || "Imported BoQ", lines: lines || [] }, options),
+    options,
+  );
+}
+
 export function importBoqWorkbookIntoTender(
   id: string,
   sheets: WorkbookSheetRows[],

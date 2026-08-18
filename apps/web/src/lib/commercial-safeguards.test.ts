@@ -6,6 +6,8 @@ import {
   assertMaterialsPricedForPush,
   assertQuotePortalResponseAllowed,
   assertVariationSellValue,
+  isPlaceholderBankDetails,
+  isPlaceholderCompanyRegistration,
 } from "./commercial-safeguards.ts";
 
 test("blocks unpriced commercial materials but allows RFQ", () => {
@@ -44,4 +46,21 @@ test("heat design export hard-fails undersized pumps", () => {
     assertHeatDesignExportable({ coveragePercent: 50, force: true }),
     null,
   );
+});
+
+test("placeholder bank and company registration scrubbing", () => {
+  assert.equal(isPlaceholderBankDetails({}), true);
+  assert.equal(isPlaceholderBankDetails({ sortCode: "00-00-00", accountNumber: "00000000" }), true);
+  assert.equal(
+    isPlaceholderBankDetails({
+      bankName: "Barclays",
+      accountName: "EWG Ltd",
+      sortCode: "20-00-00",
+      accountNumber: "12345678",
+    }),
+    false,
+  );
+  assert.equal(isPlaceholderCompanyRegistration({}), true);
+  assert.equal(isPlaceholderCompanyRegistration({ vatNumber: "GB000000000", companyNumber: "00000000" }), true);
+  assert.equal(isPlaceholderCompanyRegistration({ vatNumber: "GB123456789", companyNumber: "" }), false);
 });

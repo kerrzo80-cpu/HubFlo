@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   rmSync,
   statSync,
   unlinkSync,
@@ -20,6 +21,7 @@ import {
   collectPilotBackup,
   isExcludedBackupStore,
   redactBackupStoreValue,
+  restorePilotBackup,
 } from "@/lib/pilot-backup";
 import { uploadOfficeBackupToS3 } from "@/lib/office-backup-s3";
 import {
@@ -202,6 +204,62 @@ export function resolveOfficeBackupFile(filename: string) {
   const full = path.join(getOfficeBackupDirectory(), base);
   if (!existsSync(full)) return null;
   return { filename: base, full, bytes: statSync(full).size };
+}
+
+/**
+ * Extract stores.json from a local office tar.gz and dry-run (or apply) the JSON store restore.
+ * Document folders / sqlite still need a manual server restore — this proves the office record snapshot is restorable.
+ */
+export async function restoreOfficeBackupStores(
+  filename: string,
+  options?: { dryRun?: boolean; confirm?: string },
+) {
+  const file = resolveOfficeBackupFile(filename);
+  if (!file) {
+    return { ok: false as const, error: "That backup file was not found.", dryRun: true };
+  }
+
+  const forceApply = options?.dryRun === false && options?.confirm === "RESTORE";
+  const dryRun = !forceApply;
+  const staging = path.join(os.tmpdir(), `nexa-office-restore-${process.pid}-${Date.now()}`);
+  mkdirSync(staging, { recursive: true });
+
+  try {
+    await runCommand("tar", ["-xzf", file.full, "-C", staging, "./stores.json"]);
+    const storesPath = path.join(staging, "stores.json");
+    if (!existsSync(storesPath)) {
+      return { ok: false as const, error: "Backup archive has no stores.json.", dryRun, filename: file.filename };
+    }
+    const backup = JSON.parse(readFileSync(storesPath, "utf8")) as unknown;
+    const result = restorePilotBackup(backup, { dryRun });
+    if (!result.verification.ok) {
+      return {
+        ok: false as const,
+        error: "Backup stores.json failed verification.",
+        dryRun,
+        filename: file.filename,
+        result,
+      };
+    }
+    return {
+      ok: true as const,
+      dryRun,
+      filename: file.filename,
+      result,
+      message: dryRun
+        ? "Dry-run OK — office stores.json verifies and would restore. Pass dryRun:false and confirm:\"RESTORE\" to write stores (files/sqlite still manual)."
+        : "Office stores restored from backup. Restart the service so in-memory modules reload. Document folders and sqlite still need a manual restore if required.",
+    };
+  } catch (error) {
+    return {
+      ok: false as const,
+      error: error instanceof Error ? error.message : "Office restore failed.",
+      dryRun,
+      filename: file.filename,
+    };
+  } finally {
+    rmSync(staging, { recursive: true, force: true });
+  }
 }
 
 function pruneBackupFiles() {

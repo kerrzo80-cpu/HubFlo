@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { FileDropZone } from "@/components/FileDropZone";
+import { TenderAiTakeoffPanel } from "@/lib/TenderAiTakeoffPanel";
 import {
   isTenderDocumentKind,
   resolveTenderDocumentFolderKind,
@@ -61,7 +62,7 @@ function money(value: number | null | undefined) {
   return gbp.format(value);
 }
 
-type TabKey = "overview" | "boq" | "documents" | "submit";
+type TabKey = "overview" | "boq" | "documents" | "ai-takeoff" | "submit";
 
 const BOQ_EDITOR_ACTIONS = new Set([
   "import-boq",
@@ -1534,6 +1535,7 @@ export function TendersPanel({
               ["overview", "Overview"],
               ["boq", "BoQ pricing"],
               ["documents", "Documents"],
+              ["ai-takeoff", "AI Takeoff"],
               ["submit", "Submit pack"],
             ] as const
           ).map(([key, label]) => (
@@ -2747,6 +2749,19 @@ export function TendersPanel({
               })}
             </ul>
           </div>
+        ) : null}
+
+        {tab === "ai-takeoff" ? (
+          <TenderAiTakeoffPanel
+            tenderId={selected.id}
+            tenderName={selected.name}
+            requestHeaders={requestHeaders}
+            onNotice={onNotice}
+            onBoqApplied={() => {
+              void loadSelectedTenderBoq(selected.id);
+              setTab("boq");
+            }}
+          />
         ) : null}
 
         {tab === "submit" ? (
