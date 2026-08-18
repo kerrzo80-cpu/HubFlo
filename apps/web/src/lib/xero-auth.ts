@@ -47,8 +47,14 @@ const STORE = "nexa-xero-auth-v1";
 const tokenStore = loadServerStore<XeroAuthStore>(STORE, {});
 const XERO_AUTHORIZE_URL = "https://login.xero.com/identity/connect/authorize";
 const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
-const XERO_DEFAULT_SCOPES =
-  "openid profile email offline_access accounting.transactions accounting.contacts accounting.settings";
+const XERO_REQUIRED_SCOPES = [
+  "offline_access",
+  "accounting.transactions",
+  "accounting.contacts",
+  "accounting.settings",
+] as const;
+const XERO_ALLOWED_SCOPES = new Set<string>(XERO_REQUIRED_SCOPES);
+const XERO_DEFAULT_SCOPES = XERO_REQUIRED_SCOPES.join(" ");
 
 export const XERO_OFFICE_CONNECT_COPY =
   "Click Connect Xero. You’ll sign in to Xero and approve NeXa for your organisation. You don’t need a Xero developer account. NeXa never asks for your Xero password.";
@@ -69,7 +75,14 @@ function env(name: string) {
 }
 
 function scopes() {
-  return env("XERO_SCOPES") || XERO_DEFAULT_SCOPES;
+  const configured = env("XERO_SCOPES");
+  if (!configured) return XERO_DEFAULT_SCOPES;
+  const requested = configured
+    .split(/\s+/)
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+  const filtered = requested.filter((scope, index) => XERO_ALLOWED_SCOPES.has(scope) && requested.indexOf(scope) === index);
+  return filtered.length ? filtered.join(" ") : XERO_DEFAULT_SCOPES;
 }
 
 function base64Url(buffer: Buffer) {

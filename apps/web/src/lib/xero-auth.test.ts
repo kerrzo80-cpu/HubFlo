@@ -61,9 +61,11 @@ test("xero oauth start URL, PKCE, placeholders, and office copy", async (t) => {
     url.searchParams.get("redirect_uri"),
     "https://nexa-pilot.onrender.com/api/integrations/xero/callback",
   );
-  assert.equal(url.searchParams.get("scope")?.includes("openid"), true);
+  assert.equal(url.searchParams.get("scope")?.includes("openid"), false);
   assert.equal(url.searchParams.get("scope")?.includes("offline_access"), true);
   assert.equal(url.searchParams.get("scope")?.includes("accounting.transactions"), true);
+  assert.equal(url.searchParams.get("scope")?.includes("accounting.contacts"), true);
+  assert.equal(url.searchParams.get("scope")?.includes("accounting.settings"), true);
   assert.equal(url.searchParams.get("code_challenge_method"), "S256");
   assert.ok(url.searchParams.get("code_challenge"));
   assert.ok(url.searchParams.get("state"));
@@ -72,4 +74,13 @@ test("xero oauth start URL, PKCE, placeholders, and office copy", async (t) => {
   assert.ok(status.officeMessage?.includes("don’t need a Xero developer account") || status.officeMessage?.includes("don't need a Xero developer account"));
   assert.ok(status.redirectUrisToRegister.includes("https://nexa-pilot.onrender.com/api/integrations/xero/callback"));
   assert.ok(status.redirectUrisToRegister.includes("https://nexa-live.onrender.com/api/integrations/xero/callback"));
+
+  process.env.XERO_SCOPES = "openid profile email offline_access accounting.transactions accounting.contacts accounting.settings accounting.attachments";
+  const filtered = startXeroAuthorization();
+  const filteredUrl = new URL(filtered.authUrl);
+  assert.equal(
+    filteredUrl.searchParams.get("scope"),
+    "offline_access accounting.transactions accounting.contacts accounting.settings",
+  );
+  delete process.env.XERO_SCOPES;
 });
