@@ -846,6 +846,7 @@ type HomeView =
   | "quote-record"
   | "jobs"
   | "attention"
+  | "action-queue"
   | "job-create"
   | "purchase-orders"
   | "purchase-order-record"
@@ -862,6 +863,31 @@ type HomeView =
   | "job-record"
   | "quote-cost-centre-record"
   | "cost-centre-record";
+
+type ActionQueueKey =
+  | "unassigned"
+  | "timesheets"
+  | "daywork"
+  | "po-requests"
+  | "variations"
+  | "lead-followups"
+  | "quote-followups"
+  | "approved-quotes"
+  | "overdue-jobs"
+  | "health-attention"
+  | "health-blocked";
+
+type ActionQueueRow = {
+  id: string;
+  tone: "red" | "amber" | "green" | "blue";
+  ref: string;
+  title: string;
+  why: string;
+  detail: string;
+  status?: string;
+  onOpen: () => void;
+  actionLabel?: string;
+};
 
 type OpenWorkspaceTabKind = "lead" | "quote" | "job" | "invoice" | "client";
 
@@ -8548,6 +8574,7 @@ export default function CoreApp() {
   });
   const [activeQuoteFolderKey, setActiveQuoteFolderKey] = useState("all");
   const [activeJobFolderKey, setActiveJobFolderKey] = useState("all");
+  const [activeActionQueueKey, setActiveActionQueueKey] = useState<ActionQueueKey>("unassigned");
   const [activeLeadFolderKey, setActiveLeadFolderKey] = useState("all");
   const [activeInvoiceFolderKey, setActiveInvoiceFolderKey] = useState("all");
   const [activeDayworkFolderKey, setActiveDayworkFolderKey] = useState<"review" | "completed" | "all">("review");
@@ -13143,30 +13170,22 @@ export default function CoreApp() {
     [searchMatchedJobs],
   );
 
-  const attentionQueueItems = useMemo(() => {
+  const attentionQueuesByTone = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
-    const toneFilter: JobHealthTone =
-      activeJobFolderKey === "health-blocked" ? "red" : "amber";
-    return searchMatchedJobs
-      .filter((job) => effectiveJobHealthTone(job, today) === toneFilter)
-      .map((job) => {
-        const reasons = jobAttentionReasons(job, today);
-        const primary = reasons[0] ?? primaryJobAttentionReason(job, today);
-        return {
-          job,
-          reasons,
-          primary,
-        };
-      })
-      .sort((left, right) => {
-        const toneRank = { red: 0, amber: 1, green: 2 } as const;
-        const leftTone = left.primary?.tone ?? "amber";
-        const rightTone = right.primary?.tone ?? "amber";
-        const toneDelta = toneRank[leftTone] - toneRank[rightTone];
-        if (toneDelta !== 0) return toneDelta;
-        return compareReferenceDesc(left.job.ref, right.job.ref);
-      });
-  }, [activeJobFolderKey, searchMatchedJobs]);
+    const build = (tone: JobHealthTone) =>
+      searchMatchedJobs
+        .filter((job) => effectiveJobHealthTone(job, today) === tone)
+        .map((job) => {
+          const reasons = jobAttentionReasons(job, today);
+          const primary = reasons[0] ?? primaryJobAttentionReason(job, today);
+          return { job, reasons, primary };
+        })
+        .sort((left, right) => compareReferenceDesc(left.job.ref, right.job.ref));
+    return {
+      amber: build("amber"),
+      red: build("red"),
+    };
+  }, [searchMatchedJobs]);
 
   const invoiceDirectoryGroups = useMemo(() => {
     const isOverdue = (invoice: Invoice) =>
@@ -14050,6 +14069,254 @@ export default function CoreApp() {
         return jobLooksUnassigned(job, jobSchedulePlans[job.id]);
       }),
     [jobSchedulePlans, jobs],
+  );
+
+  const actionQueueSections = useMemo(() => {
+    const sections: Array<{
+      key: ActionQueueKey;
+      title: string;
+      subtitle: string;
+      tone: "red" | "amber" | "green";
+      rows: ActionQueueRow[];
+    }> = [
+      {
+        key: "unassigned",
+        title: "Unassigned jobs",
+        subtitle: "Live jobs with no technician on the diary — assign someone on Schedules.",
+        tone: "red",
+        rows: unassignedProgressJobs.map((job) => ({
+          id: `unassigned-${job.id}`,
+          tone: "red" as const,
+          ref: job.ref,
+          title: `${job.customer} · ${job.description}`,
+          why: "No technician assigned",
+          detail: job.next || "Open Schedules and drag a booking onto an engineer",
+          status: job.status,
+          onOpen: () => openUnassignedJobsOnSchedule(job),
+          actionLabel: "Assign on schedule",
+        })),
+      },
+      {
+        key: "timesheets",
+        title: "Timesheets",
+        subtitle: "Hours waiting for office approval, or jobs still missing a timesheet.",
+        tone: "amber",
+        rows: [
+          ...pendingTimesheetApprovals.map((event) => {
+            const job = jobs.find((item) => item.id === event.jobId);
+            return {
+              id: `ts-approve-${event.id}`,
+              tone: "amber" as const,
+              ref: job?.ref || event.jobId,
+              title: `${event.actor || "Engineer"} · ${job?.customer || "Job"}`,
+              why: "Timesheet awaiting approval",
+              detail: `${event.hours ?? 0}h submitted${event.summary ? ` — ${event.summary}` : ""}`,
+              status: event.status || "Submitted",
+              onOpen: () => {
+                setSchedulePane("timesheets");
+                setHomeView("schedule");
+                scrollWorkspaceToTop();
+              },
+              actionLabel: "Open timesheets",
+            };
+          }),
+          ...overdueTimesheetJobs.map((job) => ({
+            id: `ts-overdue-${job.id}`,
+            tone: "red" as const,
+            ref: job.ref,
+            title: `${job.customer} · ${job.description}`,
+            why: "Timesheet overdue",
+            detail: job.next || "Chase the engineer to submit hours in Field",
+            status: job.status,
+            onOpen: () => openJobDrawer(job.id),
+            actionLabel: "Open job",
+          })),
+        ],
+      },
+      {
+        key: "daywork",
+        title: "Daywork reviews",
+        subtitle: "Signed Field daywork sheets waiting for office pricing or sign-off.",
+        tone: "amber",
+        rows: dashboardDayworkReviews.map((review) => ({
+          id: `daywork-${review.jobId}-${review.costCentreId}`,
+          tone: "amber" as const,
+          ref: review.jobRef,
+          title: review.summary,
+          why: "Daywork needs office review",
+          detail: `Status: ${review.status}`,
+          status: review.status,
+          onOpen: () => openDayworkAccountRecord(review.jobId, { costCentreId: review.costCentreId }),
+          actionLabel: "Open daywork",
+        })),
+      },
+      {
+        key: "po-requests",
+        title: "PO requests",
+        subtitle: "Supplier / purchase requests waiting for office approval.",
+        tone: "amber",
+        rows: pendingPORequests.map((request) => ({
+          id: `po-${request.id}`,
+          tone: "amber" as const,
+          ref: request.jobRef || request.id,
+          title: `${request.supplier || "Supplier TBC"} · ${request.item || "Purchase request"}`,
+          why: "PO awaiting approval",
+          detail: request.reason || `${currency(request.estimatedCost || 0)} estimated`,
+          status: request.status,
+          onOpen: () => openPendingPurchaseRequest(request),
+          actionLabel: "Open PO",
+        })),
+      },
+      {
+        key: "variations",
+        title: "Variations",
+        subtitle: "Client-approval variations that still need a decision.",
+        tone: "amber",
+        rows: dashboardVariationApprovals.map(({ job, variation }) => ({
+          id: `var-${job.id}-${variation.id}`,
+          tone: "amber" as const,
+          ref: job.ref,
+          title: `${job.customer} · ${variation.title || variation.ref || "Variation"}`,
+          why: "Variation awaiting approval",
+          detail: variation.status || "Needs client / office approval",
+          status: variation.status,
+          onOpen: () => openJobDrawer(job.id),
+          actionLabel: "Open job",
+        })),
+      },
+      {
+        key: "lead-followups",
+        title: "Lead follow-ups",
+        subtitle: "Surveys done — quote overdue or follow-up due.",
+        tone: "red",
+        rows: overdueLeadQuoteFollowUps.map(({ lead, followUp }) => ({
+          id: `lead-fu-${lead.id}`,
+          tone: (followUp.tone === "red" ? "red" : "amber") as "red" | "amber",
+          ref: lead.ref,
+          title: `${lead.customerName} · ${lead.description}`,
+          why: followUp.label,
+          detail: followUp.detail,
+          status: lead.status,
+          onOpen: () => openLeadRecord(lead.id),
+          actionLabel: "Open lead",
+        })),
+      },
+      {
+        key: "quote-followups",
+        title: "Quote follow-ups",
+        subtitle: "Sent quotes waiting on a customer response.",
+        tone: "amber",
+        rows: quoteResponseFollowUps.map(({ quote, followUp }) => ({
+          id: `quote-fu-${quote.id}`,
+          tone: (followUp.tone === "red" ? "red" : "amber") as "red" | "amber",
+          ref: quote.ref,
+          title: `${quote.customer} · ${quote.description}`,
+          why: followUp.label,
+          detail: followUp.detail,
+          status: quote.status,
+          onOpen: () => openQuoteDrawer(quote.id),
+          actionLabel: "Open quote",
+        })),
+      },
+      {
+        key: "approved-quotes",
+        title: "Approved quotes",
+        subtitle: "Accepted quotes that still need a job schedule.",
+        tone: "green",
+        rows: approvedQuotesAwaitingScheduling.map((quote) => {
+          const linkedJob = getQuoteJob(quote);
+          return {
+            id: `quote-sched-${quote.id}`,
+            tone: "green" as const,
+            ref: quote.ref,
+            title: `${quote.customer} · ${quote.description}`,
+            why: "Awaiting schedule",
+            detail: linkedJob
+              ? `${linkedJob.ref} exists — book the first visit`
+              : "Create / schedule the job from this quote",
+            status: quote.status,
+            onOpen: () => (linkedJob ? openUnassignedJobsOnSchedule(linkedJob) : openQuoteDrawer(quote.id)),
+            actionLabel: linkedJob ? "Schedule job" : "Open quote",
+          };
+        }),
+      },
+      {
+        key: "overdue-jobs",
+        title: "Overdue jobs",
+        subtitle: "Open jobs whose booked date is already in the past.",
+        tone: "red",
+        rows: overdueScheduledJobs.map((job) => ({
+          id: `overdue-${job.id}`,
+          tone: "red" as const,
+          ref: job.ref,
+          title: `${job.customer} · ${job.description}`,
+          why: "Past booked date",
+          detail: `Booked ${job.scheduledDate}${job.scheduledTime ? ` at ${job.scheduledTime}` : ""} — reschedule or complete`,
+          status: job.status,
+          onOpen: () => openJobDrawer(job.id),
+          actionLabel: "Open job",
+        })),
+      },
+      {
+        key: "health-attention",
+        title: "Attention queue",
+        subtitle: "Each row shows why the job needs office follow-up.",
+        tone: "amber",
+        rows: attentionQueuesByTone.amber.map(({ job, primary }) => ({
+          id: `attn-${job.id}`,
+          tone: "amber" as const,
+          ref: job.ref,
+          title: `${job.customer} · ${job.description}`,
+          why: primary?.label ?? "Needs follow-up",
+          detail: primary?.detail ?? job.next,
+          status: job.status,
+          onOpen: () => openJobDrawer(job.id),
+          actionLabel: "Open job",
+        })),
+      },
+      {
+        key: "health-blocked",
+        title: "Blocked queue",
+        subtitle: "Waiting on parts, customer, or marked blocked.",
+        tone: "red",
+        rows: attentionQueuesByTone.red.map(({ job, primary }) => ({
+          id: `blocked-${job.id}`,
+          tone: "red" as const,
+          ref: job.ref,
+          title: `${job.customer} · ${job.description}`,
+          why: primary?.label ?? "Blocked",
+          detail: primary?.detail ?? job.next,
+          status: job.status,
+          onOpen: () => openJobDrawer(job.id),
+          actionLabel: "Open job",
+        })),
+      },
+    ];
+    return sections;
+  }, [
+    approvedQuotesAwaitingScheduling,
+    attentionQueuesByTone,
+    dashboardDayworkReviews,
+    dashboardVariationApprovals,
+    getQuoteJob,
+    jobs,
+    overdueLeadQuoteFollowUps,
+    overdueScheduledJobs,
+    overdueTimesheetJobs,
+    pendingPORequests,
+    pendingTimesheetApprovals,
+    quoteResponseFollowUps,
+    unassignedProgressJobs,
+  ]);
+
+  const activeActionQueue = useMemo(
+    () => actionQueueSections.find((section) => section.key === activeActionQueueKey) ?? actionQueueSections[0]!,
+    [actionQueueSections, activeActionQueueKey],
+  );
+
+  const visibleActionQueueTabs = useMemo(
+    () => actionQueueSections.filter((section) => section.rows.length > 0 || section.key === activeActionQueueKey),
+    [actionQueueSections, activeActionQueueKey],
   );
 
   const dashboardWeekDays = useMemo(() => {
@@ -33363,6 +33630,15 @@ export default function CoreApp() {
       scrollWorkspaceToTop();
     }
 
+    function openActionQueue(queueKey: ActionQueueKey) {
+      setActiveActionQueueKey(queueKey);
+      if (queueKey === "health-attention" || queueKey === "health-blocked") {
+        setActiveJobFolderKey(queueKey);
+      }
+      setHomeView("action-queue");
+      scrollWorkspaceToTop();
+    }
+
     const actionNotificationCards = [
       {
         id: "unassigned",
@@ -33370,7 +33646,7 @@ export default function CoreApp() {
         count: unassignedProgressJobs.length,
         title: "Unassigned",
         detail: "No technician",
-        onClick: () => openUnassignedJobsOnSchedule(),
+        onClick: () => openActionQueue("unassigned"),
       },
       {
         id: "timesheets",
@@ -33378,11 +33654,7 @@ export default function CoreApp() {
         count: overdueTimesheetJobs.length + pendingTimesheetApprovals.length,
         title: "Timesheets",
         detail: `${pendingTimesheetApprovals.length} approve · ${overdueTimesheetJobs.length} overdue`,
-        onClick: () => {
-          setSchedulePane("timesheets");
-          setHomeView("schedule");
-          scrollWorkspaceToTop();
-        },
+        onClick: () => openActionQueue("timesheets"),
       },
       {
         id: "daywork",
@@ -33390,10 +33662,7 @@ export default function CoreApp() {
         count: dashboardDayworkReviews.length,
         title: "Daywork",
         detail: "From Field — review & sign off",
-        onClick: () => {
-          setHomeView("dayworks");
-          scrollWorkspaceToTop();
-        },
+        onClick: () => openActionQueue("daywork"),
       },
       {
         id: "po-requests",
@@ -33401,11 +33670,7 @@ export default function CoreApp() {
         count: pendingPORequests.length,
         title: "PO requests",
         detail: "Supplier approvals",
-        onClick: () => {
-          const first = pendingPORequests[0];
-          if (first) openPendingPurchaseRequest(first);
-          else setHomeView("purchase-orders");
-        },
+        onClick: () => openActionQueue("po-requests"),
       },
       {
         id: "variations",
@@ -33413,11 +33678,7 @@ export default function CoreApp() {
         count: dashboardVariationApprovals.length,
         title: "Variations",
         detail: "Awaiting approval",
-        onClick: () => {
-          const first = dashboardVariationApprovals[0];
-          if (first) openJobDrawer(first.job.id);
-          else setHomeView("jobs");
-        },
+        onClick: () => openActionQueue("variations"),
       },
       {
         id: "lead-followups",
@@ -33425,7 +33686,7 @@ export default function CoreApp() {
         count: overdueLeadQuoteFollowUps.length,
         title: "Lead follow-ups",
         detail: "Overdue for quote",
-        onClick: () => openLeadsFolder("followup"),
+        onClick: () => openActionQueue("lead-followups"),
       },
       {
         id: "quote-followups",
@@ -33433,7 +33694,7 @@ export default function CoreApp() {
         count: quoteResponseFollowUps.length,
         title: "Quote follow-ups",
         detail: "Waiting on customer",
-        onClick: () => openQuotesFolder("followup"),
+        onClick: () => openActionQueue("quote-followups"),
       },
       {
         id: "approved-quotes",
@@ -33441,7 +33702,7 @@ export default function CoreApp() {
         count: approvedQuotesAwaitingScheduling.length,
         title: "Approved quotes",
         detail: "Awaiting schedule",
-        onClick: () => openUnassignedJobsOnSchedule(),
+        onClick: () => openActionQueue("approved-quotes"),
       },
       {
         id: "overdue-jobs",
@@ -33449,7 +33710,7 @@ export default function CoreApp() {
         count: overdueScheduledJobs.length,
         title: "Overdue jobs",
         detail: "Past booked date",
-        onClick: () => openJobsFolder("progress"),
+        onClick: () => openActionQueue("overdue-jobs"),
       },
     ];
     const activeActionCards = actionNotificationCards
@@ -33467,11 +33728,7 @@ export default function CoreApp() {
 
     function openJobsFolder(folderKey: "pending" | "progress" | "review" | "uninvoiced" | "timesheets" | "daywork" | "health-on-track" | "health-attention" | "health-blocked") {
       if (folderKey === "health-attention" || folderKey === "health-blocked") {
-        setActiveJobFolderKey(folderKey);
-        setStatusFilter("All statuses");
-        setSearch("");
-        setHomeView("attention");
-        scrollWorkspaceToTop();
+        openActionQueue(folderKey);
         return;
       }
       setActiveJobFolderKey(folderKey);
@@ -34652,10 +34909,8 @@ export default function CoreApp() {
                     ? selectedQuoteCostCentre?.name ?? "Quote cost centre"
                   : homeView === "jobs"
                     ? "Jobs"
-                  : homeView === "attention"
-                    ? activeJobFolderKey === "health-blocked"
-                      ? "Blocked queue"
-                      : "Attention queue"
+                  : homeView === "attention" || homeView === "action-queue"
+                    ? activeActionQueue.title
                   : homeView === "job-create"
                     ? "Create job"
                   : homeView === "job-record"
@@ -34741,8 +34996,8 @@ export default function CoreApp() {
                         : activeJobFolderKey === "health-on-track"
                           ? `${jobHealthDirectoryGroups.find((group) => group.key === "health-on-track")?.items.length ?? 0} on track`
                           : `${filteredJobs.length} jobs · ${statusFilter}`
-                  : homeView === "attention"
-                    ? `${attentionQueueItems.length} items · why each needs follow-up`
+                  : homeView === "attention" || homeView === "action-queue"
+                    ? `${activeActionQueue.rows.length} items · ${activeActionQueue.subtitle}`
                   : homeView === "job-create"
                     ? "Capture a reactive or direct job with its customer, site and initial schedule"
                   : homeView === "job-record"
@@ -34877,20 +35132,10 @@ export default function CoreApp() {
                     New job
                   </button>
                 </>
-              ) : homeView === "attention" ? (
+              ) : homeView === "attention" || homeView === "action-queue" ? (
                 <>
                   <button className="secondary-button" onClick={returnToDashboard}>
                     Back to dashboard
-                  </button>
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={() => {
-                      setHomeView("jobs");
-                      scrollWorkspaceToTop();
-                    }}
-                  >
-                    Open Jobs folder
                   </button>
                 </>
               ) : homeView === "purchase-orders" ? (
@@ -35718,75 +35963,56 @@ export default function CoreApp() {
                 ))}
               </div>
             </section>
-          ) : homeView === "attention" ? (
-            <section className="quote-panel attention-queue-panel" aria-label="Attention queue">
+          ) : homeView === "attention" || homeView === "action-queue" ? (
+            <section className="quote-panel attention-queue-panel" aria-label={activeActionQueue.title}>
               <div className="panel-header">
                 <div>
-                  <h2>
-                    {activeJobFolderKey === "health-blocked" ? "Blocked queue" : "Attention queue"}
-                  </h2>
-                  <p>
-                    Each row shows why it needs office follow-up and the next action — open a job to deal with it.
-                  </p>
-                </div>
-                <div className="panel-controls">
-                  <button
-                    className={activeJobFolderKey === "health-attention" ? "secondary-button is-active" : "secondary-button"}
-                    type="button"
-                    onClick={() => setActiveJobFolderKey("health-attention")}
-                  >
-                    Attention ({jobHealthDirectoryGroups.find((group) => group.key === "health-attention")?.items.length ?? 0})
-                  </button>
-                  <button
-                    className={activeJobFolderKey === "health-blocked" ? "secondary-button is-active" : "secondary-button"}
-                    type="button"
-                    onClick={() => setActiveJobFolderKey("health-blocked")}
-                  >
-                    Blocked ({jobHealthDirectoryGroups.find((group) => group.key === "health-blocked")?.items.length ?? 0})
-                  </button>
+                  <h2>{activeActionQueue.title}</h2>
+                  <p>{activeActionQueue.subtitle}</p>
                 </div>
               </div>
 
-              {attentionQueueItems.length === 0 ? (
-                <div className="record-folder-empty">
-                  {activeJobFolderKey === "health-blocked"
-                    ? "Nothing is blocked right now."
-                    : "Nothing needs attention right now."}
-                </div>
+              <div className="attention-queue-tabs" role="tablist" aria-label="Action queues">
+                {visibleActionQueueTabs.map((section) => (
+                  <button
+                    key={section.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeActionQueueKey === section.key}
+                    className={activeActionQueueKey === section.key ? `secondary-button is-active ${section.tone}` : "secondary-button"}
+                    onClick={() => {
+                      setActiveActionQueueKey(section.key);
+                      if (section.key === "health-attention" || section.key === "health-blocked") {
+                        setActiveJobFolderKey(section.key);
+                      }
+                    }}
+                  >
+                    {section.title.replace(/ queue$/i, "").replace(/ jobs$/i, "").replace(/ reviews$/i, "")} ({section.rows.length})
+                  </button>
+                ))}
+              </div>
+
+              {activeActionQueue.rows.length === 0 ? (
+                <div className="record-folder-empty">Nothing in this queue right now.</div>
               ) : (
                 <div className="attention-queue-list">
-                  {attentionQueueItems.map(({ job, reasons, primary }) => (
-                    <article className={`attention-queue-item ${primary?.tone ?? "amber"}`} key={job.id}>
-                      <button
-                        type="button"
-                        className="attention-queue-main"
-                        onClick={() => openJobDrawer(job.id)}
-                      >
+                  {activeActionQueue.rows.map((row) => (
+                    <article className={`attention-queue-item ${row.tone}`} key={row.id}>
+                      <button type="button" className="attention-queue-main" onClick={row.onOpen}>
                         <div className="attention-queue-identity">
-                          <StatusDot tone={primary?.tone === "red" ? "red" : primary?.tone === "green" ? "green" : "amber"} />
-                          <strong>{job.ref}</strong>
-                          <span>{job.customer}</span>
+                          <StatusDot tone={row.tone} />
+                          <strong>{row.ref}</strong>
+                          <span>{row.title}</span>
                         </div>
-                        <p className="attention-queue-desc">{job.description}</p>
                         <div className="attention-queue-why">
-                          <b>{primary?.label ?? "Needs follow-up"}</b>
-                          <small>{primary?.detail ?? job.next}</small>
+                          <b>{row.why}</b>
+                          <small>{row.detail}</small>
                         </div>
-                        {reasons.length > 1 ? (
-                          <ul className="attention-queue-reasons">
-                            {reasons.slice(1).map((reason) => (
-                              <li key={reason.code}>
-                                <span className={`status-pill ${reason.tone}`}>{reason.label}</span>
-                                <small>{reason.detail}</small>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
                       </button>
                       <div className="attention-queue-actions">
-                        <span className={`status-pill ${job.health}`}>{job.status}</span>
-                        <button type="button" className="primary-button" onClick={() => openJobDrawer(job.id)}>
-                          Open job
+                        {row.status ? <span className={`status-pill ${row.tone}`}>{row.status}</span> : null}
+                        <button type="button" className="primary-button" onClick={row.onOpen}>
+                          {row.actionLabel || "Open"}
                         </button>
                       </div>
                     </article>
@@ -35843,7 +36069,8 @@ export default function CoreApp() {
                       tone: "amber",
                       onClick: () => {
                         setActiveJobFolderKey("health-attention");
-                        setHomeView("attention");
+                        setActiveActionQueueKey("health-attention");
+                        setHomeView("action-queue");
                       },
                       active: activeJobFolderKey === "health-attention",
                     },
@@ -35853,7 +36080,8 @@ export default function CoreApp() {
                       tone: "red",
                       onClick: () => {
                         setActiveJobFolderKey("health-blocked");
-                        setHomeView("attention");
+                        setActiveActionQueueKey("health-blocked");
+                        setHomeView("action-queue");
                       },
                       active: activeJobFolderKey === "health-blocked",
                     },
