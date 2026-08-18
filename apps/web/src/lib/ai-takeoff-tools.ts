@@ -109,7 +109,7 @@ export const AI_TAKEOFF_TOOL_DEFINITIONS = [
     type: "function",
     name: "import_issued_boq_lines",
     description:
-      "Parse issued BoQ spreadsheet(s) on Documents and create measured takeoff lines with labour hours. Material unit costs come from bill rates / rate library / soft guides where known — many branded sanitary lines may still be £0 until you call price_takeoff_materials. Always report how many lines still have £0 Cost.",
+      "Parse issued BoQ spreadsheet(s) on Documents and create measured takeoff lines with labour hours. Material unit costs prefer office materials catalogue (confirmed), then bill rates / rate library / soft guides. Call price_takeoff_materials for remaining £0 Cost lines. Always report how many lines still have £0 Cost.",
     parameters: {
       type: "object",
       properties: {
@@ -126,7 +126,7 @@ export const AI_TAKEOFF_TOOL_DEFINITIONS = [
     type: "function",
     name: "price_takeoff_materials",
     description:
-      "Fill material unit costs (Cost column) on takeoff lines. Uses NeXa rate library first, then live Blake UK merchant budget prices for remaining £0 lines. Call this whenever the user asks to price materials / budget prices / complains Cost is £0. Do NOT claim materials are included until this reports withCost covering the bill.",
+      "Fill material unit costs (Cost column). Order: office materials catalogue (confirmed) → rate library → soft guides → live Blake UK merchant budgets for remaining blanks. Call whenever the user asks to price materials / complains Cost is £0. Do NOT claim materials are included until withCost covers the bill.",
     parameters: {
       type: "object",
       properties: {

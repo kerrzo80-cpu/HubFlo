@@ -1,10 +1,11 @@
 /**
- * Server-side guide prices (rate library + soft guides).
- * Do not import from client components — pulls SQLite via takeoff-rate-library.
+ * Server-side guide prices (office catalogue → rate library → soft guides).
+ * Do not import from client components — pulls SQLite / hub store.
  * Client path: `@/lib/ai-soft-guide-prices`.
  */
 
 import { applySoftGuidePricesToKit } from "@/lib/ai-soft-guide-prices";
+import { lookupCatalogUnitCost } from "@/lib/catalog-price-lookup";
 import { lookupLibraryRate } from "@/lib/takeoff-rate-library";
 import type { KitLine } from "@/lib/heat-design/types";
 
@@ -13,12 +14,27 @@ export type GuidePricedLine = {
   quantity: number;
   unit: string;
   unitCost: number;
-  pricing: "library" | "kept" | "rfq";
+  pricing: "catalogue" | "library" | "kept" | "rfq";
 };
 
-/** Price kit lines from the takeoff rate library; keep existing positive costs. */
+/** Price kit lines: office catalogue (confirmed) → rate library → soft guides. */
 export function applyGuidePricesToKit(lines: KitLine[]): KitLine[] {
-  const withLibrary = lines.map((line) => {
+  const withCatalog = lines.map((line) => {
+    if (line.unitCost > 0) return line;
+    const hit = lookupCatalogUnitCost(line.description, line.unit || "nr");
+    if (hit && hit.unitCost > 0) {
+      return {
+        ...line,
+        unitCost: hit.unitCost,
+        pricingSource: "catalogue" as const,
+        pricingNote: `Office catalogue · ${hit.catalogName}${hit.sku ? ` (${hit.sku})` : ""} — confirmed cost`,
+        pricingState: "firm" as const,
+      };
+    }
+    return line;
+  });
+
+  const withLibrary = withCatalog.map((line) => {
     if (line.unitCost > 0) return line;
     const unit = line.unit || "nr";
     const fromLib = lookupLibraryRate(line.description, unit);
@@ -46,6 +62,6 @@ export function summariseGuidePricing(lines: Array<{ unitCost: number }>) {
     note:
       rfq > 0
         ? `${priced} guide-priced · ${rfq} still Supplier RFQ`
-        : `${priced} lines guide-priced from rate library`,
+        : `${priced} lines guide-priced from catalogue / rate library`,
   };
 }

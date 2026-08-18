@@ -68,6 +68,12 @@ export function getTenderAiTakeoffState(tenderId: string): TenderAiTakeoffState 
 
 export function saveTenderAiTakeoffState(state: TenderAiTakeoffState): TenderAiTakeoffState {
   const next = { ...state, updatedAt: new Date().toISOString() };
+  if (next.lines.length > 2500) {
+    next.lines = next.lines.slice(-2500);
+  }
+  if (next.assumptions.length > 120) {
+    next.assumptions = next.assumptions.slice(-120);
+  }
   writeServerStore(storeName(state.tenderId), next);
   return next;
 }
@@ -144,6 +150,9 @@ export function addAiTakeoffAssumption(
     status: assumption.status || "open",
     createdAt: new Date().toISOString(),
   });
+  if (state.assumptions.length > 120) {
+    state.assumptions = state.assumptions.slice(-120);
+  }
   return saveTenderAiTakeoffState(state);
 }
 

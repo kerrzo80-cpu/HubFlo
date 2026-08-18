@@ -9,7 +9,7 @@ import {
 import { parseJsonRequestBody } from "@/lib/http";
 import { appendAuditEvent } from "@/lib/people-data";
 import { surveyRequestContext } from "@/lib/survey-api";
-import { getTender, listTenders, updateTender, upsertTender } from "@/lib/tenders-data";
+import { getTender, listTendersLean, updateTender, upsertTender } from "@/lib/tenders-data";
 import { computeBoqTotal } from "@/lib/tenders-types";
 
 type PushBody = {
@@ -123,7 +123,7 @@ export async function POST(request: Request) {
     created: createNew,
     lineCount: measuredCount,
     sellTotal: heatSell,
-    tendersAvailable: listTenders().length,
+    tendersAvailable: listTendersLean().length,
     note: "Open Core → Tenders → this opportunity → BoQ sheet “Heating design” to review lines.",
   });
 }

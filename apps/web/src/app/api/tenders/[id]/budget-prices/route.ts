@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import { appendAuditEvent } from "@/lib/people-data";
-import { applyBlakeBudgetPricesToTender, listTenders } from "@/lib/tenders-data";
+import { applyBlakeBudgetPricesToTender, listTendersLean } from "@/lib/tenders-data";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -71,7 +71,7 @@ export async function POST(
       return NextResponse.json({
         ok: true,
         tender,
-        tenders: listTenders(),
+        tenders: listTendersLean(),
         aiUsed: priced.aiUsed,
         connected: priced.connected,
         model: priced.model,
@@ -139,7 +139,7 @@ export async function POST(
           type: "result",
           ok: true,
           tender,
-          tenders: listTenders(),
+          tenders: listTendersLean(),
           aiUsed: priced.aiUsed,
           connected: priced.connected,
           model: priced.model,
