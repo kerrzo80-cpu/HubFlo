@@ -12828,6 +12828,18 @@ export default function CoreApp() {
       .sort((left, right) => compareReferenceDesc(left.ref, right.ref));
   }, [jobs, search, statusFilter]);
 
+  const searchMatchedJobs = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return jobs
+      .filter((job) => {
+        if (!query) return true;
+        return [job.ref, job.customer, job.site, job.description, job.manager, job.status].some((value) =>
+          value.toLowerCase().includes(query),
+        );
+      })
+      .sort((left, right) => compareReferenceDesc(left.ref, right.ref));
+  }, [jobs, search]);
+
   const searchFilteredInvoices = useMemo(() => {
     const query = search.trim().toLowerCase();
     return invoices
@@ -13068,9 +13080,10 @@ export default function CoreApp() {
   const jobHealthDirectoryGroups = useMemo(
     () => {
       const today = new Date().toISOString().slice(0, 10);
-      const onTrack = filteredJobs.filter((job) => effectiveJobHealthTone(job, today) === "green");
-      const attention = filteredJobs.filter((job) => effectiveJobHealthTone(job, today) === "amber");
-      const blocked = filteredJobs.filter((job) => effectiveJobHealthTone(job, today) === "red");
+      // Ignore stage/status filter so Attention matches the dashboard Job health counts.
+      const onTrack = searchMatchedJobs.filter((job) => effectiveJobHealthTone(job, today) === "green");
+      const attention = searchMatchedJobs.filter((job) => effectiveJobHealthTone(job, today) === "amber");
+      const blocked = searchMatchedJobs.filter((job) => effectiveJobHealthTone(job, today) === "red");
       return [
         {
           key: "health-on-track",
@@ -13095,7 +13108,7 @@ export default function CoreApp() {
         },
       ];
     },
-    [filteredJobs],
+    [searchMatchedJobs],
   );
 
   const invoiceDirectoryGroups = useMemo(() => {
@@ -13878,9 +13891,15 @@ export default function CoreApp() {
         tone: "blue",
         items: filteredJobs,
       },
+      ...jobHealthDirectoryGroups.map((group) => ({
+        key: group.key,
+        label: `${group.label} (${group.items.length})`,
+        tone: group.tone,
+        items: group.items,
+      })),
       ...jobDirectoryGroups,
     ],
-    [filteredJobs, jobDirectoryGroups],
+    [filteredJobs, jobDirectoryGroups, jobHealthDirectoryGroups],
   );
 
   const visibleJobDirectoryGroups = useMemo(() => {
@@ -20685,15 +20704,33 @@ export default function CoreApp() {
     );
   }
 
-  function renderRegisterKpiCards(cards: Array<{ label: string; value: string | number; tone?: string }>) {
+  function renderRegisterKpiCards(
+    cards: Array<{ label: string; value: string | number; tone?: string; onClick?: () => void; active?: boolean }>,
+  ) {
     return (
       <div className="record-folder-grid register-kpi-grid">
-        {cards.map((card) => (
-          <article className={`record-folder-card ${card.tone ?? "blue"}`} key={card.label}>
-            <span>{card.label}</span>
-            <strong>{card.value}</strong>
-          </article>
-        ))}
+        {cards.map((card) => {
+          const className = `record-folder-card ${card.tone ?? "blue"}${card.active ? " is-active" : ""}`;
+          if (card.onClick) {
+            return (
+              <button
+                className={`${className} record-folder-card-button`}
+                key={card.label}
+                type="button"
+                onClick={card.onClick}
+              >
+                <span>{card.label}</span>
+                <strong>{card.value}</strong>
+              </button>
+            );
+          }
+          return (
+            <article className={className} key={card.label}>
+              <span>{card.label}</span>
+              <strong>{card.value}</strong>
+            </article>
+          );
+        })}
       </div>
     );
   }
@@ -33352,6 +33389,12 @@ export default function CoreApp() {
 
     function openJobsFolder(folderKey: "pending" | "progress" | "review" | "uninvoiced" | "timesheets" | "daywork" | "health-on-track" | "health-attention" | "health-blocked") {
       setActiveJobFolderKey(folderKey);
+      // Health folders should show the full attention set, not whatever stage/status
+      // filter was left on from a previous Jobs visit.
+      if (folderKey.startsWith("health-")) {
+        setStatusFilter("All statuses");
+        setSearch("");
+      }
       setHomeView("jobs");
       scrollWorkspaceToTop();
     }
@@ -34592,7 +34635,13 @@ export default function CoreApp() {
                   : homeView === "quote-cost-centre-record"
                     ? `${selectedQuote?.ref ?? "Quote"} · parts and labour inside this cost centre`
                   : homeView === "jobs"
-                    ? `${filteredJobs.length} jobs · ${statusFilter}`
+                    ? activeJobFolderKey === "health-attention"
+                      ? `${jobHealthDirectoryGroups.find((group) => group.key === "health-attention")?.items.length ?? 0} needing attention`
+                      : activeJobFolderKey === "health-blocked"
+                        ? `${jobHealthDirectoryGroups.find((group) => group.key === "health-blocked")?.items.length ?? 0} blocked`
+                        : activeJobFolderKey === "health-on-track"
+                          ? `${jobHealthDirectoryGroups.find((group) => group.key === "health-on-track")?.items.length ?? 0} on track`
+                          : `${filteredJobs.length} jobs · ${statusFilter}`
                   : homeView === "job-create"
                     ? "Capture a reactive or direct job with its customer, site and initial schedule"
                   : homeView === "job-record"
@@ -35556,8 +35605,24 @@ export default function CoreApp() {
             <section className="quote-panel record-directory workflow-directory job-directory">
               <div className="panel-header">
                 <div>
-                  <h2>Job register</h2>
-                  <p>Pending through complete and ready-to-invoice jobs — open a row for scheduling, costs and billing.</p>
+                  <h2>
+                    {activeJobFolderKey === "health-attention"
+                      ? "Jobs needing attention"
+                      : activeJobFolderKey === "health-blocked"
+                        ? "Blocked jobs"
+                        : activeJobFolderKey === "health-on-track"
+                          ? "Jobs on track"
+                          : "Job register"}
+                  </h2>
+                  <p>
+                    {activeJobFolderKey === "health-attention"
+                      ? "Overdue, approval required, or other jobs that need office follow-up — not the full register."
+                      : activeJobFolderKey === "health-blocked"
+                        ? "Waiting on parts, waiting on the customer, or marked blocked."
+                        : activeJobFolderKey === "health-on-track"
+                          ? "Jobs that are not overdue and not waiting on approval, parts or customer."
+                          : "Pending through complete and ready-to-invoice jobs — open a row for scheduling, costs and billing."}
+                  </p>
                 </div>
                 <div className="panel-controls">
                   <button className="primary-button" onClick={createJobFromMenu}>
@@ -35567,23 +35632,47 @@ export default function CoreApp() {
                 </div>
               </div>
               {renderDirectoryPanelSearch("Search jobs...")}
-              {renderRegisterKpiCards([
-                {
-                  label: "Pending",
-                  value: jobDirectoryGroups.find((group) => group.key === "pending")?.items.length ?? 0,
-                  tone: "amber",
-                },
-                {
-                  label: "In progress",
-                  value: jobDirectoryGroups.find((group) => group.key === "progress")?.items.length ?? 0,
-                  tone: "blue",
-                },
-                {
-                  label: "Ready to invoice",
-                  value: jobDirectoryGroups.find((group) => group.key === "uninvoiced")?.items.length ?? 0,
-                  tone: "green",
-                },
-              ])}
+              {activeJobFolderKey.startsWith("health-")
+                ? renderRegisterKpiCards([
+                    {
+                      label: "On track",
+                      value: jobHealthDirectoryGroups.find((group) => group.key === "health-on-track")?.items.length ?? 0,
+                      tone: "green",
+                      onClick: () => setActiveJobFolderKey("health-on-track"),
+                      active: activeJobFolderKey === "health-on-track",
+                    },
+                    {
+                      label: "Attention",
+                      value: jobHealthDirectoryGroups.find((group) => group.key === "health-attention")?.items.length ?? 0,
+                      tone: "amber",
+                      onClick: () => setActiveJobFolderKey("health-attention"),
+                      active: activeJobFolderKey === "health-attention",
+                    },
+                    {
+                      label: "Blocked",
+                      value: jobHealthDirectoryGroups.find((group) => group.key === "health-blocked")?.items.length ?? 0,
+                      tone: "red",
+                      onClick: () => setActiveJobFolderKey("health-blocked"),
+                      active: activeJobFolderKey === "health-blocked",
+                    },
+                  ])
+                : renderRegisterKpiCards([
+                    {
+                      label: "Pending",
+                      value: jobDirectoryGroups.find((group) => group.key === "pending")?.items.length ?? 0,
+                      tone: "amber",
+                    },
+                    {
+                      label: "In progress",
+                      value: jobDirectoryGroups.find((group) => group.key === "progress")?.items.length ?? 0,
+                      tone: "blue",
+                    },
+                    {
+                      label: "Ready to invoice",
+                      value: jobDirectoryGroups.find((group) => group.key === "uninvoiced")?.items.length ?? 0,
+                      tone: "green",
+                    },
+                  ])}
               {renderRegisterStatusTabs(
                 jobDirectoryTabs.map((group) => ({ key: group.key, label: group.label })),
                 activeJobFolderKey,
@@ -35601,11 +35690,20 @@ export default function CoreApp() {
                     <header>
                       <div>
                         <h3>{group.label}</h3>
+                        {"detail" in group && group.detail ? <p>{group.detail}</p> : null}
                       </div>
                       <span className={`status-pill ${group.tone}`}>{group.items.length} jobs</span>
                     </header>
                     {group.items.length === 0 ? (
-                      <div className="record-folder-empty">No jobs in this folder yet.</div>
+                      <div className="record-folder-empty">
+                        {group.key === "health-attention"
+                          ? "Nothing needs attention right now."
+                          : group.key === "health-blocked"
+                            ? "No blocked jobs right now."
+                            : group.key === "health-on-track"
+                              ? "No on-track jobs match the current filters."
+                              : "No jobs in this folder yet."}
+                      </div>
                     ) : (
                       <>
                         <div className="quote-row table-header">
