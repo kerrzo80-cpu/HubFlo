@@ -25208,6 +25208,16 @@ body:has([data-takeoff-mode="page"]) {
   display: none;
 }
 
+/* Job health folders need the short “why this list” copy visible. */
+.job-directory > .panel-header p,
+.job-directory .record-folder-section > header p {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 4px 0 0;
+}
+
 .record-directory .record-folder-card,
 .lead-summary-grid article {
   align-items: center;
