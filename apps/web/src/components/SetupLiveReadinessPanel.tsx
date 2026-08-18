@@ -187,6 +187,36 @@ export function SetupLiveReadinessPanel() {
     }
   }
 
+  async function runOfficeRestoreApply(filename: string) {
+    const typed = window.prompt(
+      `This overwrites live office records (jobs, tenders, takeoffs, etc.) from ${filename}.\n\nType RESTORE to confirm. Passwords/API keys are not in the backup. Drawing folders and sqlite still need a manual restore if required. Restart the service after.`,
+      "",
+    );
+    if (typed !== "RESTORE") {
+      setBackupNote("Restore cancelled — type RESTORE exactly to apply.");
+      return;
+    }
+    setBackupNote("Applying office stores restore…");
+    try {
+      const response = await fetch("/api/office-backup/restore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename, dryRun: false, confirm: "RESTORE" }),
+      });
+      const body = await response.json();
+      if (!response.ok) {
+        setBackupNote(body.error || `Office restore failed (${response.status})`);
+        return;
+      }
+      const written = body.result?.written?.length ?? 0;
+      setBackupNote(
+        `${body.message || "Stores restored."} Wrote ${written} store(s). Restart nexa-live on Render so modules reload.`,
+      );
+    } catch (err) {
+      setBackupNote(err instanceof Error ? err.message : "Office restore failed");
+    }
+  }
+
   async function runOpenAiSmoke() {
     setSmoke("Checking…");
     try {
@@ -309,6 +339,16 @@ export function SetupLiveReadinessPanel() {
               Test restore
             </button>
           ) : null}
+          {latestBackup ? (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={officeBackupBusy}
+              onClick={() => void runOfficeRestoreApply(latestBackup.filename)}
+            >
+              Apply restore…
+            </button>
+          ) : null}
           <span className={statusClass(backupStatus)}>
             {officeBackupBusy || officeBackup?.running
               ? "Running"
@@ -323,7 +363,10 @@ export function SetupLiveReadinessPanel() {
         Tender and takeoff PDFs can be up to 250MB each and are stored as files, not only inside the
         database. {officeBackup?.s3Configured
           ? "Nightly copies are also sent to your off-site S3 bucket."
-          : "To send nightly copies off this server automatically, add BACKUP_S3_BUCKET and keys in Render. Until then, download this and keep it off this server."}
+          : "To send nightly copies off this server automatically, add BACKUP_S3_BUCKET and keys in Render. Until then, download this and keep it off this server."}{" "}
+        <strong>Test restore</strong> dry-runs the records snapshot; <strong>Apply restore</strong> writes
+        stores only (type RESTORE). Drawing folders and the sqlite file inside the tar still need a
+        manual extract on the server if you need those files back.
       </p>
       <div className="setup-readiness-grid">
         <article>

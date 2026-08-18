@@ -9,7 +9,12 @@ import { mergeHubDetailState } from "@/lib/hub-state-merge";
 import { leanJobCostCentresMap } from "@/lib/job-cost-centres-lean";
 import { parseJsonRequestBody } from "@/lib/http";
 import { stripDayworkBlobsForPoll } from "@/lib/daywork-poll-strip";
-import { assertNoHubScheduleClashes, type HubScheduleAssignment } from "@/lib/schedule-clash";
+import { getLeads } from "@/lib/lead-store";
+import {
+  assertNoHubScheduleClashes,
+  leadSurveysToAssignments,
+  type HubScheduleAssignment,
+} from "@/lib/schedule-clash";
 import { useDemoSeedData } from "@/lib/workspace-mode";
 
 export async function GET(request: Request) {
@@ -55,8 +60,10 @@ export async function PUT(request: Request) {
   const merged = mergeHubDetailState(current, payload);
 
   if (payload.jobSchedulePlans !== undefined) {
+    const leadAssignments = leadSurveysToAssignments(getLeads());
     const clashError = assertNoHubScheduleClashes(
       (merged.jobSchedulePlans || {}) as Record<string, HubScheduleAssignment[]>,
+      leadAssignments,
     );
     if (clashError) {
       return NextResponse.json({ error: clashError, code: "SCHEDULE_CLASH" }, { status: 409 });

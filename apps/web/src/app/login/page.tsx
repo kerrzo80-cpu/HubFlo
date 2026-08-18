@@ -18,6 +18,13 @@ type TrialStatus = {
   daysRemaining?: number | null;
 };
 
+type AuthUser = {
+  id: string;
+  name: string;
+  username: string;
+  mustChangePassword?: boolean;
+};
+
 function trialDaysLabel(days: number | null | undefined) {
   if (days == null) return "";
   if (days <= 0) return "Trial ended";
@@ -29,6 +36,9 @@ export default function LoginPage() {
   const brand = useBrand();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [mustChange, setMustChange] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [trial, setTrial] = useState<TrialStatus | null>(null);
@@ -51,20 +61,59 @@ export default function LoginPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("change") === "1") {
+      setMustChange(true);
+    }
+  }, []);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setError("");
     try {
+      if (mustChange) {
+        if (newPassword.length < 10) {
+          setError("New password must be at least 10 characters.");
+          return;
+        }
+        if (newPassword !== confirmPassword) {
+          setError("New password and confirmation do not match.");
+          return;
+        }
+        const response = await fetch("/api/auth/change-password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ currentPassword: password, newPassword }),
+        });
+        const result = (await response.json().catch(() => ({}))) as { error?: string };
+        if (!response.ok) {
+          setError(result.error || "Unable to change password.");
+          return;
+        }
+        window.location.assign(safeNextPath());
+        return;
+      }
+
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
-      const result = (await response.json().catch(() => ({}))) as { error?: string; trialExpired?: boolean };
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        trialExpired?: boolean;
+        user?: AuthUser;
+      };
       if (!response.ok) {
         setError(result.error || "Unable to sign in.");
         if (result.trialExpired) setTrial({ trial: true, expired: true, daysRemaining: 0 });
+        return;
+      }
+      if (result.user?.mustChangePassword) {
+        setMustChange(true);
+        setError("");
         return;
       }
       window.location.assign(safeNextPath());
@@ -95,36 +144,79 @@ export default function LoginPage() {
             <KeyRound size={17} />
           </span>
           <div>
-            <h1>Sign in</h1>
-            <p>Use your individual account. Activity is recorded against your profile.</p>
+            <h1>{mustChange ? "Choose a new password" : "Sign in"}</h1>
+            <p>
+              {mustChange
+                ? "This account must set a personal password before continuing (at least 10 characters)."
+                : "Use your individual account. Activity is recorded against your profile."}
+            </p>
           </div>
         </div>
         <form onSubmit={submit}>
-          <label>
-            Username
-            <input
-              autoCapitalize="none"
-              autoComplete="username"
-              autoCorrect="off"
-              required
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-            />
-          </label>
-          <label>
-            Password
-            <input
-              autoComplete="current-password"
-              required
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </label>
+          {!mustChange ? (
+            <>
+              <label>
+                Username
+                <input
+                  autoCapitalize="none"
+                  autoComplete="username"
+                  autoCorrect="off"
+                  required
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  autoComplete="current-password"
+                  required
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </label>
+            </>
+          ) : (
+            <>
+              <label>
+                Current password
+                <input
+                  autoComplete="current-password"
+                  required
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </label>
+              <label>
+                New password
+                <input
+                  autoComplete="new-password"
+                  required
+                  minLength={10}
+                  type="password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                />
+              </label>
+              <label>
+                Confirm new password
+                <input
+                  autoComplete="new-password"
+                  required
+                  minLength={10}
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                />
+              </label>
+            </>
+          )}
           {error ? <p className="nexa-secure-login-error">{error}</p> : null}
           <button disabled={submitting} type="submit">
             <LogIn size={17} />
-            {submitting ? "Signing in..." : "Sign in"}
+            {submitting ? "Please wait…" : mustChange ? "Save password" : "Sign in"}
           </button>
         </form>
         {trial?.trial && trial.daysRemaining != null ? (

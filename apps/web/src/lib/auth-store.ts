@@ -4,7 +4,8 @@ import type { AccessOverride, HubRole } from "@/lib/access";
 import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
 
 export const nexaSessionCookie = "nexa_session";
-export const nexaSessionMaxAgeSeconds = 60 * 60 * 24 * 30;
+/** Individual-user sessions expire after 12 hours (was 30 days). */
+export const nexaSessionMaxAgeSeconds = 60 * 60 * 12;
 
 type AuthUserRecord = {
   id: string;
@@ -16,6 +17,7 @@ type AuthUserRecord = {
   passwordHash: string;
   passwordSalt: string;
   enabled: boolean;
+  mustChangePassword?: boolean;
   createdAt: string;
   updatedAt: string;
   lastLoginAt?: string;
@@ -126,6 +128,7 @@ function bootstrapAdminFromEnvironment() {
     passwordHash: hashPassword(password, salt),
     passwordSalt: salt,
     enabled: true,
+    mustChangePassword: true,
     createdAt,
     updatedAt: createdAt,
   });
@@ -272,6 +275,7 @@ export function createAuthUser(input: {
     passwordHash: hashPassword(input.password, salt),
     passwordSalt: salt,
     enabled: true,
+    mustChangePassword: true,
     createdAt,
     updatedAt: createdAt,
   };
@@ -282,7 +286,7 @@ export function createAuthUser(input: {
 
 export function updateAuthUser(
   id: string,
-  input: Partial<Pick<AuthUserRecord, "employeeId" | "name" | "role" | "permissions" | "enabled">> & {
+  input: Partial<Pick<AuthUserRecord, "employeeId" | "name" | "role" | "permissions" | "enabled" | "mustChangePassword">> & {
     username?: string;
     password?: string;
   },
@@ -302,8 +306,10 @@ export function updateAuthUser(
     if (input.password.length < 10) throw new Error("Passwords must contain at least 10 characters.");
     user.passwordSalt = randomBytes(16).toString("hex");
     user.passwordHash = hashPassword(input.password, user.passwordSalt);
+    user.mustChangePassword = false;
     authStore.sessions = authStore.sessions.filter((session) => session.userId !== id);
   }
+  if (input.mustChangePassword !== undefined) user.mustChangePassword = Boolean(input.mustChangePassword);
   if (input.employeeId !== undefined) user.employeeId = input.employeeId.trim() || undefined;
   if (input.name !== undefined && input.name.trim()) user.name = input.name.trim();
   if (input.role !== undefined) user.role = input.role;
@@ -313,6 +319,27 @@ export function updateAuthUser(
     if (!user.enabled) authStore.sessions = authStore.sessions.filter((session) => session.userId !== id);
   }
   user.updatedAt = nowIso();
+  persist();
+  return safeUser(user);
+}
+
+/** Change own password (clears mustChangePassword and revokes other sessions). */
+export function changeOwnPassword(userId: string, currentPassword: string, nextPassword: string) {
+  refresh();
+  const user = authStore.users.find((candidate) => candidate.id === userId && candidate.enabled);
+  if (!user) throw new Error("User not found.");
+  const actual = Buffer.from(hashPassword(currentPassword, user.passwordSalt), "hex");
+  const expected = Buffer.from(user.passwordHash, "hex");
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+    throw new Error("Current password is not correct.");
+  }
+  if (nextPassword.length < 10) throw new Error("Passwords must contain at least 10 characters.");
+  if (currentPassword === nextPassword) throw new Error("Choose a different new password.");
+  user.passwordSalt = randomBytes(16).toString("hex");
+  user.passwordHash = hashPassword(nextPassword, user.passwordSalt);
+  user.mustChangePassword = false;
+  user.updatedAt = nowIso();
+  authStore.sessions = authStore.sessions.filter((session) => session.userId !== userId);
   persist();
   return safeUser(user);
 }

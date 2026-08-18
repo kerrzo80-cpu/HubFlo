@@ -134,6 +134,8 @@ export function proxy(request: NextRequest) {
     const user = getAuthUserForSession(request.cookies.get(nexaSessionCookie)?.value);
     if (pathname === "/login") {
       if (!user) return NextResponse.next();
+      // Force password-change accounts to stay on /login until they set a new password.
+      if (user.mustChangePassword) return NextResponse.next();
       const workspaceUrl = request.nextUrl.clone();
       workspaceUrl.pathname = "/";
       workspaceUrl.search = "";
@@ -154,6 +156,25 @@ export function proxy(request: NextRequest) {
       loginUrl.pathname = "/login";
       loginUrl.search = "";
       loginUrl.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
+      return NextResponse.redirect(loginUrl);
+    }
+
+    if (
+      user.mustChangePassword &&
+      pathname !== "/api/auth/change-password" &&
+      pathname !== "/api/auth/logout" &&
+      pathname !== "/api/auth/me"
+    ) {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json(
+          { error: "Password change required before continuing.", mustChangePassword: true },
+          { status: 403 },
+        );
+      }
+      const loginUrl = request.nextUrl.clone();
+      loginUrl.pathname = "/login";
+      loginUrl.search = "";
+      loginUrl.searchParams.set("change", "1");
       return NextResponse.redirect(loginUrl);
     }
 

@@ -82,7 +82,7 @@ import { checkInvoiceReadiness, type InvoiceReadinessInput } from "@hubflo/domai
 import type { Job, PurchaseRequest, PurchaseStatus, Quote, QuoteStatus } from "@/lib/workflow-data";
 import { isPlaceholderBankDetails, isPlaceholderCompanyRegistration } from "@/lib/commercial-safeguards";
 import { DEFAULT_OVERHEAD_PERCENT } from "@/lib/reports-board-pack";
-import { assertNoHubScheduleClashes } from "@/lib/schedule-clash";
+import { assertNoHubScheduleClashes, leadSurveysToAssignments } from "@/lib/schedule-clash";
 import {
   businessImportLabels,
   businessImportTemplateHeaders,
@@ -25530,7 +25530,10 @@ export default function CoreApp() {
       ...jobSchedulePlans,
       [selectedJob.id]: selectedJobPlannerAssignments,
     };
-    const clashError = assertNoHubScheduleClashes(nextPlans);
+    const clashError = assertNoHubScheduleClashes(
+      nextPlans,
+      leadSurveysToAssignments(leadSurveyBookings),
+    );
     if (clashError) {
       showNotice(clashError);
       return;
