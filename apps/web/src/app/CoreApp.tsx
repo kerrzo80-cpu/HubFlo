@@ -12077,7 +12077,13 @@ export default function CoreApp() {
             return;
           }
           if (!response.ok) {
-            throw new Error(`Hub state save failed with ${response.status}`);
+            return response.json().catch(() => null).then((body) => {
+              const detail = body && typeof body.error === "string" ? body.error : `Hub state save failed with ${response.status}`;
+              if (body?.code === "SCHEDULE_CLASH") {
+                showNotice(detail);
+              }
+              throw new Error(detail);
+            });
           }
           setSectionError((current) =>
             current === "Could not save shared hub detail state, so local fallback is being used." ? null : current,
