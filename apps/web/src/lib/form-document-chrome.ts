@@ -1,5 +1,6 @@
 import type { BusinessBrandingSettings } from "@/lib/branding";
 import { normalizeBusinessBranding } from "@/lib/branding";
+import { scrubCompanyRegistrationDisplay } from "@/lib/commercial-safeguards";
 
 export type FormDocumentLayout =
   | "quote"
@@ -181,6 +182,10 @@ export function resolveFormDocumentChrome(
   const business = normalizeBusinessBranding(businessRaw);
   const headerColor = template.headerColor?.trim() || business.brandPrimaryColor || "#157fa8";
   const logoUrl = template.logoUrl?.trim() || business.logoUrl || "";
+  const registration = scrubCompanyRegistrationDisplay({
+    vatNumber: business.vatNumber,
+    companyNumber: business.companyNumber,
+  });
   return {
     logoUrl,
     showLogo: template.showLogo !== false,
@@ -188,14 +193,14 @@ export function resolveFormDocumentChrome(
     address: business.address,
     phone: business.phone,
     contactEmail: business.contactEmail,
-    vatNumber: business.vatNumber,
-    companyNumber: business.companyNumber,
+    vatNumber: registration.vatNumber,
+    companyNumber: registration.companyNumber,
     brandLine: business.clientPortalBrandLine,
     title: template.title,
     headerNote: template.headerNote || "",
     headerColor,
     showCompanyDetails: template.showCompanyDetails !== false,
-    showVatCompanyNumbers: template.showVatCompanyNumbers !== false,
+    showVatCompanyNumbers: template.showVatCompanyNumbers !== false && registration.showLine,
     acceptanceLabel: template.acceptanceLabel || defaultChromeFields.acceptanceLabel,
     intro: template.intro,
     footer: template.footer,

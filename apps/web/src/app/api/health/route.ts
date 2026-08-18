@@ -195,7 +195,7 @@ export async function GET() {
       mailboxIcloudFix: "hydrate-dirty-v1",
       mailboxPersist: "verify-disk-v2",
       takeoffSkill: "drawing-first-v8-routes-page",
-      liveAuditSafeguards: "commercial-gates-v2+ai-takeoff",
+      liveAuditSafeguards: "commercial-gates-v3-trust",
       officeBackupRestore: "stores-dry-run-v1",
       takeoffMacScroll: "studio-rail-body-scroll-v4",
       takeoffAiConfirm: "pins-only-v2",

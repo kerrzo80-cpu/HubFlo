@@ -1284,16 +1284,23 @@ type Invoice = {
   portalViewedAt?: string;
 };
 
-/** Promote wrongly-Draft simPRO imports into Sent so Unpaid/Overdue folders work from due date. */
-function normalizeInvoiceFolderStatus<T extends { status: InvoiceStatus; paymentStatus?: InvoicePaymentStatus; simproInvoiceId?: string; notes?: string }>(invoice: T): T {
+/** Promote paymentStatus into folder status for all invoices; Draft→Sent only for simPRO imports. */
+function normalizeInvoiceFolderStatus<T extends {
+  status: InvoiceStatus;
+  paymentStatus?: InvoicePaymentStatus;
+  paidAmount?: number;
+  simproInvoiceId?: string;
+  notes?: string;
+}>(invoice: T): T {
+  if (invoice.status === "Paid" || invoice.status === "Cancelled" || invoice.status === "Partially paid") {
+    return invoice;
+  }
+  if (invoice.paymentStatus === "Paid") return { ...invoice, status: "Paid" as InvoiceStatus };
+  if (invoice.paymentStatus === "Part paid") return { ...invoice, status: "Partially paid" as InvoiceStatus };
   const looksImported =
     Boolean(invoice.simproInvoiceId) ||
     /imported from simpro/i.test(String(invoice.notes || ""));
-  if (!looksImported) return invoice;
-  if (invoice.status === "Paid" || invoice.status === "Cancelled" || invoice.status === "Partially paid") return invoice;
-  if (invoice.paymentStatus === "Paid") return { ...invoice, status: "Paid" as InvoiceStatus };
-  if (invoice.paymentStatus === "Part paid") return { ...invoice, status: "Partially paid" as InvoiceStatus };
-  if (invoice.status === "Draft") return { ...invoice, status: "Sent" as InvoiceStatus };
+  if (looksImported && invoice.status === "Draft") return { ...invoice, status: "Sent" as InvoiceStatus };
   return invoice;
 }
 
@@ -13465,9 +13472,7 @@ export default function CoreApp() {
     }
     for (const sheet of Object.values(dayworkSheets)) {
       if (!sheet?.jobId) continue;
-      const signed = Boolean(
-        String(sheet.plumberSignature || "").trim() && String(sheet.clientSignature || "").trim(),
-      );
+      const signed = isDayworkSubmittedToCore(sheet);
       if (!signed) continue;
       const job = jobs.find((item) => item.id === sheet.jobId);
       if (!job) continue;
@@ -14520,6 +14525,7 @@ export default function CoreApp() {
   const reportFilteredInvoices = useMemo(
     () =>
       invoices.filter((invoice) => {
+        if (invoice.claimType === "valuation" || invoice.claimType === "credit-note") return false;
         const sourceJob = invoice.sourceType === "job" ? jobs.find((job) => job.id === invoice.sourceId) : null;
         const matchesDate = reportDateIsInRange(reportDateForRecord(invoice), reportDateRange, reportCustomStartDate, reportCustomEndDate);
         const matchesCustomer = reportCustomerFilter === "All customers" || invoice.customer === reportCustomerFilter;
@@ -14674,7 +14680,9 @@ export default function CoreApp() {
     () =>
       reportFilteredInvoices.map((invoice) => {
         const grandTotal = invoice.chargeTotal * (1 + invoice.vatRate / 100);
-        const paidAmount = invoice.status === "Paid" ? grandTotal : invoice.paidAmount ?? 0;
+        const paidInFull =
+          invoice.status === "Paid" || invoice.paymentStatus === "Paid";
+        const paidAmount = paidInFull ? grandTotal : invoice.paidAmount ?? 0;
         const owed = invoice.status === "Cancelled" ? 0 : Math.max(0, grandTotal - paidAmount);
         return {
           invoice,
@@ -37618,6 +37626,7 @@ export default function CoreApp() {
                             },
                             { materialCost: 0, materialSell: 0, labourCost: 0, labourSell: 0 },
                           );
+                          const quoteVat = resolveVatProfile(normalizedFinanceSettings, selectedQuoteClient, selectedQuoteSite);
                           return (
                             <>
                               <div><span>Materials Cost</span><strong>{currency(totals.materialCost)}</strong></div>
@@ -37626,7 +37635,7 @@ export default function CoreApp() {
                               <div><span>Materials Markup</span><strong>{currency(totals.materialSell - totals.materialCost)}</strong></div>
                               <div><span>Resources Markup</span><strong>{currency(totals.labourSell - totals.labourCost)}</strong></div>
                               <div className="total"><span>Sub Total</span><strong>{currency(selectedQuoteTotals.sell)}</strong></div>
-                              <div><span>VAT</span><strong>{currency(selectedQuoteTotals.sell * 0.2)}</strong></div>
+                              <div><span>VAT ({formatLineQuantity(quoteVat.rate)}%)</span><strong>{currency(selectedQuoteTotals.sell * (quoteVat.rate / 100))}</strong></div>
                               <div className={selectedQuoteTotals.profit >= 0 ? "profit-positive total" : "profit-negative total"}>
                                 <span>Potential Profit</span>
                                 <strong>{currency(selectedQuoteTotals.profit)} · {selectedQuoteTotals.margin}%</strong>
@@ -38989,6 +38998,7 @@ export default function CoreApp() {
                       </div>
                       {(() => {
                         const totals = quoteCostCentreTotals(selectedQuoteCostCentre);
+                        const quoteVat = resolveVatProfile(normalizedFinanceSettings, selectedQuoteClient, selectedQuoteSite);
                         return (
                           <>
                             <div className="hubflo-total-strip">
@@ -39037,7 +39047,7 @@ export default function CoreApp() {
                               <div><span>Resources Markup</span><strong>{currency(totals.labourSell - totals.labourCost)}</strong></div>
                               <div><span>Discount/Fee</span><strong>{currency(0)}</strong></div>
                               <div className="total"><span>Sub Total</span><strong>{currency(totals.totalSell)}</strong></div>
-                              <div><span>VAT</span><strong>{currency(totals.totalSell * 0.2)}</strong></div>
+                              <div><span>VAT ({formatLineQuantity(quoteVat.rate)}%)</span><strong>{currency(totals.totalSell * (quoteVat.rate / 100))}</strong></div>
                               <div className={totals.profit >= 0 ? "profit-positive total" : "profit-negative total"}>
                                 <span>Potential Profit</span>
                                 <strong>{currency(totals.profit)} · {totals.margin}%</strong>
@@ -42367,6 +42377,7 @@ export default function CoreApp() {
                       ) : null}
                       {(() => {
                         const totals = estimateCostCentreTotals(selectedCostCentre);
+                        const jobVat = resolveVatProfile(normalizedFinanceSettings, selectedJobClient, selectedJobSite);
                         const centrePurchaseRequests = selectedJobPurchaseRequests.filter((request) =>
                           request.costCentreId === selectedCostCentre.id ||
                           (!request.costCentreId && request.costCentreName === selectedCostCentre.name),
@@ -42450,7 +42461,7 @@ export default function CoreApp() {
                               <div><span>Resources Markup</span><strong>{currency(totals.labourSell - totals.labourCost)}</strong></div>
                               <div><span>Discount/Fee</span><strong>{currency(0)}</strong></div>
                               <div className="total"><span>Sub Total</span><strong>{currency(totals.totalSell)}</strong></div>
-                              <div><span>VAT</span><strong>{currency(totals.totalSell * 0.2)}</strong></div>
+                              <div><span>VAT ({formatLineQuantity(jobVat.rate)}%)</span><strong>{currency(totals.totalSell * (jobVat.rate / 100))}</strong></div>
                               <div className={totals.profit >= 0 ? "profit-positive total" : "profit-negative total"}>
                                 <span>Potential Profit</span>
                                 <strong>{currency(totals.profit)} · {totals.margin}%</strong>

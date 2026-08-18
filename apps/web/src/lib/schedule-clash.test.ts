@@ -19,6 +19,20 @@ test("detects same-engineer overlaps", () => {
     ),
     false,
   );
+  assert.equal(
+    hubAssignmentsOverlap(
+      { id: "a", employeeName: "Sam Kerr", startDate: "2026-08-18", startTime: "09:00", endDate: "2026-08-18", endTime: "12:00" },
+      { id: "b", employeeName: "Sam Kerr", startDate: "2026-08-18", startTime: "11:00", endDate: "2026-08-18", endTime: "15:00" },
+    ),
+    true,
+  );
+  assert.equal(
+    hubAssignmentsOverlap(
+      { id: "a", employeeId: "e1", employeeName: "Sam", startDate: "2026-08-18", startTime: "09:00", endDate: "2026-08-18", endTime: "12:00" },
+      { id: "b", employeeName: "Sam", startDate: "2026-08-18", startTime: "11:00", endDate: "2026-08-18", endTime: "15:00" },
+    ),
+    false,
+  );
 });
 
 test("assertNoHubScheduleClashes blocks overlapping plans", () => {

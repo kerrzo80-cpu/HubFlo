@@ -7,7 +7,10 @@ import {
   assertQuotePortalResponseAllowed,
   assertVariationSellValue,
   isPlaceholderBankDetails,
+  isPlaceholderCompanyNumber,
   isPlaceholderCompanyRegistration,
+  isPlaceholderVatNumber,
+  scrubCompanyRegistrationDisplay,
 } from "./commercial-safeguards.ts";
 
 test("blocks unpriced commercial materials but allows RFQ", () => {
@@ -63,4 +66,10 @@ test("placeholder bank and company registration scrubbing", () => {
   assert.equal(isPlaceholderCompanyRegistration({}), true);
   assert.equal(isPlaceholderCompanyRegistration({ vatNumber: "GB000000000", companyNumber: "00000000" }), true);
   assert.equal(isPlaceholderCompanyRegistration({ vatNumber: "GB123456789", companyNumber: "" }), false);
+  assert.equal(isPlaceholderVatNumber("GB000000000"), true);
+  assert.equal(isPlaceholderCompanyNumber("12345678"), false);
+  const scrubbed = scrubCompanyRegistrationDisplay({ vatNumber: "GB000000000", companyNumber: "SC123456" });
+  assert.equal(scrubbed.vatNumber, "");
+  assert.equal(scrubbed.companyNumber, "SC123456");
+  assert.equal(scrubbed.showLine, true);
 });

@@ -18,8 +18,26 @@ function toStamp(date: string, time: string) {
   return `${String(date || "").slice(0, 10)}T${normalised}`;
 }
 
+function normaliseEngineerName(name?: string) {
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+/** Same engineer when ids match, or both lack ids but share a normalised name. */
+export function sameHubEngineer(a: HubScheduleAssignment, b: HubScheduleAssignment) {
+  const aId = String(a.employeeId || "").trim();
+  const bId = String(b.employeeId || "").trim();
+  if (aId && bId) return aId === bId;
+  if (aId || bId) return false;
+  const aName = normaliseEngineerName(a.employeeName);
+  const bName = normaliseEngineerName(b.employeeName);
+  return Boolean(aName && bName && aName === bName);
+}
+
 export function hubAssignmentsOverlap(a: HubScheduleAssignment, b: HubScheduleAssignment) {
-  if (!a.employeeId || !b.employeeId || a.employeeId !== b.employeeId) return false;
+  if (!sameHubEngineer(a, b)) return false;
   if (a.id && b.id && a.id === b.id) return false;
   const aStart = toStamp(a.startDate, a.startTime);
   const aEnd = toStamp(a.endDate || a.startDate, a.endTime);

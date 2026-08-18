@@ -21,6 +21,7 @@ type HubInvoicePayment = {
 
 type HubInvoiceRow = {
   status?: string;
+  paymentStatus?: string;
   chargeTotal?: number;
   paidAmount?: number;
   vatRate?: number;
@@ -68,10 +69,12 @@ function resolveOverheadPercent(businessSettings?: Record<string, unknown>) {
 
 function invoiceOwed(invoice: HubInvoiceRow) {
   if (invoice.status === "Cancelled") return 0;
+  if (invoice.claimType === "valuation" || invoice.claimType === "credit-note") return 0;
   const charge = Number(invoice.chargeTotal) || 0;
   const vat = charge * ((Number(invoice.vatRate) || 0) / 100);
   const grand = charge + vat;
-  const paid = invoice.status === "Paid" ? grand : Number(invoice.paidAmount) || 0;
+  const paidInFull = invoice.status === "Paid" || invoice.paymentStatus === "Paid";
+  const paid = paidInFull ? grand : Number(invoice.paidAmount) || 0;
   return Math.max(0, grand - paid);
 }
 
@@ -104,7 +107,13 @@ export function buildManagerBoardPackRows(options?: {
   const invoices = snapshot.invoices ?? [];
   const jobs = snapshot.jobs ?? [];
 
-  const openInvoices = invoices.filter((invoice) => invoice.status !== "Cancelled" && invoice.status !== "Draft");
+  const openInvoices = invoices.filter(
+    (invoice) =>
+      invoice.status !== "Cancelled" &&
+      invoice.status !== "Draft" &&
+      invoice.claimType !== "valuation" &&
+      invoice.claimType !== "credit-note",
+  );
   let cashOwed = 0;
   let openInvoiceCharge = 0;
   let visibleRevenue = 0;

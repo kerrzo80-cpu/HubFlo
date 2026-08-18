@@ -97,33 +97,59 @@ export function isPlaceholderBankDetails(input: {
   return false;
 }
 
-/** True when VAT / company registration should be omitted from PDF chrome (blank or demo junk). */
-export function isPlaceholderCompanyRegistration(input: {
-  vatNumber?: string;
-  companyNumber?: string;
-}): boolean {
-  const vat = String(input.vatNumber || "")
+/** True when a VAT number is blank or demo junk and must not print. */
+export function isPlaceholderVatNumber(vatNumber?: string): boolean {
+  const vat = String(vatNumber || "")
     .trim()
     .toLowerCase()
     .replace(/\s+/g, "");
-  const company = String(input.companyNumber || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "");
-  const vatPlaceholder =
+  return (
     !vat ||
     vat === "gb000000000" ||
     vat === "000000000" ||
     vat === "vatnumber" ||
     vat === "tba" ||
     vat === "n/a" ||
-    vat === "na";
-  const companyPlaceholder =
+    vat === "na"
+  );
+}
+
+/** True when a company number is blank or demo junk and must not print. */
+export function isPlaceholderCompanyNumber(companyNumber?: string): boolean {
+  const company = String(companyNumber || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+  return (
     !company ||
     company === "00000000" ||
     company === "companynumber" ||
     company === "tba" ||
     company === "n/a" ||
-    company === "na";
-  return vatPlaceholder && companyPlaceholder;
+    company === "na"
+  );
+}
+
+/** True when both VAT and company registration should be omitted from PDF chrome. */
+export function isPlaceholderCompanyRegistration(input: {
+  vatNumber?: string;
+  companyNumber?: string;
+}): boolean {
+  return isPlaceholderVatNumber(input.vatNumber) && isPlaceholderCompanyNumber(input.companyNumber);
+}
+
+/** Scrub each field independently for chrome / PDF lines. */
+export function scrubCompanyRegistrationDisplay(input: {
+  vatNumber?: string;
+  companyNumber?: string;
+}): { vatNumber: string; companyNumber: string; showLine: boolean } {
+  const vatNumber = isPlaceholderVatNumber(input.vatNumber) ? "" : String(input.vatNumber || "").trim();
+  const companyNumber = isPlaceholderCompanyNumber(input.companyNumber)
+    ? ""
+    : String(input.companyNumber || "").trim();
+  return {
+    vatNumber,
+    companyNumber,
+    showLine: Boolean(vatNumber || companyNumber),
+  };
 }

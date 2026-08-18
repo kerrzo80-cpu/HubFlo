@@ -34,6 +34,21 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   const sheetName = body?.sheetName?.trim() || `AI Takeoff · ${new Date().toISOString().slice(0, 10)}`;
+  const unpricedMeasured = sourceLines.filter((line) => {
+    if (line.kind === "header" || line.kind === "note") return false;
+    const calc = calculateTakeoffLine(line, state.pricingRules);
+    return calc.lineTotalSell <= 0 && calc.labourHours <= 0;
+  });
+  if (unpricedMeasured.length) {
+    return NextResponse.json(
+      {
+        error: `${unpricedMeasured.length} measured line(s) have no unit cost or labour — price them (or mark as notes) before Apply to BoQ.`,
+        unpriced: unpricedMeasured.map((line) => line.id),
+      },
+      { status: 422 },
+    );
+  }
+
   const boqLines: TenderBoqLine[] = sourceLines.map((line, index) => {
     const calc = calculateTakeoffLine(line, state.pricingRules);
     const kind: TenderBoqLine["kind"] =

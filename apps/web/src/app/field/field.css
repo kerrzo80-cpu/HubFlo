@@ -126,6 +126,12 @@
   padding: 4px 6px 4px 10px;
 }
 
+.field-sync-pill-dead {
+  background: #fff1f2;
+  border-color: #fecdd3;
+  color: #9f1239;
+}
+
 .field-sync-pill span {
   color: inherit;
   font-size: 11px;

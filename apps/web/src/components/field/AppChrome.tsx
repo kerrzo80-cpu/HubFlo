@@ -7,7 +7,7 @@ import { CalendarDays, Clock3, LayoutDashboard, RefreshCw } from "lucide-react";
 import { useBrand } from "@/components/BrandProvider";
 import { BlakeCharacter } from "@/components/field/BlakeCharacter";
 import { resolveBrandChromeLogoUrl } from "@/lib/branding";
-import { countPendingOutbox, flushOutbox, subscribeOutbox } from "@/lib/field/offline-outbox";
+import { countPendingOutbox, countDeadOutbox, clearDeadOutboxItems, flushOutbox, subscribeOutbox } from "@/lib/field/offline-outbox";
 import { FIELD_BASE, fieldPath } from "@/lib/field/routes";
 
 /** Site Field chrome — My Day / Ask Blake / Hours only (no Connect / Talk). */
@@ -21,10 +21,14 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const brand = useBrand();
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
+  const [deadSyncCount, setDeadSyncCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = subscribeOutbox((items) => setPendingSyncCount(countPendingOutbox(items)));
+    const unsubscribe = subscribeOutbox((items) => {
+      setPendingSyncCount(countPendingOutbox(items));
+      setDeadSyncCount(countDeadOutbox(items));
+    });
     void flushOutbox();
     return unsubscribe;
   }, []);
@@ -97,6 +101,22 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
               <button type="button" disabled={syncing} onClick={() => void syncNow()}>
                 <RefreshCw size={13} />
                 {syncing ? "Syncing" : "Sync now"}
+              </button>
+            </div>
+          ) : null}
+          {deadSyncCount > 0 ? (
+            <div className="field-sync-pill field-sync-pill-dead" role="alert">
+              <span>{deadSyncCount} failed sync</span>
+              <button type="button" disabled={syncing} onClick={() => void syncNow()}>
+                Retry
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  clearDeadOutboxItems();
+                }}
+              >
+                Clear
               </button>
             </div>
           ) : null}

@@ -90,6 +90,27 @@ export function countPendingOutbox(items: OutboxItem[]) {
   return items.filter((item) => !isOutboxItemDead(item)).length;
 }
 
+export function countDeadOutbox(items: OutboxItem[]) {
+  return items.filter((item) => isOutboxItemDead(item)).length;
+}
+
+export function listDeadOutbox(items?: OutboxItem[]) {
+  const rows = items ?? listOutbox();
+  return rows.filter((item) => isOutboxItemDead(item));
+}
+
+export function clearDeadOutboxItems() {
+  const next = listOutbox().filter((item) => !isOutboxItemDead(item));
+  writeOutboxItems(next);
+  return next;
+}
+
+export function findDeadOutboxForJob(jobId: string, kind?: OutboxItemKind) {
+  return listDeadOutbox().filter(
+    (item) => item.jobId === jobId && (!kind || item.kind === kind),
+  );
+}
+
 function readOutboxItems(): OutboxItem[] {
   if (!canUseStorage()) return [];
   try {

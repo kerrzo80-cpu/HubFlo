@@ -1294,6 +1294,18 @@ export default function HeatDesignLabPage() {
       setTab("plan");
       return;
     }
+    if (design) {
+      const gate = assertHeatDesignExportable({
+        coveragePercent: design.coveragePercent,
+        designLoadKw: design.designLoadKw,
+        capacityAtFlowKw: design.capacityAtFlowKw,
+        emitterShortfallCount: design.emitterUpgradeCount,
+      });
+      if (gate) {
+        setNotice(gate);
+        return;
+      }
+    }
     setTakeoffBusy(true);
     try {
       // Ensure sizes before handoff.

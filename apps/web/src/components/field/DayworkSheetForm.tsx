@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SignaturePad } from "@/components/SignaturePad";
 import {
   DAYWORK_TRADE_OPTIONS,
@@ -19,8 +19,10 @@ import {
 } from "@/lib/daywork-account-form";
 import {
   enqueueOutboxItem,
+  findDeadOutboxForJob,
   isBrowserOnline,
   isOfflineOrNetworkError,
+  subscribeOutbox,
 } from "@/lib/field/offline-outbox";
 import { isoDateToUk, toUkDateDisplay, toUkDateTimeDisplay, ukDateToIso } from "@/lib/uk-date";
 
@@ -88,13 +90,36 @@ export function DayworkSheetForm({
   const [submittedRecord, setSubmittedRecord] = useState<DayworkAccountRecord | null>(
     isDayworkSubmittedToCore(initialRecord) ? initialRecord || null : null,
   );
+  /** Offline queue accepted the sheet but Core has not confirmed yet — stay editable if sync dies. */
+  const [awaitingOfflineSync, setAwaitingOfflineSync] = useState(false);
+  const [offlineSyncFailed, setOfflineSyncFailed] = useState(false);
   const errorRef = useRef<HTMLDivElement | null>(null);
 
   const saveViaCore = !scheduleId && Boolean(jobId);
-  // Field: lock after submit. Core office edit stays open unless locked is forced.
+  // Field: lock only after Core confirms (or office force-lock). Offline queue must not permanently lock.
   const locked =
     lockedProp === true ||
-    (Boolean(scheduleId) && (isDayworkSubmittedToCore(submittedRecord) || isDayworkSubmittedToCore(initialRecord)));
+    (Boolean(scheduleId) &&
+      !awaitingOfflineSync &&
+      !offlineSyncFailed &&
+      (isDayworkSubmittedToCore(submittedRecord) || isDayworkSubmittedToCore(initialRecord)));
+
+  useEffect(() => {
+    if (!scheduleId && !jobId) return;
+    const targetId = jobId || scheduleId || "";
+    const refreshDead = () => {
+      const dead = findDeadOutboxForJob(targetId, "daywork");
+      if (dead.length) {
+        setOfflineSyncFailed(true);
+        setAwaitingOfflineSync(false);
+        setNotice(
+          `Offline Daywork failed to sync: ${dead[0]?.lastError || "unknown error"}. Fix and Save again, or clear failed sync from the Field header.`,
+        );
+      }
+    };
+    refreshDead();
+    return subscribeOutbox(() => refreshDead());
+  }, [jobId, scheduleId]);
 
   const totalHours = useMemo(
     () =>
@@ -169,6 +194,8 @@ export function DayworkSheetForm({
         body: requestBody,
       });
       setSubmittedRecord(record);
+      setAwaitingOfflineSync(true);
+      setOfflineSyncFailed(false);
       setDraft(
         dayworkDraftFromRecord(record, {
           labourName: engineerName,
@@ -176,7 +203,9 @@ export function DayworkSheetForm({
           clientEmail: draft.clientEmail,
         }),
       );
-      setNotice(FIELD_OFFLINE_NOTICE);
+      setNotice(
+        `${FIELD_OFFLINE_NOTICE} Sheet stays editable until Core confirms the sync.`,
+      );
       onSaved?.(record, { offline: true });
       return true;
     };
@@ -239,6 +268,8 @@ export function DayworkSheetForm({
       }
       const saved = body.record || record;
       setSubmittedRecord(saved);
+      setAwaitingOfflineSync(false);
+      setOfflineSyncFailed(false);
       setDraft(
         dayworkDraftFromRecord(saved, {
           labourName: engineerName,

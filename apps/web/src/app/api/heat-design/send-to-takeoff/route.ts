@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { applyTaggedGuidePrices } from "@/lib/blake-budget-prices";
+import { assertHeatDesignExportable } from "@/lib/commercial-safeguards";
 import { getHeatDesignProject, saveHeatDesignProject } from "@/lib/heat-design-store";
 import {
   applyBlakePipeSizing,
   blakeKitMaterialAllowances,
   buildBlakeAncillariesKit,
+  calculateSystemDesign,
   heatDesignTakeoffDescription,
   heatingLayoutToStudio,
   heatingSystemOptions,
@@ -28,6 +30,7 @@ type Body = {
   projectId?: string;
   takeoffId?: string;
   createNew?: boolean;
+  force?: boolean;
 };
 
 export async function POST(request: Request) {
@@ -54,6 +57,18 @@ export async function POST(request: Request) {
       { error: "Design on plan first — Blake needs a heating layout to send." },
       { status: 409 },
     );
+  }
+
+  const design = calculateSystemDesign(project);
+  const heatGate = assertHeatDesignExportable({
+    coveragePercent: design.coveragePercent,
+    designLoadKw: design.designLoadKw,
+    capacityAtFlowKw: design.capacityAtFlowKw,
+    emitterShortfallCount: design.emitterUpgradeCount,
+    force: Boolean(body.force),
+  });
+  if (heatGate) {
+    return NextResponse.json({ error: heatGate, code: "HEAT_DESIGN_SIZING" }, { status: 422 });
   }
 
   const { actor } = surveyRequestContext(request);
