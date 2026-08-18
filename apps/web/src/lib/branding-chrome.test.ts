@@ -24,4 +24,10 @@ describe("resolveBrandChromeLogoUrl", () => {
     };
     assert.equal(resolveBrandChromeLogoUrl(brand, "field"), "/ewg-logo.png");
   });
+
+  it("does not invent an EWG logo when the company has none", () => {
+    assert.equal(defaultBusinessBrandingSettings.logoUrl, "");
+    assert.equal(resolveBrandChromeLogoUrl(defaultBusinessBrandingSettings, "core"), "");
+    assert.equal(resolveBrandLogoUrl(defaultBusinessBrandingSettings, "core"), "");
+  });
 });

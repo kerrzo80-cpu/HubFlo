@@ -9,6 +9,7 @@ import { mergeHubDetailState } from "@/lib/hub-state-merge";
 import { leanJobCostCentresMap } from "@/lib/job-cost-centres-lean";
 import { parseJsonRequestBody } from "@/lib/http";
 import { stripDayworkBlobsForPoll } from "@/lib/daywork-poll-strip";
+import { useDemoSeedData } from "@/lib/workspace-mode";
 
 export async function GET(request: Request) {
   const access = getAccessProfileFromHeaders(request.headers);
@@ -16,8 +17,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  ensureGasCertTrialInCore();
-  ensureDomesticStopGoSeed();
+  if (useDemoSeedData()) {
+    ensureGasCertTrialInCore();
+    ensureDomesticStopGoSeed();
+  }
   try {
     reconcileDayworkVariationsFromEvidence();
   } catch {

@@ -157,7 +157,7 @@ export function buildRunSheetHtml(input: {
 </style>
 </head>
 <body>
-  <div class="banner"><strong>${input.companyName || "EWG"} run sheet</strong> · travel buffer ${buffer} minutes between jobs</div>
+  <div class="banner"><strong>${input.companyName || "Company"} run sheet</strong> · travel buffer ${buffer} minutes between jobs</div>
   <h1>${input.engineerName}</h1>
   <p class="meta">${input.date} · ${input.jobs.length} job${input.jobs.length === 1 ? "" : "s"}</p>
   <p class="no-print"><button onclick="window.print()">Print</button></p>

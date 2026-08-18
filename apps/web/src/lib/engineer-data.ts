@@ -611,21 +611,23 @@ function liveEngineerSchedule() {
 }
 
 export function getEngineerSchedule(engineerId?: string) {
-  try {
-    const { ensureGasCertTrialInCore } = require("@/lib/gas-cert-trial-core") as {
-      ensureGasCertTrialInCore: () => unknown;
-    };
-    ensureGasCertTrialInCore();
-  } catch {
-    // Trial bootstrap is best-effort.
-  }
-  try {
-    const { ensureDomesticStopGoSeed } = require("@/lib/domestic-stop-go/seed") as {
-      ensureDomesticStopGoSeed: () => unknown;
-    };
-    ensureDomesticStopGoSeed();
-  } catch {
-    // Stop/go seed is best-effort.
+  if (useDemoSeedData()) {
+    try {
+      const { ensureGasCertTrialInCore } = require("@/lib/gas-cert-trial-core") as {
+        ensureGasCertTrialInCore: () => unknown;
+      };
+      ensureGasCertTrialInCore();
+    } catch {
+      // Trial bootstrap is best-effort.
+    }
+    try {
+      const { ensureDomesticStopGoSeed } = require("@/lib/domestic-stop-go/seed") as {
+        ensureDomesticStopGoSeed: () => unknown;
+      };
+      ensureDomesticStopGoSeed();
+    } catch {
+      // Stop/go seed is best-effort.
+    }
   }
   const trialJobId = "job-gas-cert-trial";
   const gasServiceTrialId = GAS_SERVICE_TRIAL.jobId;
@@ -635,8 +637,8 @@ export function getEngineerSchedule(engineerId?: string) {
   );
   const liveJobIds = new Set(liveItems.map((item) => item.jobId));
   const items = [
-    ...gasCertTrialSchedule(),
-    ...gasServiceTrialSchedule(),
+    ...(useDemoSeedData() ? gasCertTrialSchedule() : []),
+    ...(useDemoSeedData() ? gasServiceTrialSchedule() : []),
     ...liveItems,
     ...demoEngineerSchedule().filter((item) => !liveJobIds.has(item.jobId) && item.jobId !== trialJobId && item.jobId !== gasServiceTrialId),
   ].map(withCostCentreOptions);

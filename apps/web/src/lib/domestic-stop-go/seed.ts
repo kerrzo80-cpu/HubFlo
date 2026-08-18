@@ -5,6 +5,7 @@ import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { addClientRecord, addClientSiteRecord, getClients, getClientSites, updateClientRecord, updateClientSiteRecord } from "@/lib/people-data";
 import { createJob, getJob, updateJob, type Job } from "@/lib/workflow-data";
 import type { Employee, EmployeeLicense } from "@/lib/access";
+import { useDemoSeedData } from "@/lib/workspace-mode";
 
 export const GAS_SERVICE_TRIAL = {
   jobId: "job-dom-gas-service-trial",
@@ -251,6 +252,7 @@ let ensured = false;
 
 export function ensureDomesticStopGoSeed() {
   seedDomesticStopGoHubTypes();
+  if (!useDemoSeedData()) return getJob(GAS_SERVICE_TRIAL.jobId) ?? null;
   ensureChrisEmployeeCard();
   if (ensured) return getJob(GAS_SERVICE_TRIAL.jobId) ?? null;
   ensureClientAndSite();

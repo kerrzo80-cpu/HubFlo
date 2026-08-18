@@ -137,7 +137,7 @@ function foldersUnderParent(folders: TenderDocumentFolder[], parentId: string | 
 export function TendersPanel({
   requestHeaders,
   onNotice,
-  businessName = "Errol Watson Group Ltd",
+  businessName = "Company",
   actorName = "NeXa user",
   clients = [],
   onOpenPendingJob,

@@ -58,7 +58,7 @@ export async function GET(request: Request) {
   const html = buildRunSheetHtml({
     engineerName,
     date,
-    companyName: brand.tradingName || brand.companyName || "EWG",
+    companyName: brand.tradingName || brand.companyName || "Company",
     travelBufferMinutes,
     jobs: items.map((item) => ({
       start: item.start,

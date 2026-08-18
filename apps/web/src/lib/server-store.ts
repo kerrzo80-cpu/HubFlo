@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync, readFileSync, writeFileSync, existsSync, unlinkSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, unlinkSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
 // Treat empty/whitespace-only env values as unset. Nullish coalescing (??) keeps
@@ -248,4 +248,35 @@ export function listServerStoreNames(): string[] {
     // ignore
   }
   return [...names].sort();
+}
+
+/** Delete named stores from SQLite and JSON, keeping the listed names. */
+export function wipeAllServerStoresExcept(keep: string[]): { deleted: string[] } {
+  const keepSet = new Set(keep);
+  const deleted: string[] = [];
+  for (const name of listServerStoreNames()) {
+    if (keepSet.has(name)) continue;
+    if (deleteServerStore(name)) deleted.push(name);
+  }
+  checkpointSqliteStore();
+  return { deleted };
+}
+
+/** Remove uploaded files on the workspace disk (branding, takeoff PDFs, backups, …). */
+export function wipeServerStoreDirectories(dirNames: string[]): string[] {
+  ensureStoreDirectory();
+  const removed: string[] = [];
+  for (const name of dirNames) {
+    const base = path.basename(name);
+    if (!base || base === "." || base === "..") continue;
+    const dir = path.join(STORE_DIR, base);
+    if (!existsSync(dir)) continue;
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      removed.push(base);
+    } catch {
+      // Best-effort — SQLite wipe is the source of truth for records.
+    }
+  }
+  return removed;
 }

@@ -76,7 +76,9 @@ export function DesignReport({ project, design, options, className, companyName 
     <article className={`ewg-report ${className ?? ""}`.trim()} id="hd-print-report">
       <header className="ewg-report-letterhead">
         <div className="ewg-report-brand">
-          <img src={ewgCompany.logoUrl} alt={reportCompanyName} className="ewg-report-logo" />
+          {ewgCompany.logoUrl ? (
+            <img src={ewgCompany.logoUrl} alt={reportCompanyName} className="ewg-report-logo" />
+          ) : null}
           <div>
             <strong>{reportCompanyName}</strong>
             <p>

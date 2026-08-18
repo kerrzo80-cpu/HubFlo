@@ -119,8 +119,8 @@ function bootstrapAdminFromEnvironment() {
   authStore.users.push({
     id: "auth-user-brian",
     employeeId: process.env.NEXA_ADMIN_EMPLOYEE_ID?.trim() || "emp-brian",
-    name: process.env.NEXA_ADMIN_NAME?.trim() || "Brian Kerr",
-    username: normaliseUsername(process.env.NEXA_ADMIN_USERNAME || "brian.kerr"),
+    name: process.env.NEXA_ADMIN_NAME?.trim() || "Admin",
+    username: normaliseUsername(process.env.NEXA_ADMIN_USERNAME || "admin"),
     role: "Owner/Admin",
     permissions: {},
     passwordHash: hashPassword(password, salt),

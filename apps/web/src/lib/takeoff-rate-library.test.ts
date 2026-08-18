@@ -7,6 +7,7 @@ import { describe, it, before } from "node:test";
 const storeDir = mkdtempSync(path.join(tmpdir(), "hubflo-takeoff-rate-lib-"));
 process.env.NEXA_STORE_DIR = storeDir;
 process.env.NEXA_STORE_PATH = "";
+process.env.NEXA_WORKSPACE_MODE = "demo";
 
 let expandTakeoffAssemblies: typeof import("./takeoff-rate-library").expandTakeoffAssemblies;
 let getTakeoffRateLibrary: typeof import("./takeoff-rate-library").getTakeoffRateLibrary;

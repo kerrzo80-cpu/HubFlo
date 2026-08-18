@@ -250,13 +250,13 @@ export function compareHeatingOptions(
 }
 
 export const ewgCompany = {
-  tradingName: "Errol Watson Group Ltd",
-  companyName: "Errol Watson Group",
-  address: "Aberdeen, Scotland",
-  phone: "01224 000000",
-  email: "office@errolwatsongroup.co.uk",
-  vatNumber: "GB000000000",
-  companyNumber: "SC000000",
-  logoUrl: "/ewg-logo.png",
-  website: "errolwatsongroup.co.uk",
+  tradingName: "Company",
+  companyName: "Company",
+  address: "",
+  phone: "",
+  email: "",
+  vatNumber: "",
+  companyNumber: "",
+  logoUrl: "",
+  website: "",
 };

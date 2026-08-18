@@ -8,6 +8,7 @@ import {
   writeServerStore,
   getServerStoreDirectory,
 } from "@/lib/server-store";
+import { useDemoSeedData } from "@/lib/workspace-mode";
 import {
   isBoqSheetEchoHeader,
   layerSectionFromSheetName,
@@ -378,7 +379,9 @@ function readStoreRaw(): TenderStore {
   const stored = loadServerStore<Partial<TenderStore>>(STORE, { tenders: [] });
   const tenders = Array.isArray(stored.tenders) ? (stored.tenders as Tender[]) : [];
   if (!tenders.length) {
-    const seeded = { tenders: seedTenders().map((tender) => {
+    const seededList = useDemoSeedData() ? seedTenders() : [];
+    if (!seededList.length) return { tenders: [] };
+    const seeded = { tenders: seededList.map((tender) => {
       if (tender.boqLines?.length) writeBoqLines(tender.id, tender.boqLines);
       return { ...tender, boqLines: [] };
     }) };

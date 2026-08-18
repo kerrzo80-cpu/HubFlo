@@ -262,7 +262,7 @@ export function SetupPersonalisingPanel({
               <input
                 value={businessSettings.productName}
                 onChange={(event) => onChange({ productName: event.target.value })}
-                placeholder="EWG"
+                placeholder="Your brand"
               />
             </label>
             <label className="span-2 personalising-toggle">
@@ -282,7 +282,11 @@ export function SetupPersonalisingPanel({
             <article className="personalising-upload-card">
               <div className="personalising-upload-preview" style={{ borderColor: businessSettings.brandPrimaryColor }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={businessSettings.logoUrl || "/ewg-logo.png"} alt="Company logo preview" />
+                {businessSettings.logoUrl ? (
+                  <img src={businessSettings.logoUrl} alt="Company logo preview" />
+                ) : (
+                  <span>No logo yet</span>
+                )}
               </div>
               <div>
                 <strong>Company logo</strong>
@@ -299,7 +303,7 @@ export function SetupPersonalisingPanel({
                   <input
                     value={businessSettings.logoUrl}
                     onChange={(event) => onChange({ logoUrl: event.target.value })}
-                    placeholder="/ewg-logo.png"
+                    placeholder="https://…"
                   />
                 </label>
               </div>
@@ -308,7 +312,11 @@ export function SetupPersonalisingPanel({
             <article className="personalising-upload-card">
               <div className="personalising-upload-preview personalising-upload-preview-icon" style={{ borderColor: businessSettings.brandPrimaryColor }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={businessSettings.appIconUrl || businessSettings.logoUrl || "/ewg-logo.png"} alt="Default app icon preview" />
+                {businessSettings.appIconUrl || businessSettings.logoUrl ? (
+                  <img src={businessSettings.appIconUrl || businessSettings.logoUrl} alt="Default app icon preview" />
+                ) : (
+                  <span>No icon yet</span>
+                )}
               </div>
               <div>
                 <strong>Default home-screen icon</strong>
@@ -325,7 +333,7 @@ export function SetupPersonalisingPanel({
                   <input
                     value={businessSettings.appIconUrl}
                     onChange={(event) => onChange({ appIconUrl: event.target.value })}
-                    placeholder="/ewg-logo.png"
+                    placeholder="https://…"
                   />
                 </label>
               </div>

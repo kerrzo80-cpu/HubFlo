@@ -27,6 +27,9 @@ function kindForApp(app?: BrandAppKey): BrandingAssetKind {
 }
 
 function readFallbackPng(): Buffer | null {
+  const brand = normalizeBusinessBranding(getHubDetailState().businessSettings);
+  const name = `${brand.companyName} ${brand.tradingName} ${brand.productName}`;
+  if (!/errol watson/i.test(name) && !/\bEWG\b/.test(brand.productName)) return null;
   const candidates = [
     path.join(process.cwd(), "public", "ewg-logo.png"),
     path.join(process.cwd(), "public", "ewg-mark.png"),

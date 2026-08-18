@@ -172,6 +172,7 @@ import { makeTimelineEntry, sortTimelineEntries, type TimelineEntry, type Timeli
 import {
   applyBrandCssVariables,
   defaultBusinessBrandingSettings,
+  displayCompanyName,
   normalizeBusinessBranding,
   operationsLabel,
   platformLabel,
@@ -255,6 +256,10 @@ const OpenAiKeyCard = dynamic(() => import("./OpenAiKeyCard").then((mod) => mod.
 const SetupLiveReadinessPanel = dynamic(
   () => import("@/components/SetupLiveReadinessPanel").then((mod) => mod.SetupLiveReadinessPanel),
   { ssr: false, loading: () => panelSkeleton("Loading readiness…") },
+);
+const SetupTrialResetPanel = dynamic(
+  () => import("@/components/SetupTrialResetPanel").then((mod) => mod.SetupTrialResetPanel),
+  { ssr: false },
 );
 const SumUpKeyCard = dynamic(() => import("@/components/SumUpKeyCard").then((mod) => mod.SumUpKeyCard), {
   ssr: false,
@@ -1595,7 +1600,7 @@ function invoiceOutstandingBalance(invoice: Pick<Invoice, "chargeTotal" | "vatRa
   return Math.max(0, invoiceGrossTotal(invoice) - (invoice.paidAmount ?? 0));
 }
 
-function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "Errol Watson Group"): InvoiceEmailDraft {
+function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "Company"): InvoiceEmailDraft {
   const contactName = client?.primaryContact?.split(" ")[0] || "there";
   const totalDue = currency(invoiceGrossTotal(invoice));
   const outstanding = currency(invoiceOutstandingBalance(invoice));
@@ -4610,7 +4615,7 @@ const quoteStatuses: QuoteStatus[] = [
 
 const leadSources: LeadSource[] = ["Phone call", "Checkatrade", "Email", "Website", "Referral"];
 const leadStatuses: LeadStatus[] = ["New enquiry", "Needs scheduling", "Survey booked", "Quoted", "Lost"];
-const seedSurveyorOptions = ["Brian Kerr", "Errol Watson", "Chris Lawson"];
+const seedSurveyorOptions: string[] = [];
 const surveyDurationMinutes = 60;
 const currentOperatingDate = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Europe/London",
@@ -4667,7 +4672,7 @@ const defaultFinanceSettings: FinanceSettings = {
   purchaseOrderPrefix: "PO",
   purchaseOrderNextNumber: "1001",
   bankName: "Business Bank",
-  accountName: "Errol Watson Group Ltd",
+  accountName: "Company",
   sortCode: "00-00-00",
   accountNumber: "00000000",
   defaultMaterialMarkupPercent: "30",
@@ -5377,7 +5382,7 @@ const blankLead: LeadDraft = {
   address: "",
   description: "",
   status: "Needs scheduling",
-  surveyor: seedSurveyorOptions[0] ?? "Errol Watson",
+  surveyor: "",
   surveyDate: "",
   surveyTime: "",
   createdBy: "Carol",
@@ -8049,7 +8054,7 @@ function numericSetting(value: string | number, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "Errol Watson Group"): QuoteEmailDraft {
+function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "Company"): QuoteEmailDraft {
   const contactName = client?.primaryContact?.split(" ")[0] || "there";
   const vars = {
     ref: quote.ref,
@@ -8430,11 +8435,11 @@ function ModuleBarDropdown({
 
 export default function CoreApp() {
   const pathname = usePathname() || "/";
-  const [employees, setEmployees] = useState<EmployeeCard[]>(() => normalizeEmployeeCards(seedEmployees));
+  const [employees, setEmployees] = useState<EmployeeCard[]>([]);
   const [dashboardLayouts, setDashboardLayouts] = useState<Record<string, DashboardLayout>>({});
   const [isDashboardCustomising, setIsDashboardCustomising] = useState(false);
-  const [clients, setClients] = useState<ClientRecord[]>(seedClients);
-  const [clientSites, setClientSites] = useState<ClientSite[]>(seedClientSites);
+  const [clients, setClients] = useState<ClientRecord[]>([]);
+  const [clientSites, setClientSites] = useState<ClientSite[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierDirectoryRecord[]>(defaultSupplierDirectory);
   const [contacts, setContacts] = useState<ContactDirectoryRecord[]>(defaultContactDirectory);
   const [contractors, setContractors] = useState<ContractorDirectoryRecord[]>(defaultContractorDirectory);
@@ -8456,9 +8461,9 @@ export default function CoreApp() {
   const [employeeProfileDraft, setEmployeeProfileDraft] = useState<EmployeeProfileDraft>(
     createBlankEmployeeProfileDraft(),
   );
-  const [jobs, setJobs] = useState<Job[]>(demoJobs);
-  const [quotes, setQuotes] = useState<Quote[]>(demoQuotes);
-  const [leads, setLeads] = useState<Lead[]>(demoLeads);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
   const surveyorOptions = useMemo(() => {
     const fromPeople = employees
       .filter((employee) => employee.name.trim() && !(employee as { archived?: boolean }).archived)
@@ -9604,7 +9609,7 @@ export default function CoreApp() {
             selectedQuote,
             selectedQuoteClient,
             null,
-            businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group",
+            displayCompanyName(businessSettings),
           )
         : null,
     [businessSettings.companyName, businessSettings.tradingName, quoteEmailDrafts, selectedQuote, selectedQuoteClient],
@@ -10444,7 +10449,7 @@ export default function CoreApp() {
             selectedInvoice,
             selectedInvoiceClient,
             null,
-            businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group",
+            displayCompanyName(businessSettings),
           )
         : null,
     [businessSettings.companyName, businessSettings.tradingName, invoiceEmailDrafts, selectedInvoice, selectedInvoiceClient],
@@ -11326,7 +11331,11 @@ export default function CoreApp() {
     setLeads(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.leads, demoLeads));
     setPurchaseRequests(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.purchaseRequests, []));
     setInvoices(isLiveWorkspace ? [] : normalizeInvoiceList(safeLoadStoredJson(STORAGE_KEYS.invoices, demoInvoices)));
-    setBusinessSettings(normalizeBusinessBranding(safeLoadStoredJson(STORAGE_KEYS.businessSettings, defaultBusinessSettings)));
+    setBusinessSettings(
+      isLiveWorkspace
+        ? defaultBusinessSettings
+        : normalizeBusinessBranding(safeLoadStoredJson(STORAGE_KEYS.businessSettings, defaultBusinessSettings)),
+    );
     const storedFormTemplates = normalizeFormTemplates(safeLoadStoredJson(STORAGE_KEYS.formTemplates, defaultFormTemplates));
     setFormTemplates(storedFormTemplates);
     setActiveFormTemplateId(
@@ -15004,7 +15013,7 @@ export default function CoreApp() {
 
   async function downloadRetentionReportPdf() {
     if (typeof window === "undefined") return;
-    const companyName = businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group";
+    const companyName = displayCompanyName(businessSettings);
     const rows = reportRetentionRows.map((row) => ({
       description: `${row.jobRef} · ${row.customer}`,
       detail: [
@@ -15057,7 +15066,7 @@ export default function CoreApp() {
     try {
       const { buildReportsBoardPackPdf } = await import("@/lib/reports-board-pack");
       const bytes = await buildReportsBoardPackPdf({
-        companyName: businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group",
+        companyName: displayCompanyName(businessSettings),
         title: "Reports board pack",
         dateLabel: reportDateRangeLabel,
         rows: buildReportPackRows(),
@@ -15077,7 +15086,7 @@ export default function CoreApp() {
     try {
       const { buildReportsExcelXml } = await import("@/lib/reports-board-pack");
       const xml = buildReportsExcelXml({
-        companyName: businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group",
+        companyName: displayCompanyName(businessSettings),
         dateLabel: reportDateRangeLabel,
         rows: buildReportPackRows(),
       });
@@ -23607,7 +23616,7 @@ export default function CoreApp() {
     }
 
     const subject = `Application for payment - ${selectedInvoice.sourceName}`;
-    const body = `Hi,\n\nPlease find our application for payment for ${selectedInvoice.sourceName}.\n\nApplication value excluding VAT: ${currency(selectedInvoice.chargeTotal)}.\nVAT: ${currency(selectedInvoice.chargeTotal * (selectedInvoice.vatRate / 100))}.\nTotal applied for: ${currency(selectedInvoiceFinancials.grandTotal)}.\n\nKind regards,\n${businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group"}`;
+    const body = `Hi,\n\nPlease find our application for payment for ${selectedInvoice.sourceName}.\n\nApplication value excluding VAT: ${currency(selectedInvoice.chargeTotal)}.\nVAT: ${currency(selectedInvoice.chargeTotal * (selectedInvoice.vatRate / 100))}.\nTotal applied for: ${currency(selectedInvoiceFinancials.grandTotal)}.\n\nKind regards,\n${displayCompanyName(businessSettings)}`;
     setIsSendingLiveEmail(true);
     let delivery: LiveEmailDelivery;
     try {
@@ -33609,11 +33618,15 @@ export default function CoreApp() {
       <div className="platform core-boot-shell" aria-busy="true">
         <header className="global-header core-boot-header">
           <div className="brand-lockup">
-            <img
-              className="company-logo"
-              src={resolveBrandChromeLogoUrl(businessSettings, "core")}
-              alt={businessSettings.companyName || "EWG"}
-            />
+            {resolveBrandChromeLogoUrl(businessSettings, "core") ? (
+              <img
+                className="company-logo"
+                src={resolveBrandChromeLogoUrl(businessSettings, "core")}
+                alt={displayCompanyName(businessSettings)}
+              />
+            ) : (
+              <strong>{displayCompanyName(businessSettings)}</strong>
+            )}
           </div>
           <div className="core-boot-search-skel" aria-hidden="true" />
           <div className="core-boot-actions-skel" aria-hidden="true" />
@@ -33650,7 +33663,9 @@ export default function CoreApp() {
       <div className="employee-login-shell">
         <section className="employee-login-card">
           <div className="employee-login-brand">
-            <img src={businessSettings.logoUrl || "/ewg-logo.png"} alt={businessSettings.companyName} />
+            {businessSettings.logoUrl ? (
+              <img src={businessSettings.logoUrl} alt={displayCompanyName(businessSettings)} />
+            ) : null}
             <span>
               <strong>{platformLabel(businessSettings)}</strong>
               <small>{businessSettings.clientPortalBrandLine || "Service command center"}</small>
@@ -33754,7 +33769,11 @@ export default function CoreApp() {
       ) : null}
       <header className="global-header">
         <div className="brand-lockup">
-          <img className="company-logo" src={resolveBrandChromeLogoUrl(businessSettings, "core")} alt={businessSettings.companyName} />
+          {resolveBrandChromeLogoUrl(businessSettings, "core") ? (
+            <img className="company-logo" src={resolveBrandChromeLogoUrl(businessSettings, "core")} alt={displayCompanyName(businessSettings)} />
+          ) : (
+            <strong>{displayCompanyName(businessSettings)}</strong>
+          )}
         </div>
 
         <label className="global-search">
@@ -34393,7 +34412,11 @@ export default function CoreApp() {
 
           <div className="support-panel">
             {/* Wide company wordmark — square CORE marks look cut-boxed on the blue rail. */}
-            <img src={resolveBrandChromeLogoUrl(businessSettings, "core")} alt={businessSettings.companyName} />
+            {resolveBrandChromeLogoUrl(businessSettings, "core") ? (
+              <img src={resolveBrandChromeLogoUrl(businessSettings, "core")} alt={displayCompanyName(businessSettings)} />
+            ) : (
+              <strong>{displayCompanyName(businessSettings)}</strong>
+            )}
             <small>{businessSettings.productName || businessSettings.companyName}</small>
           </div>
         </aside>
@@ -35862,7 +35885,7 @@ export default function CoreApp() {
                   type="button"
                   onClick={() =>
                     void copyTextToClipboard(
-                      `${businessSettings.tradingName || "EWG"} reports · ${reportDateRangeLabel}\nRevenue ${currency(reportExecutive.visibleRevenue)} · Cash owed ${currency(reportExecutive.cashOwed)}`,
+                      `${displayCompanyName(businessSettings)} reports · ${reportDateRangeLabel}\nRevenue ${currency(reportExecutive.visibleRevenue)} · Cash owed ${currency(reportExecutive.cashOwed)}`,
                     ).then(
                       () => showNotice("Report snapshot copied — paste into Teams/email."),
                       () => showNotice("Could not copy report snapshot."),
@@ -36990,7 +37013,7 @@ export default function CoreApp() {
             <TendersPanel
               requestHeaders={requestHeaders}
               onNotice={showNotice}
-              businessName={businessSettings.tradingName || businessSettings.companyName || "Errol Watson Group Ltd"}
+              businessName={displayCompanyName(businessSettings)}
               actorName={activeEmployee?.name ?? "NeXa user"}
               onOpenTenderChange={setBlakeOpenTender}
               boqRefreshToken={blakeTenderBoqRevision}
@@ -37222,7 +37245,7 @@ export default function CoreApp() {
                 <a className="addon-product-card" href="/office/whatsapp-pilot">
                   <span className="addon-icon"><Inbox size={20} /></span>
                   <div>
-                    <strong>{`${businessSettings.productName || "EWG"} Connect`}</strong>
+                    <strong>{`${businessSettings.productName || displayCompanyName(businessSettings)} Connect`}</strong>
                     <p>Outlook, WhatsApp, suppliers, Checkatrade, accounting and API intake.</p>
                     <small>Outputs communications, approvals, supplier costs and audit events.</small>
                   </div>
@@ -46428,6 +46451,7 @@ export default function CoreApp() {
                   ) : null}
 
                   {activeSetupCategory === "overview" ? <SetupLiveReadinessPanel /> : null}
+                  {activeSetupCategory === "overview" ? <SetupTrialResetPanel /> : null}
 
                   {activeSetupCategory === "business" ? (
                     <SetupPersonalisingPanel

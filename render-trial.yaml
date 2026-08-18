@@ -24,6 +24,10 @@ services:
         value: /var/data
       - key: NEXA_WORKSPACE_MODE
         value: live
+      - key: NEXA_TRIAL
+        value: "1"
+      - key: NEXA_COMPANY_NAME
+        value: Trial company
       - key: NEXA_AUTH_MODE
         value: users
       - key: NEXA_ADMIN_NAME

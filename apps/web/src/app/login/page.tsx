@@ -47,7 +47,7 @@ export default function LoginPage() {
       <section>
         <div className="nexa-secure-login-brand">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={brand.logoUrl || "/ewg-logo.png"} alt={brand.companyName} />
+          {brand.logoUrl ? <img src={brand.logoUrl} alt={brand.companyName || "Company"} /> : null}
           <span>
             <strong>{label}</strong>
             <small>Secure workspace</small>

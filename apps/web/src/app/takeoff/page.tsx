@@ -2110,8 +2110,12 @@ export default function TakeoffStudioPage() {
     <div className="nexa-studio">
       <header className="nexa-studio-top">
         <div className="nexa-studio-brand">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={resolveBrandLogoUrl(brand, "takeoffs")} alt={brand.companyName || "Errol Watson Group"} />
+          {resolveBrandLogoUrl(brand, "takeoffs") ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={resolveBrandLogoUrl(brand, "takeoffs")} alt={brand.companyName || "Takeoffs"} />
+          ) : (
+            <strong>{brand.companyName || "Takeoffs"}</strong>
+          )}
           <div>
             <strong>{brand.takeoffsAppName}</strong>
             <span>Blake · {brand.tradingName || brand.companyName}</span>

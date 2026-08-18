@@ -19,6 +19,7 @@ import {
   saveDayworkSheetToHub,
 } from "@/lib/engineer-flow";
 import { getHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
+import { displayCompanyName } from "@/lib/branding";
 import { type DayworkSheetSnapshot } from "@/lib/daywork-account-form";
 import { findDayworkSheetForJob, getDayworkSheetFromStore, listDayworkSheetsFromStore } from "@/lib/daywork-sheets-store";
 import { createDayworkAccountPdf, dayworkPdfFilename } from "@/lib/daywork-pdf";
@@ -187,7 +188,7 @@ export async function POST(request: Request, { params }: Params) {
           `Total hours: ${String(existing.labourHours || "").trim() || "as recorded"}`,
           "",
           "Kind regards,",
-          "Errol Watson Group",
+          displayCompanyName(getHubDetailState().businessSettings),
         ].join("\n"),
         attachments: [{ filename, content: pdfBytes, contentType: "application/pdf" }],
       });

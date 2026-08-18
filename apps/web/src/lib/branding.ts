@@ -62,38 +62,64 @@ export type PublicBranding = {
   clientPortalBrandLine: string;
 };
 
+/** Product defaults for an empty company. Never bake in Errol Watson Group / EWG logos. */
 export const defaultBusinessBrandingSettings: BusinessBrandingSettings = {
-  companyName: "Errol Watson Group",
-  tradingName: "Errol Watson Group Ltd",
-  workspaceName: "EWG workspace",
-  contactEmail: "office@errolwatsongroup.co.uk",
-  phone: "01224 000000",
-  address: "Aberdeen, Scotland",
-  vatNumber: "GB000000000",
-  companyNumber: "SC000000",
-  defaultFromEmail: "office@errolwatsongroup.co.uk",
+  companyName: "Company",
+  tradingName: "",
+  workspaceName: "",
+  contactEmail: "",
+  phone: "",
+  address: "",
+  vatNumber: "",
+  companyNumber: "",
+  defaultFromEmail: "",
   clientPortalBrandLine: "Control every moving part.",
   brandPrimaryColor: "#157fa8",
   brandAccentColor: "#0f5f7d",
-  logoUrl: "/ewg-logo.png",
-  appIconUrl: "/ewg-logo.png",
+  logoUrl: "",
+  appIconUrl: "",
   coreLogoUrl: "",
   fieldLogoUrl: "",
   surveyLogoUrl: "",
   takeoffsLogoUrl: "",
   heatDesignLogoUrl: "",
   trainerLogoUrl: "",
-  portalWelcomeText: "Welcome to your Errol Watson Group workspace. Review quotes, jobs and invoices in one place.",
+  portalWelcomeText: "Welcome. Review quotes, jobs and invoices in one place.",
   portalAcceptanceText: "By accepting this quotation online you confirm the scope, price and terms shown.",
-  hidePlatformName: true,
-  productName: "EWG",
-  coreAppName: "EWG Core",
-  fieldAppName: "EWG Field",
-  surveyAppName: "EWG Survey",
-  takeoffsAppName: "EWG Takeoffs",
-  heatDesignAppName: "EWG Heat Design",
-  trainerAppName: "EWG Trainer",
+  hidePlatformName: false,
+  productName: "Company",
+  coreAppName: "Core",
+  fieldAppName: "Field",
+  surveyAppName: "Survey",
+  takeoffsAppName: "Takeoffs",
+  heatDesignAppName: "Heat Design",
+  trainerAppName: "Trainer",
 };
+
+export function displayCompanyName(brand?: { companyName?: string; tradingName?: string } | null) {
+  const trading = String(brand?.tradingName || "").trim();
+  const company = String(brand?.companyName || "").trim();
+  return trading || company || "Company";
+}
+
+/** Fill blank company name from NEXA_COMPANY_NAME. Does not override a saved office name. */
+export function applyEnvCompanyFallback(
+  raw?: Partial<BusinessBrandingSettings> | Record<string, unknown> | null,
+  env: NodeJS.ProcessEnv = process.env,
+): BusinessBrandingSettings {
+  const brand = normalizeBusinessBranding(raw);
+  const envName = env.NEXA_COMPANY_NAME?.trim();
+  if (!envName) return brand;
+  const unset = !brand.companyName.trim() || brand.companyName.trim() === "Company";
+  if (!unset) return brand;
+  return {
+    ...brand,
+    companyName: envName,
+    tradingName: brand.tradingName.trim() || envName,
+    workspaceName: brand.workspaceName.trim() || `${envName} workspace`,
+    productName: brand.productName.trim() === "Company" ? envName : brand.productName,
+  };
+}
 
 export type BrandAppKey = "core" | "field" | "survey" | "estimator" | "takeoffs" | "heat-design" | "trainer";
 
@@ -140,8 +166,8 @@ export function normalizeBusinessBranding(raw?: Partial<BusinessBrandingSettings
         : defaultBusinessBrandingSettings.hidePlatformName,
     brandPrimaryColor: String(source.brandPrimaryColor || defaultBusinessBrandingSettings.brandPrimaryColor).trim() || defaultBusinessBrandingSettings.brandPrimaryColor,
     brandAccentColor: String(source.brandAccentColor || defaultBusinessBrandingSettings.brandAccentColor).trim() || defaultBusinessBrandingSettings.brandAccentColor,
-    logoUrl: String(source.logoUrl || defaultBusinessBrandingSettings.logoUrl).trim() || defaultBusinessBrandingSettings.logoUrl,
-    appIconUrl: String(source.appIconUrl || source.logoUrl || defaultBusinessBrandingSettings.appIconUrl).trim() || defaultBusinessBrandingSettings.appIconUrl,
+    logoUrl: trimLogoUrl(source.logoUrl),
+    appIconUrl: trimLogoUrl(source.appIconUrl || source.logoUrl),
     coreLogoUrl: trimLogoUrl(source.coreLogoUrl),
     fieldLogoUrl: trimLogoUrl(source.fieldLogoUrl),
     surveyLogoUrl: trimLogoUrl(source.surveyLogoUrl),
@@ -265,7 +291,7 @@ export function resolveBrandLogoUrl(brand: PublicBranding | BusinessBrandingSett
     const specific = trimLogoUrl(brand[brandAppLogoField(app)]);
     if (specific) return specific;
   }
-  return brand.logoUrl || defaultBusinessBrandingSettings.logoUrl;
+  return trimLogoUrl(brand.logoUrl);
 }
 
 /**
@@ -276,7 +302,7 @@ export function resolveBrandChromeLogoUrl(
   brand: PublicBranding | BusinessBrandingSettings,
   app?: BrandAppKey,
 ): string {
-  const company = trimLogoUrl(brand.logoUrl) || defaultBusinessBrandingSettings.logoUrl;
+  const company = trimLogoUrl(brand.logoUrl);
   if (!app) return company;
   const specific = trimLogoUrl(brand[brandAppLogoField(app)]);
   if (!specific) return company;
@@ -301,5 +327,5 @@ export function resolveBrandIconUrl(brand: PublicBranding | BusinessBrandingSett
     const specific = trimLogoUrl(brand[brandAppLogoField(app)]);
     if (specific) return withHomeIconParam(specific);
   }
-  return withHomeIconParam(brand.appIconUrl || brand.logoUrl || defaultBusinessBrandingSettings.logoUrl);
+  return withHomeIconParam(trimLogoUrl(brand.appIconUrl || brand.logoUrl));
 }

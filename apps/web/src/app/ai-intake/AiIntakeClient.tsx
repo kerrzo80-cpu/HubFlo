@@ -88,7 +88,7 @@ const requestHeaders: HeadersInit = {
   "x-hubflo-role": "Office",
 };
 
-const surveyors = ["Brian Kerr", "Errol Watson", "James Walsh"];
+const surveyors: string[] = [];
 const sources: LeadSource[] = ["Phone call", "Email", "Website", "Referral", "Checkatrade"];
 
 const recordModeOptions: Array<{ id: RecordMode; label: string; hint: string }> = [
@@ -223,7 +223,7 @@ export function AiIntakeClient() {
     { role: "ai", text: blakeOpener(null) },
   ]);
   const [source, setSource] = useState<LeadSource>("Phone call");
-  const [surveyor, setSurveyor] = useState(surveyors[0] || "Brian Kerr");
+  const [surveyor, setSurveyor] = useState("");
   const [surveyDate, setSurveyDate] = useState("");
   const [surveyTime, setSurveyTime] = useState("09:30");
   const [bookSurvey, setBookSurvey] = useState(true);

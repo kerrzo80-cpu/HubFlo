@@ -1,5 +1,6 @@
 import { appendAuditEvent, getClients } from "@/lib/people-data";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
+import { displayCompanyName } from "@/lib/branding";
 import { classifyFaultReportSync } from "@/lib/faults-ai";
 import { createFaultIssue } from "@/lib/faults-data";
 import { guessModuleFromRoute, type FaultPriority, type FaultType } from "@/lib/faults-types";
@@ -638,7 +639,7 @@ async function conversationalReply(
           {
             role: "system",
             content: [
-              "You are Blake, the NeXa business assistant for Errol Watson Group field-service operations.",
+              `You are Blake, the NeXa business assistant for ${displayCompanyName(getHubDetailState().businessSettings)} field-service operations.`,
               "Answer using only the supplied NeXa workspace JSON, the open Tender/Job snapshot, Blake learning notes, and the conversation.",
               "If the user is looking at a tender, job or takeoff, talk through THAT record first — attached files by name, BoQ progress, blanks, FoT, last drawing scan.",
               "You can have a back-and-forth. Honour scope notes: ignore electrical / ventilation / price plumbing only.",

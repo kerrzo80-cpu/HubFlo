@@ -2782,7 +2782,7 @@ export default function HeatDesignLabPage() {
                 <div>
                   <h2>Heating options report</h2>
                   <p className="hd-lead" style={{ marginBottom: 0 }}>
-                    Professional Errol Watson Group report — includes the systems ticked under Options.
+                    Professional company report — includes the systems ticked under Options.
                   </p>
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

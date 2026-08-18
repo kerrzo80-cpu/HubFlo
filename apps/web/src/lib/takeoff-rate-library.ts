@@ -13,6 +13,7 @@ import {
   type TakeoffRateEntry,
   type TakeoffRateLibrary,
 } from "@/lib/takeoff-rate-core";
+import { useDemoSeedData } from "@/lib/workspace-mode";
 
 export * from "@/lib/takeoff-rate-core";
 
@@ -25,7 +26,19 @@ function mergeLibraryRows<T extends { id: string }>(saved: T[] | undefined, defa
 }
 
 export function getTakeoffRateLibrary(): TakeoffRateLibrary {
-  const raw = loadServerStore<Partial<TakeoffRateLibrary>>(STORE_NAME, cloneDefaultTakeoffRateLibrary());
+  const empty: TakeoffRateLibrary = { version: 1, rates: [], assemblies: [], updatedAt: new Date().toISOString() };
+  const raw = loadServerStore<Partial<TakeoffRateLibrary>>(
+    STORE_NAME,
+    useDemoSeedData() ? cloneDefaultTakeoffRateLibrary() : empty,
+  );
+  if (!useDemoSeedData()) {
+    return {
+      version: 1,
+      rates: Array.isArray(raw.rates) ? raw.rates : [],
+      assemblies: Array.isArray(raw.assemblies) ? raw.assemblies : [],
+      updatedAt: raw.updatedAt || new Date().toISOString(),
+    };
+  }
   const base = cloneDefaultTakeoffRateLibrary();
   return {
     version: 1,
@@ -51,7 +64,9 @@ export function saveTakeoffRateLibrary(input: {
 }
 
 export function resetTakeoffRateLibrary(): TakeoffRateLibrary {
-  const next = cloneDefaultTakeoffRateLibrary();
+  const next = useDemoSeedData()
+    ? cloneDefaultTakeoffRateLibrary()
+    : { version: 1 as const, rates: [], assemblies: [], updatedAt: new Date().toISOString() };
   next.updatedAt = new Date().toISOString();
   writeServerStore(STORE_NAME, next);
   return next;

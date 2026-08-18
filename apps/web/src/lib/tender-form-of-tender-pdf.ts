@@ -41,8 +41,8 @@ export async function createFormOfTenderPdf(input: {
   submittedDate?: string;
 }) {
   const tender = input.tender;
-  const businessName = input.businessName?.trim() || "Errol Watson Group Ltd";
-  const signatoryName = input.signatoryName?.trim() || "Brian Kerr";
+  const businessName = input.businessName?.trim() || "Company";
+  const signatoryName = input.signatoryName?.trim() || "Authorised signatory";
   const signatoryTitle = input.signatoryTitle?.trim() || "Commercial Manager";
   const boqTotal = computeBoqTotal(tender.boqLines);
   // FoT figure always matches priced BoQ total (same as Bid value).

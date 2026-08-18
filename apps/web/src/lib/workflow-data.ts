@@ -427,14 +427,15 @@ function purchaseStatusIssuesPoNumber(status: PurchaseStatus) {
 }
 
 export function getJobs(): Job[] {
-  // Keep the Field gas-cert trial mirrored in Core even on live SQLite stores.
-  try {
-    const { ensureGasCertTrialInCore } = require("@/lib/gas-cert-trial-core") as {
-      ensureGasCertTrialInCore: () => Job | null;
-    };
-    ensureGasCertTrialInCore();
-  } catch {
-    // Trial bootstrap is best-effort.
+  if (useDemoSeedData()) {
+    try {
+      const { ensureGasCertTrialInCore } = require("@/lib/gas-cert-trial-core") as {
+        ensureGasCertTrialInCore: () => Job | null;
+      };
+      ensureGasCertTrialInCore();
+    } catch {
+      // Trial bootstrap is best-effort.
+    }
   }
   return clone(getStore().jobs).sort((left, right) => compareReferenceDesc(left.ref, right.ref));
 }

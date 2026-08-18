@@ -123,16 +123,17 @@ export async function GET(request: Request, { params }: Params) {
         try {
           return await serveHomeIcon("icon", sharedLogo, apple);
         } catch {
-          return NextResponse.redirect(new URL("/ewg-logo.png", publicOrigin(request)), 302);
+          return new NextResponse(null, { status: 404 });
         }
       }
     }
     const brand = normalizeBusinessBranding(getHubDetailState().businessSettings);
     const fallback =
       kind === "logo" ? resolveBrandLogoUrl(brand) : resolveBrandIconUrl(brand, appKeyForKind(kind));
-    const safeFallback =
-      !fallback || fallback.startsWith("/api/branding/assets/") ? "/ewg-logo.png" : fallback;
-    const target = safeFallback.startsWith("http") ? safeFallback : new URL(safeFallback, publicOrigin(request)).toString();
+    if (!fallback || fallback.startsWith("/api/branding/assets/")) {
+      return new NextResponse(null, { status: 404 });
+    }
+    const target = fallback.startsWith("http") ? fallback : new URL(fallback, publicOrigin(request)).toString();
     return NextResponse.redirect(target, 302);
   }
 

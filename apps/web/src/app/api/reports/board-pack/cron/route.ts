@@ -6,7 +6,7 @@ import {
   markBoardPackSent,
   shouldSendBoardPackNow,
 } from "@/lib/board-pack-schedule";
-import { normalizeBusinessBranding } from "@/lib/branding";
+import { displayCompanyName, normalizeBusinessBranding } from "@/lib/branding";
 import { sendEmailMessage } from "@/lib/email-integration-store";
 import { getHubDetailState } from "@/lib/hub-detail-store";
 import { buildReportsBoardPackPdf } from "@/lib/reports-board-pack";
@@ -37,7 +37,7 @@ async function sendBoardPackNow(force = false) {
   }
 
   const brand = normalizeBusinessBranding(getHubDetailState().businessSettings);
-  const company = brand.tradingName || brand.companyName || "Errol Watson Group";
+  const company = displayCompanyName(brand);
   const dateLabel = new Date().toLocaleDateString("en-GB", {
     weekday: "long",
     day: "numeric",

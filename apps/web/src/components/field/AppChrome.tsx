@@ -78,10 +78,14 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
     >
       <header className="field-topbar">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={resolveBrandChromeLogoUrl(brand, "field")}
-          alt={brand.companyName}
-        />
+        {resolveBrandChromeLogoUrl(brand, "field") ? (
+          <img
+            src={resolveBrandChromeLogoUrl(brand, "field")}
+            alt={brand.companyName}
+          />
+        ) : (
+          <strong>{brand.companyName || "Field"}</strong>
+        )}
         <div>
           <strong>{brand.fieldAppName}</strong>
           <span>{brand.companyName}</span>

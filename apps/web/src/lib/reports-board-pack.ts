@@ -265,7 +265,7 @@ export async function buildReportsBoardPackPdf(input: ReportBoardPackInput): Pro
       thickness: 0.5,
       color: rule,
     });
-    target.drawText(safeText(`${input.companyName || "EWG"} · Reports board pack · Page ${pageNumber}`), {
+    target.drawText(safeText(`${input.companyName || "Company"} · Reports board pack · Page ${pageNumber}`), {
       x: margin,
       y: 16,
       size: 8,
@@ -284,7 +284,7 @@ export async function buildReportsBoardPackPdf(input: ReportBoardPackInput): Pro
   // Masthead
   page.drawRectangle({ x: 0, y: pageHeight - 78, width: pageWidth, height: 78, color: headerBg });
   page.drawRectangle({ x: 0, y: pageHeight - 78, width: 6, height: 78, color: brand });
-  page.drawText(safeText(input.companyName || "Errol Watson Group"), {
+  page.drawText(safeText(input.companyName || "Company"), {
     x: margin,
     y: pageHeight - 34,
     size: 11,
