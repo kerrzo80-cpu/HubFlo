@@ -6,9 +6,24 @@
 import type { KitLine, KitPricingSource } from "@/lib/heat-design/types";
 import { normalizeDescriptionForRateLookup } from "@/lib/takeoff-rate-core";
 
+/** Keep soft-guide client-safe — do not import tender-boq-blake-prices (pulls OpenAI). */
+function normaliseUnit(unit: string): string {
+  const raw = (unit || "nr").trim().toLowerCase().replace(/\./g, "");
+  if (!raw) return "nr";
+  if (["item", "ite", "sum", "ls", "lump", "lumpsum", "no", "nos", "each", "ea", "nr", "n", "1"].includes(raw)) {
+    return "nr";
+  }
+  if (["lm", "linm", "lin m", "mtr", "metre", "meter", "linmetre", "linmeter", "m", "run", "rnm"].includes(raw)) {
+    return "m";
+  }
+  if (raw === "m2" || raw === "sqm" || raw === "m²" || raw === "sq m" || raw === "squaremetre") return "m2";
+  return raw;
+}
+
 function softGuide(description: string, unit: string): number {
   const hay = normalizeDescriptionForRateLookup(description).toLowerCase();
-  if (unit === "m" || unit === "lm" || unit === "run") {
+  const normalisedUnit = normaliseUnit(unit);
+  if (normalisedUnit === "m" || normalisedUnit === "lm" || normalisedUnit === "run") {
     if (hay.includes("insulation") || hay.includes("lagging") || hay.includes("armaflex")) return 1.85;
     if (/\b2\.5\b/.test(hay) && (hay.includes("t&e") || hay.includes("cable") || hay.includes("twin"))) return 1.15;
     if (/\b1\.5\b/.test(hay) && (hay.includes("t&e") || hay.includes("cable") || hay.includes("twin"))) return 0.85;
@@ -26,9 +41,33 @@ function softGuide(description: string, unit: string): number {
     if (hay.includes("waste") && hay.includes("40")) return 3.6;
     if (hay.includes("waste") && hay.includes("50")) return 5.2;
   }
-  if (unit === "m2") {
+  if (normalisedUnit === "m2") {
     if (hay.includes("insulation") || hay.includes("mineral wool") || hay.includes("quilt")) return 4.5;
   }
+  // Commercial sanitary / brassware / wastes (Health Club style BoQs)
+  if (hay.includes("linear") && (hay.includes("grid") || hay.includes("drain") || hay.includes("channel"))) return 185;
+  if (hay.includes("shower tray waste") || (hay.includes("high flow") && hay.includes("waste"))) return 42;
+  if (hay.includes("shower tray") || hay.includes("shower base")) return 220;
+  if (hay.includes("bedding") || hay.includes("silicone") || hay.includes("sealing all round") || hay.includes("plugging")) {
+    return 8.5;
+  }
+  if (hay.includes("brushed brass") || hay.includes("brassware") || hay.includes("brass tap")) return 95;
+  if (hay.includes("mixer tap") || hay.includes("basin mixer") || hay.includes("tap set")) return 85;
+  if (hay.includes("urinal")) return 145;
+  if (hay.includes("doc m") || (hay.includes("disabled") && hay.includes("pack"))) return 420;
+  if (hay.includes("grab rail") || hay.includes("handrail")) return 28;
+  if (hay.includes("mirror")) return 45;
+  if (hay.includes("soap dispenser") || hay.includes("paper towel") || hay.includes("toilet roll")) return 35;
+  if (hay.includes("vanity") || hay.includes("countertop basin")) return 185;
+  if (hay.includes("concealed cistern") || hay.includes("geberit")) return 165;
+  if (hay.includes("flush plate") || hay.includes("flush panel")) return 55;
+  if (hay.includes("bottle trap") || hay.includes("slot waste") || hay.includes("basin waste")) return 12;
+  if (hay.includes("shower valve") || hay.includes("thermostatic shower") || hay.includes("shower mixer")) return 195;
+  if (hay.includes("shower head") || hay.includes("handset") || hay.includes("riser rail")) return 65;
+  if (hay.includes("pipe boxing") || hay.includes("duct panel") || hay.includes("access panel")) return 45;
+  if (hay.includes("fire collar") || hay.includes("intumescent") || hay.includes("fire sleeve")) return 18;
+  if (hay.includes("lagging") || hay.includes("armaflex") || hay.includes("pipe insulation")) return 1.85;
+
   if (/\btrv\b/.test(hay)) return 18;
   if (hay.includes("lockshield")) return 9;
   if (hay.includes("isolation valve") || hay.includes("isolating valve") || hay.includes("isovalve")) return 9;
@@ -56,11 +95,19 @@ function softGuide(description: string, unit: string): number {
   if (/\bfcu\b/.test(hay) || hay.includes("fused spur")) return 8.5;
   if (hay.includes("extract fan") || hay.includes("exhaust fan") || hay.includes("bathroom fan")) return 65;
   if (/\bmvhr\b/.test(hay) || hay.includes("heat recovery")) return 1850;
-  if (hay.includes("fire collar") || hay.includes("intumescent") || hay.includes("fire sleeve")) return 18;
   if (hay.includes("builders work") || hay.includes("chase") || hay.includes("make good") || hay.includes("pipe sleeve")) {
     return 35;
   }
   if (hay.includes("towel rail")) return 85;
+  if (/\bwc\b/.test(hay) || hay.includes("toilet")) return 185;
+  if (hay.includes("basin") || /\bwhb\b/.test(hay)) return 95;
+  if (hay.includes("bath")) return 220;
+  if (hay.includes("shower")) return 160;
+  if (hay.includes("radiator") || hay.includes("panel rad")) return 95;
+  if (hay.includes("sink")) return 110;
+  if (hay.includes("boiler") || hay.includes("combi")) return 1450;
+  if (hay.includes("cylinder") || hay.includes("unvented")) return 780;
+  if (hay.includes("pump") && !hay.includes("condensate")) return 95;
   return 0;
 }
 

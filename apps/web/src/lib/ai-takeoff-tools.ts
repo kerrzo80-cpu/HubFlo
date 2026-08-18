@@ -3,7 +3,12 @@
  * NeXa validates and executes; the model never writes BoQ money totals itself.
  */
 
-import { softGuideUnitCost } from "@/lib/ai-soft-guide-prices";
+import {
+  priceAiTakeoffLinesFromGuides,
+  priceAiTakeoffLinesWithBlake,
+  resolveTakeoffMaterialUnitCost,
+  summariseMaterialPricing,
+} from "@/lib/ai-takeoff-material-prices";
 import {
   calculateHouseTypeTotal,
   calculateProjectTotals,
@@ -13,6 +18,7 @@ import {
 import type { AiTakeoffLine, AiTakeoffPhase, TenderAiTakeoffState } from "@/lib/ai-takeoff-assistant-types";
 import {
   addAiTakeoffAssumption,
+  clearAiTakeoffLines,
   getTenderAiTakeoffState,
   makeAiTakeoffLineId,
   replaceAiTakeoffLinesFromSource,
@@ -26,6 +32,7 @@ import {
 import { getRecordDocument, readRecordDocumentFile } from "@/lib/record-documents";
 import { getTender, parseBoqFromWorkbookSheets } from "@/lib/tenders-data";
 import { workbookBoqSheetsFromBuffer } from "@/lib/tenders-xlsx";
+import { normalizeBoqUnitForLookup } from "@/lib/tender-boq-blake-prices";
 
 export const AI_TAKEOFF_TOOL_DEFINITIONS = [
   {
@@ -98,11 +105,11 @@ export const AI_TAKEOFF_TOOL_DEFINITIONS = [
       additionalProperties: false,
     },
   },
-  {
+    {
     type: "function",
     name: "import_issued_boq_lines",
     description:
-      "Parse issued BoQ spreadsheet(s) already uploaded on the tender Documents tab and create measured takeoff lines with budget material rates + labour. Call this when the user asks to recreate/price the bill from an uploaded Plumbing.xlsx / issued BoQ — do NOT keep asking for house types first.",
+      "Parse issued BoQ spreadsheet(s) on Documents and create measured takeoff lines with labour hours. Material unit costs come from bill rates / rate library / soft guides where known — many branded sanitary lines may still be £0 until you call price_takeoff_materials. Always report how many lines still have £0 Cost.",
     parameters: {
       type: "object",
       properties: {
@@ -117,8 +124,41 @@ export const AI_TAKEOFF_TOOL_DEFINITIONS = [
   },
   {
     type: "function",
+    name: "price_takeoff_materials",
+    description:
+      "Fill material unit costs (Cost column) on takeoff lines. Uses NeXa rate library first, then live Blake UK merchant budget prices for remaining £0 lines. Call this whenever the user asks to price materials / budget prices / complains Cost is £0. Do NOT claim materials are included until this reports withCost covering the bill.",
+    parameters: {
+      type: "object",
+      properties: {
+        useBlakeBudget: {
+          type: "boolean",
+          description: "Ask live Blake/OpenAI for UK trade ballpark on lines still £0 after library (default true)",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    type: "function",
+    name: "clear_takeoff_lines",
+    description:
+      "Delete takeoff lines from the live table. Use when the user says delete all / start again / clear the list. includeApplied true (default) removes applied rows too so the table actually empties.",
+    parameters: {
+      type: "object",
+      properties: {
+        includeApplied: {
+          type: "boolean",
+          description: "Also clear applied lines (default true)",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    type: "function",
     name: "add_takeoff_item",
-    description: "Add a measured takeoff line (quantity only — NeXa calculates money).",
+    description:
+      "Add a measured takeoff line. Prefer passing unitCost (material budget £/unit) when you know a sensible UK merchant price; NeXa still calculates markup + labour sell.",
     parameters: {
       type: "object",
       properties: {
@@ -130,7 +170,7 @@ export const AI_TAKEOFF_TOOL_DEFINITIONS = [
         costCentre: { type: "string" },
         phase: { type: "string", enum: ["1st fix", "2nd fix", "commissioning", "return visit", "general"] },
         ref: { type: "string" },
-        unitCost: { type: "number" },
+        unitCost: { type: "number", description: "Material budget £ per unit (ex VAT)" },
         markupPercent: { type: "number" },
         labourHours: { type: "number" },
         sourceDocument: { type: "string" },
@@ -140,7 +180,7 @@ export const AI_TAKEOFF_TOOL_DEFINITIONS = [
       additionalProperties: false,
     },
   },
-  {
+{
     type: "function",
     name: "update_takeoff_item",
     description: "Update an existing proposed takeoff line by id.",
@@ -224,20 +264,20 @@ function recordDocumentIdFromUrl(url?: string) {
 
 function estimateLabourHours(quantity: number, unit: string): number {
   const qty = Number.isFinite(quantity) ? Math.max(0, quantity) : 0;
-  const u = unit.trim().toLowerCase();
-  if (u === "m" || u === "lm" || u === "run") return Math.round(qty * 0.12 * 2) / 2;
-  if (u === "m2" || u === "sqm") return Math.round(qty * 0.25 * 2) / 2;
-  if (u === "nr" || u === "no" || u === "each" || u === "ea") return Math.round(qty * 0.5 * 2) / 2;
+  const u = normalizeBoqUnitForLookup(unit);
+  if (u === "m") return Math.round(qty * 0.12 * 2) / 2;
+  if (u === "m2") return Math.round(qty * 0.25 * 2) / 2;
+  if (u === "nr") return Math.round(qty * 0.5 * 2) / 2;
   if (u === "lot" || u === "item" || u === "sum") return Math.max(1, Math.round(qty * 2 * 2) / 2);
   if (u === "set") return Math.round(qty * 1 * 2) / 2;
   return Math.round(qty * 0.35 * 2) / 2;
 }
 
-export function executeAiTakeoffTool(
+export async function executeAiTakeoffTool(
   tenderId: string,
   name: string,
   args: ToolArgs,
-): { ok: boolean; message: string; state: TenderAiTakeoffState } {
+): Promise<{ ok: boolean; message: string; state: TenderAiTakeoffState }> {
   let state = getTenderAiTakeoffState(tenderId);
 
   switch (name) {
@@ -348,11 +388,12 @@ export function executeAiTakeoffTool(
             if (imported.length >= maxLines) break;
             const qty = typeof line.quantity === "number" && Number.isFinite(line.quantity) ? line.quantity : 0;
             if (qty <= 0) continue;
-            const unit = String(line.unit || "nr").trim() || "nr";
+            const unit = normalizeBoqUnitForLookup(String(line.unit || "nr"));
             const fromBill = typeof line.rate === "number" && Number.isFinite(line.rate) && line.rate > 0
               ? line.rate
               : 0;
-            const unitCost = fromBill > 0 ? fromBill : softGuideUnitCost(line.description, unit);
+            const priced = resolveTakeoffMaterialUnitCost(line.description, unit, fromBill);
+            const unitCost = priced.unitCost;
             imported.push({
               id: makeAiTakeoffLineId(),
               revisionId: state.activeRevisionId,
@@ -371,7 +412,7 @@ export function executeAiTakeoffTool(
               labourHours: estimateLabourHours(qty, unit),
               labourRate: state.pricingRules.labourRatePerHour,
               sourceDocument: doc.name,
-              confidence: fromBill > 0 ? "High" : unitCost > 0 ? "Medium" : "Low",
+              confidence: priced.source === "bill" ? "High" : unitCost > 0 ? "Medium" : "Low",
               updatedAt: new Date().toISOString(),
             });
           }
@@ -394,12 +435,71 @@ export function executeAiTakeoffTool(
       state = getTenderAiTakeoffState(tenderId);
       const { state: deduped, removed } = dedupeAiTakeoffLines(tenderId);
       state = deduped;
+      const guided = priceAiTakeoffLinesFromGuides(state.lines);
+      if (guided.filled > 0) {
+        state = { ...state, lines: guided.lines };
+        state = saveTenderAiTakeoffState(state);
+      }
+      const materials = summariseMaterialPricing(state.lines);
       const totals = calculateProjectTotals(state.lines, state.plots, state.pricingRules);
+      const materialNote =
+        materials.zero > 0
+          ? ` Materials: ${materials.withCost}/${materials.measured} have Cost > £0 (${materials.zero} still £0) — call price_takeoff_materials next.`
+          : ` Materials: all ${materials.measured} lines have Cost > £0 (budget £${materials.materialCost.toFixed(2)}).`;
       return {
         ok: true,
         message: `Imported ${importedTotal} takeoff line(s) into area “${area}”. ${notes.join(" ")}${
           removed ? ` Removed ${removed} duplicate(s).` : ""
-        } Project sell £${totals.totalSell.toFixed(2)} (ex VAT). Click Apply to BoQ when ready.`,
+        }${materialNote} Project sell £${totals.totalSell.toFixed(2)} (ex VAT). Click Apply to BoQ when ready.`,
+        state,
+      };
+    }
+    case "price_takeoff_materials": {
+      const useBlake = args.useBlakeBudget !== false;
+      if (!state.lines.length) {
+        return { ok: false, message: "No takeoff lines to price — import or add items first.", state };
+      }
+      if (useBlake) {
+        const priced = await priceAiTakeoffLinesWithBlake(state.lines, {
+          context: `Tender takeoff materials budget · labour £${state.pricingRules.labourRatePerHour}/h · markup ${state.pricingRules.materialsMarkupPercent}%`,
+        });
+        state = { ...state, lines: priced.lines };
+        state = saveTenderAiTakeoffState(state);
+        const materials = summariseMaterialPricing(state.lines);
+        const totals = calculateProjectTotals(state.lines, state.plots, state.pricingRules);
+        return {
+          ok: materials.withCost > 0,
+          message: [
+            `Materials priced: library/soft ${priced.guideFilled}, Blake budget ${priced.blakeFilled}.`,
+            `Cost column now ${materials.withCost}/${materials.measured} > £0 (still blank: ${materials.zero}).`,
+            `Material budget total £${materials.materialCost.toFixed(2)} · project sell £${totals.totalSell.toFixed(2)} ex VAT.`,
+            priced.error ? `Note: ${priced.error}` : "",
+            materials.zero > 0 ? "Remaining blanks need a supplier quote or a clearer description." : "Ready — review Cost/Sell then Apply to BoQ.",
+          ]
+            .filter(Boolean)
+            .join(" "),
+          state,
+        };
+      }
+      const guided = priceAiTakeoffLinesFromGuides(state.lines);
+      state = { ...state, lines: guided.lines };
+      state = saveTenderAiTakeoffState(state);
+      const materials = summariseMaterialPricing(state.lines);
+      const totals = calculateProjectTotals(state.lines, state.plots, state.pricingRules);
+      return {
+        ok: guided.filled > 0 || materials.withCost > 0,
+        message: `Library/soft guides filled ${guided.filled} line(s). Materials ${materials.withCost}/${materials.measured} priced (still £0: ${materials.zero}). Project sell £${totals.totalSell.toFixed(2)}. Call again with useBlakeBudget true for remaining blanks.`,
+        state,
+      };
+    }
+    case "clear_takeoff_lines": {
+      const includeApplied = args.includeApplied !== false;
+      state = clearAiTakeoffLines(tenderId, { includeApplied });
+      return {
+        ok: true,
+        message: includeApplied
+          ? "Cleared all takeoff lines (including applied). Table should now be empty — import again when ready."
+          : `Cleared non-applied lines. ${state.lines.length} applied line(s) kept.`,
         state,
       };
     }
@@ -476,11 +576,16 @@ export function executeAiTakeoffTool(
       };
     }
     case "generate_nexa_import": {
-      const accepted = state.lines.filter((line) => line.status === "accepted" || line.status === "proposed");
+      const accepted = state.lines.filter((line) => line.status === "accepted" || line.status === "proposed" || line.status === "applied");
       const project = calculateProjectTotals(accepted, state.plots, state.pricingRules);
+      const materials = summariseMaterialPricing(accepted);
+      const materialWarn =
+        materials.zero > 0
+          ? ` WARNING: ${materials.zero}/${materials.measured} lines still have Cost £0 (labour-only sell) — call price_takeoff_materials before Apply if you need materials budgets.`
+          : ` Materials budget £${materials.materialCost.toFixed(2)}.`;
       return {
         ok: true,
-        message: `Ready to import ${accepted.length} lines. Project sell £${project.totalSell.toFixed(2)} + VAT £${project.vat.toFixed(2)} = £${project.grandTotal.toFixed(2)}. Use Apply to BoQ in the UI to write.`,
+        message: `Ready to import ${accepted.length} lines. Project sell £${project.totalSell.toFixed(2)} + VAT £${project.vat.toFixed(2)} = £${project.grandTotal.toFixed(2)}.${materialWarn} Use Apply to BoQ in the UI to write.`,
         state,
       };
     }

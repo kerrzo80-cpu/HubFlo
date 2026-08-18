@@ -97,6 +97,18 @@ export function upsertAiTakeoffLines(tenderId: string, lines: AiTakeoffLine[]): 
   return saveTenderAiTakeoffState(state);
 }
 
+export function clearAiTakeoffLines(
+  tenderId: string,
+  options?: { includeApplied?: boolean },
+): TenderAiTakeoffState {
+  const state = getTenderAiTakeoffState(tenderId);
+  const includeApplied = options?.includeApplied !== false;
+  state.lines = includeApplied
+    ? []
+    : state.lines.filter((line) => line.status === "applied");
+  return saveTenderAiTakeoffState(state);
+}
+
 /** Drop proposed/accepted lines from a source document before re-import (keeps applied). */
 export function replaceAiTakeoffLinesFromSource(
   tenderId: string,

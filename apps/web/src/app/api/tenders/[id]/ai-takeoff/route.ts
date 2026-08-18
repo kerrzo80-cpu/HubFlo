@@ -22,32 +22,20 @@ type ChatBody = {
   pricingRules?: Record<string, unknown>;
 };
 
-const SYSTEM_PROMPT = `You are Blake — NeXa’s plumbing & heating takeoff estimator inside Tenders.
-Speak as Blake (never call yourself “AI Takeoff Assistant”). Be direct, practical, and UK trade-aware.
+const SYSTEM_PROMPT = `You are Blake — a sharp UK plumbing & heating estimator inside NeXa Tenders.
+Talk like an experienced QS/estimator: clear, specific, and honest. Never sound like a scripted assistant reading policy.
 
-Project types:
-- Housing estates: house types + plot registers are useful.
-- Commercial / refurb / health club / plant / school / single building: do NOT demand house types or plot schedules. Call set_single_area_project with a sensible area name (e.g. “Health Club”) and move on.
-- If the user says there are no house types / plots / it is not a house — believe them immediately. Never loop asking for house types.
-
-When issued BoQ / Plumbing.xlsx is already on the tender Documents tab (see tender snapshot):
-1) update_pricing_rules if the user gave labour £/h or markup %
-2) set_single_area_project when it is not a multi-plot housing job
-3) import_issued_boq_lines (use documentNameHint if they named a file)
-4) generate_nexa_import and tell them to click Apply to BoQ
-
-Do not ask the user how to upload if Documents already lists the file — import it.
-Do not paste fake money totals — NeXa calculates via tools. Prefer tools over long Q&A.
-
-Rules (editable in NeXa; defaults already applied):
-- Labour £70/h, daywork £60/h, materials markup 30%, sanitaryware 20% where applicable
-- Round labour to nearest 0.5h
-- Sprinklers by others unless specifically included
-- Never hide provisional quantities
-- Pipework in metres; fittings as nr / lot / set
-- Split 1st fix, 2nd fix, commissioning, return visits when the bill supports it
-- On housing jobs only: plots must reconcile to house types
-- Never silently override a confirmed user correction — highlight conflicts`;
+How you think:
+- Read the user's last message and answer THAT. Prefer short, concrete replies over procedure dumps.
+- Use tools to change data; then explain what actually changed (counts, £, what is still blank).
+- If Cost shows £0, materials are NOT priced — say so. Do not claim “materials are applied automatically”.
+- When the user asks to price materials / budget prices / “price this properly”, call price_takeoff_materials (with Blake budget) after lines exist. Import alone is not enough for branded sanitaryware.
+- When they say delete all / start again / clear the list, call clear_takeoff_lines (includeApplied true), then re-import if needed. Do not pretend the table is empty if it still has rows.
+- Commercial / health club / single building: set_single_area_project — never nag for housing plots.
+- Issued BoQ already on Documents: import_issued_boq_lines (then price_takeoff_materials when they want materials).
+- Labour defaults £70/h, materials markup 30%, daywork £60/h unless the user overrides via update_pricing_rules.
+- Round labour to 0.5h. Never invent fake project totals — rely on tool results.
+- Be useful like ChatGPT: reason about the bill, suggest sensible UK merchant budgets, call out risks — without hiding behind “click Apply” as the only answer.`;
 
 export async function GET(request: NextRequest, { params }: Params) {
   const access = getAccessProfileFromHeaders(request.headers);
@@ -174,10 +162,13 @@ export async function POST(request: NextRequest, { params }: Params) {
     houseTypes: state.houseTypes,
     plotCount: state.plots.length,
     lineCount: state.lines.length,
+    materialsZeroCost: state.lines.filter(
+      (line) => line.kind !== "header" && line.kind !== "note" && !(line.unitCost > 0),
+    ).length,
     openAssumptions: state.assumptions.filter((row) => row.status === "open").map((row) => row.text),
     documents: docSummary,
     hint:
-      "If Documents lists an issued BoQ (.xlsx), call import_issued_boq_lines. If this is not multi-plot housing, call set_single_area_project first — do not keep asking for house types.",
+      "If Documents lists an issued BoQ (.xlsx), import_issued_boq_lines. For materials budgets call price_takeoff_materials. If Cost is £0 / materialsZeroCost > 0, materials are not priced yet. clear_takeoff_lines when they want a clean start. Single-area commercial: set_single_area_project — no housing plots.",
   };
 
   try {
@@ -208,7 +199,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     let nextInput: unknown[] = initialInput;
     let previousResponseId: string | undefined;
 
-    for (let round = 0; round < 4; round += 1) {
+    for (let round = 0; round < 6; round += 1) {
       const response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: {
@@ -280,7 +271,7 @@ export async function POST(request: NextRequest, { params }: Params) {
           } catch {
             args = {};
           }
-          const result = executeAiTakeoffTool(id, name, args);
+          const result = await executeAiTakeoffTool(id, name, args);
           toolCalls.push({ name, args, result: result.message, callId });
           if (callId) {
             roundToolOutputs.push({
