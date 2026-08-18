@@ -77,3 +77,22 @@ export function assertQuotePortalResponseAllowed(status: string): string | null 
   }
   return null;
 }
+
+/** True when bank details are still placeholder / empty and must not print on invoices. */
+export function isPlaceholderBankDetails(input: {
+  bankName?: string;
+  accountName?: string;
+  sortCode?: string;
+  accountNumber?: string;
+}): boolean {
+  const sort = String(input.sortCode || "").replace(/\s+/g, "");
+  const account = String(input.accountNumber || "").replace(/\s+/g, "");
+  const bank = String(input.bankName || "").trim().toLowerCase();
+  const name = String(input.accountName || "").trim().toLowerCase();
+  if (!sort && !account && !bank && !name) return true;
+  if (sort === "00-00-00" || sort === "000000") return true;
+  if (account === "00000000" || account === "0") return true;
+  if (bank === "business bank" || bank === "company") return true;
+  if (name === "company") return true;
+  return false;
+}
