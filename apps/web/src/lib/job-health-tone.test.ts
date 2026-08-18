@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { effectiveJobHealthTone } from "./job-health-tone";
+import { effectiveJobHealthTone, jobAttentionReasons, primaryJobAttentionReason } from "./job-health-tone";
 
 describe("effectiveJobHealthTone", () => {
   it("keeps red blocked jobs red even when overdue", () => {
@@ -43,5 +43,37 @@ describe("effectiveJobHealthTone", () => {
       effectiveJobHealthTone({ health: "green", status: "Approval required" }, "2026-08-18"),
       "amber",
     );
+  });
+});
+
+describe("jobAttentionReasons", () => {
+  it("lists approval and overdue reasons for an amber job", () => {
+    const reasons = jobAttentionReasons(
+      {
+        health: "green",
+        status: "Approval required",
+        due: "2020-01-01",
+        next: "Review variation V-003",
+      },
+      "2026-08-18",
+    );
+    assert.equal(reasons[0]?.code, "approval_required");
+    assert.equal(reasons.some((item) => item.code === "overdue_due"), true);
+    assert.equal(
+      primaryJobAttentionReason(
+        { health: "green", status: "Approval required", due: "2020-01-01", next: "Review variation V-003" },
+        "2026-08-18",
+      )?.label,
+      "Approval required",
+    );
+  });
+
+  it("lists waiting on parts as blocked", () => {
+    const reasons = jobAttentionReasons(
+      { health: "green", status: "Waiting on parts", next: "Chase pump delivery" },
+      "2026-08-18",
+    );
+    assert.equal(reasons[0]?.code, "waiting_parts");
+    assert.equal(reasons[0]?.tone, "red");
   });
 });

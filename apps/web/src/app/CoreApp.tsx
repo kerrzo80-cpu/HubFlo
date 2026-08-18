@@ -83,7 +83,7 @@ import type { Job, PurchaseRequest, PurchaseStatus, Quote, QuoteStatus } from "@
 import { isPlaceholderBankDetails, isPlaceholderCompanyRegistration } from "@/lib/commercial-safeguards";
 import { DEFAULT_OVERHEAD_PERCENT } from "@/lib/reports-board-pack";
 import { assertNoHubScheduleClashes, leadSurveysToAssignments } from "@/lib/schedule-clash";
-import { effectiveJobHealthTone } from "@/lib/job-health-tone";
+import { effectiveJobHealthTone, jobAttentionReasons, primaryJobAttentionReason, type JobHealthTone } from "@/lib/job-health-tone";
 import {
   businessImportLabels,
   businessImportTemplateHeaders,
@@ -845,6 +845,7 @@ type HomeView =
   | "directory-manager"
   | "quote-record"
   | "jobs"
+  | "attention"
   | "job-create"
   | "purchase-orders"
   | "purchase-order-record"
@@ -13141,6 +13142,31 @@ export default function CoreApp() {
     },
     [searchMatchedJobs],
   );
+
+  const attentionQueueItems = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const toneFilter: JobHealthTone =
+      activeJobFolderKey === "health-blocked" ? "red" : "amber";
+    return searchMatchedJobs
+      .filter((job) => effectiveJobHealthTone(job, today) === toneFilter)
+      .map((job) => {
+        const reasons = jobAttentionReasons(job, today);
+        const primary = reasons[0] ?? primaryJobAttentionReason(job, today);
+        return {
+          job,
+          reasons,
+          primary,
+        };
+      })
+      .sort((left, right) => {
+        const toneRank = { red: 0, amber: 1, green: 2 } as const;
+        const leftTone = left.primary?.tone ?? "amber";
+        const rightTone = right.primary?.tone ?? "amber";
+        const toneDelta = toneRank[leftTone] - toneRank[rightTone];
+        if (toneDelta !== 0) return toneDelta;
+        return compareReferenceDesc(left.job.ref, right.job.ref);
+      });
+  }, [activeJobFolderKey, searchMatchedJobs]);
 
   const invoiceDirectoryGroups = useMemo(() => {
     const isOverdue = (invoice: Invoice) =>
@@ -33440,9 +33466,15 @@ export default function CoreApp() {
     const upcomingSplitMax = Math.max(1, upcomingScheduledCount, upcomingRecurringCount);
 
     function openJobsFolder(folderKey: "pending" | "progress" | "review" | "uninvoiced" | "timesheets" | "daywork" | "health-on-track" | "health-attention" | "health-blocked") {
+      if (folderKey === "health-attention" || folderKey === "health-blocked") {
+        setActiveJobFolderKey(folderKey);
+        setStatusFilter("All statuses");
+        setSearch("");
+        setHomeView("attention");
+        scrollWorkspaceToTop();
+        return;
+      }
       setActiveJobFolderKey(folderKey);
-      // Health folders should show the full attention set, not whatever stage/status
-      // filter was left on from a previous Jobs visit.
       if (folderKey.startsWith("health-")) {
         setStatusFilter("All statuses");
         setSearch("");
@@ -34620,6 +34652,10 @@ export default function CoreApp() {
                     ? selectedQuoteCostCentre?.name ?? "Quote cost centre"
                   : homeView === "jobs"
                     ? "Jobs"
+                  : homeView === "attention"
+                    ? activeJobFolderKey === "health-blocked"
+                      ? "Blocked queue"
+                      : "Attention queue"
                   : homeView === "job-create"
                     ? "Create job"
                   : homeView === "job-record"
@@ -34705,6 +34741,8 @@ export default function CoreApp() {
                         : activeJobFolderKey === "health-on-track"
                           ? `${jobHealthDirectoryGroups.find((group) => group.key === "health-on-track")?.items.length ?? 0} on track`
                           : `${filteredJobs.length} jobs · ${statusFilter}`
+                  : homeView === "attention"
+                    ? `${attentionQueueItems.length} items · why each needs follow-up`
                   : homeView === "job-create"
                     ? "Capture a reactive or direct job with its customer, site and initial schedule"
                   : homeView === "job-record"
@@ -34837,6 +34875,22 @@ export default function CoreApp() {
                   <button className="primary-button" onClick={createJobFromMenu}>
                     <Plus size={16} />
                     New job
+                  </button>
+                </>
+              ) : homeView === "attention" ? (
+                <>
+                  <button className="secondary-button" onClick={returnToDashboard}>
+                    Back to dashboard
+                  </button>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => {
+                      setHomeView("jobs");
+                      scrollWorkspaceToTop();
+                    }}
+                  >
+                    Open Jobs folder
                   </button>
                 </>
               ) : homeView === "purchase-orders" ? (
@@ -35664,6 +35718,82 @@ export default function CoreApp() {
                 ))}
               </div>
             </section>
+          ) : homeView === "attention" ? (
+            <section className="quote-panel attention-queue-panel" aria-label="Attention queue">
+              <div className="panel-header">
+                <div>
+                  <h2>
+                    {activeJobFolderKey === "health-blocked" ? "Blocked queue" : "Attention queue"}
+                  </h2>
+                  <p>
+                    Each row shows why it needs office follow-up and the next action — open a job to deal with it.
+                  </p>
+                </div>
+                <div className="panel-controls">
+                  <button
+                    className={activeJobFolderKey === "health-attention" ? "secondary-button is-active" : "secondary-button"}
+                    type="button"
+                    onClick={() => setActiveJobFolderKey("health-attention")}
+                  >
+                    Attention ({jobHealthDirectoryGroups.find((group) => group.key === "health-attention")?.items.length ?? 0})
+                  </button>
+                  <button
+                    className={activeJobFolderKey === "health-blocked" ? "secondary-button is-active" : "secondary-button"}
+                    type="button"
+                    onClick={() => setActiveJobFolderKey("health-blocked")}
+                  >
+                    Blocked ({jobHealthDirectoryGroups.find((group) => group.key === "health-blocked")?.items.length ?? 0})
+                  </button>
+                </div>
+              </div>
+
+              {attentionQueueItems.length === 0 ? (
+                <div className="record-folder-empty">
+                  {activeJobFolderKey === "health-blocked"
+                    ? "Nothing is blocked right now."
+                    : "Nothing needs attention right now."}
+                </div>
+              ) : (
+                <div className="attention-queue-list">
+                  {attentionQueueItems.map(({ job, reasons, primary }) => (
+                    <article className={`attention-queue-item ${primary?.tone ?? "amber"}`} key={job.id}>
+                      <button
+                        type="button"
+                        className="attention-queue-main"
+                        onClick={() => openJobDrawer(job.id)}
+                      >
+                        <div className="attention-queue-identity">
+                          <StatusDot tone={primary?.tone === "red" ? "red" : primary?.tone === "green" ? "green" : "amber"} />
+                          <strong>{job.ref}</strong>
+                          <span>{job.customer}</span>
+                        </div>
+                        <p className="attention-queue-desc">{job.description}</p>
+                        <div className="attention-queue-why">
+                          <b>{primary?.label ?? "Needs follow-up"}</b>
+                          <small>{primary?.detail ?? job.next}</small>
+                        </div>
+                        {reasons.length > 1 ? (
+                          <ul className="attention-queue-reasons">
+                            {reasons.slice(1).map((reason) => (
+                              <li key={reason.code}>
+                                <span className={`status-pill ${reason.tone}`}>{reason.label}</span>
+                                <small>{reason.detail}</small>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </button>
+                      <div className="attention-queue-actions">
+                        <span className={`status-pill ${job.health}`}>{job.status}</span>
+                        <button type="button" className="primary-button" onClick={() => openJobDrawer(job.id)}>
+                          Open job
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
           ) : homeView === "jobs" ? (
             <section className="quote-panel record-directory workflow-directory job-directory">
               <div className="panel-header">
@@ -35701,21 +35831,30 @@ export default function CoreApp() {
                       label: "On track",
                       value: jobHealthDirectoryGroups.find((group) => group.key === "health-on-track")?.items.length ?? 0,
                       tone: "green",
-                      onClick: () => setActiveJobFolderKey("health-on-track"),
+                      onClick: () => {
+                        setActiveJobFolderKey("health-on-track");
+                        setHomeView("jobs");
+                      },
                       active: activeJobFolderKey === "health-on-track",
                     },
                     {
                       label: "Attention",
                       value: jobHealthDirectoryGroups.find((group) => group.key === "health-attention")?.items.length ?? 0,
                       tone: "amber",
-                      onClick: () => setActiveJobFolderKey("health-attention"),
+                      onClick: () => {
+                        setActiveJobFolderKey("health-attention");
+                        setHomeView("attention");
+                      },
                       active: activeJobFolderKey === "health-attention",
                     },
                     {
                       label: "Blocked",
                       value: jobHealthDirectoryGroups.find((group) => group.key === "health-blocked")?.items.length ?? 0,
                       tone: "red",
-                      onClick: () => setActiveJobFolderKey("health-blocked"),
+                      onClick: () => {
+                        setActiveJobFolderKey("health-blocked");
+                        setHomeView("attention");
+                      },
                       active: activeJobFolderKey === "health-blocked",
                     },
                   ])
