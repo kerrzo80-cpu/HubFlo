@@ -1125,7 +1125,15 @@ function normaliseMarkupSymbolCostCentre(symbol: Pick<TakeoffMarkupSymbol, "cate
 
 function markupCostCentreSection(
   kind: "pipe" | "symbol",
-  details: { service: string; category?: TakeoffMarkupSymbolCategory; kind?: string; floor?: string; flat?: string; drawingDocumentId?: string },
+  details: {
+    service: string;
+    category?: TakeoffMarkupSymbolCategory;
+    kind?: string;
+    floor?: string;
+    flat?: string;
+    drawingDocumentId?: string;
+    layerId?: string;
+  },
   documents: TakeoffDocument[] = [],
   options?: { showDrawing?: boolean },
 ) {
@@ -1134,8 +1142,13 @@ function markupCostCentreSection(
     documents,
     { showDrawing: options?.showDrawing ?? false },
   );
-  const section = kind === "pipe" ? normaliseMarkupServiceCentre(details.service as TakeoffMarkupService)
+  const layerSection = normaliseMarkupLayerId(details.layerId)
+    ? markupLayerLabel(details.layerId)
+    : null;
+  const guessed = kind === "pipe"
+    ? normaliseMarkupServiceCentre(details.service as TakeoffMarkupService)
     : normaliseMarkupSymbolCostCentre(details as Pick<TakeoffMarkupSymbol, "category" | "kind" | "service">);
+  const section = layerSection || guessed;
   return `${locationLabel} / ${section}`;
 }
 
@@ -1395,6 +1408,7 @@ function summariseServicesMarkup(
         floor: pipe.floor,
         flat: pipe.flat,
         drawingDocumentId: pipe.drawingDocumentId,
+        layerId: markupLayerIdForPipe(pipe),
       },
       documents,
       options,
@@ -1437,6 +1451,7 @@ function summariseServicesMarkup(
         floor: symbol.floor,
         flat: symbol.flat,
         drawingDocumentId: symbol.drawingDocumentId,
+        layerId: markupLayerIdForSymbol(symbol),
       },
       documents,
       options,

@@ -334,13 +334,15 @@ export function expandTakeoffAssemblies<T extends MaterialLine>(
   for (const kit of library.assemblies) {
     if (!kit.enabled) continue;
     let primaryQty = 0;
+    let primary: T | undefined;
     for (const line of lines) {
       if (line.unit !== "nr") continue;
       if (matchHay(line.description, kit.match) || matchHay(line.description, kit.primaryCode)) {
         primaryQty += line.quantity || 0;
+        if (!primary) primary = line;
       }
     }
-    if (!(primaryQty > 0)) continue;
+    if (!(primaryQty > 0) || !primary) continue;
 
     for (const part of kit.lines) {
       const qty = Number((primaryQty * (part.qtyPerPrimary || 1)).toFixed(2));
@@ -350,15 +352,16 @@ export function expandTakeoffAssemblies<T extends MaterialLine>(
       if (existingKeys.has(key)) continue;
       existingKeys.add(key);
       extras.push({
+        ...primary,
         id: `studio-asm-${kit.id}-${part.code}`,
         section: "Assemblies",
         description,
         quantity: qty,
         unit: part.unit,
         unitCost: part.unitCost || 0,
-        markupPercent: 0,
+        markupPercent: primary.markupPercent || 0,
         supplierRequired: false,
-      } as T);
+      });
     }
   }
 

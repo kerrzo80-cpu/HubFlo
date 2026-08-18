@@ -5,16 +5,18 @@
  * Re-push replaces the prior Takeoff block only.
  */
 
-import { STUDIO_SERVICE_LAYERS, type StudioState } from "@/lib/takeoff-studio";
+import { STUDIO_SERVICE_LAYERS, ensureServiceClassifications, type StudioState } from "@/lib/takeoff-studio";
 import {
   houseTypeByDocumentId,
   UNGROUPED_HOUSE_TYPE,
 } from "@/lib/takeoff-drawing-folders";
 import {
   floorLabelSortKey,
+  isUnspecifiedFloorLabel,
   summariseStudioBoq,
   type StudioBoqRow,
 } from "@/lib/takeoff-studio-pipe";
+import { ensurePlantClassifications } from "@/lib/takeoff-blake-propose";
 import {
   priceAndExpandTakeoffMaterials,
   type TakeoffRateLine,
@@ -155,7 +157,8 @@ function groupRowsByLayer(rows: StudioBoqRow[]): Array<{ layerId: string; layerL
 function floorsInLayer(rows: StudioBoqRow[]): string[] {
   const floors = new Set<string>();
   for (const row of rows) {
-    if (row.floorLabel?.trim()) floors.add(row.floorLabel.trim());
+    const floor = row.floorLabel?.trim();
+    if (floor && !isUnspecifiedFloorLabel(floor)) floors.add(floor);
   }
   return [...floors].sort((a, b) => floorLabelSortKey(a) - floorLabelSortKey(b) || a.localeCompare(b));
 }
@@ -173,13 +176,14 @@ export function buildTakeoffTenderBoqLines(
     documents?: Array<{ id: string; fileName: string; notes?: string[] }>;
   },
 ): TenderBoqLine[] {
+  const prepared = ensurePlantClassifications(ensureServiceClassifications(studio));
   const documentNames =
     options?.documents?.length ?
       Object.fromEntries(options.documents.map((doc) => [doc.id, doc.fileName]))
     : undefined;
   const documentHouseTypes =
     options?.documents?.length ? houseTypeByDocumentId(options.documents) : undefined;
-  const master = summariseStudioBoq(studio, "all", {
+  const master = summariseStudioBoq(prepared, "all", {
     ...(documentNames ? { documentNames } : {}),
     ...(documentHouseTypes ? { documentHouseTypes } : {}),
   });
@@ -237,51 +241,48 @@ export function buildTakeoffTenderBoqLines(
         if (floor) {
           out.push({
             id: `takeoff-boq-floor-${houseSlug}-${layer.layerId}-${slugId(floor)}`,
-            kind: "header",
+            kind: "note",
             description: floor,
             sheet,
-            section: floor,
+            section: layer.layerLabel,
           });
         }
 
         let floorValue = 0;
-        for (const section of SECTION_ORDER) {
-          const sectionLines = floorPriced.filter((line) => line.section === section && line.quantity > 0);
-          if (!sectionLines.length) continue;
-
+        const emitted = new Set<string>();
+        const emitMeasured = (line: LayeredRateLine) => {
+          if (!(line.quantity > 0) || emitted.has(line.id)) return;
+          emitted.add(line.id);
+          const unitCost = Math.round((line.unitCost || 0) * 100) / 100;
+          const rate = lineSell(unitCost, line.markupPercent || 0);
+          const quantity = Math.round(line.quantity * 1000) / 1000;
+          const value =
+            Number.isFinite(quantity) && Number.isFinite(rate)
+              ? Math.round(quantity * rate * 100) / 100
+              : null;
+          if (typeof value === "number") floorValue += value;
           out.push({
-            id: `takeoff-boq-sec-${houseSlug}-${layer.layerId}-${slugId(floor || "all")}-${slugId(section)}`,
-            kind: "header",
-            description: section,
+            id: `takeoff-boq-${houseSlug}-${layer.layerId}-${slugId(floor || "all")}-${slugId(line.id)}`,
+            kind: "measured",
+            ref: sectionRef(line.section),
+            description: line.description.replace(/^Takeoff ·\s*/i, ""),
+            quantity,
+            unit: line.unit || "nr",
+            rate: rate > 0 ? rate : null,
+            value: rate > 0 ? value : null,
+            note: [floor || undefined, line.pricingNote || undefined].filter(Boolean).join(" · ") || undefined,
+            pricingSource: line.unitCost > 0 ? "rate-library" : undefined,
             sheet,
-            section,
+            section: layer.layerLabel,
           });
+        };
 
-          for (const line of sectionLines) {
-            const unitCost = Math.round((line.unitCost || 0) * 100) / 100;
-            const rate = lineSell(unitCost, line.markupPercent || 0);
-            const quantity = Math.round(line.quantity * 1000) / 1000;
-            const value =
-              Number.isFinite(quantity) && Number.isFinite(rate)
-                ? Math.round(quantity * rate * 100) / 100
-                : null;
-            if (typeof value === "number") floorValue += value;
-            out.push({
-              id: `takeoff-boq-${houseSlug}-${layer.layerId}-${slugId(floor || "all")}-${slugId(line.id)}`,
-              kind: "measured",
-              ref: sectionRef(section),
-              description: line.description.replace(/^Takeoff ·\s*/i, ""),
-              quantity,
-              unit: line.unit || "nr",
-              rate: rate > 0 ? rate : null,
-              value: rate > 0 ? value : null,
-              note: [floor || undefined, line.pricingNote || undefined].filter(Boolean).join(" · ") || undefined,
-              pricingSource: line.unitCost > 0 ? "rate-library" : undefined,
-              sheet,
-              section,
-            });
+        for (const section of SECTION_ORDER) {
+          for (const line of floorPriced) {
+            if (line.section === section) emitMeasured(line);
           }
         }
+        for (const line of floorPriced) emitMeasured(line);
 
         if (floor && floorValue > 0) {
           out.push({
@@ -290,7 +291,7 @@ export function buildTakeoffTenderBoqLines(
             description: `${floor} subtotal ${moneyLabel(floorValue)}`,
             note: moneyLabel(floorValue),
             sheet,
-            section: floor,
+            section: layer.layerLabel,
           });
         }
       }

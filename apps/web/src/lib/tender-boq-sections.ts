@@ -122,6 +122,28 @@ export function isBoqSheetEchoHeader(line: TenderBoqLine): boolean {
   return label === sheet;
 }
 
+const INTERNAL_BOQ_SUBHEADER_LABELS = new Set([
+  "pipework",
+  "fittings",
+  "counts",
+  "areas",
+  "assemblies",
+  "unspecified",
+  "unspecified floor",
+]);
+
+/** Inner takeoff headings (Pipework / floor / Unspecified) sit under a service layer, not beside it. */
+export function isBoqLayerSubHeader(line: Pick<TenderBoqLine, "kind" | "section" | "description">): boolean {
+  if (line.kind !== "header") return false;
+  const label = (line.section || line.description || "").trim();
+  if (!label) return false;
+  const key = label.toLowerCase();
+  if (INTERNAL_BOQ_SUBHEADER_LABELS.has(key)) return true;
+  if (/^(lower\s*ground|ground|first|second|third|fourth|basement)$/i.test(label)) return true;
+  if (/^flat\s+\S+/i.test(label)) return true;
+  return false;
+}
+
 /** Group BoQ lines into sheet/section blocks for select-all and header display. */
 export function groupBoqLinesBySection(lines: TenderBoqLine[]): BoqSectionGroup[] {
   const groups: BoqSectionGroup[] = [];
@@ -130,6 +152,7 @@ export function groupBoqLinesBySection(lines: TenderBoqLine[]): BoqSectionGroup[
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i]!;
     if (line.kind === "header") {
+      if (isBoqLayerSubHeader(line) && current) continue;
       const label = (line.section || line.description || "").trim();
       current = {
         key: line.id,

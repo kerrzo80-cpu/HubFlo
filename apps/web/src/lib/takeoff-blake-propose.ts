@@ -7,6 +7,7 @@ import { manhattanRoute } from "@/lib/heat-design/layout";
 import {
   ensureServiceClassifications,
   isAiStudioGeometry,
+  resolveStudioDrawLayer,
   studioId,
   type StudioGeometry,
   type StudioPoint,
@@ -262,6 +263,7 @@ function pushCount(
     reviewStatus: "pending",
     notes: `${PROPOSE_NOTE} · ${input.label}`,
     sourceText: input.label,
+    layerId: "heating",
   });
 }
 
@@ -432,6 +434,7 @@ export function applyBlakeProposal(studio: StudioState, request: BlakeProposeReq
       diameter: spec.diameter,
       stockLengthM: spec.stockLengthM,
       pipeSpecId: spec.id,
+      layerId: resolveStudioDrawLayer(next, classId),
     };
     next = appendLinearWithAutoFittings(next, linear);
     routeCount += 1;

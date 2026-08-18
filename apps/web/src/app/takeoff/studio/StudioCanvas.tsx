@@ -13,13 +13,13 @@ import { ChevronLeft, ChevronRight, Box, Loader2, Redo2, Undo2, ZoomIn, ZoomOut 
 import type { TakeoffDocument } from "@/lib/takeoff-data";
 import { cacheTakeoffPdfBytes } from "@/lib/takeoff-pdf-browser";
 import {
-  classificationLayer,
   polygonArea,
   detectScaleRatioHints,
   linearMeasuredMetres,
   metresPerUnitFromRatio,
   parseScaleRatioLabel,
   resolveLinearDrop,
+  resolveStudioDrawLayer,
   scaleForPage,
   isAiStudioGeometry,
   studioId,
@@ -32,6 +32,7 @@ import {
 import {
   appendLinearWithAutoFittings,
   elbowPointsAlongRun,
+  layerForGeometry,
   pipeSpecById,
   previewFittingsForDraft,
   removeLinearAndFittings,
@@ -224,8 +225,7 @@ export default function StudioCanvas({
       const activeLayer = studio.activeLayerId || "all";
       const offLayer = Boolean(
         activeLayer !== "all"
-        && cls
-        && classificationLayer(cls) !== activeLayer
+        && layerForGeometry(studio, geo) !== activeLayer
         && !selected,
       );
       // With a service layer active, keep that layer crisp and fade everything else.
@@ -677,6 +677,7 @@ export default function StudioCanvas({
         documentId: document.id,
         page,
         point,
+        layerId: resolveStudioDrawLayer(studio, activeClass.id),
       };
       patchStudio({ geometries: [...studio.geometries, geo] });
       setSelectedId(geo.id);
@@ -702,6 +703,7 @@ export default function StudioCanvas({
           page,
           points: draftPoints,
           closed: true,
+          layerId: resolveStudioDrawLayer(studio, activeClass.id),
         };
         setDraftPoints([]);
         patchStudio({ geometries: [...studio.geometries, geo] });
@@ -800,6 +802,7 @@ export default function StudioCanvas({
               { x: x1, y: y2 },
             ],
             closed: true,
+            layerId: resolveStudioDrawLayer(studio, activeClass.id),
           };
           patchStudio({ geometries: [...studio.geometries, geo] });
           setSelectedId(geo.id);
@@ -864,6 +867,7 @@ export default function StudioCanvas({
       stockLengthM: spec.stockLengthM,
       pipeSpecId: spec.id,
       notes: `${spec.diameter} ${spec.material}`,
+      layerId: resolveStudioDrawLayer(studio, activeClass.id),
     };
     setDraftPoints([]);
     const next = appendLinearWithAutoFittings(studio, geo);
@@ -1149,6 +1153,7 @@ export default function StudioCanvas({
                 page,
                 points: draftPoints,
                 closed: true,
+                layerId: resolveStudioDrawLayer(studio, activeClass.id),
               };
               setDraftPoints([]);
               patchStudio({ geometries: [...studio.geometries, geo] });

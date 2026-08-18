@@ -122,6 +122,8 @@ export type StudioGeometry =
       reviewStatus?: StudioAiReviewStatus;
       sourceTagId?: string;
       sourceText?: string;
+      /** Service layer the user was drawing on — BoQ section source of truth. */
+      layerId?: StudioServiceLayerId;
       /** Auto fitting from a pipe run (elbow / coupling). */
       fittingKind?: "90-elbow" | "coupling";
       linkedLinearId?: string;
@@ -141,6 +143,8 @@ export type StudioGeometry =
       confidence?: TakeoffConfidence;
       reviewStatus?: StudioAiReviewStatus;
       notes?: string;
+      /** Service layer the user was drawing on — BoQ section source of truth. */
+      layerId?: StudioServiceLayerId;
       /** Pipe stock size — drives auto elbows / couplings. */
       material?: string;
       diameter?: string;
@@ -167,6 +171,8 @@ export type StudioGeometry =
       points: StudioPoint[];
       closed: boolean;
       source?: "manual" | "ai";
+      /** Service layer the user was drawing on — BoQ section source of truth. */
+      layerId?: StudioServiceLayerId;
     };
 
 export type StudioPageScale = {
@@ -777,6 +783,22 @@ export function classificationLayer(cls: StudioClassification): StudioServiceLay
   return cls.layer || "general";
 }
 
+/**
+ * Layer the user is working on. Draw-as / active service layer wins over the
+ * item class (so a check valve placed on Heating stays in Heating).
+ */
+export function resolveStudioDrawLayer(
+  studio: Pick<StudioState, "activeLayerId" | "classifications">,
+  classificationId?: string | null,
+): StudioServiceLayerId {
+  const active = (studio.activeLayerId || "").trim();
+  if (active && active !== "all") return active;
+  const cls = classificationId
+    ? studio.classifications.find((row) => row.id === classificationId)
+    : undefined;
+  return cls ? classificationLayer(cls) : "general";
+}
+
 export function classificationGroup(cls: StudioClassification): StudioClassGroupId {
   return cls.group || "general";
 }
@@ -1147,6 +1169,7 @@ export function importSkillCountsIntoStudio(
     if (!matches.length) continue;
 
     let cls = classifications.find((item) => item.id === `cls-ai-${row.code}`);
+    const drawLayer = resolveStudioDrawLayer({ ...studio, classifications }, cls?.id || `cls-ai-${row.code}`);
     if (!cls) {
       cls = {
         id: `cls-ai-${row.code}`,
@@ -1154,9 +1177,15 @@ export function importSkillCountsIntoStudio(
         name: row.description || row.code,
         colour: nextClassificationColour(classifications),
         unit: "nr",
+        layer: drawLayer,
+        group: "general",
         notes: `Imported from Blake · ${row.code}`,
       };
       classifications.push(cls);
+    } else if (!cls.layer && drawLayer !== "general") {
+      cls = { ...cls, layer: drawLayer };
+      const idx = classifications.findIndex((item) => item.id === cls!.id);
+      if (idx >= 0) classifications[idx] = cls;
     }
 
     for (const match of matches) {
@@ -1175,6 +1204,7 @@ export function importSkillCountsIntoStudio(
         reviewStatus: options?.aiReviewStatus ?? studio.aiReviewStatus ?? "pending",
         sourceTagId: match.id,
         sourceText: match.text,
+        layerId: resolveStudioDrawLayer({ ...studio, classifications }, cls.id),
         point: {
           x: match.x * renderScale,
           y: pageHeight ? (pageHeight - match.y) * renderScale : match.y * renderScale,

@@ -115,6 +115,34 @@ describe("studio pipe auto fittings", () => {
     assert.equal(heatingOnly.length, 0);
   });
 
+  it("does not create an Unspecified floor split when the drawing name has no level", () => {
+    let studio = createDefaultStudioState();
+    studio = {
+      ...studio,
+      scales: [{ documentId: "doc-1", page: 1, metresPerUnit: 0.1 }],
+    };
+    const next = appendLinearWithAutoFittings(studio, {
+      id: "run-1",
+      classificationId: "cls-ai-P-PIPE-C",
+      kind: "linear",
+      documentId: "doc-1",
+      page: 1,
+      points: [
+        { x: 0, y: 0 },
+        { x: 40, y: 0 },
+      ],
+      material: "Copper",
+      diameter: "15mm",
+      layerId: "hot-cold",
+    });
+    const rows = summariseStudioBoq(next, "hot-cold", {
+      documentNames: { "doc-1": "services layout.pdf" },
+    });
+    assert.ok(rows.length > 0);
+    assert.ok(rows.every((row) => row.layerId === "hot-cold"));
+    assert.ok(rows.every((row) => !row.floorLabel));
+  });
+
   it("keeps unscaled runs off the BOQ (warn separately, never Push as fake qty)", () => {
     let studio = createDefaultStudioState();
     studio = {

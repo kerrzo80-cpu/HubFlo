@@ -90,4 +90,47 @@ describe("tender-boq-sections", () => {
       ["h2", "l4"],
     );
   });
+
+  it("keeps Pipework / Unspecified floor items inside the Heating layer group", () => {
+    const lines: TenderBoqLine[] = [
+      { id: "h-heat", kind: "header", description: "Heating", section: "Heating", sheet: "Takeoff · House Type A" },
+      { id: "h-unspec", kind: "header", description: "Unspecified floor", section: "Unspecified floor", sheet: "Takeoff · House Type A" },
+      { id: "h-pipe", kind: "header", description: "Pipework", section: "Pipework", sheet: "Takeoff · House Type A" },
+      {
+        id: "m-pipe",
+        kind: "measured",
+        description: "22mm copper",
+        quantity: 8,
+        unit: "m",
+        section: "Pipework",
+        sheet: "Takeoff · House Type A",
+      },
+      { id: "h-cnt", kind: "header", description: "Counts", section: "Counts", sheet: "Takeoff · House Type A" },
+      {
+        id: "m-trv",
+        kind: "measured",
+        description: "TRV",
+        quantity: 4,
+        unit: "nr",
+        section: "Counts",
+        sheet: "Takeoff · House Type A",
+      },
+      { id: "h-hc", kind: "header", description: "Hot & cold", section: "Hot & cold", sheet: "Takeoff · House Type A" },
+      {
+        id: "m-cold",
+        kind: "measured",
+        description: "15mm copper",
+        quantity: 3,
+        unit: "m",
+        section: "Hot & cold",
+        sheet: "Takeoff · House Type A",
+      },
+    ];
+    const groups = groupBoqLinesBySection(lines);
+    assert.equal(groups.length, 2);
+    assert.equal(groups[0]?.label, "Heating");
+    assert.deepEqual(groups[0]?.measuredIds, ["m-pipe", "m-trv"]);
+    assert.equal(groups[1]?.label, "Hot & cold");
+    assert.deepEqual(groups[1]?.measuredIds, ["m-cold"]);
+  });
 });

@@ -81,6 +81,8 @@ const INTERNAL_SECTION_LABELS = new Set([
   "areas",
   "assemblies",
   "boq",
+  "unspecified",
+  "unspecified floor",
 ]);
 
 const SERVICE_PATTERNS: Array<{ re: RegExp; label: string }> = [
