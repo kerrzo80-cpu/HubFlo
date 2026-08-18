@@ -4,6 +4,8 @@ import { getAccessProfileFromHeaders } from "@/lib/access";
 import {
   dayworkDraftFromRecord,
   dayworkRecordFromDraft,
+  isDayworkSubmittedToCore,
+  isValidDayworkClientEmail,
   parseDayworkLineItems,
   validateDayworkSheetDraft,
   type DayworkAccountRecord,
@@ -17,9 +19,13 @@ import {
   saveDayworkSheetToHub,
 } from "@/lib/engineer-flow";
 import { getHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
+import { displayCompanyName } from "@/lib/branding";
 import { type DayworkSheetSnapshot } from "@/lib/daywork-account-form";
 import { findDayworkSheetForJob, getDayworkSheetFromStore, listDayworkSheetsFromStore } from "@/lib/daywork-sheets-store";
+import { createDayworkAccountPdf, dayworkPdfFilename } from "@/lib/daywork-pdf";
+import { sendEmailMessage } from "@/lib/email-integration-store";
 import { recordDayworkWriteAttempt } from "@/lib/daywork-write-log";
+import { summarizeDayworkApiPayload } from "@/lib/daywork-poll-strip";
 import { toUkDateDisplay } from "@/lib/uk-date";
 import { getJobs } from "@/lib/workflow-data";
 
@@ -31,6 +37,7 @@ type DayworkBody = {
   action?: string;
   createdBy?: string;
   costCentreId?: string;
+  clientEmail?: string;
   record?: DayworkAccountRecord;
   draft?: DayworkSheetDraft;
 };
@@ -57,6 +64,7 @@ export async function GET(request: Request, { params }: Params) {
   const url = new URL(request.url);
   const costCentreId =
     url.searchParams.get("costCentreId")?.trim() || ensureDayworkVariationCostCentre(jobId);
+  const includeSignatures = url.searchParams.get("includeSignatures") === "1";
   const hubState = getHubDetailState() as HubDetailState & {
     dayworkSheets?: Record<string, DayworkSheetSnapshot>;
     flowStepEvidence?: Record<string, unknown>;
@@ -69,7 +77,7 @@ export async function GET(request: Request, { params }: Params) {
     null;
   const record = sheet || buildDayworkAccountRecordFromEvidence(jobId, costCentreId);
 
-  return NextResponse.json({
+  const payload = {
     ok: true,
     jobId,
     jobRef: job.ref,
@@ -79,6 +87,23 @@ export async function GET(request: Request, { params }: Params) {
     dayworkSheets: hubState.dayworkSheets ?? {},
     flowStepEvidence: hubState.flowStepEvidence ?? {},
     jobDeliveryEvents: hubState.jobDeliveryEvents ?? [],
+  };
+
+  if (includeSignatures) {
+    return NextResponse.json(payload);
+  }
+
+  const light = summarizeDayworkApiPayload({
+    record: record as DayworkAccountRecord | null,
+    sheet: sheet as DayworkAccountRecord | null,
+    dayworkSheets: hubState.dayworkSheets as Record<string, DayworkAccountRecord> | undefined,
+    flowStepEvidence: hubState.flowStepEvidence,
+    jobDeliveryEvents: hubState.jobDeliveryEvents,
+  });
+
+  return NextResponse.json({
+    ...payload,
+    ...light,
   });
 }
 
@@ -102,12 +127,132 @@ export async function POST(request: Request, { params }: Params) {
     body = {};
   }
 
+  if (body.action === "send_copy") {
+    const costCentreId = body.costCentreId?.trim() || ensureDayworkVariationCostCentre(jobId);
+    const existing =
+      listDayworkSheetsForJob(jobId).find((sheet) => sheet.costCentreId === costCentreId) ||
+      getDayworkSheetFromStore(jobId, costCentreId) ||
+      buildDayworkAccountRecordFromEvidence(jobId, costCentreId);
+    if (!existing || !isDayworkSubmittedToCore(existing)) {
+      return NextResponse.json(
+        { error: "Save the Daywork with both signatures before emailing a client copy." },
+        { status: 400 },
+      );
+    }
+    const clientEmail = String(body.clientEmail || existing.clientEmail || "").trim();
+    if (!isValidDayworkClientEmail(clientEmail)) {
+      return NextResponse.json(
+        { error: "Enter a valid client email address to send the Daywork copy." },
+        { status: 400 },
+      );
+    }
+    if (clientEmail !== String(existing.clientEmail || "").trim()) {
+      try {
+        saveDayworkSheetToHub({
+          jobId,
+          jobRef: job.ref,
+          costCentreId,
+          engineerName: body.createdBy || existing.labourName || "Core",
+          record: {
+            ...existing,
+            clientEmail,
+            populatedFrom: existing.populatedFrom || "core",
+          },
+        });
+      } catch {
+        // Still attempt send.
+      }
+    }
+    try {
+      const pdfBytes = await createDayworkAccountPdf({
+        customer: job.customer || existing.clientSignerName || "Client",
+        site: job.site || "",
+        engineer: existing.labourName || existing.plumberSignerName || "Field",
+        jobRef: job.ref,
+        contract: job.site,
+        record: existing,
+        variant: "client",
+      });
+      const filename = dayworkPdfFilename(existing, job.ref, "client");
+      const delivery = await sendEmailMessage({
+        to: clientEmail,
+        subject: `Daywork Account copy — ${job.ref}`,
+        text: [
+          `Hello${existing.clientSignerName ? ` ${existing.clientSignerName}` : ""},`,
+          "",
+          `Please find attached a copy of the Daywork Account for job ${job.ref}.`,
+          "",
+          "This copy shows the hours and materials recorded on site (no pricing).",
+          `Operative: ${existing.labourName || existing.plumberSignerName || "Field"}`,
+          `Week ending: ${existing.weekEnding || "—"}`,
+          `Total hours: ${String(existing.labourHours || "").trim() || "as recorded"}`,
+          "",
+          "Kind regards,",
+          displayCompanyName(getHubDetailState().businessSettings),
+        ].join("\n"),
+        attachments: [{ filename, content: pdfBytes, contentType: "application/pdf" }],
+      });
+      return NextResponse.json({
+        ok: true,
+        emailed: true,
+        clientEmail,
+        delivery,
+        record: { ...existing, clientEmail },
+        sheets: listDayworkSheetsForJob(jobId),
+      });
+    } catch (sendError) {
+      return NextResponse.json(
+        {
+          error:
+            sendError instanceof Error
+              ? sendError.message
+              : "Could not email Daywork copy — check email / SMTP settings.",
+        },
+        { status: 502 },
+      );
+    }
+  }
+
   if (body.action !== "save") {
-    return NextResponse.json({ error: "Unsupported action. Use action: save." }, { status: 400 });
+    return NextResponse.json({ error: "Unsupported action. Use action: save or send_copy." }, { status: 400 });
   }
 
   const costCentreId =
     body.costCentreId?.trim() || ensureDayworkVariationCostCentre(jobId);
+
+  const existingLocked =
+    getDayworkSheetFromStore(jobId, costCentreId) ||
+    listDayworkSheetsFromStore(jobId).find((sheet) => sheet.costCentreId === costCentreId) ||
+    null;
+  if (isDayworkSubmittedToCore(existingLocked)) {
+    const incoming = body.record || (body.draft ? dayworkRecordFromDraft(body.draft, "core") : null);
+    const clearingSignatures = Boolean(
+      incoming
+      && (
+        !String(incoming.plumberSignature || "").trim()
+        || !String(incoming.clientSignature || "").trim()
+      ),
+    );
+    if (clearingSignatures) {
+      recordDayworkWriteAttempt({
+        at: new Date().toISOString(),
+        source: "core-daywork",
+        jobId,
+        costCentreId,
+        ok: false,
+        error: "locked-signed-immutable",
+        hasSignatures: true,
+      });
+      return NextResponse.json(
+        {
+          error:
+            "This Daywork is signed and locked. Signatures cannot be cleared or overwritten. Create a new Daywork sheet if you need a correction.",
+          locked: true,
+        },
+        { status: 409 },
+      );
+    }
+  }
 
   let record = body.record;
   if (!record && body.draft) {

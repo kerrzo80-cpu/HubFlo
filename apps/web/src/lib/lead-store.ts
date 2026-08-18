@@ -8,7 +8,7 @@ import {
   type ClientSite,
 } from "@/lib/people-data";
 import { getHubDetailState } from "@/lib/hub-detail-store";
-import { numberedReference } from "@/lib/numbering";
+import { compareReferenceDesc, numberedReference } from "@/lib/numbering";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { useDemoSeedData } from "@/lib/workspace-mode";
 
@@ -299,7 +299,7 @@ export function getClientSites() {
 }
 
 export function getLeads() {
-  return clone(getStore().leads);
+  return clone(getStore().leads).sort((left, right) => compareReferenceDesc(left.ref, right.ref));
 }
 
 export function resetLeadStore() {

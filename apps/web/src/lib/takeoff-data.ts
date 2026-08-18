@@ -2,7 +2,13 @@ import { appendAuditEvent, getClientSites, type AuditEvent } from "@/lib/people-
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { useDemoSeedData } from "@/lib/workspace-mode";
-import { getQuotes, updateQuote, type Quote } from "@/lib/workflow-data";
+import { createQuote, getQuotes, updateQuote, type Quote } from "@/lib/workflow-data";
+import {
+  createDefaultTakeoffSkill,
+  type TakeoffSkillWorkflow,
+} from "@/lib/takeoff-skill";
+import type { StudioState } from "@/lib/takeoff-studio";
+import type { TakeoffTenderStudioArchive } from "@/lib/takeoff-tender-archive";
 
 export type TakeoffStatus = "Draft" | "In review" | "Approved" | "Pushed";
 export type TakeoffDocumentKind = "Drawing" | "Marked-up drawing" | "Specification" | "Contractor BOQ" | "Survey note" | "Survey photo" | "LiDAR scan";
@@ -166,6 +172,11 @@ export type TakeoffMaterialAllowance = {
   parentMaterialId?: string;
   /** Why Blake added this line (drawing / rule of thumb). */
   blakeNote?: string;
+  /** Price Ledger: budget | guide | rfq | firm */
+  pricingState?: "budget" | "guide" | "rfq" | "firm";
+  pricingSource?: string;
+  pricingNote?: string;
+  pricedAt?: string;
 };
 
 export type TakeoffLabourAllowance = {
@@ -428,6 +439,11 @@ export type TakeoffProject = {
   linkedQuoteRef?: string;
   linkedJobId?: string;
   linkedJobRef?: string;
+  /** Core people client id when linked from a known customer. */
+  clientId?: string;
+  /** Source commercial tender when opened from the Tenders module. */
+  sourceTenderId?: string;
+  sourceTenderRef?: string;
   status: TakeoffStatus;
   documents: TakeoffDocument[];
   rooms: TakeoffRoom[];
@@ -440,6 +456,15 @@ export type TakeoffProject = {
   surveyWorkflow?: TakeoffSurveyWorkflow;
   surveyChat?: TakeoffSurveyChatMessage[];
   servicesMarkup?: TakeoffServicesMarkup;
+  /** AI construction takeoff skill workflow (primary/secondary quantities). */
+  skill?: TakeoffSkillWorkflow;
+  /** NeXa Takeoff Studio (Togal-style area / linear / count canvas). */
+  studio?: StudioState;
+  /**
+   * Per-linked-tender stash of synced drawings + studio markups.
+   * Switching Linked tender hides the previous tender’s sheets but keeps this so they restore.
+   */
+  studioTenderArchives?: Record<string, TakeoffTenderStudioArchive>;
   review: TakeoffReview;
   extraction?: TakeoffExtractionSummary;
   createdAt: string;
@@ -459,6 +484,10 @@ type QuoteCostLine = {
   unitSell: number;
   supplierRequired?: boolean;
   rateSource?: "ratebook" | "manual";
+  pricingState?: "budget" | "guide" | "rfq" | "firm";
+  pricingSource?: string;
+  pricingNote?: string;
+  pricedAt?: string;
 };
 
 type QuoteTakeoffRow = {
@@ -877,7 +906,12 @@ function clone<T>(value: T): T {
 }
 
 function persistTakeoffStore() {
-  writeServerStore("takeoff-store", takeoffStore);
+  const ok = writeServerStore("takeoff-store", takeoffStore);
+  if (!ok) {
+    throw new Error(
+      "Could not write takeoff store to disk (SQLite/JSON). Disk may be full, or the takeoff payload is too large — keep the browser tab open (local autosave still has your marks).",
+    );
+  }
 }
 
 function refreshTakeoffStore() {
@@ -1289,6 +1323,9 @@ function costCentreKey(value: string) {
 }
 
 function materialLineToQuoteLine(line: TakeoffMaterialAllowance): QuoteCostLine {
+  const pricingState =
+    line.pricingState
+    || (line.supplierRequired || !(line.unitCost > 0) ? "rfq" : "guide");
   return {
     id: `takeoff-material-line-${line.id}`,
     catalogItemId: "takeoff-boq",
@@ -1296,7 +1333,11 @@ function materialLineToQuoteLine(line: TakeoffMaterialAllowance): QuoteCostLine 
     quantity: line.quantity,
     unitCost: line.unitCost,
     unitSell: lineSellFromMarkup(line.unitCost, line.markupPercent),
-    supplierRequired: line.supplierRequired,
+    supplierRequired: line.supplierRequired || pricingState !== "firm",
+    pricingState,
+    pricingSource: line.pricingSource,
+    pricingNote: line.pricingNote || line.blakeNote,
+    pricedAt: line.pricedAt,
   };
 }
 
@@ -1596,6 +1637,29 @@ function quoteDescriptionFromProject(project: TakeoffProject, quote: Quote) {
   return scope;
 }
 
+function mergeQuoteChainMetadata(quote: Quote, project: TakeoffProject, source: "survey" | "takeoff") {
+  const metadata = { ...(quote.metadata ?? {}) };
+  metadata.takeoffProjectId = project.id;
+  if (source === "survey") {
+    metadata.surveyProjectId = project.id;
+  }
+  updateQuote(quote.id, { metadata });
+}
+
+function createQuoteFromTakeoffProject(project: TakeoffProject, actor: string) {
+  const due = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+  return createQuote({
+    customer: project.customer || "Takeoff customer",
+    description: project.description || `${project.name} — Takeoff output`,
+    owner: actor,
+    status: "Draft",
+    value: 0,
+    next: `Review ${project.reference} Takeoff / BOQ output`,
+    due,
+    metadata: { takeoffProjectId: project.id },
+  });
+}
+
 function applyProjectCostCentresToQuote(
   project: TakeoffProject,
   quote: Quote,
@@ -1641,6 +1705,8 @@ function applyProjectCostCentresToQuote(
       ? `Review ${project.reference} survey-built cost centres`
       : `Review ${project.reference} Takeoff / BOQ output`,
   }) ?? quote;
+
+  mergeQuoteChainMetadata(updatedQuote, project, source);
 
   const label = source === "survey" ? "Survey" : "Takeoff / BOQ";
   const sourceLabel = source === "survey" ? "survey assistant" : "takeoff add-on";
@@ -2389,6 +2455,9 @@ export function createTakeoffProject(payload: Partial<TakeoffProject>): TakeoffP
     linkedQuoteRef: linkedQuote?.ref ?? payload.linkedQuoteRef,
     linkedJobId: payload.linkedJobId,
     linkedJobRef: payload.linkedJobRef,
+    clientId: payload.clientId,
+    sourceTenderId: payload.sourceTenderId,
+    sourceTenderRef: payload.sourceTenderRef,
     status: payload.status ?? "Draft",
     documents: payload.documents ?? [],
     rooms: payload.rooms ?? [],
@@ -2412,6 +2481,8 @@ export function createTakeoffProject(payload: Partial<TakeoffProject>): TakeoffP
         : "Survey to price",
       scopeNotes: payload.description?.trim() || "",
     }),
+    skill: payload.skill ?? createDefaultTakeoffSkill(),
+    studio: payload.studio,
     review: payload.review ?? { officeNotes: "", riskFlags: [] },
     createdAt,
     updatedAt: createdAt,
@@ -2632,14 +2703,19 @@ export function runTakeoffDraftExtraction(
 
 export function pushTakeoffProjectToQuote(
   projectId: string,
-  quoteId: string,
+  quoteId?: string,
   actor = "NeXa Takeoff",
+  options?: { createNew?: boolean },
 ): TakeoffPushResult | null {
   refreshTakeoffStore();
   const project = takeoffStore.projects.find((item) => item.id === projectId);
   if (!project) return null;
 
-  const quote = getQuotes().find((item) => item.id === quoteId);
+  const createNew = Boolean(options?.createNew) || !quoteId;
+  let quote = quoteId ? getQuotes().find((item) => item.id === quoteId) : undefined;
+  if (!quote && createNew) {
+    quote = createQuoteFromTakeoffProject(project, actor);
+  }
   if (!quote) return null;
 
   if (project.status !== "Approved" && project.status !== "Pushed") {

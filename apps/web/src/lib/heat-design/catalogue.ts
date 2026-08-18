@@ -147,7 +147,7 @@ export const kitExtraOptions: Array<{ id: string; label: string; unitCost: numbe
 export const propertyTypes = ["Detached", "Semi-detached", "Terraced", "Bungalow", "Flat"];
 export const buildEras = ["Pre-1919", "1919–1944", "1945–1964", "1965–1990", "1991–2002", "2003–present"];
 
-/** HeatPunk-style wall constructions with U-values. */
+/** Wall constructions with U-values. */
 export const wallConstructions: WallConstruction[] = [
   { id: "cav-mw-100-wp", category: "cavity", label: "Insulated cavity", uValue: 0.45, thicknessMm: 275, layers: "mineral wool, 100mm block, wet plaster" },
   { id: "cav-none-100-wp", category: "cavity", label: "Uninsulated cavity", uValue: 0.87, thicknessMm: 275, layers: "No insulation, 100mm block, wet plaster" },
@@ -192,19 +192,31 @@ export function defaultExteriorFlags(count: number): [boolean, boolean, boolean,
   return [true, true, true, true];
 }
 
-export function makeBlankRoom(index: number): HeatDesignRoom {
+export function makeBlankRoom(
+  index: number,
+  options?: {
+    roomType?: string;
+    planX?: number;
+    planY?: number;
+    length?: number;
+    width?: number;
+    floorLevel?: HeatDesignRoom["floorLevel"];
+    withDefaultWindow?: boolean;
+  },
+): HeatDesignRoom {
   const col = index % 3;
   const row = Math.floor(index / 3);
-  const planX = col * 3.8;
-  const planY = row * 3.5 + 0.8;
-  const length = 3.5;
-  const width = 3.2;
+  const planX = options?.planX ?? col * 3.8;
+  const planY = options?.planY ?? row * 3.5 + 0.8;
+  const length = options?.length ?? 3.5;
+  const width = options?.width ?? 3.2;
+  const roomType = options?.roomType ?? "Living Room";
   const exteriorFlags = defaultExteriorFlags(2);
   const polygon = rectPolygon(planX, planY, length, width);
   return {
-    id: `hd-room-${Date.now()}-${index}`,
-    name: `Room ${index + 1}`,
-    roomType: "Living Room",
+    id: `hd-room-${Date.now()}-${index}-${Math.floor(Math.random() * 1e4)}`,
+    name: roomType,
+    roomType,
     length: String(length),
     width: String(width),
     height: "2.4",
@@ -221,8 +233,11 @@ export function makeBlankRoom(index: number): HeatDesignRoom {
     preferredRange: "Any range",
     planX,
     planY,
-    floorLevel: "ground",
-    openings: [{ id: `op-${index}-0`, wallIndex: 0, t: 0.5, kind: "window", widthM: 1.2, heightM: 1.2 }],
+    floorLevel: options?.floorLevel ?? "ground",
+    openings:
+      options?.withDefaultWindow === false
+        ? []
+        : [{ id: `op-${index}-0`, wallIndex: 0, t: 0.5, kind: "window", widthM: 1.2, heightM: 1.2 }],
   };
 }
 
@@ -290,6 +305,60 @@ export function makeDemoProject(): import("./types").HeatDesignProject {
     selectedWallConstructionIds: ["cav-mw-100-wp", "cav-none-100-wp"],
     primaryWallConstructionId: "cav-mw-100-wp",
     selectedRadiatorTypeIds: ["rad-k1", "rad-k2", "rad-k3"],
+    reportOptionIds: ["opt-ashp", "opt-gas", "opt-oil"],
+    chosenSystemId: undefined,
+    heatingLayout: null,
+    emitterMode: "radiators",
+    planUnderlay: null,
+    linkedJobId: undefined,
+    linkedJobRef: undefined,
+    linkedQuoteId: undefined,
+    linkedQuoteRef: undefined,
+    linkedTenderId: undefined,
+    linkedTenderRef: undefined,
+    cylinderLitres: 210,
+    dailyHotWaterLitres: 150,
+    outdoorUnitDistanceM: 3,
+    nearestNeighbourDistanceM: 8,
+    kitExtras: [],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/** Empty live project — no sample rooms or customer. */
+export function makeBlankProject(): import("./types").HeatDesignProject {
+  return {
+    id: `hd-project-${Date.now()}`,
+    name: "New heat design",
+    customerName: "",
+    address: "",
+    postcode: "",
+    propertyType: "Semi-detached",
+    buildEra: "1965–1990",
+    occupants: 3,
+    currentFuel: "Gas",
+    currentAnnualKwh: 12000,
+    electricityUnitRate: 0.28,
+    gasUnitRate: 0.07,
+    designExternalTemp: -3,
+    flowTemperature: 45,
+    selectedHeatPumpId: "",
+    rooms: [],
+    activeFloor: "ground",
+    selectedWallConstructionIds: ["cav-mw-100-wp", "cav-none-100-wp"],
+    primaryWallConstructionId: "cav-mw-100-wp",
+    selectedRadiatorTypeIds: ["rad-k1", "rad-k2", "rad-k3"],
+    reportOptionIds: ["opt-ashp", "opt-gas", "opt-oil"],
+    chosenSystemId: undefined,
+    heatingLayout: null,
+    emitterMode: "radiators",
+    planUnderlay: null,
+    linkedJobId: undefined,
+    linkedJobRef: undefined,
+    linkedQuoteId: undefined,
+    linkedQuoteRef: undefined,
+    linkedTenderId: undefined,
+    linkedTenderRef: undefined,
     cylinderLitres: 210,
     dailyHotWaterLitres: 150,
     outdoorUnitDistanceM: 3,
@@ -300,7 +369,9 @@ export function makeDemoProject(): import("./types").HeatDesignProject {
 }
 
 export function buildKitLines(input: {
-  pump: HeatPumpOption;
+  systemKind?: import("./systems").HeatingSystemKind;
+  systemLabel?: string;
+  pump?: HeatPumpOption | null;
   cylinderLitres: number;
   flowTemperature: number;
   emitterUpgradeCount: number;
@@ -308,72 +379,225 @@ export function buildKitLines(input: {
   floorAreaM2?: number;
   exteriorWallAreaM2?: number;
   openingCount?: number;
+  /** Primary / radiator copper F&R metres (exclude UFH PEX loops). */
   pipeRunM?: number;
+  /** Measured 16 mm PEX UFH loop + manifold-tail metres. */
+  ufhLoopRunM?: number;
   wallConstructionLabel?: string;
   radiatorLines?: Array<{ description: string; qty: number; unitCost: number }>;
+  emitterMode?: "radiators" | "ufh" | "mixed";
+  designLoadKw?: number;
 }): KitLine[] {
+  const kind = input.systemKind ?? "ashp";
   const floorArea = input.floorAreaM2 ?? 0;
   const exteriorWallArea = input.exteriorWallAreaM2 ?? 0;
   const pipeRunM = Math.max(12, Math.round(input.pipeRunM ?? floorArea * 1.1));
-  const lines: KitLine[] = [
-    {
+  const ufhLoopRunM = Math.max(0, Math.round(input.ufhLoopRunM ?? 0));
+  const loadKw = input.designLoadKw ?? 0;
+  const boilerKw = Math.max(12, Math.ceil(loadKw + 4));
+  const lines: KitLine[] = [];
+
+  if (kind === "ashp" || kind === "hybrid") {
+    const pump = input.pump;
+    lines.push({
       id: "kit-ashp",
       category: "Heat pump",
-      description: `${input.pump.brand} ${input.pump.model}`,
+      description: pump ? `${pump.brand} ${pump.model}` : "Air source heat pump (TBC)",
       qty: 1,
-      unitCost: Math.round(input.pump.typicalInstalledFrom * 0.55),
+      unitCost: pump ? Math.round(pump.typicalInstalledFrom * 0.55) : 4500,
       required: true,
-    },
-    {
+    });
+    if (kind === "hybrid") {
+      lines.push({
+        id: "kit-hybrid-boiler",
+        category: "Boiler",
+        description: `Hybrid peak gas boiler ~${boilerKw} kW`,
+        qty: 1,
+        unitCost: 1100 + boilerKw * 35,
+        required: true,
+      });
+    }
+    lines.push({
       id: "kit-cylinder",
       category: "Cylinder",
       description: `${input.cylinderLitres} L heat-pump ready cylinder`,
       qty: 1,
       unitCost: input.cylinderLitres >= 250 ? 1450 : input.cylinderLitres >= 200 ? 1180 : 980,
       required: true,
-    },
-    {
+    });
+    lines.push({
       id: "kit-buffer",
       category: "Hydraulics",
       description: input.flowTemperature <= 40 ? "50 L buffer / volumiser" : "Optional volumiser tee set",
       qty: 1,
       unitCost: input.flowTemperature <= 40 ? 320 : 95,
       required: true,
-    },
-    {
-      id: "kit-filter",
-      category: "Hydraulics",
-      description: "Magnetic filter + inhibitor pack",
-      qty: 1,
-      unitCost: 145,
-      required: true,
-    },
-    {
-      id: "kit-pipe",
-      category: "Pipework",
-      description: `Flow/return pipework & insulation (~${pipeRunM} m)`,
-      qty: pipeRunM,
-      unitCost: 18,
-      unit: "m",
-      required: true,
-    },
-    {
-      id: "kit-electrics",
+    });
+    lines.push({
+      id: "kit-electrics-ou",
       category: "Electrical",
-      description: "Isolator, cable, outdoor supply allowance",
+      description: "Isolator, cable, outdoor unit supply allowance",
       qty: 1,
       unitCost: 390,
       required: true,
-    },
-    {
-      id: "kit-controls",
-      category: "Controls",
-      description: "Weather compensation + room thermostat pack",
+    });
+  } else if (kind === "gas") {
+    lines.push({
+      id: "kit-gas-boiler",
+      category: "Boiler",
+      description: `Condensing gas boiler ~${boilerKw} kW @ ${input.flowTemperature}°C flow`,
       qty: 1,
-      unitCost: 260,
+      unitCost: 950 + boilerKw * 28,
       required: true,
-    },
-  ];
+    });
+    lines.push({
+      id: "kit-flue",
+      category: "Flue",
+      description: "Concentric flue kit + plume management allowance",
+      qty: 1,
+      unitCost: 220,
+      required: true,
+    });
+    lines.push({
+      id: "kit-gas-valve",
+      category: "Gas",
+      description: "Gas isolation / meter connection allowance",
+      qty: 1,
+      unitCost: 180,
+      required: true,
+    });
+    lines.push({
+      id: "kit-cylinder",
+      category: "Cylinder",
+      description: `${input.cylinderLitres} L unvented / system cylinder`,
+      qty: 1,
+      unitCost: input.cylinderLitres >= 250 ? 980 : input.cylinderLitres >= 200 ? 820 : 690,
+      required: true,
+    });
+  } else if (kind === "oil") {
+    lines.push({
+      id: "kit-oil-boiler",
+      category: "Boiler",
+      description: `Condensing oil boiler ~${boilerKw} kW @ ${input.flowTemperature}°C flow`,
+      qty: 1,
+      unitCost: 1400 + boilerKw * 32,
+      required: true,
+    });
+    lines.push({
+      id: "kit-oil-tank",
+      category: "Fuel",
+      description: "Oil tank / bund connection allowance",
+      qty: 1,
+      unitCost: 850,
+      required: true,
+    });
+    lines.push({
+      id: "kit-flue",
+      category: "Flue",
+      description: "Oil flue kit + liner allowance",
+      qty: 1,
+      unitCost: 280,
+      required: true,
+    });
+    lines.push({
+      id: "kit-cylinder",
+      category: "Cylinder",
+      description: `${input.cylinderLitres} L system cylinder`,
+      qty: 1,
+      unitCost: input.cylinderLitres >= 250 ? 980 : 820,
+      required: true,
+    });
+  } else if (kind === "lpg") {
+    lines.push({
+      id: "kit-lpg-boiler",
+      category: "Boiler",
+      description: `Condensing LPG boiler ~${boilerKw} kW @ ${input.flowTemperature}°C flow`,
+      qty: 1,
+      unitCost: 1050 + boilerKw * 30,
+      required: true,
+    });
+    lines.push({
+      id: "kit-lpg-tank",
+      category: "Fuel",
+      description: "LPG tank / bottle bank connection allowance",
+      qty: 1,
+      unitCost: 420,
+      required: true,
+    });
+    lines.push({
+      id: "kit-flue",
+      category: "Flue",
+      description: "Concentric flue kit",
+      qty: 1,
+      unitCost: 220,
+      required: true,
+    });
+    lines.push({
+      id: "kit-cylinder",
+      category: "Cylinder",
+      description: `${input.cylinderLitres} L system cylinder`,
+      qty: 1,
+      unitCost: input.cylinderLitres >= 250 ? 980 : 820,
+      required: true,
+    });
+  } else {
+    lines.push({
+      id: "kit-electric-boiler",
+      category: "Boiler",
+      description: `Electric boiler ~${boilerKw} kW @ ${input.flowTemperature}°C flow`,
+      qty: 1,
+      unitCost: 800 + boilerKw * 40,
+      required: true,
+    });
+    lines.push({
+      id: "kit-electrics-eb",
+      category: "Electrical",
+      description: "High-load supply / isolator allowance",
+      qty: 1,
+      unitCost: 480,
+      required: true,
+    });
+    lines.push({
+      id: "kit-cylinder",
+      category: "Cylinder",
+      description: `${input.cylinderLitres} L cylinder`,
+      qty: 1,
+      unitCost: input.cylinderLitres >= 250 ? 980 : 820,
+      required: true,
+    });
+  }
+
+  lines.push({
+    id: "kit-filter",
+    category: "Hydraulics",
+    description: "Magnetic filter + inhibitor pack",
+    qty: 1,
+    unitCost: 145,
+    required: true,
+  });
+  lines.push({
+    id: "kit-pipe",
+    category: "Pipework",
+    description:
+      (input.emitterMode === "ufh" || input.emitterMode === "mixed")
+        ? `Primary / plant copper pipework & insulation (~${pipeRunM} m) @ ${input.flowTemperature}°C design`
+        : `Flow/return copper pipework & insulation (~${pipeRunM} m) @ ${input.flowTemperature}°C design`,
+    qty: pipeRunM,
+    unitCost: kind === "ashp" || kind === "hybrid" ? 18 : 14,
+    unit: "m",
+    required: true,
+  });
+  lines.push({
+    id: "kit-controls",
+    category: "Controls",
+    description:
+      kind === "ashp" || kind === "hybrid"
+        ? "Weather compensation + room thermostat pack"
+        : "Boiler controls / programmer + room thermostat pack",
+    qty: 1,
+    unitCost: kind === "ashp" || kind === "hybrid" ? 260 : 180,
+    required: true,
+  });
 
   if (input.wallConstructionLabel && exteriorWallArea > 0) {
     lines.push({
@@ -397,7 +621,28 @@ export function buildKitLines(input: {
     });
   }
 
-  if (input.radiatorLines?.length) {
+  const emitterMode = input.emitterMode ?? "radiators";
+  if (emitterMode === "ufh") {
+    const ufhArea = Math.max(8, Math.round(floorArea * 0.85));
+    const loopM = ufhLoopRunM > 0 ? ufhLoopRunM : Math.max(0, Math.round(floorArea * 0.85 * 6));
+    lines.push({
+      id: "kit-ufh",
+      category: "Emitters",
+      description: `16mm PEX UFH pipe & staples (~${loopM} m, heated ~${ufhArea} m²)`,
+      qty: loopM,
+      unitCost: 2.4,
+      unit: "m",
+      required: true,
+    });
+    lines.push({
+      id: "kit-ufh-manifold",
+      category: "Emitters",
+      description: "UFH manifold + mixing / pumpset allowance",
+      qty: Math.max(1, Math.ceil(ufhArea / 80)),
+      unitCost: 420,
+      required: true,
+    });
+  } else if (input.radiatorLines?.length) {
     input.radiatorLines.forEach((line, index) => {
       lines.push({
         id: `kit-rad-${index}`,
@@ -408,6 +653,20 @@ export function buildKitLines(input: {
         required: true,
       });
     });
+    if (emitterMode === "mixed") {
+      lines.push({
+        id: "kit-ufh-mixed",
+        category: "Emitters",
+        description:
+          ufhLoopRunM > 0
+            ? `16mm PEX UFH pipe & staples for wet rooms (~${ufhLoopRunM} m)`
+            : "UFH allowance for wet rooms (mixed design) — 16mm PEX",
+        qty: ufhLoopRunM > 0 ? ufhLoopRunM : 1,
+        unitCost: ufhLoopRunM > 0 ? 2.4 : 680,
+        unit: ufhLoopRunM > 0 ? "m" : undefined,
+        required: true,
+      });
+    }
   } else if (input.emitterUpgradeCount > 0) {
     lines.push({
       id: "kit-rads",
@@ -429,6 +688,17 @@ export function buildKitLines(input: {
       qty: 1,
       unitCost: extra.unitCost,
       required: false,
+    });
+  }
+
+  if (input.systemLabel) {
+    lines.unshift({
+      id: "kit-system-note",
+      category: "System",
+      description: `Design system: ${input.systemLabel} · ${input.flowTemperature}°C flow`,
+      qty: 1,
+      unitCost: 0,
+      required: true,
     });
   }
 

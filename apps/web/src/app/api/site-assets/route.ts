@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
+import { getClients, getClientSites } from "@/lib/people-data";
+import { upsertAnnualServiceRecurringPlan } from "@/lib/recurring-data";
 import {
   archiveSiteAsset,
   dueSiteAssets,
@@ -82,6 +84,30 @@ export async function POST(request: NextRequest) {
       certificateExpiresAt: body.certificateExpiresAt,
       notes: body.notes,
     });
+
+    if (body.nextServiceDate && ["Gas appliance", "Oil Boiler"].includes(body.type)) {
+      try {
+        const site = getClientSites().find((row) => row.id === body.siteId);
+        const client =
+          getClients().find((row) => row.id === (body.clientId || site?.clientId)) || null;
+        const saved =
+          (body.id ? assets.find((asset) => asset.id === body.id) : null) ||
+          assets.find((asset) => asset.nextServiceDate === body.nextServiceDate && asset.name === body.name) ||
+          assets[0];
+        upsertAnnualServiceRecurringPlan({
+          siteId: body.siteId,
+          clientId: body.clientId || site?.clientId,
+          customer: client?.name || "Customer",
+          site: site?.address || site?.name,
+          assetId: saved?.id,
+          assetName: body.name,
+          nextServiceDate: body.nextServiceDate,
+        });
+      } catch {
+        // recurring sync is best-effort
+      }
+    }
+
     return NextResponse.json({ assets });
   } catch (error) {
     return NextResponse.json(

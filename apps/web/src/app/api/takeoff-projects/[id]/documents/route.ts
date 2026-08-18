@@ -117,7 +117,10 @@ export async function POST(
     return NextResponse.json({ error: "Choose Drawing, Marked-up drawing, Specification, Contractor BOQ, Survey note, Survey photo or LiDAR scan." }, { status: 400 });
   }
 
-  const files = fileEntries(formData.getAll("files"));
+  const files = [
+    ...fileEntries(formData.getAll("files")),
+    ...fileEntries(formData.getAll("file")),
+  ];
   if (!files.length) {
     return NextResponse.json({ error: "No files uploaded." }, { status: 400 });
   }

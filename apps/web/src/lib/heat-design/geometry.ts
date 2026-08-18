@@ -191,3 +191,59 @@ export function openingOnEdge(points: PlanPoint[], opening: PlanOpening) {
     ny: ux,
   };
 }
+
+/** Metres — walls closer than this and overlapping count as shared (internal). */
+export const WALL_SHARE_TOL_M = 0.12;
+const MIN_SHARED_LENGTH_M = 0.2;
+
+/** True when two wall segments are nearly colinear and overlap along their length. */
+export function edgesShareWall(
+  a1: PlanPoint,
+  a2: PlanPoint,
+  b1: PlanPoint,
+  b2: PlanPoint,
+  tol = WALL_SHARE_TOL_M,
+): boolean {
+  const aLen = dist(a1, a2);
+  const bLen = dist(b1, b2);
+  if (aLen < 0.05 || bLen < 0.05) return false;
+
+  const ux = (a2.x - a1.x) / aLen;
+  const uy = (a2.y - a1.y) / aLen;
+  const cross1 = Math.abs((b1.x - a1.x) * uy - (b1.y - a1.y) * ux);
+  const cross2 = Math.abs((b2.x - a1.x) * uy - (b2.y - a1.y) * ux);
+  if (cross1 > tol || cross2 > tol) return false;
+
+  const proj = (p: PlanPoint) => (p.x - a1.x) * ux + (p.y - a1.y) * uy;
+  const bMin = Math.min(proj(b1), proj(b2));
+  const bMax = Math.max(proj(b1), proj(b2));
+  const overlap = Math.min(aLen, bMax) - Math.max(0, bMin);
+  return overlap >= MIN_SHARED_LENGTH_M;
+}
+
+/**
+ * Walls that sit against another room on the same floor become
+ * internal; everything else stays exterior.
+ */
+export function autoMarkExteriorWalls(rooms: HeatDesignRoom[]): HeatDesignRoom[] {
+  return rooms.map((room) => {
+    const polygon = roomPolygon(room);
+    const floor = room.floorLevel ?? "ground";
+    const wallExterior = polygon.map((_, edgeIndex) => {
+      const a = polygon[edgeIndex]!;
+      const b = polygon[(edgeIndex + 1) % polygon.length]!;
+      for (const other of rooms) {
+        if (other.id === room.id) continue;
+        if ((other.floorLevel ?? "ground") !== floor) continue;
+        const otherPoly = roomPolygon(other);
+        for (let j = 0; j < otherPoly.length; j += 1) {
+          const c = otherPoly[j]!;
+          const d = otherPoly[(j + 1) % otherPoly.length]!;
+          if (edgesShareWall(a, b, c, d)) return false;
+        }
+      }
+      return true;
+    });
+    return syncRoomFromPolygon({ ...room, wallExterior }, polygon);
+  });
+}

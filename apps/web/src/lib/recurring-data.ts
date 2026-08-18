@@ -1,4 +1,6 @@
+import { getClients, getClientSites } from "@/lib/people-data";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
+import { listSiteAssets } from "@/lib/site-assets-data";
 
 export type RecurringKind = "Job" | "Invoice";
 export type RecurringFrequency = "Weekly" | "Monthly" | "Quarterly" | "Yearly";
@@ -25,12 +27,18 @@ export type RecurringPlan = {
 
 type RecurringStore = {
   plans: RecurringPlan[];
+  /** Prevents asset sync from recreating plans the user removed. */
+  deletedIds: string[];
 };
 
 const STORE = "nexa-recurring-v1";
 
 function readStore(): RecurringStore {
-  return loadServerStore<RecurringStore>(STORE, { plans: [] });
+  const stored = loadServerStore<Partial<RecurringStore>>(STORE, { plans: [], deletedIds: [] });
+  return {
+    plans: Array.isArray(stored.plans) ? stored.plans : [],
+    deletedIds: Array.isArray(stored.deletedIds) ? stored.deletedIds : [],
+  };
 }
 
 function writeStore(store: RecurringStore) {
@@ -65,16 +73,28 @@ export function upsertRecurringPlan(input: Omit<RecurringPlan, "id" | "createdAt
   if (!input.nextDueDate) throw new Error("Next due date is required.");
 
   if (input.id) {
-    store.plans = store.plans.map((plan) =>
-      plan.id === input.id
-        ? {
-            ...plan,
-            ...input,
-            name,
-            active: input.active ?? plan.active,
-          }
-        : plan,
-    );
+    store.deletedIds = store.deletedIds.filter((id) => id !== input.id);
+    const existing = store.plans.find((plan) => plan.id === input.id);
+    if (existing) {
+      store.plans = store.plans.map((plan) =>
+        plan.id === input.id
+          ? {
+              ...plan,
+              ...input,
+              name,
+              active: input.active ?? plan.active,
+            }
+          : plan,
+      );
+    } else {
+      store.plans.unshift({
+        ...input,
+        id: input.id,
+        name,
+        active: input.active ?? true,
+        createdAt: new Date().toISOString(),
+      });
+    }
   } else {
     store.plans.unshift({
       ...input,
@@ -86,6 +106,103 @@ export function upsertRecurringPlan(input: Omit<RecurringPlan, "id" | "createdAt
   }
   writeStore(store);
   return listRecurringPlans(true);
+}
+
+/** Stable yearly boiler/service plan keyed by site (+ optional asset). */
+export function upsertAnnualServiceRecurringPlan(input: {
+  siteId: string;
+  clientId?: string;
+  customer: string;
+  site?: string;
+  assetId?: string;
+  assetName?: string;
+  nextServiceDate: string;
+  sourceJobId?: string;
+  sourceJobRef?: string;
+}) {
+  const nextDueDate = input.nextServiceDate.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDueDate)) {
+    throw new Error("Next service date must be YYYY-MM-DD.");
+  }
+  const assetPart = input.assetId ? `-${input.assetId}` : "";
+  const id = `recur-boiler-${input.siteId}${assetPart}`;
+  if (readStore().deletedIds.includes(id)) {
+    return null;
+  }
+  const existing = readStore().plans.find((plan) => plan.id === id);
+  const appliance = input.assetName?.trim() || "boiler";
+  const name = `Annual ${appliance} service`;
+  const description = [
+    `Annual ${appliance} service / gas safety check`,
+    input.site ? `at ${input.site}` : null,
+    input.sourceJobRef ? `(from ${input.sourceJobRef})` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  upsertRecurringPlan({
+    id,
+    kind: "Job",
+    name,
+    customer: input.customer.trim() || "Customer",
+    clientId: input.clientId,
+    siteId: input.siteId,
+    site: input.site,
+    description,
+    frequency: "Yearly",
+    nextDueDate,
+    notes: [
+      "Created from Field/Core next service due date.",
+      input.sourceJobId ? `sourceJobId=${input.sourceJobId}` : null,
+      input.assetId ? `assetId=${input.assetId}` : null,
+    ]
+      .filter(Boolean)
+      .join(" "),
+    // Don't force paused plans back on every sync refresh.
+    active: existing ? existing.active : true,
+  });
+  return listRecurringPlans().find((plan) => plan.id === id) ?? null;
+}
+
+/** Keep yearly service plans in sync with site asset next-service dates. */
+export function syncRecurringPlansFromSiteAssets() {
+  const clients = getClients();
+  const sites = getClientSites();
+  let synced = 0;
+  for (const asset of listSiteAssets()) {
+    if (!asset.nextServiceDate || !/^\d{4}-\d{2}-\d{2}$/.test(asset.nextServiceDate)) continue;
+    if (!["Gas appliance", "Oil Boiler"].includes(asset.type)) continue;
+    const site = sites.find((row) => row.id === asset.siteId);
+    const client =
+      clients.find((row) => row.id === (asset.clientId || site?.clientId)) ||
+      null;
+    try {
+      upsertAnnualServiceRecurringPlan({
+        siteId: asset.siteId,
+        clientId: asset.clientId || site?.clientId,
+        customer: client?.name || "Customer",
+        site: site?.address || site?.name,
+        assetId: asset.id,
+        assetName: asset.name || asset.type,
+        nextServiceDate: asset.nextServiceDate,
+      });
+      synced += 1;
+    } catch {
+      // best-effort
+    }
+  }
+  return synced;
+}
+
+/** Due now plus upcoming within N days (for Carol's 4-week chase list). */
+export function windowRecurringJobPlans(withinDays = 28, asOf = new Date().toISOString().slice(0, 10)) {
+  const horizon = new Date(`${asOf}T12:00:00Z`);
+  if (Number.isNaN(horizon.getTime())) return [];
+  horizon.setUTCDate(horizon.getUTCDate() + Math.max(0, withinDays));
+  const until = horizon.toISOString().slice(0, 10);
+  return listRecurringPlans()
+    .filter((plan) => plan.kind === "Job" && plan.nextDueDate <= until)
+    .sort((a, b) => a.nextDueDate.localeCompare(b.nextDueDate));
 }
 
 export function dueRecurringPlans(asOf = new Date().toISOString().slice(0, 10)) {
@@ -118,6 +235,20 @@ export function markRecurringGenerated(id: string, generatedRef: string) {
 export function setRecurringActive(id: string, active: boolean) {
   const store = readStore();
   store.plans = store.plans.map((plan) => (plan.id === id ? { ...plan, active } : plan));
+  writeStore(store);
+  return listRecurringPlans(true);
+}
+
+export function deleteRecurringPlan(id: string) {
+  const store = readStore();
+  const existed = store.plans.some((plan) => plan.id === id);
+  if (!existed) {
+    throw new Error("Recurring plan not found.");
+  }
+  store.plans = store.plans.filter((plan) => plan.id !== id);
+  if (!store.deletedIds.includes(id)) {
+    store.deletedIds.push(id);
+  }
   writeStore(store);
   return listRecurringPlans(true);
 }

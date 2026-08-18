@@ -3,10 +3,10 @@
   "short_name": "Takeoffs",
   "description": "NeXa takeoff workspace for drawings, BOQs, measurements and supplier requests.",
   "start_url": "/takeoff",
-  "scope": "/",
+  "scope": "/takeoff",
   "display": "standalone",
-  "background_color": "#006eb8",
-  "theme_color": "#006eb8",
+  "background_color": "#157fa8",
+  "theme_color": "#157fa8",
   "icons": [
     {
       "src": "/app-icons/nexa-takeoffs-icon-512.png",

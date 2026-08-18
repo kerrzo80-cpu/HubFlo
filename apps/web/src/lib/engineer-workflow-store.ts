@@ -17,6 +17,9 @@ import {
   type EngineerFlowStepEvidenceValue,
 } from "@/lib/engineer-flow";
 import { toUkDateDisplay } from "@/lib/uk-date";
+import { isDayworkRequirement } from "@/lib/daywork-account-form";
+import { maybeCreateDraftInvoiceOnJobComplete } from "@/lib/field-job-invoice";
+import { saveFieldPhotoBytes } from "@/lib/field/field-photo-store";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { createPurchaseRequest, getPurchaseRequests, getJobs, updateJob } from "@/lib/workflow-data";
@@ -144,6 +147,10 @@ export type EngineerWorkflowAction =
         createdBy?: string;
         evidence?: EngineerFlowStepEvidenceValue;
         photoName?: string;
+        photoUrl?: string;
+        photoId?: string;
+        photoContentBase64?: string;
+        photoMimeType?: string;
         text?: string;
         numberValue?: string;
       };
@@ -158,7 +165,14 @@ export type EngineerWorkflowAction =
   | {
       action: "add_photos";
       payload: {
-        fileNames: string[];
+        fileNames?: string[];
+        files?: Array<{
+          name: string;
+          type?: "PDF" | "Photo" | "Note" | "Video";
+          contentBase64?: string;
+          mimeType?: string;
+          size?: number;
+        }>;
         createdBy?: string;
       };
     }
@@ -182,6 +196,7 @@ export type EngineerWorkflowAction =
       action: "request_po";
       payload: {
         supplier: string;
+        supplierEmail?: string;
         note: string;
         jobRef?: string;
         costCentreId?: string;
@@ -303,9 +318,13 @@ function normaliseWorkflow(workflow: EngineerJobWorkflow) {
 
 function syncWorkflowPoRequestsFromCore(workflow: EngineerJobWorkflow) {
   const coreRequests = getPurchaseRequests();
-  workflow.poRequests = workflow.poRequests.map((request) => {
-    const coreRequest = coreRequests.find((item) => item.id === request.id);
-    if (!coreRequest) return request;
+  const job = getEngineerScheduleItem(workflow.scheduleId);
+  const byId = new Map(workflow.poRequests.map((request) => [request.id, request]));
+
+  for (const coreRequest of coreRequests) {
+    if (!job) break;
+    if (coreRequest.jobId !== job.jobId && coreRequest.jobRef !== job.jobRef) continue;
+
     const status: EngineerWorkflowPoRequest["status"] =
       coreRequest.status === "Rejected"
         ? "Rejected"
@@ -314,14 +333,23 @@ function syncWorkflowPoRequestsFromCore(workflow: EngineerJobWorkflow) {
           : coreRequest.status === "Approved"
             ? "Approved"
             : "Ordered";
-    return {
-      ...request,
-      poNumber: coreRequest.poNumber || request.poNumber,
-      supplier: coreRequest.supplier || request.supplier,
-      note: coreRequest.reason || coreRequest.item || request.note,
+
+    const existing = byId.get(coreRequest.id);
+    byId.set(coreRequest.id, {
+      id: coreRequest.id,
+      poNumber: coreRequest.poNumber || existing?.poNumber,
+      supplier: coreRequest.supplier || existing?.supplier || "Supplier TBC",
+      note: coreRequest.reason || coreRequest.item || existing?.note || "",
+      jobRef: coreRequest.jobRef || existing?.jobRef || job.jobRef,
+      costCentreId: coreRequest.costCentreId || existing?.costCentreId,
+      costCentreName: coreRequest.costCentreName || existing?.costCentreName,
+      createdBy: coreRequest.requestedBy || existing?.createdBy || "Field",
+      createdAt: existing?.createdAt || coreRequest.createdAt,
       status,
-    };
-  });
+    });
+  }
+
+  workflow.poRequests = Array.from(byId.values());
   return workflow;
 }
 
@@ -472,6 +500,16 @@ export function clearDayworkWorkflowMode(scheduleId: string) {
   const workflow = normaliseWorkflow(getMutableWorkflow(scheduleId));
   workflow.checklistMode = "job";
   delete workflow.dayworkCostCentreId;
+  // Drop Daywork-scoped rows (including Handover signature steps) so Mark complete
+  // uses the job stop/go again — not leftover Daywork checklist items.
+  workflow.requirements = workflow.requirements.filter((item) => {
+    if (item.stage === "Daywork") return false;
+    if (item.stepId?.startsWith("daywork-")) return false;
+    if (item.costCentreId && /daywork/i.test(item.costCentreId)) return false;
+    const id = String(item.id || "");
+    if (id.startsWith("daywork-") || id.includes("-daywork-account") || id.includes(":daywork-")) return false;
+    return true;
+  });
   saveStore();
   return getEngineerJobWorkflow(scheduleId);
 }
@@ -594,8 +632,38 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
         text: input.payload.text ?? input.payload.evidence?.text ?? requirement.value?.text,
         numberValue: input.payload.numberValue ?? input.payload.evidence?.numberValue ?? requirement.value?.numberValue,
         photoName: input.payload.photoName ?? input.payload.evidence?.photoName ?? requirement.value?.photoName,
+        photoUrl: input.payload.photoUrl ?? input.payload.evidence?.photoUrl ?? requirement.value?.photoUrl,
+        photoId: input.payload.photoId ?? input.payload.evidence?.photoId ?? requirement.value?.photoId,
         capturedAt: new Date().toISOString(),
       };
+      const photoBytes = String(input.payload.photoContentBase64 || "").trim();
+      if (photoBytes && evidenceValue.photoName) {
+        const photoId = makeId("engineer-photo");
+        const saved = saveFieldPhotoBytes({
+          scheduleId,
+          photoId,
+          fileName: evidenceValue.photoName,
+          contentBase64: photoBytes,
+          mimeType: input.payload.photoMimeType || undefined,
+        });
+        evidenceValue.photoId = saved.id;
+        evidenceValue.photoUrl = saved.url;
+        const liveWorkflow = normaliseWorkflow(getMutableWorkflow(scheduleId));
+        liveWorkflow.photos = [
+          {
+            id: saved.id,
+            name: evidenceValue.photoName,
+            type: "Photo",
+            uploadedBy: createdBy,
+            uploadedAt: createdAt,
+            url: saved.url,
+            mimeType: saved.mimeType,
+            size: saved.size,
+            storageKey: saved.storageKey,
+          },
+          ...(liveWorkflow.photos ?? []),
+        ];
+      }
       const evidenceType = requirement.evidence || "Checkbox";
       if (evidenceType !== "Checkbox" && !hasCapturedFlowEvidence(evidenceType, evidenceValue)) {
         // Do not accept empty completions for photo/text/number/signature steps.
@@ -629,17 +697,28 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
         });
 
         const gasRecord = buildGasServiceRecordFromEvidence(job.jobId, costCentreId);
-        if (gasRecord?.nextServiceDate) {
+        const nextDueText =
+          (requirement.formField === "nextServiceDate" ? evidenceValue.text : "") ||
+          gasRecord?.nextServiceDate ||
+          "";
+        if (nextDueText) {
           const coreJob = getJobs().find((item) => item.id === job.jobId);
           if (coreJob?.siteId) {
             try {
               syncGasServiceRecordToSiteAsset({
                 siteId: coreJob.siteId,
                 clientId: coreJob.clientId,
-                record: gasRecord,
+                customerName: coreJob.customer,
+                siteLabel: coreJob.site,
+                sourceJobId: coreJob.id,
+                sourceJobRef: coreJob.ref,
+                record: {
+                  ...(gasRecord || { populatedFrom: "engineer-app" }),
+                  nextServiceDate: nextDueText,
+                },
               });
             } catch {
-              // Site asset sync is best-effort.
+              // Site asset + recurring sync is best-effort.
             }
           }
         }
@@ -715,23 +794,81 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
   }
 
   if (input.action === "add_photos") {
-    const fileNames = input.payload.fileNames
-      .map((fileName) => fileName.trim())
+    const fromFiles = (input.payload.files ?? [])
+      .map((file) => ({
+        name: String(file.name || "").trim(),
+        type: (file.type === "PDF" || file.type === "Note" || file.type === "Video" ? file.type : "Photo") as
+          | "PDF"
+          | "Photo"
+          | "Note"
+          | "Video",
+        contentBase64: typeof file.contentBase64 === "string" ? file.contentBase64 : "",
+        mimeType: typeof file.mimeType === "string" ? file.mimeType : "",
+        size: typeof file.size === "number" ? file.size : undefined,
+      }))
+      .filter((file) => file.name);
+    const fromNames = (input.payload.fileNames ?? [])
+      .map((fileName) => String(fileName || "").trim())
       .filter(Boolean)
-      .slice(0, 10);
-    const photos = fileNames.map((fileName) => ({
-      id: makeId("engineer-photo"),
-      name: fileName,
-      type: "Photo" as const,
-      uploadedBy: createdBy,
-      uploadedAt: createdAt,
-    }));
+      .map((name) => {
+        const lower = name.toLowerCase();
+        const type: "PDF" | "Photo" | "Note" | "Video" =
+          /\.(mp4|mov|webm|m4v)$/i.test(lower)
+            ? "Video"
+            : /\.(pdf|docx?|xlsx?|txt)$/i.test(lower)
+              ? "PDF"
+              : "Photo";
+        return { name, type, contentBase64: "", mimeType: "", size: undefined as number | undefined };
+      });
+    const photos = [...fromFiles, ...fromNames].slice(0, 10).map((file) => {
+      const id = makeId("engineer-photo");
+      let url: string | undefined;
+      let mimeType: string | undefined;
+      let size: number | undefined;
+      let storageKey: string | undefined;
+      if (file.contentBase64.trim()) {
+        const saved = saveFieldPhotoBytes({
+          scheduleId,
+          photoId: id,
+          fileName: file.name,
+          contentBase64: file.contentBase64,
+          mimeType: file.mimeType || undefined,
+        });
+        url = saved.url;
+        mimeType = saved.mimeType;
+        size = saved.size;
+        storageKey = saved.storageKey;
+      } else if (file.size) {
+        size = file.size;
+      }
+      return {
+        id,
+        name: file.name,
+        type: file.type,
+        uploadedBy: createdBy,
+        uploadedAt: createdAt,
+        url,
+        mimeType,
+        size,
+        storageKey,
+      } satisfies EngineerAttachment;
+    });
     workflow.photos = [...photos, ...workflow.photos];
     if (photos.length) {
+      const withBytes = photos.filter((item) => Boolean(item.url)).length;
+      const label =
+        photos.every((item) => item.type === "Photo")
+          ? "photo"
+          : photos.every((item) => item.type === "Video")
+            ? "video"
+            : "file";
       addReviewItem(workflow, {
         type: "Photo",
-        title: `${photos.length} photo${photos.length === 1 ? "" : "s"} uploaded`,
-        detail: photos.map((photo) => photo.name).join(", "),
+        title: `${photos.length} ${label}${photos.length === 1 ? "" : "s"} uploaded`,
+        detail:
+          withBytes > 0
+            ? `${withBytes} synced with image bytes · ${photos.map((photo) => photo.name).join(", ")}`
+            : `Names only (no image bytes) · ${photos.map((photo) => photo.name).join(", ")}`,
         createdBy,
         createdAt,
       });
@@ -783,6 +920,7 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
 
   if (input.action === "request_po") {
     const supplier = input.payload.supplier.trim() || "Supplier TBC";
+    const supplierEmail = input.payload.supplierEmail?.trim() || undefined;
     const note = input.payload.note.trim();
     const costCentreName = input.payload.costCentreName?.trim() || job?.costCentre || "Cost centre TBC";
     let corePurchaseRequestId = "";
@@ -794,6 +932,7 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
         costCentreName,
         requestedBy: createdBy,
         supplier,
+        supplierEmail,
         item: note || "Engineer requested supplier / PO support.",
         estimatedCost: 0,
         reason: note || `Requested from engineer app for ${costCentreName}.`,
@@ -983,6 +1122,35 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
   }
 
   if (input.action === "set_outcome") {
+    // Refresh requirements from live templates before gating Complete.
+    getEngineerJobWorkflow(scheduleId);
+    const liveRequirements = getMutableWorkflow(scheduleId).requirements ?? [];
+    if (input.payload.status === "Complete") {
+      const blocked = liveRequirements.some(
+        (item) => item.status === "missing" && !isDayworkRequirement(item),
+      );
+      if (blocked) {
+        throw new Error("Cannot mark complete yet. Finish required checklist items first.");
+      }
+      try {
+        const { runBlocksJobComplete } = require("@/lib/domestic-stop-go/service") as {
+          runBlocksJobComplete: (
+            jobId: string,
+            costCentreName?: string,
+            costCentreId?: string,
+          ) => { blocked: boolean; message: string } | null;
+        };
+        const stopGo = runBlocksJobComplete(
+          job?.jobId || "",
+          job?.costCentre,
+          job?.costCentres?.[0]?.id,
+        );
+        if (stopGo?.blocked) throw new Error(stopGo.message);
+      } catch (error) {
+        if (error instanceof Error && /stop\/go|unsafe|warning/i.test(error.message)) throw error;
+      }
+    }
+
     const outcome: EngineerWorkflowOutcome = {
       status: input.payload.status,
       note: input.payload.note.trim(),
@@ -990,9 +1158,31 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
       createdAt,
     };
     workflow.outcome = outcome;
+    if (job?.jobId) {
+      // Field Complete → Completed (passaround). Office approves → Ready to invoice.
+      const nextStatus =
+        outcome.status === "Complete"
+          ? "Completed"
+          : outcome.status === "Needs parts"
+            ? "Waiting on parts"
+            : undefined;
+      if (nextStatus) {
+        updateJob(job.jobId, {
+          status: nextStatus,
+          next:
+            outcome.note ||
+            (outcome.status === "Complete"
+              ? `Marked complete by ${createdBy}. Ready for office passaround before invoicing.`
+              : `Awaiting parts — noted by ${createdBy}.`),
+        });
+        if (outcome.status === "Complete") {
+          maybeCreateDraftInvoiceOnJobComplete(job.jobId, createdBy);
+        }
+      }
+    }
     addReviewItem(workflow, {
       type: "Outcome",
-      title: outcome.status,
+      title: outcome.status === "Needs parts" ? "Awaiting parts" : outcome.status,
       detail: outcome.note || `${outcome.status} outcome set by engineer.`,
       createdBy,
       createdAt,

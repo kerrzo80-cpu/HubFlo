@@ -135,6 +135,16 @@ export function getDayworkSheetFromStore(jobId: string, costCentreId: string): D
   return sheet ? clone(sheet) : null;
 }
 
+/** Remove an unsigned / discarded Daywork sheet from the durable store. */
+export function deleteDayworkSheetFromStore(jobId: string, costCentreId: string): boolean {
+  hydrateStoreFromDisk();
+  const key = dayworkSheetKey(jobId, costCentreId);
+  if (!store[key]) return false;
+  delete store[key];
+  writeServerStore("daywork-sheets-store", store);
+  return true;
+}
+
 /** Prefer exact cost-centre match; otherwise any sheet for the job (newest signed first). */
 export function findDayworkSheetForJob(
   sheets: Record<string, DayworkSheetSnapshot> | undefined | null,

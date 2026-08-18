@@ -13,7 +13,19 @@ type FieldChecklistItem = {
     text?: string;
     numberValue?: string;
     photoName?: string;
+    photoUrl?: string;
+    photoId?: string;
   };
+};
+
+type FieldVisitPhoto = {
+  id: string;
+  name: string;
+  type?: string;
+  uploadedBy?: string;
+  uploadedAt?: string;
+  url?: string;
+  mimeType?: string;
 };
 
 type FieldTimeEntry = {
@@ -42,6 +54,7 @@ type FieldVisit = {
   };
   timeEntries: FieldTimeEntry[];
   officeReview: Array<{ id: string; type: string; title: string; detail: string; createdAt: string }>;
+  photos?: FieldVisitPhoto[];
 };
 
 type FieldByJobResponse = {
@@ -71,17 +84,30 @@ export function JobFieldLivePanel({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
+  const [stopGo, setStopGo] = useState<{
+    runs?: Array<{
+      run: { id: string; status: string; costCentreCode: string; currentGateKey: string; highPriorityFollowUp?: { open?: boolean } };
+      record?: { recordNumber?: string; pdfDocumentId?: string } | null;
+    }>;
+  } | null>(null);
+
   const load = useCallback(async () => {
     if (!jobId) return;
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/field/jobs/by-job/${encodeURIComponent(jobId)}`);
+      const [response, stopGoResponse] = await Promise.all([
+        fetch(`/api/field/jobs/by-job/${encodeURIComponent(jobId)}`),
+        fetch(`/api/workflow-runs?jobId=${encodeURIComponent(jobId)}`),
+      ]);
       const body = (await response.json().catch(() => ({}))) as FieldByJobResponse;
       if (!response.ok) {
         throw new Error(body.error || `Could not load Field data (${response.status}).`);
       }
       setData(body);
+      if (stopGoResponse.ok) {
+        setStopGo((await stopGoResponse.json().catch(() => null)) as typeof stopGo);
+      }
     } catch (loadError) {
       setData(null);
       setError(loadError instanceof Error ? loadError.message : "Could not load Field data.");
@@ -143,6 +169,34 @@ export function JobFieldLivePanel({
 
       {error ? <div className="feedback error">{error}</div> : null}
 
+      {stopGo?.runs?.length ? (
+        <div className="job-field-visit">
+          <header>
+            <div>
+              <strong>Domestic stop/go records</strong>
+              <small>Mandatory gates. Completed PDFs store in Forms & Certificates.</small>
+            </div>
+          </header>
+          <ul>
+            {stopGo.runs.map((item) => (
+              <li key={item.run.id}>
+                <strong>{item.run.costCentreCode}</strong> · {item.run.status.replace(/_/g, " ")}
+                {item.run.highPriorityFollowUp?.open ? " · HIGH PRIORITY FOLLOW-UP" : ""}
+                {item.record?.recordNumber ? ` · ${item.record.recordNumber}` : ""}
+                {item.record?.pdfDocumentId ? (
+                  <>
+                    {" "}
+                    <a href={`/api/record-documents/${encodeURIComponent(item.record.pdfDocumentId)}/file`} target="_blank" rel="noreferrer">
+                      Open PDF
+                    </a>
+                  </>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {!loading && !error && visits.length === 0 ? (
         <p className="muted">No Field visits linked to this job yet.</p>
       ) : null}
@@ -178,6 +232,11 @@ export function JobFieldLivePanel({
                             .join(" · ")}
                         </small>
                         {item.status === "done" && valueLabel(item) ? <em>{valueLabel(item)}</em> : null}
+                        {item.value?.photoUrl ? (
+                          <a className="job-field-photo-link" href={item.value.photoUrl} target="_blank" rel="noreferrer">
+                            Open evidence photo
+                          </a>
+                        ) : null}
                       </div>
                     </li>
                   ))}
@@ -212,10 +271,43 @@ export function JobFieldLivePanel({
             </div>
           </div>
 
+          {(visit.photos ?? []).length ? (
+            <div className="job-field-visit-photos">
+              <h3>Synced photos</h3>
+              <div className="job-field-photo-grid">
+                {(visit.photos ?? []).map((photo) => {
+                  const isImage =
+                    Boolean(photo.url) &&
+                    (photo.type === "Photo" || Boolean(photo.mimeType?.startsWith("image/")) || !photo.mimeType);
+                  return (
+                    <div className="job-field-photo-card" key={photo.id}>
+                      {isImage && photo.url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={photo.url} alt={photo.name} />
+                      ) : (
+                        <span>{photo.type || "File"}</span>
+                      )}
+                      <div>
+                        <strong>{photo.name}</strong>
+                        <small>
+                          {[photo.uploadedBy, photo.uploadedAt].filter(Boolean).join(" · ")}
+                          {photo.url ? " · synced" : ""}
+                        </small>
+                      </div>
+                      {photo.url ? (
+                        <a href={photo.url} target="_blank" rel="noreferrer">
+                          Open
+                        </a>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
           <p className="job-field-visit-link">
             <a href={`/field/jobs/${encodeURIComponent(visit.scheduleId)}`}>Open this visit in Field</a>
-            {" · "}
-            <a href={`/engineer/jobs/${encodeURIComponent(visit.scheduleId)}`}>Engineer workspace</a>
           </p>
         </article>
       ))}

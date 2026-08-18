@@ -10,9 +10,13 @@ import {
   nexaSessionMaxAgeSeconds,
   recordFailedLoginAttempt,
 } from "@/lib/auth-store";
+import { isTrialAccessExpired } from "@/lib/trial-licence";
 import { appendAuditEvent } from "@/lib/people-data";
 
 export async function POST(request: Request) {
+  if (isTrialAccessExpired()) {
+    return NextResponse.json({ error: "This trial has ended.", trialExpired: true }, { status: 403 });
+  }
   if (!isUserAuthenticationEnabled()) {
     return NextResponse.json({ error: "Individual user authentication is not enabled." }, { status: 409 });
   }

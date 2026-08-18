@@ -1,0 +1,27 @@
+---
+description: Deploy WIP to nexa-pilot only; freeze nexa-live unless a blocking fault
+alwaysApply: true
+---
+
+# Pilot-first deploys (from 10 Aug 2026)
+
+Office runs **nexa-live** (`https://nexa-live.onrender.com`). Do **not** keep shipping product WIP there.
+
+## Default
+
+- Develop and deploy against **nexa-pilot** (`https://nexa-pilot.onrender.com`).
+- Same git branch is fine; **do not** treat every push as a live release.
+- `render-live.yaml` should keep `autoDeploy: false` for `nexa-live`. Prefer pilot (`render.yaml`, `autoDeploy: true`).
+
+## Live is allowed only when
+
+1. The user explicitly asks to **promote / push to live**, or
+2. A **blocking fault** stops office use (login, crash, data loss, broken nav that blocks daily work).
+
+If unsure, ask: pilot only, or promote to live?
+
+## When promoting to live
+
+- Confirm the change is tested / accepted on pilot (or is a targeted blocker fix).
+- Say clearly that live will update.
+- Prefer a small, reviewable diff — not a batch of unfinished experiments.

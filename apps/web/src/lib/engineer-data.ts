@@ -2,6 +2,7 @@ import { getHubDetailState } from "@/lib/hub-detail-store";
 import { requirementsFromFlowTemplate } from "@/lib/engineer-flow";
 import { getJobs, getPurchaseRequests, type Job } from "@/lib/workflow-data";
 import { useDemoSeedData } from "@/lib/workspace-mode";
+import { GAS_SERVICE_TRIAL } from "@/lib/domestic-stop-go/seed";
 
 export type EngineerJobStatus = "Scheduled" | "Needs parts" | "Ready to complete";
 export type RequirementStatus = "done" | "missing" | "optional";
@@ -9,9 +10,14 @@ export type RequirementStatus = "done" | "missing" | "optional";
 export type EngineerAttachment = {
   id: string;
   name: string;
-  type: "PDF" | "Photo" | "Note";
+  type: "PDF" | "Photo" | "Note" | "Video";
   uploadedBy: string;
   uploadedAt: string;
+  /** Public Field API path when bytes were synced. */
+  url?: string;
+  mimeType?: string;
+  size?: number;
+  storageKey?: string;
 };
 
 export type EngineerRequirement = {
@@ -38,6 +44,8 @@ export type EngineerRequirement = {
     text?: string;
     numberValue?: string;
     photoName?: string;
+    photoUrl?: string;
+    photoId?: string;
     capturedAt?: string;
   };
 };
@@ -252,6 +260,46 @@ function gasCertTrialSchedule(): EngineerScheduleItem[] {
       attachments: [],
       photos: [],
       requirements,
+    },
+  ];
+}
+
+function gasServiceTrialSchedule(): EngineerScheduleItem[] {
+  const today = new Date().toISOString().slice(0, 10);
+  return [
+    {
+      scheduleId: GAS_SERVICE_TRIAL.scheduleId,
+      jobId: GAS_SERVICE_TRIAL.jobId,
+      jobRef: GAS_SERVICE_TRIAL.jobRef,
+      source: "seed",
+      costCentre: GAS_SERVICE_TRIAL.costCentreName,
+      costCentres: [
+        {
+          id: GAS_SERVICE_TRIAL.costCentreId,
+          name: GAS_SERVICE_TRIAL.costCentreName,
+          templateName: GAS_SERVICE_TRIAL.costCentreName,
+        },
+      ],
+      engineerId: GAS_SERVICE_TRIAL.engineerId,
+      engineerName: GAS_SERVICE_TRIAL.engineerName,
+      date: today,
+      start: "13:00",
+      end: "15:00",
+      durationHours: 2,
+      plannedHours: 2,
+      customer: GAS_SERVICE_TRIAL.customer,
+      contactName: "Occupier",
+      phone: "+441423000001",
+      address: GAS_SERVICE_TRIAL.siteAddress,
+      description: "Domestic Gas Boiler Service — complete the Field stop/go gates.",
+      accessNotes: "Pilot stop/go. Chris Lawson has current Gas Safe competency.",
+      officeNotes: [
+        `Open Field as Chris Lawson, complete Gas Boiler Service gates, then Core job ${GAS_SERVICE_TRIAL.jobRef} Documents → Forms & Certificates.`,
+      ],
+      status: "Scheduled",
+      attachments: [],
+      photos: [],
+      requirements: [],
     },
   ];
 }
@@ -563,22 +611,36 @@ function liveEngineerSchedule() {
 }
 
 export function getEngineerSchedule(engineerId?: string) {
-  try {
-    const { ensureGasCertTrialInCore } = require("@/lib/gas-cert-trial-core") as {
-      ensureGasCertTrialInCore: () => unknown;
-    };
-    ensureGasCertTrialInCore();
-  } catch {
-    // Trial bootstrap is best-effort.
+  if (useDemoSeedData()) {
+    try {
+      const { ensureGasCertTrialInCore } = require("@/lib/gas-cert-trial-core") as {
+        ensureGasCertTrialInCore: () => unknown;
+      };
+      ensureGasCertTrialInCore();
+    } catch {
+      // Trial bootstrap is best-effort.
+    }
+    try {
+      const { ensureDomesticStopGoSeed } = require("@/lib/domestic-stop-go/seed") as {
+        ensureDomesticStopGoSeed: () => unknown;
+      };
+      ensureDomesticStopGoSeed();
+    } catch {
+      // Stop/go seed is best-effort.
+    }
   }
   const trialJobId = "job-gas-cert-trial";
+  const gasServiceTrialId = GAS_SERVICE_TRIAL.jobId;
   // Prefer the fixed Chris Lawson trial schedule (sched-gas-cert-trial) over any Core planner clones.
-  const liveItems = liveEngineerSchedule().filter((item) => item.jobId !== trialJobId);
+  const liveItems = liveEngineerSchedule().filter(
+    (item) => item.jobId !== trialJobId && item.jobId !== gasServiceTrialId,
+  );
   const liveJobIds = new Set(liveItems.map((item) => item.jobId));
   const items = [
-    ...gasCertTrialSchedule(),
+    ...(useDemoSeedData() ? gasCertTrialSchedule() : []),
+    ...(useDemoSeedData() ? gasServiceTrialSchedule() : []),
     ...liveItems,
-    ...demoEngineerSchedule().filter((item) => !liveJobIds.has(item.jobId) && item.jobId !== trialJobId),
+    ...demoEngineerSchedule().filter((item) => !liveJobIds.has(item.jobId) && item.jobId !== trialJobId && item.jobId !== gasServiceTrialId),
   ].map(withCostCentreOptions);
   return engineerId ? items.filter((item) => item.engineerId === engineerId) : items;
 }

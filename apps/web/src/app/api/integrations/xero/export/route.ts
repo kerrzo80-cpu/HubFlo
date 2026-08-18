@@ -3,9 +3,17 @@ import { writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import { employeeHeaderName, getAccessProfileFromHeaders } from "@/lib/access";
+import { getHubDetailState } from "@/lib/hub-detail-store";
 import { parseJsonRequestBody } from "@/lib/http";
 import { getServerStoreDirectory, loadServerStore, writeServerStore } from "@/lib/server-store";
+import { getSetupConfig } from "@/lib/setup-config-data";
+import {
+  resolveSalesAccountCode,
+  resolveSalesTaxType,
+  xeroAccountCodesFromFinanceSettings,
+} from "@/lib/xero-account-codes";
 import { getStoredXeroTenantId, getXeroAuthStatus, resolveXeroAccessToken } from "@/lib/xero-auth";
+import { retryPendingSumUpXeroPushes } from "@/lib/xero-payment-push";
 
 export const runtime = "nodejs";
 
@@ -20,11 +28,14 @@ type XeroExportInvoice = {
   dueDate: string;
   chargeTotal: number;
   vatRate: number;
+  vatTreatment?: string;
   notes?: string;
   claimType?: string;
+  cisInvoice?: boolean;
   creditOfRef?: string;
   creditOfXeroInvoiceId?: string;
   xeroInvoiceId?: string;
+  costCentre?: string;
   lines: Array<{
     description: string;
     category: string;
@@ -32,6 +43,38 @@ type XeroExportInvoice = {
     costToUs: number;
   }>;
 };
+
+function exportCoding(invoice: XeroExportInvoice) {
+  const finance = getHubDetailState().financeSettings;
+  const codes = xeroAccountCodesFromFinanceSettings(finance);
+  const setupTaxCodes = getSetupConfig().taxCodes;
+  const financeRecord = finance && typeof finance === "object" ? (finance as Record<string, unknown>) : {};
+  const taxType = resolveSalesTaxType({
+    vatRate: invoice.vatRate,
+    vatTreatment: invoice.vatTreatment,
+    setupTaxCodes,
+    taxCodeMappings: Array.isArray(financeRecord.xeroTaxCodeMappings)
+      ? financeRecord.xeroTaxCodeMappings
+      : undefined,
+  });
+  const costCentreMappings = Array.isArray(financeRecord.xeroCostCentreMappings)
+    ? financeRecord.xeroCostCentreMappings
+    : undefined;
+  return {
+    codes,
+    taxType,
+    accountCodeForLine(lineCategory: string) {
+      return resolveSalesAccountCode({
+        codes,
+        claimType: invoice.claimType,
+        lineCategory,
+        cis: Boolean(invoice.cisInvoice),
+        costCentre: invoice.costCentre,
+        costCentreMappings,
+      });
+    },
+  };
+}
 
 type XeroExportRecord = {
   id: string;
@@ -67,6 +110,7 @@ function csvEscape(value: string | number) {
 }
 
 function buildInvoiceCsv(invoice: XeroExportInvoice) {
+  const coding = exportCoding(invoice);
   if (isCreditNote(invoice)) {
     const rows = [
       [
@@ -88,8 +132,8 @@ function buildInvoiceCsv(invoice: XeroExportInvoice) {
         line.description,
         "1",
         line.chargeToClient.toFixed(2),
-        "200",
-        invoice.vatRate > 0 ? "OUTPUT2" : "NONE",
+        coding.accountCodeForLine(line.category),
+        coding.taxType,
         invoice.notes || "",
         invoice.creditOfRef || "",
       ]),
@@ -107,8 +151,8 @@ function buildInvoiceCsv(invoice: XeroExportInvoice) {
       line.description,
       "1",
       line.chargeToClient.toFixed(2),
-      line.category === "Labour" ? "200" : "200",
-      invoice.vatRate > 0 ? "OUTPUT2" : "NONE",
+      coding.accountCodeForLine(line.category),
+      coding.taxType,
       invoice.notes || "",
     ]),
   ];
@@ -279,6 +323,7 @@ async function tryLiveXeroCreditUpsert(invoice: XeroExportInvoice) {
   }
 
   const creditTotal = invoice.lines.reduce((sum, line) => sum + Math.max(0, line.chargeToClient), 0);
+  const coding = exportCoding(invoice);
   const payload: Record<string, unknown> = {
     Type: "ACCRECCREDIT",
     Contact: contactPayload,
@@ -292,8 +337,8 @@ async function tryLiveXeroCreditUpsert(invoice: XeroExportInvoice) {
       Description: line.description,
       Quantity: 1,
       UnitAmount: line.chargeToClient,
-      AccountCode: "200",
-      TaxType: invoice.vatRate > 0 ? "OUTPUT2" : "NONE",
+      AccountCode: coding.accountCodeForLine(line.category),
+      TaxType: coding.taxType,
     })),
     Status: "AUTHORISED",
   };
@@ -374,6 +419,7 @@ async function tryLiveXeroUpsert(invoice: XeroExportInvoice) {
     ? { ContactID: contact.contactId }
     : { Name: contact.contactName || invoice.customer };
 
+  const coding = exportCoding(invoice);
   const payload: Record<string, unknown> = {
     Type: "ACCREC",
     Contact: contactPayload,
@@ -386,8 +432,8 @@ async function tryLiveXeroUpsert(invoice: XeroExportInvoice) {
       Description: line.description,
       Quantity: 1,
       UnitAmount: line.chargeToClient,
-      AccountCode: "200",
-      TaxType: invoice.vatRate > 0 ? "OUTPUT2" : "NONE",
+      AccountCode: coding.accountCodeForLine(line.category),
+      TaxType: coding.taxType,
     })),
     Status: "AUTHORISED",
   };
@@ -521,6 +567,16 @@ export async function POST(request: NextRequest) {
   store.exports.unshift(record);
   writeServerStore(STORE, store);
 
+  let sumupPaymentPush: { pushed: number } | null = null;
+  if (live.ok && live.xeroInvoiceId && !credit) {
+    try {
+      const retry = await retryPendingSumUpXeroPushes(invoice.id, live.xeroInvoiceId);
+      sumupPaymentPush = { pushed: retry.pushed };
+    } catch {
+      sumupPaymentPush = { pushed: 0 };
+    }
+  }
+
   return NextResponse.json({
     export: record,
     accountsStatus: live.ok ? ("Sent" as const) : ("Queued" as const),
@@ -530,5 +586,6 @@ export async function POST(request: NextRequest) {
     xeroExportedAt: live.ok ? createdAt : null,
     xeroContactId: live.ok ? live.xeroContactId || null : null,
     clientId: invoice.clientId || null,
+    sumupPaymentPush,
   });
 }

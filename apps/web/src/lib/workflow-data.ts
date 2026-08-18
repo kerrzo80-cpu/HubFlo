@@ -6,12 +6,32 @@ import {
 } from "@/lib/people-data";
 import { checkQuoteConversion } from "@hubflo/domain";
 import { getHubDetailState } from "@/lib/hub-detail-store";
-import { numberedReference } from "@/lib/numbering";
+import { compareReferenceDesc, numberedReference } from "@/lib/numbering";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { useDemoSeedData } from "@/lib/workspace-mode";
 
 export type JobHealth = "red" | "amber" | "green" | "blue";
+
 export type QuoteStatus = "Draft" | "Sent" | "Accepted" | "Declined" | "Converted" | "Lost";
+
+const QUOTE_STATUS_TRANSITIONS: Record<QuoteStatus, QuoteStatus[]> = {
+  Draft: ["Sent", "Lost"],
+  Sent: ["Accepted", "Declined", "Lost", "Sent"],
+  Accepted: ["Converted", "Lost"],
+  Declined: ["Lost", "Draft"],
+  Converted: [],
+  Lost: ["Draft"],
+};
+
+export function assertQuoteStatusTransition(from: QuoteStatus | string, to: QuoteStatus | string): string | null {
+  if (from === to) return null;
+  const allowed = QUOTE_STATUS_TRANSITIONS[from as QuoteStatus];
+  if (!allowed) return `Unknown quote status “${from}”.`;
+  if (!allowed.includes(to as QuoteStatus)) {
+    return `Cannot move quote from ${from} to ${to}.`;
+  }
+  return null;
+}
 export type PurchaseStatus =
   | "Requested"
   | "Draft"
@@ -33,6 +53,8 @@ export interface Job {
   simproSentAt?: string;
   sourceQuoteId?: string;
   sourceQuoteRef?: string;
+  sourceTenderId?: string;
+  sourceTenderName?: string;
   customer: string;
   site: string;
   description: string;
@@ -83,6 +105,8 @@ export interface Quote {
   simproQuoteId?: string;
   simproStatus?: "Queued" | "Sent" | "Failed";
   simproSentAt?: string;
+  /** Chain continuity ids (survey / takeoff / heat design). */
+  metadata?: Record<string, string | undefined>;
 }
 
 export interface PurchaseRequest {
@@ -109,6 +133,8 @@ export interface PurchaseRequest {
   supplierInvoiceRef?: string;
   receivedAt?: string;
   updatedAt?: string;
+  /** ISO date (YYYY-MM-DD) when status last changed — used for Field day alerts. */
+  statusChangedOn?: string;
   xeroBillId?: string;
   xeroBillNumber?: string;
   xeroExportedAt?: string;
@@ -332,11 +358,20 @@ function getStore(): WorkflowStore {
   return workflowStore;
 }
 
-function deriveJobHealth(status: string): JobHealth {
+function deriveJobHealth(status: string, options?: { scheduledDate?: string; due?: string }): JobHealth {
   if (["Waiting on parts", "Waiting on customer"].includes(status)) return "red";
   if (status === "Approval required") return "amber";
   if (["Ready to invoice", "Invoiced", "Completed"].includes(status)) return "green";
-  return "blue";
+
+  const today = new Date().toISOString().slice(0, 10);
+  const openStatuses = ["Pending", "In Progress", "Scheduled", "Survey", "Quoted"];
+  const isOpen = openStatuses.includes(status) || !["Ready to invoice", "Invoiced", "Completed", "Cancelled"].includes(status);
+  if (isOpen) {
+    const scheduleOrDue = String(options?.scheduledDate || options?.due || "").slice(0, 10);
+    if (scheduleOrDue && scheduleOrDue < today) return "amber";
+  }
+  // Unknown / blue operational states are "in flight", not "on track".
+  return "amber";
 }
 
 function determineNextJobRef(jobs: Job[]): string {
@@ -392,21 +427,46 @@ function workflowStoreTimestamp() {
     .replace(",", "");
 }
 
+function isoDateToday() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** Best-effort parse of workflow timestamps like "04 Aug 2026 15:30" into YYYY-MM-DD. */
+export function isoDateFromWorkflowTimestamp(value?: string) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  const match = raw.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/);
+  if (!match) return "";
+  const day = Number(match[1]);
+  const year = Number(match[3]);
+  const months: Record<string, number> = {
+    Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
+    Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
+  };
+  const month = months[match[2] || ""];
+  if (month === undefined || !day || !year) return "";
+  const date = new Date(Date.UTC(year, month, day));
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
 function purchaseStatusIssuesPoNumber(status: PurchaseStatus) {
   return ["Draft", "Approved", "Issued", "Pending cost", "Part received", "Received"].includes(status);
 }
 
 export function getJobs(): Job[] {
-  // Keep the Field gas-cert trial mirrored in Core even on live SQLite stores.
-  try {
-    const { ensureGasCertTrialInCore } = require("@/lib/gas-cert-trial-core") as {
-      ensureGasCertTrialInCore: () => Job | null;
-    };
-    ensureGasCertTrialInCore();
-  } catch {
-    // Trial bootstrap is best-effort.
+  if (useDemoSeedData()) {
+    try {
+      const { ensureGasCertTrialInCore } = require("@/lib/gas-cert-trial-core") as {
+        ensureGasCertTrialInCore: () => Job | null;
+      };
+      ensureGasCertTrialInCore();
+    } catch {
+      // Trial bootstrap is best-effort.
+    }
   }
-  return clone(getStore().jobs);
+  return clone(getStore().jobs).sort((left, right) => compareReferenceDesc(left.ref, right.ref));
 }
 
 export function resetWorkflowStore(): WorkflowStore {
@@ -432,7 +492,7 @@ export function saveJob(job: Job): Job {
     persistWorkflowStore();
     return clone(current);
   }
-  store.jobs = [...store.jobs, job];
+  store.jobs = [job, ...store.jobs];
   persistWorkflowStore();
   return clone(job);
 }
@@ -453,7 +513,12 @@ export function updateJob(id: string, patch: Partial<Job>): Job | null {
         patch.site ?? current.site,
       )
     : undefined;
-  const nextHealth = patch.status ? deriveJobHealth(patch.status) : current.health;
+  const nextHealth = patch.status || patch.scheduledDate !== undefined || patch.due !== undefined
+    ? deriveJobHealth(patch.status ?? current.status, {
+        scheduledDate: patch.scheduledDate ?? current.scheduledDate,
+        due: patch.due ?? current.due,
+      })
+    : current.health;
   const updated: Job = {
     ...current,
     ...patch,
@@ -495,13 +560,16 @@ export function createJob(
     customer: client?.name ?? payload.customer,
     site: site?.address ?? payload.site,
     ref: nextRef,
-    health: payload.health ?? deriveJobHealth(payload.status),
+    health: payload.health ?? deriveJobHealth(payload.status, {
+      scheduledDate: payload.scheduledDate,
+      due: payload.due,
+    }),
   };
   return saveJob(created);
 }
 
 export function getQuotes(): Quote[] {
-  return clone(getStore().quotes);
+  return clone(getStore().quotes).sort((left, right) => compareReferenceDesc(left.ref, right.ref));
 }
 
 export function createQuote(payload: Omit<Quote, "id" | "ref"> & { id?: string; ref?: string }): Quote {
@@ -532,9 +600,10 @@ export function createQuote(payload: Omit<Quote, "id" | "ref"> & { id?: string; 
     simproQuoteId: payload.simproQuoteId,
     simproStatus: payload.simproStatus,
     simproSentAt: payload.simproSentAt,
+    metadata: payload.metadata,
     ref: payload.ref || determineNextQuoteRef(store.quotes),
   };
-  store.quotes = [...store.quotes, created];
+  store.quotes = [created, ...store.quotes];
   persistWorkflowStore();
   return clone(created);
 }
@@ -545,6 +614,7 @@ export function updateQuoteStatus(id: string, status: QuoteStatus): Quote | null
   if (index < 0) return null;
   const current = store.quotes[index];
   if (!current) return null;
+  if (assertQuoteStatusTransition(current.status, status)) return null;
 
   const updated: Quote = {
     ...current,
@@ -561,6 +631,9 @@ export function updateQuote(id: string, patch: Partial<Quote>): Quote | null {
   if (index < 0) return null;
   const current = store.quotes[index];
   if (!current) return null;
+  if (patch.status && assertQuoteStatusTransition(current.status, patch.status)) {
+    return null;
+  }
   const resolvedClient = (patch.clientId ?? current.clientId)
     ? findClient(patch.clientId ?? current.clientId, patch.customer ?? current.customer)
     : undefined;
@@ -700,7 +773,9 @@ export function convertQuoteToJob(
 }
 
 export function getPurchaseRequests(): PurchaseRequest[] {
-  return clone(getStore().purchaseRequests);
+  return clone(getStore().purchaseRequests).sort((left, right) =>
+    compareReferenceDesc(left.poNumber || left.id, right.poNumber || right.id),
+  );
 }
 
 export type PurchaseRequestInput = Omit<PurchaseRequest, "id" | "status" | "poNumber"> & {
@@ -772,6 +847,8 @@ export function updatePurchaseRequest(
       ? patch.estimatedCost ?? current.estimatedCost
       : current.actualCost);
   const timestamp = workflowStoreTimestamp();
+  const statusChanged =
+    patch.status !== undefined && patch.status !== current.status;
 
   store.purchaseRequests[index] = {
     ...current,
@@ -783,6 +860,9 @@ export function updatePurchaseRequest(
     invoiceReceivedAt: patch.invoiceReceivedAt ?? (status === "Received" ? current.invoiceReceivedAt ?? timestamp : current.invoiceReceivedAt),
     receivedAt: patch.receivedAt ?? (status === "Received" ? current.receivedAt ?? timestamp : current.receivedAt),
     updatedAt: patch.updatedAt ?? timestamp,
+    statusChangedOn: statusChanged
+      ? patch.statusChangedOn || isoDateToday()
+      : patch.statusChangedOn ?? current.statusChangedOn,
   };
   persistWorkflowStore();
   return clone(store.purchaseRequests[index]);
@@ -793,4 +873,15 @@ export function updatePurchaseRequestStatus(
   status: Exclude<PurchaseRequest["status"], "Requested">,
 ): PurchaseRequest | null {
   return updatePurchaseRequest(id, { status });
+}
+
+export function removePurchaseRequest(id: string): boolean {
+  const store = getStore();
+  const currentCount = store.purchaseRequests.length;
+  store.purchaseRequests = store.purchaseRequests.filter((request) => request.id !== id);
+  if (store.purchaseRequests.length < currentCount) {
+    persistWorkflowStore();
+    return true;
+  }
+  return false;
 }

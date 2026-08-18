@@ -4,23 +4,26 @@ import { NexaClientProvider } from "@/lib/field/nexa";
 import "./field.css";
 
 export const metadata: Metadata = {
-  title: "NeXa Field",
-  description: "Field app for plumbers and joiners — schedule, job packs, and Blake time checks.",
-  applicationName: "NeXa Field",
-  manifest: "/manifest-field.json",
+  title: "Field",
+  description: "Field app for plumbers and joiners — schedule, job packs, and hours.",
+  applicationName: "Field",
+  manifest: "/api/manifest/field",
   appleWebApp: {
     capable: true,
-    title: "NeXa Field",
+    title: "Field",
     statusBarStyle: "default",
   },
   icons: {
-    icon: "/brand/nexa-favicon.svg",
-    apple: "/brand/nexa-command-mark.svg",
+    icon: [
+      { url: "/api/branding/favicon?size=32&v=tab4", sizes: "32x32", type: "image/png" },
+      { url: "/api/branding/assets/logo-field?home=1&v=compose5", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/api/branding/assets/logo-field?apple=1&v=compose5", sizes: "180x180", type: "image/png" }],
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#2E8C7D",
+  themeColor: "#157fa8",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,

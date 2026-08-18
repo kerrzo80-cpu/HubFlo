@@ -1,25 +1,143 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { ArrowLeft, Camera, ClipboardCheck, Layers, MapPin, Phone } from "lucide-react";
+import {
+  ArrowLeft,
+  Camera,
+  CheckCircle2,
+  ChevronRight,
+  ClipboardCheck,
+  Layers,
+  MapPin,
+  MessageCircle,
+  PackagePlus,
+  Phone,
+  ShoppingCart,
+  Wrench,
+} from "lucide-react";
+import { BlakeCharacter } from "@/components/field/BlakeCharacter";
+import { FileDropZone } from "@/components/FileDropZone";
 import { ProgrammeBoard } from "@/components/field/ProgrammeBoard";
 import { DayworkSheetForm } from "@/components/field/DayworkSheetForm";
+import { DomesticStopGoPanel } from "@/components/field/DomesticStopGoPanel";
+import { isDomesticStopGoCostCentre } from "@/lib/domestic-stop-go/cost-centres";
 import { useNexaClient } from "@/lib/field/nexa";
 import { toggleMockRequirement } from "@/lib/field/nexa/mock-data";
-import type { DayworkAccountRecord } from "@/lib/daywork-account-form";
+import { readFieldJobPack, saveFieldJobPack } from "@/lib/field/field-job-pack-cache";
+import {
+  enqueueOutboxItem,
+  isBrowserOnline,
+  isOfflineOrNetworkError,
+  type OutboxItemKind,
+} from "@/lib/field/offline-outbox";
+import {
+  dayworkSheetListLabel,
+  formatFieldDayworkEvidenceSummary,
+  isDayworkRequirement,
+  isDayworkSubmittedToCore,
+  isValidDayworkClientEmail,
+  sortDayworkSheetsByNumber,
+  type DayworkAccountRecord,
+} from "@/lib/daywork-account-form";
+import { prepareFieldUploadFile, prepareFieldUploadFiles } from "@/lib/field/field-photo-client";
 import { formatDuration, mapsUrl } from "@/lib/field/format";
 import { fieldPath } from "@/lib/field/routes";
-import type { FieldEvidenceType, FieldRequirement, FieldScheduleItem } from "@/lib/field/types";
+import type {
+  FieldAttachment,
+  FieldEvidenceType,
+  FieldJobStatus,
+  FieldRequirement,
+  FieldScheduleItem,
+} from "@/lib/field/types";
 import { isoDateToUk, toDateInputValue, toUkDateDisplay } from "@/lib/uk-date";
 
-type Tab = "pack" | "checklist" | "photos";
+type FieldDayworkSheet = DayworkAccountRecord & { costCentreId?: string; updatedAt?: string };
+
+type FieldWorkflowNote = {
+  id: string;
+  text: string;
+  visibility: string;
+  createdBy: string;
+  createdAt: string;
+};
+
+type FieldWorkflowPoRequest = {
+  id: string;
+  poNumber?: string;
+  supplier: string;
+  note: string;
+  jobRef?: string;
+  costCentreName?: string;
+  createdBy: string;
+  createdAt: string;
+  status: string;
+};
+
+type FieldWorkflowOutcome = {
+  status: "Complete" | "Needs parts" | "Needs rebooked" | "Could not access" | "Office review required";
+  note: string;
+  createdBy: string;
+  createdAt: string;
+};
+
+type FieldWorkflowState = {
+  photos: FieldAttachment[];
+  notes: FieldWorkflowNote[];
+  poRequests: FieldWorkflowPoRequest[];
+  outcome: FieldWorkflowOutcome | null;
+};
+
+const FIELD_OFFLINE_NOTICE = "Saved offline — will sync when online";
+
+const WORKFLOW_OUTBOX_KIND: Record<
+  "add_photos" | "add_note" | "request_po" | "set_outcome",
+  OutboxItemKind
+> = {
+  add_photos: "photo",
+  add_note: "note",
+  request_po: "po",
+  set_outcome: "outcome",
+};
+
+function applyCachedJobPack(
+  pack: ReturnType<typeof readFieldJobPack>,
+  setters: {
+    setJob: (value: FieldScheduleItem | null | ((current: FieldScheduleItem | null) => FieldScheduleItem | null)) => void;
+    setWorkflow: (value: FieldWorkflowState | ((current: FieldWorkflowState) => FieldWorkflowState)) => void;
+    setDayworkSheets: (value: FieldDayworkSheet[] | ((current: FieldDayworkSheet[]) => FieldDayworkSheet[])) => void;
+    setError: (value: string) => void;
+    setNotice: (value: string) => void;
+  },
+) {
+  if (!pack) return false;
+  setters.setJob(pack.job);
+  setters.setWorkflow({
+    photos: pack.workflow.photos as FieldAttachment[],
+    notes: pack.workflow.notes as FieldWorkflowNote[],
+    poRequests: pack.workflow.poRequests as FieldWorkflowPoRequest[],
+    outcome: pack.workflow.outcome as FieldWorkflowOutcome | null,
+  });
+  setters.setDayworkSheets(pack.dayworkSheets as FieldDayworkSheet[]);
+  setters.setError("");
+  setters.setNotice("Showing saved copy — changes will sync when you are back online.");
+  return true;
+}
+
+function requirementsLookLikeDaywork(requirements: FieldRequirement[]) {
+  return requirements.some((item) => isDayworkRequirement(item));
+}
+
+type Tab = "pack" | "checklist" | "photos" | "po";
 
 type DraftValue = {
   text?: string;
   numberValue?: string;
   photoName?: string;
+  photoContentBase64?: string;
+  photoMimeType?: string;
+  photoPreviewUrl?: string;
 };
 
 function evidenceTypeOf(item: FieldRequirement): FieldEvidenceType {
@@ -83,14 +201,20 @@ function validateRequirementDraft(item: FieldRequirement, draft: DraftValue): st
 }
 
 function doneSummary(item: FieldRequirement) {
-  const parts = [
-    item.validation?.inputKind === "date" ? toUkDateDisplay(item.value?.text) : item.value?.text,
-    item.value?.numberValue,
-    item.value?.photoName,
-  ]
+  const textRaw =
+    item.validation?.inputKind === "date"
+      ? toUkDateDisplay(item.value?.text)
+      : formatFieldDayworkEvidenceSummary(item.label, item.value?.text || "");
+  const parts = [textRaw, item.value?.numberValue, item.value?.photoName]
     .map((part) => String(part || "").trim())
     .filter(Boolean);
   return parts.join(" · ");
+}
+
+function outcomeToJobStatus(status: FieldWorkflowOutcome["status"]): FieldJobStatus | null {
+  if (status === "Complete") return "Complete";
+  if (status === "Needs parts") return "Needs parts";
+  return null;
 }
 
 export default function JobDetailPage() {
@@ -109,6 +233,86 @@ export default function JobDetailPage() {
   const [checklistMode, setChecklistMode] = useState<"job" | "daywork">("job");
   const [dayworkBusy, setDayworkBusy] = useState(false);
   const [dayworkRecord, setDayworkRecord] = useState<DayworkAccountRecord | null>(null);
+  const [dayworkCostCentreId, setDayworkCostCentreId] = useState("");
+  const [dayworkSheets, setDayworkSheets] = useState<FieldDayworkSheet[]>([]);
+  const [sessionError, setSessionError] = useState("");
+  const [workflowBusy, setWorkflowBusy] = useState(false);
+  const [workflow, setWorkflow] = useState<FieldWorkflowState>({
+    photos: [],
+    notes: [],
+    poRequests: [],
+    outcome: null,
+  });
+  const [noteText, setNoteText] = useState("");
+  const [poSupplier, setPoSupplier] = useState("");
+  const [poSupplierEmail, setPoSupplierEmail] = useState("");
+  const [poSupplierId, setPoSupplierId] = useState("");
+  const [poSupplierQuery, setPoSupplierQuery] = useState("");
+  const [poSupplierOpen, setPoSupplierOpen] = useState(false);
+  const [suppliers, setSuppliers] = useState<
+    Array<{ id: string; name: string; email?: string; account?: string; category?: string }>
+  >([]);
+  const [poNote, setPoNote] = useState("");
+  const [outcomeNote, setOutcomeNote] = useState("");
+  const [stopGoComplete, setStopGoComplete] = useState(false);
+
+  const stopGoEnabled = Boolean(
+    job && isDomesticStopGoCostCentre(job.costCentreTemplate || job.costCentre),
+  );
+
+  const orderedDayworkSheets = useMemo(() => {
+    if (!job?.jobId) return dayworkSheets;
+    return sortDayworkSheetsByNumber(
+      job.jobId,
+      dayworkSheets.filter((sheet): sheet is FieldDayworkSheet & { costCentreId: string } =>
+        Boolean(sheet.costCentreId),
+      ),
+    );
+  }, [dayworkSheets, job?.jobId]);
+
+  const canComplete = useMemo(() => {
+    if (!job) return false;
+    if (stopGoEnabled) return stopGoComplete;
+    // Daywork sheets never gate job Complete — including Handover signature steps
+    // whose stage is not "Daywork" but whose stepId/id is daywork-scoped.
+    return !job.requirements.some(
+      (item) => item.status === "missing" && !isDayworkRequirement(item),
+    );
+  }, [job, stopGoComplete, stopGoEnabled]);
+
+  const filteredSuppliers = useMemo(() => {
+    const query = poSupplierQuery.trim().toLowerCase();
+    if (!query) return suppliers.slice(0, 8);
+    return suppliers
+      .filter((supplier) => {
+        const haystack = [supplier.name, supplier.account, supplier.category, supplier.email]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(query);
+      })
+      .slice(0, 8);
+  }, [poSupplierQuery, suppliers]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/field/suppliers", { credentials: "include", cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok || cancelled) return;
+        const body = (await response.json()) as {
+          suppliers?: Array<{ id: string; name: string; email?: string; account?: string; category?: string }>;
+        };
+        if (!cancelled && Array.isArray(body.suppliers)) {
+          setSuppliers(body.suppliers);
+        }
+      })
+      .catch(() => {
+        // Supplier directory optional until Core People → Suppliers is populated.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setTab(initialTab);
@@ -116,11 +320,46 @@ export default function JobDetailPage() {
 
   useEffect(() => {
     let cancelled = false;
+    void fetch("/api/auth/me", { credentials: "include", cache: "no-store" })
+      .then(async (response) => {
+        if (cancelled) return;
+        if (response.status === 401) {
+          setSessionError("Not signed in — Daywork Save will not reach Core. Open /login, sign in, then come back.");
+          return;
+        }
+        setSessionError("");
+      })
+      .catch(() => {
+        if (!cancelled) setSessionError("Could not verify sign-in — Save may fail until you refresh.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [params.scheduleId]);
+
+  useEffect(() => {
+    let cancelled = false;
     async function load() {
+      const hydrateFromCache = () => {
+        if (cancelled) return false;
+        return applyCachedJobPack(readFieldJobPack(params.scheduleId), {
+          setJob,
+          setWorkflow,
+          setDayworkSheets,
+          setError,
+          setNotice,
+        });
+      };
+
+      if (!isBrowserOnline()) {
+        if (hydrateFromCache()) return;
+      }
+
       try {
         const item = await client.getJob(params.scheduleId);
         if (cancelled) return;
         if (!item) {
+          if (hydrateFromCache()) return;
           setError("Job not found on the schedule.");
           return;
         }
@@ -133,16 +372,107 @@ export default function JobDetailPage() {
         if (client.getConnection().mode === "nexa") {
           const response = await fetch(
             `/api/field/jobs/${encodeURIComponent(item.scheduleId)}/requirements`,
+            { credentials: "include", cache: "no-store" },
           );
+          let serverChecklistMode: "job" | "daywork" = "job";
+          let serverDayworkCostCentreId = "";
+          let loadedRequirements = item.requirements;
           if (response.ok) {
-            const body = (await response.json()) as { requirements?: FieldRequirement[] };
+            const body = (await response.json()) as {
+              requirements?: FieldRequirement[];
+              checklistMode?: "job" | "daywork";
+              dayworkCostCentreId?: string | null;
+            };
             if (!cancelled && body.requirements?.length) {
+              loadedRequirements = body.requirements;
               setJob({ ...item, requirements: body.requirements });
+            }
+            if (body.checklistMode === "daywork" || requirementsLookLikeDaywork(body.requirements || [])) {
+              serverChecklistMode = "daywork";
+            }
+            serverDayworkCostCentreId = String(body.dayworkCostCentreId || "").trim();
+          }
+
+          const dayworkResponse = await fetch(
+            `/api/field/jobs/${encodeURIComponent(item.scheduleId)}/daywork?list=1`,
+            { credentials: "include", cache: "no-store" },
+          );
+          let listedDayworkSheets: FieldDayworkSheet[] = [];
+          if (dayworkResponse.ok) {
+            const dayworkBody = (await dayworkResponse.json()) as { sheets?: FieldDayworkSheet[] };
+            if (!cancelled && Array.isArray(dayworkBody.sheets)) {
+              listedDayworkSheets = dayworkBody.sheets;
+              setDayworkSheets(dayworkBody.sheets);
+            }
+          }
+
+          let loadedWorkflow: FieldWorkflowState = {
+            photos: [],
+            notes: [],
+            poRequests: [],
+            outcome: null,
+          };
+          const workflowResponse = await fetch(
+            `/api/field/jobs/${encodeURIComponent(item.scheduleId)}/workflow`,
+            { credentials: "include", cache: "no-store" },
+          );
+          if (workflowResponse.ok) {
+            const body = (await workflowResponse.json()) as FieldWorkflowState;
+            if (!cancelled) {
+              loadedWorkflow = {
+                photos: body.photos ?? [],
+                notes: body.notes ?? [],
+                poRequests: body.poRequests ?? [],
+                outcome: body.outcome ?? null,
+              };
+              setWorkflow(loadedWorkflow);
+              const mapped = body.outcome ? outcomeToJobStatus(body.outcome.status) : null;
+              if (mapped) {
+                setJob((current) => (current ? { ...current, status: mapped } : current));
+              }
+            }
+          }
+
+          if (!cancelled) {
+            saveFieldJobPack({
+              scheduleId: item.scheduleId,
+              job: { ...item, requirements: loadedRequirements },
+              workflow: loadedWorkflow,
+              dayworkSheets: listedDayworkSheets,
+              savedAt: new Date().toISOString(),
+            });
+          }
+
+          // Only auto-reopen an in-progress Daywork. Submitted sheets stay as Daywork 1/2/3 labels.
+          if (!cancelled && serverChecklistMode === "daywork") {
+            const targetId = serverDayworkCostCentreId;
+            const targetSheet = targetId
+              ? listedDayworkSheets.find((sheet) => sheet.costCentreId === targetId)
+              : listedDayworkSheets[0];
+            if (targetSheet && isDayworkSubmittedToCore(targetSheet)) {
+              await fetch(`/api/field/jobs/${encodeURIComponent(item.scheduleId)}/daywork`, {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "clear" }),
+              }).catch(() => undefined);
+              setChecklistMode("job");
+              setDayworkRecord(null);
+              setDayworkCostCentreId("");
+            } else {
+              await openDayworkSheet({
+                job: item,
+                costCentreId: serverDayworkCostCentreId || undefined,
+                quiet: true,
+              });
             }
           }
         }
       } catch (loadError) {
-        if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Could not load job.");
+        if (!cancelled) {
+          if (hydrateFromCache()) return;
+          setError(loadError instanceof Error ? loadError.message : "Could not load job.");
+        }
       }
     }
     void load();
@@ -151,57 +481,332 @@ export default function JobDetailPage() {
     };
   }, [client, params.scheduleId]);
 
-  function beginEdit(item: FieldRequirement) {
-    setEditingId(item.id);
-    setDraftByRequirement((current) => ({
-      ...current,
-      [item.id]: {
-        text:
-          item.validation?.inputKind === "date"
-            ? toUkDateDisplay(item.value?.text || "")
-            : item.value?.text || "",
-        numberValue: item.value?.numberValue || "",
-        photoName: item.value?.photoName || "",
-      },
-    }));
+  async function runWorkflowAction(
+    action: "add_photos" | "add_note" | "request_po" | "set_outcome",
+    payload: Record<string, unknown>,
+    successMessage: string,
+  ) {
+    if (!job) return false;
+    if (client.getConnection().mode !== "nexa") {
+      setNotice(`${successMessage} (demo)`);
+      return true;
+    }
+    setWorkflowBusy(true);
     setError("");
     setNotice("");
-  }
+    const path = `/api/field/jobs/${encodeURIComponent(job.scheduleId)}/workflow`;
+    const requestBody = {
+      action,
+      payload: { ...payload, createdBy: job.engineerName },
+    };
+    const queueOfflineWorkflow = () => {
+      enqueueOutboxItem({
+        kind: WORKFLOW_OUTBOX_KIND[action],
+        jobId: job.jobId || job.scheduleId,
+        path,
+        method: "POST",
+        body: requestBody,
+      });
 
-  async function openDayworkSheet() {
-    if (!job) return;
-    setDayworkBusy(true);
-    setError("");
-    setNotice("");
+      if (action === "add_photos") {
+        const files = Array.isArray(payload.files)
+          ? (payload.files as Array<{
+              name?: string;
+              type?: FieldAttachment["type"];
+              contentBase64?: string;
+              mimeType?: string;
+              size?: number;
+            }>)
+          : [];
+        const uploadedAt = "Pending sync";
+        const offlinePhotos = files.map((file, index): FieldAttachment => {
+          const mimeType = String(file.mimeType || "image/jpeg");
+          const contentBase64 = String(file.contentBase64 || "");
+          return {
+            id: `offline-photo-${Date.now()}-${index}`,
+            name: String(file.name || `Upload ${index + 1}`),
+            type: file.type || "Photo",
+            uploadedBy: job.engineerName,
+            uploadedAt,
+            mimeType,
+            size: file.size,
+            url: contentBase64 ? `data:${mimeType};base64,${contentBase64}` : undefined,
+          };
+        });
+        if (offlinePhotos.length) {
+          setWorkflow((current) => ({
+            ...current,
+            photos: [...offlinePhotos, ...current.photos],
+          }));
+          setJob((current) =>
+            current
+              ? {
+                  ...current,
+                  photos: [
+                    ...offlinePhotos.filter((photo) => photo.type === "Photo" || photo.type === "Video"),
+                    ...current.photos,
+                  ],
+                }
+              : current,
+          );
+        }
+      }
+
+      if (action === "add_note") {
+        const offlineNote: FieldWorkflowNote = {
+          id: `offline-note-${Date.now()}`,
+          text: String(payload.text || ""),
+          visibility: String(payload.visibility || "Office review"),
+          createdBy: job.engineerName,
+          createdAt: "Pending sync",
+        };
+        setWorkflow((current) => ({
+          ...current,
+          notes: [offlineNote, ...current.notes],
+        }));
+      }
+
+      if (action === "request_po") {
+        const offlinePo: FieldWorkflowPoRequest = {
+          id: `offline-po-${Date.now()}`,
+          supplier: String(payload.supplier || ""),
+          note: String(payload.note || ""),
+          jobRef: String(payload.jobRef || job.jobRef),
+          costCentreName: String(payload.costCentreName || job.costCentre),
+          createdBy: job.engineerName,
+          createdAt: "Pending sync",
+          status: "Office review",
+        };
+        setWorkflow((current) => ({
+          ...current,
+          poRequests: [offlinePo, ...current.poRequests],
+        }));
+      }
+
+      if (action === "set_outcome") {
+        const status = payload.status as FieldWorkflowOutcome["status"];
+        const offlineOutcome: FieldWorkflowOutcome = {
+          status,
+          note: String(payload.note || ""),
+          createdBy: job.engineerName,
+          createdAt: "Pending sync",
+        };
+        setWorkflow((current) => ({
+          ...current,
+          outcome: offlineOutcome,
+        }));
+        const mapped = outcomeToJobStatus(status);
+        if (mapped) {
+          setJob((current) => (current ? { ...current, status: mapped } : current));
+        }
+      }
+
+      setNotice(FIELD_OFFLINE_NOTICE);
+      return true;
+    };
     try {
-      const response = await fetch(`/api/field/jobs/${encodeURIComponent(job.scheduleId)}/daywork`, {
+      if (!isBrowserOnline()) {
+        return queueOfflineWorkflow();
+      }
+      const response = await fetch(path, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "activate" }),
+        body: JSON.stringify(requestBody),
+      });
+      const body = (await response.json().catch(() => ({}))) as FieldWorkflowState & { error?: string };
+      if (!response.ok) throw new Error(body.error || "Could not update job.");
+      setWorkflow({
+        photos: body.photos ?? [],
+        notes: body.notes ?? [],
+        poRequests: body.poRequests ?? [],
+        outcome: body.outcome ?? null,
+      });
+      if (action === "set_outcome" && body.outcome) {
+        const mapped = outcomeToJobStatus(body.outcome.status);
+        if (mapped) setJob((current) => (current ? { ...current, status: mapped } : current));
+      }
+      if (action === "add_photos" && body.photos?.length) {
+        setJob((current) =>
+          current
+            ? {
+                ...current,
+                photos: [
+                  ...body.photos.filter((photo) => photo.type === "Photo" || photo.type === "Video"),
+                  ...current.photos.filter((photo) => !body.photos.some((item) => item.id === photo.id)),
+                ],
+              }
+            : current,
+        );
+      }
+      setNotice(successMessage);
+      return true;
+    } catch (workflowError) {
+      if (isOfflineOrNetworkError(workflowError)) {
+        return queueOfflineWorkflow();
+      }
+      setError(workflowError instanceof Error ? workflowError.message : "Could not update job.");
+      return false;
+    } finally {
+      setWorkflowBusy(false);
+    }
+  }
+
+  async function uploadMediaFiles(files: File[]) {
+    if (!files.length) return;
+    setWorkflowBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const mapped = await prepareFieldUploadFiles(files);
+      const withBytes = mapped.filter((file) => file.contentBase64).length;
+      await runWorkflowAction(
+        "add_photos",
+        { files: mapped },
+        withBytes
+          ? `${mapped.length} file${mapped.length === 1 ? "" : "s"} synced to Core.`
+          : `${mapped.length} file${mapped.length === 1 ? "" : "s"} queued.`,
+      );
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Could not prepare those files.");
+    } finally {
+      setWorkflowBusy(false);
+    }
+  }
+
+  async function submitNote(event: FormEvent) {
+    event.preventDefault();
+    if (!noteText.trim()) return;
+    const saved = await runWorkflowAction(
+      "add_note",
+      { text: noteText, visibility: "Office review" },
+      "Note sent to office.",
+    );
+    if (saved) setNoteText("");
+  }
+
+  async function submitPoRequest(event: FormEvent) {
+    event.preventDefault();
+    if (!job || !poNote.trim()) return;
+    const selected =
+      (poSupplierId
+        ? suppliers.find((item) => item.id === poSupplierId)
+        : undefined) ||
+      suppliers.find((item) => item.name.toLowerCase() === poSupplier.trim().toLowerCase());
+    if (!selected) {
+      setError("Pick a supplier from the Core list — start typing, then tap the match.");
+      return;
+    }
+    const saved = await runWorkflowAction(
+      "request_po",
+      {
+        supplier: selected.name,
+        supplierEmail: selected.email || poSupplierEmail || undefined,
+        note: poNote,
+        jobRef: job.jobRef,
+        costCentreName: job.costCentre,
+      },
+      `PO request sent for ${job.jobRef} · ${selected.name}.`,
+    );
+    if (saved) {
+      setPoSupplier("");
+      setPoSupplierEmail("");
+      setPoSupplierId("");
+      setPoSupplierQuery("");
+      setPoNote("");
+    }
+  }
+
+  function selectPoSupplier(supplier: {
+    id: string;
+    name: string;
+    email?: string;
+  }) {
+    setPoSupplier(supplier.name);
+    setPoSupplierQuery(supplier.name);
+    setPoSupplierId(supplier.id);
+    setPoSupplierEmail(supplier.email || "");
+    setPoSupplierOpen(false);
+    setError("");
+  }
+
+  async function openDayworkSheet(options?: {
+    fresh?: boolean;
+    costCentreId?: string;
+    quiet?: boolean;
+    job?: FieldScheduleItem;
+  }) {
+    const activeJob = options?.job || job;
+    if (!activeJob) return;
+    setDayworkBusy(true);
+    setError("");
+    if (!options?.quiet) setNotice("");
+    try {
+      const response = await fetch(`/api/field/jobs/${encodeURIComponent(activeJob.scheduleId)}/daywork`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: options?.fresh ? "new" : "activate",
+          ...(options?.costCentreId && !options.fresh ? { costCentreId: options.costCentreId } : {}),
+        }),
       });
       const body = (await response.json()) as {
         error?: string;
         requirements?: FieldRequirement[];
         costCentreName?: string;
+        costCentreId?: string;
         record?: DayworkAccountRecord | null;
+        sheets?: FieldDayworkSheet[];
       };
+      if (response.status === 401) {
+        throw new Error("Not signed in — open /login, sign in, then try Add Daywork Account again.");
+      }
       if (!response.ok) throw new Error(body.error || "Could not open daywork sheet.");
+      if (body.sheets) setDayworkSheets(body.sheets);
+
+      // Submitted sheets are listed only — don’t pull the full form again.
+      if (!options?.fresh && isDayworkSubmittedToCore(body.record)) {
+        const openedLabel =
+          body.costCentreId || options?.costCentreId
+            ? dayworkSheetListLabel(activeJob.jobId, body.costCentreId || options?.costCentreId || "")
+            : "Daywork";
+        setChecklistMode("job");
+        setDayworkRecord(null);
+        setDayworkCostCentreId("");
+        setTab("pack");
+        if (!options?.quiet) {
+          setNotice(`${openedLabel} is submitted — shown as a label only. Office edits it in Core.`);
+        }
+        return;
+      }
+
       setChecklistMode("daywork");
       setTab("checklist");
-      setDayworkRecord(body.record || null);
+      setDayworkRecord(options?.fresh ? null : body.record || null);
+      setDayworkCostCentreId(body.costCentreId || options?.costCentreId || "");
       if (body.requirements) {
-        setJob((current) =>
-          current
-            ? {
-                ...current,
-                requirements: body.requirements!,
-                costCentre: body.costCentreName || "Daywork account",
-              }
-            : current,
-        );
+        setJob((current) => {
+          const base = current || activeJob;
+          return {
+            ...base,
+            requirements: body.requirements!,
+            costCentre: body.costCentreName || "Daywork account",
+          };
+        });
       }
-      setNotice("Daywork Account open — add labour days, materials and both signatures.");
+      if (options?.quiet) return;
+      const openedLabel =
+        body.costCentreId || options?.costCentreId
+          ? dayworkSheetListLabel(activeJob.jobId, body.costCentreId || options?.costCentreId || "")
+          : "Daywork";
+      setNotice(
+        options?.fresh
+          ? "New Daywork sheet open — fill Mon–Sun hours, materials and both signatures, then Save and finish. Or Discard if opened by mistake."
+          : options?.costCentreId
+            ? `${openedLabel} open — edit hours/materials/signatures if needed, then Save and finish. Discard if this sheet was opened by mistake.`
+            : "Daywork Account open — enter Mon–Sun hours, materials and both signatures.",
+      );
     } catch (openError) {
       setError(openError instanceof Error ? openError.message : "Could not open daywork sheet.");
     } finally {
@@ -209,8 +814,8 @@ export default function JobDetailPage() {
     }
   }
 
-  async function backToJobChecklist() {
-    if (!job) return;
+  async function backToJobChecklist(options?: { quiet?: boolean }) {
+    if (!job) return null;
     setDayworkBusy(true);
     setError("");
     try {
@@ -220,35 +825,163 @@ export default function JobDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "clear" }),
       });
-      const body = (await response.json()) as { requirements?: FieldRequirement[]; error?: string };
+      const body = (await response.json()) as {
+        requirements?: FieldRequirement[];
+        sheets?: FieldDayworkSheet[];
+        error?: string;
+      };
       if (!response.ok) throw new Error(body.error || "Could not leave daywork sheet.");
       setChecklistMode("job");
       setDayworkRecord(null);
+      setDayworkCostCentreId("");
+      if (Array.isArray(body.sheets)) setDayworkSheets(body.sheets);
+      let nextRequirements = body.requirements;
+      if (nextRequirements) {
+        setJob((current) => (current ? { ...current, requirements: nextRequirements! } : current));
+      } else {
+        const item = await client.getJob(job.scheduleId);
+        if (item) {
+          setJob(item);
+          nextRequirements = item.requirements;
+        }
+      }
+      if (!options?.quiet) setNotice("Back on the job checklist.");
+      return nextRequirements || null;
+    } catch (leaveError) {
+      setError(leaveError instanceof Error ? leaveError.message : "Could not leave daywork sheet.");
+      return null;
+    } finally {
+      setDayworkBusy(false);
+    }
+  }
+
+  async function discardDayworkSheet(costCentreId: string) {
+    if (!job || !costCentreId) return;
+    const label = dayworkSheetListLabel(job.jobId, costCentreId);
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(`Discard ${label}? This removes the in-progress Daywork opened by mistake. Submitted Dayworks stay locked.`)
+    ) {
+      return;
+    }
+    setDayworkBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/field/jobs/${encodeURIComponent(job.scheduleId)}/daywork`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "discard", costCentreId }),
+      });
+      const body = (await response.json()) as {
+        error?: string;
+        requirements?: FieldRequirement[];
+        sheets?: FieldDayworkSheet[];
+      };
+      if (!response.ok) throw new Error(body.error || "Could not discard Daywork.");
+      setChecklistMode("job");
+      setDayworkRecord(null);
+      setDayworkCostCentreId("");
+      if (Array.isArray(body.sheets)) setDayworkSheets(body.sheets);
       if (body.requirements) {
         setJob((current) => (current ? { ...current, requirements: body.requirements! } : current));
       } else {
         const item = await client.getJob(job.scheduleId);
         if (item) setJob(item);
       }
-      setNotice("Back on the job checklist.");
-    } catch (leaveError) {
-      setError(leaveError instanceof Error ? leaveError.message : "Could not leave daywork sheet.");
+      setTab("pack");
+      setNotice(`${label} discarded — back on the job checklist. You can Mark complete when job stop/go items are done.`);
+    } catch (discardError) {
+      setError(discardError instanceof Error ? discardError.message : "Could not discard Daywork.");
     } finally {
       setDayworkBusy(false);
     }
   }
 
-  async function reopenRequirement(requirementId: string) {
-    if (!job) return;
-    const requirement = job.requirements.find((item) => item.id === requirementId);
-    if (!requirement) return;
-    const connection = client.getConnection();
-    setSavingId(requirementId);
+  async function emailDayworkClientCopy(costCentreId: string, presetEmail?: string) {
+    if (!job || !costCentreId) return;
+    const label = dayworkSheetListLabel(job.jobId, costCentreId);
+    const sheet = orderedDayworkSheets.find((item) => item.costCentreId === costCentreId);
+    const suggested = String(presetEmail || sheet?.clientEmail || "").trim();
+    const entered =
+      typeof window !== "undefined"
+        ? window.prompt(`Email ${label} client copy (hours & materials only) to:`, suggested)
+        : suggested;
+    if (entered === null) return;
+    const email = entered.trim();
+    if (!isValidDayworkClientEmail(email)) {
+      setError("Enter a valid client email address to send the Daywork copy.");
+      return;
+    }
+    setDayworkBusy(true);
     setError("");
     setNotice("");
+    try {
+      const response = await fetch(`/api/field/jobs/${encodeURIComponent(job.scheduleId)}/daywork`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "send_copy",
+          costCentreId,
+          clientEmail: email,
+          createdBy: job.engineerName,
+        }),
+      });
+      const body = (await response.json()) as {
+        error?: string;
+        clientEmail?: string;
+        sheets?: FieldDayworkSheet[];
+      };
+      if (!response.ok) throw new Error(body.error || "Could not email Daywork copy.");
+      if (Array.isArray(body.sheets)) setDayworkSheets(body.sheets);
+      setNotice(`${label} client copy emailed to ${body.clientEmail || email} (no costs).`);
+    } catch (emailError) {
+      setError(emailError instanceof Error ? emailError.message : "Could not email Daywork copy.");
+    } finally {
+      setDayworkBusy(false);
+    }
+  }
 
-    if (connection.mode === "nexa") {
-      try {
+  async function setOutcome(status: FieldWorkflowOutcome["status"]) {
+    if (status === "Complete") {
+      // Leave a mistaken open Daywork first so we evaluate the real job checklist.
+      let requirements = job?.requirements || [];
+      if (checklistMode === "daywork") {
+        const restored = await backToJobChecklist({ quiet: true });
+        if (restored) requirements = restored;
+      }
+      const blocked = stopGoEnabled
+        ? !stopGoComplete
+        : requirements.some((item) => item.status === "missing" && !isDayworkRequirement(item));
+      if (blocked) {
+        setError(
+          stopGoEnabled
+            ? "Cannot mark complete yet. Finish the mandatory stop/go record first."
+            : "Cannot mark complete yet. Finish required checklist items first.",
+        );
+        setTab("checklist");
+        return;
+      }
+    }
+    await runWorkflowAction(
+      "set_outcome",
+      { status, note: outcomeNote },
+      status === "Needs parts"
+        ? "Marked awaiting parts — office notified."
+        : status === "Complete"
+          ? "Marked complete — office passaround next, then invoice."
+          : `${status} sent to office.`,
+    );
+  }
+
+  async function reopenRequirement(requirementId: string) {
+    if (!job) return;
+    setSavingId(requirementId);
+    setError("");
+    try {
+      if (client.getConnection().mode === "nexa") {
         const response = await fetch(
           `/api/field/jobs/${encodeURIComponent(job.scheduleId)}/requirements`,
           {
@@ -261,29 +994,23 @@ export default function JobDetailPage() {
             }),
           },
         );
-        if (!response.ok) throw new Error("Could not reopen checklist item.");
+        if (!response.ok) {
+          const failed = (await response.json().catch(() => ({}))) as { error?: string };
+          throw new Error(failed.error || "Could not reopen checklist item.");
+        }
         const body = (await response.json()) as { requirements?: FieldRequirement[] };
         if (body.requirements) {
           setJob((current) => (current ? { ...current, requirements: body.requirements! } : current));
         }
-        beginEdit({ ...requirement, status: "missing", value: undefined });
-        setNotice("Item reopened — amend and save.");
-      } catch {
-        setError("Could not reopen checklist item.");
-      } finally {
-        setSavingId("");
+      } else {
+        setJob(toggleMockRequirement(job.scheduleId, requirementId));
       }
-      return;
+      setEditingId(requirementId);
+    } catch (reopenError) {
+      setError(reopenError instanceof Error ? reopenError.message : "Could not reopen checklist item.");
+    } finally {
+      setSavingId("");
     }
-
-    beginEdit(requirement);
-    setJob({
-      ...job,
-      requirements: job.requirements.map((item) =>
-        item.id === requirementId ? { ...item, status: "missing" } : item,
-      ),
-    });
-    setSavingId("");
   }
 
   async function saveRequirement(requirementId: string) {
@@ -291,7 +1018,6 @@ export default function JobDetailPage() {
     const requirement = job.requirements.find((item) => item.id === requirementId);
     if (!requirement) return;
 
-    const evidenceType = evidenceTypeOf(requirement);
     const draft = draftByRequirement[requirementId] || {};
     const connection = client.getConnection();
     const normalizedDraft = {
@@ -316,6 +1042,7 @@ export default function JobDetailPage() {
         text: normalizedDraft.text,
         numberValue: normalizedDraft.numberValue,
         photoName: normalizedDraft.photoName,
+        photoUrl: normalizedDraft.photoPreviewUrl,
         capturedAt: new Date().toISOString(),
       };
       setJob({
@@ -326,28 +1053,68 @@ export default function JobDetailPage() {
             : item,
         ),
       });
+      const path = `/api/field/jobs/${encodeURIComponent(job.scheduleId)}/requirements`;
+      const requestBody = {
+        requirementId,
+        text: normalizedDraft.text,
+        numberValue: normalizedDraft.numberValue,
+        photoName: normalizedDraft.photoName,
+        photoContentBase64: normalizedDraft.photoContentBase64,
+        photoMimeType: normalizedDraft.photoMimeType,
+        createdBy: job.engineerName,
+      };
+      const queueOfflineRequirement = () => {
+        enqueueOutboxItem({
+          kind: "checklist",
+          jobId: job.jobId || job.scheduleId,
+          path,
+          method: "POST",
+          body: requestBody,
+        });
+        setDraftByRequirement((current) => {
+          const next = { ...current };
+          delete next[requirementId];
+          return next;
+        });
+        setEditingId("");
+        setNotice(FIELD_OFFLINE_NOTICE);
+      };
       try {
-        const response = await fetch(
-          `/api/field/jobs/${encodeURIComponent(job.scheduleId)}/requirements`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              requirementId,
-              text: normalizedDraft.text,
-              numberValue: normalizedDraft.numberValue,
-              photoName: normalizedDraft.photoName,
-              createdBy: job.engineerName,
-            }),
-          },
-        );
+        if (!isBrowserOnline()) {
+          queueOfflineRequirement();
+          return;
+        }
+        const response = await fetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        });
         if (!response.ok) {
           const failed = (await response.json().catch(() => ({}))) as { error?: string };
           throw new Error(failed.error || "Could not save checklist item.");
         }
-        const body = (await response.json()) as { requirements?: FieldRequirement[] };
+        const body = (await response.json()) as {
+          requirements?: FieldRequirement[];
+          photos?: FieldAttachment[];
+        };
         if (body.requirements) {
-          setJob((current) => (current ? { ...current, requirements: body.requirements! } : current));
+          setJob((current) =>
+            current
+              ? {
+                  ...current,
+                  requirements: body.requirements!,
+                  photos: body.photos?.length
+                    ? [
+                        ...body.photos.filter((photo) => photo.type === "Photo" || photo.type === "Video"),
+                        ...current.photos.filter((photo) => !(body.photos ?? []).some((item) => item.id === photo.id)),
+                      ]
+                    : current.photos,
+                }
+              : current,
+          );
+        }
+        if (body.photos?.length) {
+          setWorkflow((current) => ({ ...current, photos: body.photos! }));
         }
         setDraftByRequirement((current) => {
           const next = { ...current };
@@ -355,8 +1122,14 @@ export default function JobDetailPage() {
           return next;
         });
         setEditingId("");
-        setNotice("Saved.");
+        setNotice(
+          normalizedDraft.photoContentBase64 ? "Saved — photo synced to Core." : "Saved.",
+        );
       } catch (saveError) {
+        if (isOfflineOrNetworkError(saveError)) {
+          queueOfflineRequirement();
+          return;
+        }
         setJob(job);
         setError(saveError instanceof Error ? saveError.message : "Could not save checklist item.");
       } finally {
@@ -380,10 +1153,22 @@ export default function JobDetailPage() {
     () => job?.attachments.filter((item) => item.type === "Drawing" || item.type === "PDF") ?? [],
     [job],
   );
-  const photos = useMemo(
-    () => [...(job?.photos ?? []), ...(job?.attachments.filter((item) => item.type === "Photo") ?? [])],
-    [job],
-  );
+  const photos = useMemo(() => {
+    const packPhotos = [
+      ...(job?.photos ?? []),
+      ...(job?.attachments.filter((item) => item.type === "Photo" || item.type === "Video") ?? []),
+    ];
+    const workflowPhotos = workflow.photos ?? [];
+    const seen = new Set<string>();
+    const merged: FieldAttachment[] = [];
+    for (const item of [...workflowPhotos, ...packPhotos]) {
+      const key = item.id || `${item.name}-${item.uploadedAt}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(item);
+    }
+    return merged;
+  }, [job, workflow.photos]);
 
   if (error && !job) {
     return (
@@ -417,27 +1202,180 @@ export default function JobDetailPage() {
         <h1>{job.customer}</h1>
         <p className="field-page-sub">
           {checklistMode === "daywork" ? "Daywork account · variation sheet" : job.costCentre}
+          {workflow.outcome
+            ? ` · ${workflow.outcome.status === "Needs parts" ? "Awaiting parts" : workflow.outcome.status}`
+            : ` · ${job.status}`}
         </p>
       </header>
 
       <p className="job-lead">{job.description}</p>
 
-      <div className="field-daywork-actions">
-        {checklistMode === "daywork" ? null : (
-          <button type="button" className="primary-btn" disabled={dayworkBusy} onClick={() => void openDayworkSheet()}>
-            {dayworkBusy ? "Opening…" : "Add Daywork Account"}
+      {sessionError ? (
+        <div className="feedback error" role="alert">
+          {sessionError}{" "}
+          <a href="/login" style={{ color: "inherit", fontWeight: 700 }}>
+            Sign in
+          </a>
+        </div>
+      ) : null}
+
+      {error ? <div className="feedback error">{error}</div> : null}
+      {notice ? <div className="feedback">{notice}</div> : null}
+
+      <div className="field-outcome-actions" aria-label="Job outcome">
+        <label className="check-field">
+          <span>Completion / parts note</span>
+          <textarea
+            value={outcomeNote}
+            onChange={(event) => setOutcomeNote(event.target.value)}
+            placeholder="Optional note for office — what was done, or what parts are needed."
+            rows={2}
+          />
+        </label>
+        <div className="field-outcome-buttons">
+          <button
+            type="button"
+            className="primary-btn"
+            disabled={workflowBusy || dayworkBusy}
+            onClick={() => void setOutcome("Complete")}
+          >
+            <CheckCircle2 size={17} /> Mark complete
           </button>
-        )}
-        {checklistMode === "daywork" ? (
+          <button
+            type="button"
+            className="ghost-btn"
+            disabled={workflowBusy}
+            onClick={() => void setOutcome("Needs parts")}
+          >
+            <Wrench size={17} /> Awaiting parts
+          </button>
+        </div>
+        {!canComplete && checklistMode === "job" ? (
           <p className="muted" style={{ margin: "8px 0 0" }}>
-            Fill this Daywork sheet, then Save and finish — it syncs to Core Variations → Daywork account (not the
-            boiler checklist).
+            Finish the job checklist (not Daywork) before Mark complete. In-progress Daywork can be discarded.
+          </p>
+        ) : null}
+        {workflow.outcome ? (
+          <p className="muted" style={{ margin: "8px 0 0" }}>
+            Latest: {workflow.outcome.status === "Needs parts" ? "Awaiting parts" : workflow.outcome.status}
+            {" · "}
+            {workflow.outcome.createdAt}
+            {workflow.outcome.note ? ` — ${workflow.outcome.note}` : ""}
           </p>
         ) : null}
       </div>
 
-      <Link href={fieldPath(`/ask?job=${encodeURIComponent(job.scheduleId)}`)} className="field-ask-blake-link">
-        Ask Blake about this job
+      <div className="field-daywork-actions">
+        {checklistMode === "daywork" ? (
+          <>
+            <button
+              type="button"
+              className="primary-btn"
+              disabled={dayworkBusy}
+              onClick={() => void openDayworkSheet({ fresh: true })}
+            >
+              {dayworkBusy ? "Opening…" : "New Daywork sheet"}
+            </button>
+            {dayworkCostCentreId ? (
+              <button
+                type="button"
+                className="secondary-btn"
+                disabled={dayworkBusy}
+                onClick={() => void discardDayworkSheet(dayworkCostCentreId)}
+              >
+                Discard this Daywork
+              </button>
+            ) : null}
+            <p className="muted" style={{ margin: "8px 0 0" }}>
+              {dayworkCostCentreId
+                ? `${dayworkSheetListLabel(job.jobId, dayworkCostCentreId)} open`
+                : "Daywork open"}
+              {orderedDayworkSheets.length
+                ? ` · ${orderedDayworkSheets.length} on this job`
+                : ""}
+              . Save and finish locks it. Opened by mistake? Tap <strong>Discard this Daywork</strong> — it does not
+              block Mark complete.
+            </p>
+          </>
+        ) : (
+          <>
+            <button type="button" className="primary-btn" disabled={dayworkBusy} onClick={() => void openDayworkSheet()}>
+              {dayworkBusy ? "Opening…" : "Add Daywork Account"}
+            </button>
+            <p className="muted" style={{ margin: "8px 0 0" }}>
+              The normal Checklist only updates the gas / job stop-go. Daywork materials and signatures need{" "}
+              <strong>Add Daywork Account</strong> then <strong>Save and finish</strong>.
+            </p>
+          </>
+        )}
+        {orderedDayworkSheets.length ? (
+          <div className="field-daywork-sheet-list" aria-label="Daywork sheets on this job">
+            <strong>Dayworks on this job</strong>
+            <div className="field-daywork-sheet-chips">
+              {orderedDayworkSheets.map((sheet) => {
+                const costCentreId = sheet.costCentreId!;
+                const label = dayworkSheetListLabel(job.jobId, costCentreId);
+                const active = checklistMode === "daywork" && dayworkCostCentreId === costCentreId;
+                const locked = isDayworkSubmittedToCore(sheet);
+                // Submitted sheets are labels only — don’t reopen (saves bandwidth; office edits in Core).
+                if (locked) {
+                  return (
+                    <div key={costCentreId} className="field-daywork-sheet-chip-row">
+                      <span
+                        className="field-daywork-sheet-chip is-locked"
+                        title="Submitted to Core — not reopened on Field"
+                      >
+                        <span>{label}</span>
+                        <small>Submitted</small>
+                      </span>
+                      <button
+                        type="button"
+                        className="field-daywork-email-btn"
+                        disabled={dayworkBusy}
+                        onClick={() => void emailDayworkClientCopy(costCentreId, sheet.clientEmail)}
+                      >
+                        Email copy
+                      </button>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={costCentreId} className="field-daywork-sheet-chip-row">
+                    <button
+                      type="button"
+                      className={active ? "field-daywork-sheet-chip is-active" : "field-daywork-sheet-chip"}
+                      disabled={dayworkBusy || active}
+                      onClick={() => void openDayworkSheet({ costCentreId })}
+                    >
+                      <span>{label}</span>
+                      <small>In progress — tap to open</small>
+                    </button>
+                    <button
+                      type="button"
+                      className="field-daywork-discard-btn"
+                      disabled={dayworkBusy}
+                      onClick={() => void discardDayworkSheet(costCentreId)}
+                    >
+                      Discard
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <Link
+        href={fieldPath(`/ask?job=${encodeURIComponent(job.scheduleId)}`)}
+        className="field-blake-row"
+      >
+        <BlakeCharacter mood="guide" size="md" />
+        <span className="field-blake-row-copy">
+          <strong>Ask Blake</strong>
+          <small>Fault diagnosis, checks and next steps for this job</small>
+        </span>
+        <ChevronRight size={18} aria-hidden className="field-blake-row-chevron" />
       </Link>
 
       <div className="site-block">
@@ -455,13 +1393,16 @@ export default function JobDetailPage() {
 
       <div className="tabs" role="tablist" aria-label="Job details">
         <button type="button" className={tab === "pack" ? "active" : undefined} onClick={() => setTab("pack")}>
-          <Layers size={15} /> Pack
+          <Layers size={15} /> Job info
         </button>
         <button type="button" className={tab === "checklist" ? "active" : undefined} onClick={() => setTab("checklist")}>
           <ClipboardCheck size={15} /> Checklist
         </button>
         <button type="button" className={tab === "photos" ? "active" : undefined} onClick={() => setTab("photos")}>
           <Camera size={15} /> Photos
+        </button>
+        <button type="button" className={tab === "po" ? "active" : undefined} onClick={() => setTab("po")}>
+          <ShoppingCart size={15} /> POs
         </button>
       </div>
 
@@ -494,180 +1435,264 @@ export default function JobDetailPage() {
         <div className="stack checklist-stack">
           {checklistMode === "daywork" ? (
             <DayworkSheetForm
+              key={`daywork-${dayworkCostCentreId || "default"}-${dayworkRecord?.completedAt || "new"}`}
               scheduleId={job.scheduleId}
+              costCentreId={dayworkCostCentreId || undefined}
               engineerName={job.engineerName}
               initialRecord={dayworkRecord}
+              locked={isDayworkSubmittedToCore(dayworkRecord)}
               onCancel={() => void backToJobChecklist()}
-              onSaved={(record) => {
+              onSaved={(record, context) => {
                 setDayworkRecord(record);
+                setDayworkSheets((current) => {
+                  const costCentreId = dayworkCostCentreId || `${job.jobId}-daywork-account`;
+                  const next = current.filter((sheet) => sheet.costCentreId !== costCentreId);
+                  return [
+                    ...next,
+                    { ...record, costCentreId, updatedAt: new Date().toISOString() },
+                  ];
+                });
                 setNotice(
-                  "Saved to Core — open this job → Cost centres → Variations → Daywork account (not Boiler servicing).",
+                  context?.offline
+                    ? FIELD_OFFLINE_NOTICE
+                    : isDayworkSubmittedToCore(record)
+                    ? "Submitted to Core and locked on Field. Office can edit in Core → Variations → Daywork account. Tap New Daywork sheet for another."
+                    : "Saved to Core — open this job → Cost centres → Variations → Daywork account.",
                 );
               }}
+            />
+          ) : stopGoEnabled ? (
+            <DomesticStopGoPanel
+              scheduleId={job.scheduleId}
+              jobId={job.jobId}
+              engineerName={job.engineerName}
+              onStatus={(_status, complete) => setStopGoComplete(complete)}
             />
           ) : (
             <>
               <p className="checklist-intro muted">
-                Stop/go checklist for this cost centre. Values save to Core — open Daywork Account for reactive
-                variation sheets.
+                This checklist is for the job stop/go only (e.g. boiler / gas). It does <strong>not</strong> fill the
+                Daywork Account. Tap <strong>Add Daywork Account</strong> above for materials, hours and dual
+                sign-off that appear in Core Variations.
               </p>
-              {error ? <div className="feedback error">{error}</div> : null}
-              {notice ? <div className="feedback">{notice}</div> : null}
-              {job.requirements.map((item) => {
-            const evidenceType = evidenceTypeOf(item);
-            const draft = draftByRequirement[item.id] || {};
-            const summary = doneSummary(item);
-            const isEditing = editingId === item.id || item.status === "missing";
-            const statusLabel =
-              item.status === "missing" ? "To do" : item.status === "done" ? "Done" : "Optional";
-            const placeholder =
-              item.validation?.placeholder ||
-              (evidenceType === "Signature" ? "Signed by…" : evidenceType === "Number" ? "Enter reading…" : "Type here…");
-            const maxLength = item.validation?.exactDigits || item.validation?.maxLength;
-            return (
-              <article
-                className={`check-card is-${item.status}${isEditing ? " is-editing" : ""}`}
-                key={item.id}
-              >
-                <header className="check-card-head">
-                  <div className="check-card-copy">
-                    <h3>{item.label}</h3>
-                    <p className="check-card-meta">
-                      {[item.stage, evidenceType, item.status === "optional" ? "Optional" : "Required"]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                    {item.status === "done" && summary && !isEditing ? (
-                      <p className="check-card-value">{summary}</p>
-                    ) : null}
-                  </div>
-                  <span className={`check-card-status is-${item.status}`}>{statusLabel}</span>
-                </header>
-
-                {item.status === "done" && !isEditing ? (
-                  <div className="check-card-actions">
-                    <button
-                      type="button"
-                      className="check-amend"
-                      disabled={savingId === item.id}
-                      onClick={() => void reopenRequirement(item.id)}
+              {requirementsLookLikeDaywork(job.requirements) ? (
+                <div className="soft-block">
+                  <strong>Daywork sheet available</strong>
+                  <p className="muted">
+                    Hours and materials are edited on the Daywork form — not as raw checklist text.
+                  </p>
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    disabled={dayworkBusy}
+                    onClick={() => void openDayworkSheet()}
+                    style={{ marginTop: 8 }}
+                  >
+                    Open Daywork form
+                  </button>
+                </div>
+              ) : null}
+              {job.requirements
+                .filter((item) => !isDayworkRequirement(item))
+                .map((item) => {
+                  const evidenceType = evidenceTypeOf(item);
+                  const draft = draftByRequirement[item.id] || {};
+                  const summary = doneSummary(item);
+                  const isEditing = editingId === item.id || item.status === "missing";
+                  const statusLabel =
+                    item.status === "missing" ? "To do" : item.status === "done" ? "Done" : "Optional";
+                  const placeholder =
+                    item.validation?.placeholder ||
+                    (evidenceType === "Signature"
+                      ? "Signed by…"
+                      : evidenceType === "Number"
+                        ? "Enter reading…"
+                        : "Type here…");
+                  const maxLength = item.validation?.exactDigits || item.validation?.maxLength;
+                  return (
+                    <article
+                      className={`check-card is-${item.status}${isEditing ? " is-editing" : ""}`}
+                      key={item.id}
                     >
-                      Amend
-                    </button>
-                  </div>
-                ) : null}
+                      <header className="check-card-head">
+                        <div className="check-card-copy">
+                          <h3>{item.label}</h3>
+                          <p className="check-card-meta">
+                            {[item.stage, evidenceType, item.status === "optional" ? "Optional" : "Required"]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </p>
+                          {item.status === "done" && summary && !isEditing ? (
+                            <p className="check-card-value">{summary}</p>
+                          ) : null}
+                        </div>
+                        <span className={`check-card-status is-${item.status}`}>{statusLabel}</span>
+                      </header>
 
-                {isEditing && item.status !== "optional" ? (
-                  <div className="check-card-capture">
-                    {item.validation?.inputKind === "date" ? (
-                      <label className="check-field">
-                        <span>Date (UK)</span>
-                        <input
-                          type="date"
-                          lang="en-GB"
-                          value={toDateInputValue(draft.text)}
-                          onChange={(event) =>
-                            setDraftByRequirement((current) => ({
-                              ...current,
-                              [item.id]: {
-                                ...current[item.id],
-                                text: event.target.value ? isoDateToUk(event.target.value) : "",
-                              },
-                            }))
-                          }
-                        />
-                        {draft.text ? <small>Selected: {toUkDateDisplay(draft.text)}</small> : null}
-                      </label>
-                    ) : null}
-                    {(evidenceType === "Text" || evidenceType === "Signature") && item.validation?.inputKind !== "date" ? (
-                      <label className="check-field">
-                        <span>{evidenceType === "Signature" ? "Signed by" : "Answer"}</span>
-                        <input
-                          type={item.validation?.inputKind === "digits" ? "tel" : "text"}
-                          inputMode={
-                            item.validation?.inputKind === "digits"
-                              ? "numeric"
-                              : item.validation?.inputMode || "text"
-                          }
-                          pattern={item.validation?.inputKind === "digits" ? "[0-9]*" : undefined}
-                          value={draft.text || ""}
-                          placeholder={placeholder}
-                          maxLength={maxLength}
-                          onChange={(event) => {
-                            const nextValue =
-                              item.validation?.inputKind === "digits"
-                                ? event.target.value.replace(/\D/g, "")
-                                : event.target.value;
-                            setDraftByRequirement((current) => ({
-                              ...current,
-                              [item.id]: { ...current[item.id], text: nextValue },
-                            }));
-                          }}
-                        />
-                      </label>
-                    ) : null}
-                    {evidenceType === "Number" ? (
-                      <label className="check-field">
-                        <span>Reading</span>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          pattern="[0-9]*[.]?[0-9]*"
-                          value={draft.numberValue || ""}
-                          placeholder={placeholder}
-                          onChange={(event) => {
-                            const nextValue = event.target.value.replace(/[^0-9.]/g, "");
-                            setDraftByRequirement((current) => ({
-                              ...current,
-                              [item.id]: { ...current[item.id], numberValue: nextValue },
-                            }));
-                          }}
-                        />
-                      </label>
-                    ) : null}
-                    {evidenceType === "Photo" ? (
-                      <label className="check-field">
-                        <span>Photo</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          capture="environment"
-                          onChange={(event) => {
-                            const file = event.target.files?.[0];
-                            if (!file) return;
-                            setDraftByRequirement((current) => ({
-                              ...current,
-                              [item.id]: { ...current[item.id], photoName: file.name },
-                            }));
-                            event.target.value = "";
-                          }}
-                        />
-                        {draft.photoName ? <small>Selected: {draft.photoName}</small> : null}
-                      </label>
-                    ) : null}
-                    {evidenceType === "Checkbox" ? (
-                      <p className="check-card-hint muted">Confirm this check is complete on site.</p>
-                    ) : null}
-                    {item.validation?.helpText ? (
-                      <p className="check-card-hint muted">{item.validation.helpText}</p>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="check-save"
-                      disabled={savingId === item.id}
-                      onClick={() => void saveRequirement(item.id)}
-                    >
-                      {savingId === item.id
-                        ? "Saving…"
-                        : evidenceType === "Checkbox"
-                          ? "Mark done"
-                          : "Save"}
-                    </button>
-                  </div>
-                ) : null}
-              </article>
-            );
-          })}
+                      {item.status === "done" && !isEditing ? (
+                        <div className="check-card-actions">
+                          <button
+                            type="button"
+                            className="check-amend"
+                            disabled={savingId === item.id}
+                            onClick={() => void reopenRequirement(item.id)}
+                          >
+                            Amend
+                          </button>
+                        </div>
+                      ) : null}
+
+                      {isEditing && item.status !== "optional" ? (
+                        <div className="check-card-capture">
+                          {item.validation?.inputKind === "date" ? (
+                            <label className="check-field">
+                              <span>Date (UK)</span>
+                              <input
+                                type="date"
+                                lang="en-GB"
+                                value={toDateInputValue(draft.text)}
+                                onChange={(event) =>
+                                  setDraftByRequirement((current) => ({
+                                    ...current,
+                                    [item.id]: {
+                                      ...current[item.id],
+                                      text: event.target.value ? isoDateToUk(event.target.value) : "",
+                                    },
+                                  }))
+                                }
+                              />
+                              {draft.text ? <small>Selected: {toUkDateDisplay(draft.text)}</small> : null}
+                            </label>
+                          ) : null}
+                          {(evidenceType === "Text" || evidenceType === "Signature") &&
+                          item.validation?.inputKind !== "date" ? (
+                            <label className="check-field">
+                              <span>{evidenceType === "Signature" ? "Signed by" : "Answer"}</span>
+                              <input
+                                type={item.validation?.inputKind === "digits" ? "tel" : "text"}
+                                inputMode={
+                                  item.validation?.inputKind === "digits"
+                                    ? "numeric"
+                                    : item.validation?.inputMode || "text"
+                                }
+                                pattern={item.validation?.inputKind === "digits" ? "[0-9]*" : undefined}
+                                value={draft.text || ""}
+                                placeholder={placeholder}
+                                maxLength={maxLength}
+                                onChange={(event) => {
+                                  const nextValue =
+                                    item.validation?.inputKind === "digits"
+                                      ? event.target.value.replace(/\D/g, "")
+                                      : event.target.value;
+                                  setDraftByRequirement((current) => ({
+                                    ...current,
+                                    [item.id]: { ...current[item.id], text: nextValue },
+                                  }));
+                                }}
+                              />
+                            </label>
+                          ) : null}
+                          {evidenceType === "Number" ? (
+                            <label className="check-field">
+                              <span>Reading</span>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                pattern="[0-9]*[.]?[0-9]*"
+                                value={draft.numberValue || ""}
+                                placeholder={placeholder}
+                                onChange={(event) => {
+                                  const nextValue = event.target.value.replace(/[^0-9.]/g, "");
+                                  setDraftByRequirement((current) => ({
+                                    ...current,
+                                    [item.id]: { ...current[item.id], numberValue: nextValue },
+                                  }));
+                                }}
+                              />
+                            </label>
+                          ) : null}
+                          {evidenceType === "Photo" ? (
+                            <label className="check-field">
+                              <span>Photo</span>
+                              <FileDropZone
+                                accept="image/*"
+                                capture="environment"
+                                disabled={Boolean(savingId)}
+                                compact
+                                label={draft.photoName ? "Replace photo (drop or click)" : "Drop photo or click"}
+                                onFiles={(picked) => {
+                                  const file = picked[0];
+                                  if (!file) return;
+                                  void (async () => {
+                                    try {
+                                      setError("");
+                                      const prepared = await prepareFieldUploadFile(file);
+                                      setDraftByRequirement((current) => ({
+                                        ...current,
+                                        [item.id]: {
+                                          ...current[item.id],
+                                          photoName: prepared.name,
+                                          photoContentBase64: prepared.contentBase64,
+                                          photoMimeType: prepared.mimeType,
+                                          photoPreviewUrl: `data:${prepared.mimeType};base64,${prepared.contentBase64}`,
+                                        },
+                                      }));
+                                    } catch (prepareError) {
+                                      setError(
+                                        prepareError instanceof Error
+                                          ? prepareError.message
+                                          : "Could not prepare that photo.",
+                                      );
+                                    }
+                                  })();
+                                }}
+                              />
+                              {draft.photoPreviewUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={draft.photoPreviewUrl}
+                                  alt={draft.photoName || "Checklist photo"}
+                                  style={{
+                                    display: "block",
+                                    marginTop: 8,
+                                    maxHeight: 120,
+                                    maxWidth: "100%",
+                                    objectFit: "cover",
+                                    borderRadius: 10,
+                                  }}
+                                />
+                              ) : null}
+                              {draft.photoName ? (
+                                <small>
+                                  {draft.photoContentBase64 ? "Ready to sync: " : "Selected: "}
+                                  {draft.photoName}
+                                </small>
+                              ) : null}
+                            </label>
+                          ) : null}
+                          {evidenceType === "Checkbox" ? (
+                            <p className="check-card-hint muted">Confirm this check is complete on site.</p>
+                          ) : null}
+                          {item.validation?.helpText ? (
+                            <p className="check-card-hint muted">{item.validation.helpText}</p>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="check-save"
+                            disabled={savingId === item.id}
+                            onClick={() => void saveRequirement(item.id)}
+                          >
+                            {savingId === item.id
+                              ? "Saving…"
+                              : evidenceType === "Checkbox"
+                                ? "Mark done"
+                                : "Save"}
+                          </button>
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
             </>
           )}
         </div>
@@ -675,17 +1700,211 @@ export default function JobDetailPage() {
 
       {tab === "photos" ? (
         <div className="stack">
+          <div className="field-upload-row">
+            <FileDropZone
+              accept="image/*"
+              capture="environment"
+              multiple
+              disabled={workflowBusy}
+              compact
+              label="Drop photos or click"
+              onFiles={(files) => void uploadMediaFiles(files)}
+            />
+            <FileDropZone
+              accept="video/*,.mp4,.mov,.webm,.m4v"
+              capture="environment"
+              multiple
+              disabled={workflowBusy}
+              compact
+              label="Drop video or click"
+              onFiles={(files) => void uploadMediaFiles(files)}
+            />
+            <FileDropZone
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,application/pdf"
+              multiple
+              disabled={workflowBusy}
+              compact
+              label="Drop files or click"
+              onFiles={(files) => void uploadMediaFiles(files)}
+            />
+          </div>
+
           {photos.length ? (
             <div className="file-list">
               {photos.map((photo) => (
                 <div className="file-row" key={photo.id}>
-                  <span>{photo.type}</span>
-                  <strong>{photo.name}</strong>
+                  {photo.url && (photo.type === "Photo" || photo.mimeType?.startsWith("image/")) ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={photo.url}
+                      alt={photo.name}
+                      style={{
+                        width: 56,
+                        height: 56,
+                        objectFit: "cover",
+                        borderRadius: 10,
+                        flex: "0 0 auto",
+                        background: "#e8f1f5",
+                      }}
+                    />
+                  ) : (
+                    <span>{photo.type}</span>
+                  )}
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <strong>{photo.name}</strong>
+                    <small className="muted" style={{ display: "block" }}>
+                      {photo.uploadedBy} · {photo.uploadedAt}
+                      {photo.url && !photo.url.startsWith("data:") ? " · synced" : photo.url ? " · pending sync" : ""}
+                    </small>
+                  </div>
+                  {photo.url && !photo.url.startsWith("data:") ? (
+                    <a className="ghost-btn" href={photo.url} target="_blank" rel="noreferrer">
+                      Open
+                    </a>
+                  ) : null}
                 </div>
               ))}
             </div>
           ) : (
-            <p className="muted">No photos on this pack yet.</p>
+            <p className="muted">No photos or files on this job yet.</p>
+          )}
+
+          <form className="field-po-form" onSubmit={(event) => void submitNote(event)}>
+            <strong>
+              <MessageCircle size={16} /> Site note
+            </strong>
+            <textarea
+              value={noteText}
+              onChange={(event) => setNoteText(event.target.value)}
+              placeholder="What should the office know?"
+              rows={3}
+            />
+            <button type="submit" className="primary-btn" disabled={workflowBusy || !noteText.trim()}>
+              Send note
+            </button>
+          </form>
+
+          {workflow.notes.length ? (
+            <div className="file-list">
+              {workflow.notes.map((note) => (
+                <div className="file-row" key={note.id}>
+                  <span>Note</span>
+                  <strong>{note.text}</strong>
+                  <small className="muted">
+                    {note.createdBy} · {note.createdAt}
+                  </small>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {tab === "po" ? (
+        <div className="stack">
+          <p className="muted" style={{ margin: 0 }}>
+            Request materials against this job. Pick a supplier from Core, say what you need, and office raises the PO.
+          </p>
+          <form className="field-po-form" onSubmit={(event) => void submitPoRequest(event)}>
+            <strong>
+              <ShoppingCart size={16} /> Request PO
+            </strong>
+            <label className="check-field field-supplier-picker">
+              <span>Supplier</span>
+              <input
+                value={poSupplierQuery}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setPoSupplierQuery(value);
+                  setPoSupplier(value);
+                  setPoSupplierId("");
+                  setPoSupplierEmail("");
+                  setPoSupplierOpen(true);
+                }}
+                onFocus={() => setPoSupplierOpen(true)}
+                onBlur={() => {
+                  window.setTimeout(() => setPoSupplierOpen(false), 150);
+                }}
+                placeholder={suppliers.length ? "Start typing a Core supplier…" : "No suppliers in Core yet"}
+                autoComplete="off"
+                disabled={!suppliers.length}
+              />
+              {poSupplierId ? (
+                <small className="muted">Selected from Core{poSupplierEmail ? ` · ${poSupplierEmail}` : ""}</small>
+              ) : (
+                <small className="muted">
+                  {suppliers.length
+                    ? "Linked to Core People → Suppliers — type then select."
+                    : "Add suppliers in Core (People → Suppliers) first."}
+                </small>
+              )}
+              {poSupplierOpen && suppliers.length ? (
+                <div className="field-supplier-results" role="listbox" aria-label="Core suppliers">
+                  {filteredSuppliers.length ? (
+                    filteredSuppliers.map((supplier) => (
+                      <button
+                        key={supplier.id}
+                        type="button"
+                        role="option"
+                        className={supplier.id === poSupplierId ? "is-selected" : undefined}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => selectPoSupplier(supplier)}
+                      >
+                        <strong>{supplier.name}</strong>
+                        <small>
+                          {[supplier.account, supplier.category].filter(Boolean).join(" · ") || "Core supplier"}
+                        </small>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="muted">No match — check the name in Core Suppliers.</p>
+                  )}
+                </div>
+              ) : null}
+            </label>
+            <label className="check-field">
+              <span>What do you need?</span>
+              <textarea
+                value={poNote}
+                onChange={(event) => setPoNote(event.target.value)}
+                placeholder="Example: 15mm fittings and pump valves before reattendance."
+                rows={3}
+              />
+            </label>
+            <button
+              type="submit"
+              className="primary-btn"
+              disabled={workflowBusy || !poSupplierId || !poNote.trim()}
+            >
+              <PackagePlus size={17} /> Send PO request
+            </button>
+          </form>
+
+          {workflow.poRequests.length ? (
+            <div className="file-list">
+              {workflow.poRequests.map((request) => (
+                <div className="file-row" key={request.id}>
+                  <span>
+                    {request.status === "Approved"
+                      ? "Approved"
+                      : request.status === "Rejected"
+                        ? "Rejected"
+                        : request.status === "Ordered"
+                          ? "Ordered"
+                          : request.poNumber
+                            ? `${request.status} · ${request.poNumber}`
+                            : request.status}
+                  </span>
+                  <strong>{request.supplier}</strong>
+                  <small className="muted">
+                    {request.note || "PO support requested."}
+                    {request.poNumber ? ` · ${request.poNumber}` : ""} · {request.createdAt}
+                  </small>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">No PO requests on this job yet.</p>
           )}
         </div>
       ) : null}

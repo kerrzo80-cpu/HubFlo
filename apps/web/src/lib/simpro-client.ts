@@ -22,6 +22,8 @@ export type SimproFetchResult = {
 export type SimproClientOptions = {
   maxRetries?: number;
   baseDelayMs?: number;
+  /** Override company path segment (multi-company builds). */
+  companyId?: string;
 };
 
 function sleep(ms: number) {
@@ -76,6 +78,24 @@ export function simproRecordId(record: UnknownRecord | null | undefined) {
   return "";
 }
 
+export function withSimproCompany(
+  config: ResolvedSimproDirectConfig,
+  companyId: string,
+): ResolvedSimproDirectConfig {
+  return companyId && companyId !== config.companyId ? { ...config, companyId } : config;
+}
+
+/** OpenAPI uses /quotes/{id} with no trailing slash; some builds 404 on /quotes/{id}/. */
+export function simproEntityDetailPaths(entity: "quotes" | "jobs", externalId: string) {
+  const id = String(externalId || "").trim();
+  return [
+    `/${entity}/${id}?display=all`,
+    `/${entity}/${id}`,
+    `/${entity}/${id}/?display=all`,
+    `/${entity}/${id}/`,
+  ];
+}
+
 export async function getSimproReadConfig() {
   const status = getSimproDirectConfigStatus();
   if (!status.configured) {
@@ -91,9 +111,10 @@ export async function simproGet(
 ): Promise<SimproFetchResult> {
   const maxRetries = options.maxRetries ?? 3;
   const baseDelayMs = options.baseDelayMs ?? 400;
+  const companyId = options.companyId ?? config.companyId;
   const endpoint = path.startsWith("http")
     ? path
-    : `${config.baseUrl}/companies/${config.companyId}${path.startsWith("/") ? path : `/${path}`}`;
+    : `${config.baseUrl}/companies/${companyId}${path.startsWith("/") ? path : `/${path}`}`;
 
   let lastError: Error | null = null;
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
@@ -165,5 +186,177 @@ export async function simproGetFirstOk(
     body: null,
     headers: {},
     attempts,
+  };
+}
+
+let cachedCompanyIds: string[] | null = null;
+
+export function clearSimproCompanyIdCache() {
+  cachedCompanyIds = null;
+}
+
+export async function listSimproCompanyIds(config: ResolvedSimproDirectConfig) {
+  if (cachedCompanyIds?.length) return cachedCompanyIds;
+  const result = await simproGetAbsolute(config, "/api/v1.0/companies/", { maxRetries: 1 });
+  const ids = result.ok
+    ? extractSimproRecords(result.body)
+        .map((record) => simproRecordId(record))
+        .filter(Boolean)
+    : [];
+  const ordered = [config.companyId, ...ids.filter((id) => id !== config.companyId)].slice(0, 6);
+  cachedCompanyIds = ordered.length ? ordered : [config.companyId];
+  return cachedCompanyIds;
+}
+
+/**
+ * Retrieve quote/job detail. Handles:
+ * - trailing-slash vs no-slash path differences
+ * - multi-company builds where list on company 0 returns IDs that 404 until the real company is used
+ */
+export async function simproGetEntityDetail(
+  config: ResolvedSimproDirectConfig,
+  entity: "quotes" | "jobs",
+  externalId: string,
+  options?: SimproClientOptions,
+) {
+  const id = String(externalId || "").trim();
+  if (!id) {
+    return {
+      endpoint: "",
+      status: 0,
+      ok: false as const,
+      body: null,
+      headers: {},
+      attempts: [] as Array<{ path: string; status: number; endpoint: string; companyId: string }>,
+      companyId: config.companyId,
+    };
+  }
+
+  const paths = simproEntityDetailPaths(entity, id);
+  const attempts: Array<{ path: string; status: number; endpoint: string; companyId: string }> = [];
+  const companyIds = await listSimproCompanyIds(config);
+
+  for (const companyId of companyIds) {
+    for (const path of paths) {
+      const result = await simproGet(config, path, { ...options, companyId, maxRetries: options?.maxRetries ?? 2 });
+      attempts.push({ path, status: result.status, endpoint: result.endpoint, companyId });
+      if (result.ok) {
+        return { ...result, attempts, companyId };
+      }
+      // Auth failures won't recover on another path/company.
+      if (result.status === 401 || result.status === 403) {
+        return { ...result, ok: false as const, body: null, attempts, companyId };
+      }
+    }
+  }
+
+  // Last resort: list filter by ID (some builds still return the row even when detail 404s).
+  // CRITICAL: never take records[0] — unfiltered lists would stamp every quote with the same customer.
+  for (const companyId of companyIds) {
+    const listPaths = [
+      `/${entity}/?pageSize=25&ID=${encodeURIComponent(id)}&columns=ID,Name,Description,Customer,Site,Total,Status,Stage`,
+      `/${entity}/?pageSize=25&ID=${encodeURIComponent(id)}`,
+      `/${entity}/?pageSize=25&search=all&ID=${encodeURIComponent(id)}`,
+    ];
+    for (const path of listPaths) {
+      const listed = await simproGet(config, path, { companyId, maxRetries: 1 });
+      attempts.push({ path, status: listed.status, endpoint: listed.endpoint, companyId });
+      if (!listed.ok) continue;
+      const match = extractSimproRecords(listed.body).find((record) => simproRecordId(record) === id);
+      if (match) {
+        return {
+          endpoint: listed.endpoint,
+          status: 200,
+          ok: true as const,
+          body: match,
+          headers: listed.headers,
+          attempts,
+          companyId,
+        };
+      }
+    }
+  }
+
+  return {
+    endpoint: attempts[attempts.length - 1]?.endpoint ?? "",
+    status: attempts[attempts.length - 1]?.status ?? 0,
+    ok: false as const,
+    body: null,
+    headers: {},
+    attempts,
+    companyId: config.companyId,
+  };
+}
+
+/** Customer detail paths — prefer no trailing slash (same quirk as quotes). */
+export function simproCustomerDetailPaths(customerId: string) {
+  const id = String(customerId || "").trim();
+  return [
+    `/customers/${id}?display=all`,
+    `/customers/companies/${id}?display=all`,
+    `/customers/individuals/${id}?display=all`,
+    `/customers/${id}`,
+    `/customers/${id}/?display=all`,
+    `/customers/companies/${id}/?display=all`,
+    `/customers/individuals/${id}/?display=all`,
+  ];
+}
+
+/**
+ * Retrieve a customer by ID across path variants and companies.
+ * Does not invent a match from an unrelated list row.
+ */
+export async function simproGetCustomerDetail(
+  config: ResolvedSimproDirectConfig,
+  customerId: string,
+  options?: SimproClientOptions,
+) {
+  const id = String(customerId || "").trim();
+  if (!id) {
+    return {
+      endpoint: "",
+      status: 0,
+      ok: false as const,
+      body: null,
+      headers: {},
+      attempts: [] as Array<{ path: string; status: number; endpoint: string; companyId: string }>,
+      companyId: config.companyId,
+    };
+  }
+
+  const paths = simproCustomerDetailPaths(id);
+  const attempts: Array<{ path: string; status: number; endpoint: string; companyId: string }> = [];
+  const companyIds = await listSimproCompanyIds(config);
+
+  for (const companyId of companyIds) {
+    const pathsForCompany =
+      companyId === config.companyId
+        ? paths
+        : paths.slice(0, 3);
+    for (const path of pathsForCompany) {
+      const result = await simproGet(config, path, { ...options, companyId, maxRetries: options?.maxRetries ?? 1 });
+      attempts.push({ path, status: result.status, endpoint: result.endpoint, companyId });
+      if (result.ok) {
+        const record = asRecord(result.body);
+        const returnedId = simproRecordId(record);
+        // Reject wrong-body matches (mirrors quote list-filter exact-ID rule).
+        if (record && (!returnedId || returnedId === id)) {
+          return { ...result, attempts, companyId };
+        }
+      }
+      if (result.status === 401 || result.status === 403) {
+        return { ...result, ok: false as const, body: null, attempts, companyId };
+      }
+    }
+  }
+
+  return {
+    endpoint: attempts[attempts.length - 1]?.endpoint ?? "",
+    status: attempts[attempts.length - 1]?.status ?? 0,
+    ok: false as const,
+    body: null,
+    headers: {},
+    attempts,
+    companyId: config.companyId,
   };
 }

@@ -1,0 +1,1462 @@
+/* Shared Takeoff chrome — one header for Quantity + Routes */
+.takeoff-chrome {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 11px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    radial-gradient(ellipse 50% 120% at 0% 50%, rgba(25, 152, 207, 0.18), transparent 55%),
+    linear-gradient(180deg, #1a3a4d 0%, #173344 100%);
+  color: #e8f3f8;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  backdrop-filter: blur(8px);
+}
+
+.takeoff-chrome.compact {
+  padding: 8px 14px;
+}
+
+.takeoff-chrome-left,
+.takeoff-chrome-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.takeoff-chrome-right {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.takeoff-chrome-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #d7ebf4;
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 650;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.takeoff-chrome-title strong {
+  display: block;
+  font-size: 15px;
+  letter-spacing: 0.01em;
+}
+
+.takeoff-chrome-title span {
+  display: block;
+  font-size: 11px;
+  color: #9fc4d6;
+}
+
+.takeoff-chrome-modes {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.takeoff-chrome-modes a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  color: #b7d4e2;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 12px;
+  border-radius: 999px;
+}
+
+.takeoff-chrome-modes a.on {
+  background: #fff;
+  color: #173344;
+}
+
+.takeoff-chrome-pill,
+.takeoff-chrome-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 650;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: #e8f3f8;
+}
+
+.takeoff-chrome-pill.on {
+  background: rgba(46, 140, 125, 0.28);
+  border-color: rgba(46, 140, 125, 0.5);
+}
+
+.takeoff-chrome-btn {
+  cursor: pointer;
+}
+
+.takeoff-chrome-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* Quantity takeoff v2 workspace */
+.takeoff-v2 {
+  --ink: #173344;
+  --muted: #5f7583;
+  --line: #d7e3ea;
+  --canvas: #eef4f7;
+  --surface: #ffffff;
+  --blue: #1998cf;
+  --blue-deep: #0879ab;
+  --green: #278459;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(25, 152, 207, 0.12), transparent 38%),
+    linear-gradient(180deg, #e8f2f7 0%, var(--canvas) 45%, #f4f8fa 100%);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+.takeoff-v2-banner {
+  margin: 12px 18px 0;
+  padding: 11px 15px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 6px 16px rgba(23, 51, 68, 0.04);
+  animation: takeoff-banner-in 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes takeoff-banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.takeoff-v2-banner.error {
+  border-color: #f0b4b0;
+  background: linear-gradient(135deg, #fff7f6 0%, #fff5f4 100%);
+  color: #9b2c2c;
+}
+
+.takeoff-v2-banner.ok {
+  border-color: #b7e0c8;
+  background: linear-gradient(135deg, #f3fbf6 0%, #f1faf4 100%);
+  color: #1f6b45;
+}
+
+.takeoff-v2-gate {
+  max-width: 480px;
+  margin: 64px auto;
+  padding: 28px;
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+
+.takeoff-v2-gate.inline {
+  margin: 48px auto;
+}
+
+.takeoff-v2-gate h1 {
+  margin: 0 0 8px;
+  font-size: 24px;
+}
+
+.takeoff-v2-gate p {
+  margin: 0 0 18px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.takeoff-v2-body {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px 18px 28px;
+  min-height: calc(100vh - 64px);
+}
+
+.takeoff-v2-rail {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+  height: fit-content;
+  position: sticky;
+  top: 72px;
+}
+
+.takeoff-v2-rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.takeoff-v2-rail-head h2 {
+  margin: 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.takeoff-v2-ghost {
+  border: 1px solid var(--line);
+  background: #f7fafc;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--blue-deep);
+  cursor: pointer;
+}
+
+.takeoff-v2-create {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.takeoff-v2-create input,
+.takeoff-v2-create select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.takeoff-v2-project-list {
+  display: grid;
+  gap: 6px;
+}
+
+.takeoff-v2-project-list button {
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 10px;
+  padding: 9px 10px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.takeoff-v2-project-list button strong,
+.takeoff-v2-project-list button span,
+.takeoff-v2-project-list button small {
+  display: block;
+}
+
+.takeoff-v2-project-list button span {
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.takeoff-v2-project-list button small {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.takeoff-v2-project-list button.on {
+  border-color: rgba(25, 152, 207, 0.35);
+  background: #eef7fc;
+}
+
+.takeoff-v2-main {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.takeoff-v2-projectbar {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px 18px;
+}
+
+.takeoff-v2-projectbar .eyebrow {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--blue-deep);
+}
+
+.takeoff-v2-projectbar h1 {
+  margin: 4px 0 2px;
+  font-size: 22px;
+}
+
+.takeoff-v2-projectbar p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.takeoff-v2-steps {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+
+.takeoff-v2-steps button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 7px 12px;
+  cursor: pointer;
+  color: var(--muted);
+  font: inherit;
+}
+
+.takeoff-v2-steps button b {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #e8eef2;
+  font-size: 11px;
+}
+
+.takeoff-v2-steps button.active {
+  border-color: rgba(25, 152, 207, 0.45);
+  background: #eef7fc;
+  color: var(--blue-deep);
+  font-weight: 700;
+}
+
+.takeoff-v2-steps button.active b {
+  background: var(--blue);
+  color: #fff;
+}
+
+.takeoff-v2-steps button.done {
+  color: var(--green);
+}
+
+.takeoff-v2-steps button.done b {
+  background: #e8f5ee;
+  color: var(--green);
+}
+
+.takeoff-v2-invoke {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+
+.takeoff-v2-invoke summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.takeoff-v2-invoke form {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.takeoff-v2-invoke textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  font: inherit;
+  resize: vertical;
+}
+
+@media (max-width: 900px) {
+  .takeoff-chrome {
+    grid-template-columns: 1fr;
+    justify-items: stretch;
+  }
+
+  .takeoff-chrome-modes {
+    justify-self: start;
+  }
+
+  .takeoff-chrome-right {
+    justify-content: flex-start;
+  }
+
+  .takeoff-v2-body {
+    grid-template-columns: 1fr;
+  }
+
+  .takeoff-v2-rail {
+    position: static;
+  }
+}
+
+.takeoff-mode-nav {
+  display: flex;
+  gap: 8px;
+  padding: 10px 22px 12px;
+  border-bottom: 1px solid var(--line, #eaecf0);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.takeoff-mode-nav .mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  max-width: 320px;
+  text-decoration: none;
+  color: #667085;
+  border: 1px solid #eaecf0;
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: #f7f8fa;
+}
+
+.takeoff-mode-nav .mode strong {
+  display: block;
+  color: #101828;
+  font-size: 13px;
+}
+
+.takeoff-mode-nav .mode small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: #98a2b3;
+}
+
+.takeoff-mode-nav .mode.on {
+  border-color: rgba(0, 110, 184, 0.45);
+  background: #eef7fc;
+  color: #14618c;
+}
+
+.takeoff-mode-nav.markup {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+
+@media (max-width: 720px) {
+  .takeoff-mode-nav {
+    flex-direction: column;
+  }
+
+  .takeoff-mode-nav .mode {
+    max-width: none;
+  }
+}
+
+.takeoff-skill-shell {
+  --ink: #101828;
+  --muted: #667085;
+  --subtle: #98a2b3;
+  --line: #eaecf0;
+  --line-soft: #f2f4f7;
+  --canvas: #f7f8fa;
+  --surface: #ffffff;
+  --blue: #3b9fd6;
+  --blue-dark: #1f7fb0;
+  --blue-deep: #14618c;
+  --blue-soft: #eef7fc;
+  --green: #278459;
+  --green-soft: #e8f5ee;
+  --amber: #b36a16;
+  --amber-soft: #fff4df;
+  --red: #b43a3a;
+  --red-soft: #fff0ef;
+  --nexa-accent: #006eb8;
+  --nexa-accent-2: #2e8c7d;
+  --nexa-grad: linear-gradient(135deg, #006eb8 0%, #2e8c7d 100%);
+  --shadow: 0 1px 3px rgba(16, 24, 40, 0.06), 0 10px 20px -8px rgba(16, 24, 40, 0.14);
+  --radius-lg: 18px;
+  --radius: 13px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(0, 110, 184, 0.08), transparent 42%),
+    radial-gradient(circle at 100% 0%, rgba(46, 140, 125, 0.08), transparent 38%),
+    var(--canvas);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+.takeoff-skill-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.takeoff-skill-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.takeoff-skill-brand strong {
+  display: block;
+  font-size: 17px;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+
+.takeoff-skill-brand span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.takeoff-skill-back,
+.takeoff-skill-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--blue-deep);
+  text-decoration: none;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.takeoff-skill-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.takeoff-skill-ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 7px 11px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.takeoff-skill-ai.on {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.takeoff-skill-ai.off {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.takeoff-skill-banner {
+  margin: 12px 22px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.takeoff-skill-banner.ok {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.takeoff-skill-banner.error {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.takeoff-skill-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px 22px 40px;
+}
+
+.takeoff-skill-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.takeoff-skill-card,
+.takeoff-skill-panel,
+.takeoff-skill-hero,
+.takeoff-skill-empty-state,
+.takeoff-skill-auth {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+
+.takeoff-skill-auth {
+  max-width: 560px;
+  margin: 48px auto;
+  text-align: left;
+}
+
+.takeoff-skill-auth h1 {
+  margin: 0 0 8px;
+  font-family: "Fraunces", "IBM Plex Serif", Georgia, serif;
+  font-size: 28px;
+}
+
+.takeoff-skill-auth p {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.takeoff-skill-card header,
+.takeoff-skill-panel header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.takeoff-skill-card h2,
+.takeoff-skill-panel h2,
+.takeoff-skill-hero h1,
+.takeoff-skill-empty-state h1 {
+  margin: 0;
+  font-family: "Fraunces", "IBM Plex Serif", Georgia, serif;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.takeoff-skill-card label {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.takeoff-skill-card input,
+.takeoff-skill-card select,
+.takeoff-skill-inline-link select,
+.takeoff-skill-invoke textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 10px;
+  padding: 9px 11px;
+}
+
+.takeoff-skill-project-list {
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.takeoff-skill-project-list button {
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--canvas);
+  color: inherit;
+  border-radius: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.takeoff-skill-project-list button.active {
+  border-color: rgba(0, 110, 184, 0.45);
+  background: var(--blue-soft);
+}
+
+.takeoff-skill-project-list strong,
+.takeoff-skill-project-list span,
+.takeoff-skill-project-list small {
+  display: block;
+}
+
+.takeoff-skill-project-list small,
+.takeoff-skill-doc-grid small,
+.takeoff-skill-table-wrap small {
+  color: var(--subtle);
+  margin-top: 2px;
+}
+
+.takeoff-skill-primary,
+.takeoff-skill-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.takeoff-skill-primary {
+  background: var(--nexa-grad);
+  color: white;
+}
+
+.takeoff-skill-hero-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.takeoff-skill-primary.file {
+  position: relative;
+  overflow: visible;
+}
+
+.takeoff-skill-secondary {
+  background: var(--surface);
+  color: var(--blue-deep);
+  border: 1px solid var(--line);
+}
+
+.takeoff-skill-primary:disabled,
+.takeoff-skill-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.takeoff-skill-main {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.takeoff-skill-hero .eyebrow {
+  margin: 0 0 4px;
+  color: var(--nexa-accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.takeoff-skill-hero > div > p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.takeoff-skill-invoke {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--blue-soft);
+}
+
+.takeoff-skill-invoke label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.takeoff-skill-invoke textarea {
+  resize: vertical;
+  font: inherit;
+  min-height: 64px;
+}
+
+.takeoff-skill-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.takeoff-skill-steps button {
+  display: flex;
+  gap: 8px;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--canvas);
+  color: inherit;
+  border-radius: 12px;
+  padding: 10px;
+  cursor: pointer;
+}
+
+.takeoff-skill-steps button.active {
+  border-color: rgba(0, 110, 184, 0.5);
+  background: var(--blue-soft);
+}
+
+.takeoff-skill-steps button.done b {
+  background: var(--nexa-accent);
+  color: white;
+}
+
+.takeoff-skill-steps b {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--line-soft);
+  color: var(--blue-deep);
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+
+.takeoff-skill-steps strong,
+.takeoff-skill-steps small {
+  display: block;
+}
+
+.takeoff-skill-steps small {
+  color: var(--subtle);
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.takeoff-skill-doc-grid,
+.takeoff-skill-trade-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.takeoff-skill-doc-grid article,
+.takeoff-skill-trade-grid button {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--canvas);
+  color: inherit;
+  text-align: left;
+}
+
+.takeoff-skill-trade-grid button {
+  cursor: pointer;
+}
+
+.takeoff-skill-trade-grid button.active {
+  border-color: rgba(0, 110, 184, 0.5);
+  background: var(--blue-soft);
+}
+
+.takeoff-skill-trade-grid span,
+.takeoff-skill-doc-grid span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.takeoff-skill-panel footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.takeoff-skill-inline-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.takeoff-skill-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.takeoff-skill-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.takeoff-skill-table-wrap th,
+.takeoff-skill-table-wrap td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.takeoff-skill-table-wrap th {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--canvas);
+}
+
+.takeoff-skill-table-wrap td strong,
+.takeoff-skill-table-wrap td small {
+  display: block;
+}
+
+.takeoff-skill-hints {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.takeoff-skill-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.takeoff-skill-chip-row .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--canvas);
+  color: inherit;
+  padding: 7px 11px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.takeoff-skill-chip-row .chip.on {
+  background: var(--blue-soft);
+  border-color: rgba(0, 110, 184, 0.45);
+  color: var(--blue-deep);
+}
+
+.kind {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.kind.primary {
+  background: var(--blue-soft);
+  color: var(--blue-deep);
+}
+
+.kind.secondary {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.conf {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.conf.high {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.conf.medium {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.conf.low {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.takeoff-skill-table-wrap td.bad {
+  color: var(--red);
+}
+
+.takeoff-skill-table-wrap td.ok {
+  color: var(--green);
+}
+
+.takeoff-skill-empty,
+.takeoff-skill-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.takeoff-skill-callout {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 110, 184, 0.2);
+  background: var(--blue-soft);
+}
+
+.takeoff-skill-callout strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.takeoff-skill-callout p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.takeoff-skill-callout .kind {
+  margin: 0 4px;
+}
+
+.takeoff-board {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+  min-height: 560px;
+}
+
+.takeoff-board-sidebar {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.takeoff-board-sidebar > header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.takeoff-board-sidebar > header strong {
+  display: block;
+  font-size: 13px;
+}
+
+.takeoff-board-sidebar > header span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.takeoff-board-items {
+  overflow: auto;
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.takeoff-board-items h4 {
+  margin: 8px 6px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.takeoff-board-items .item {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 8px;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+}
+
+.takeoff-board-items .item:hover,
+.takeoff-board-items .item.on {
+  background: var(--blue-soft);
+  border-color: rgba(0, 110, 184, 0.28);
+}
+
+.takeoff-board-items .item.low-confidence {
+  border-color: rgba(247, 144, 9, 0.45);
+  background: #fff8e8;
+}
+
+.takeoff-board-items .item.derived {
+  cursor: default;
+  opacity: 0.88;
+}
+
+.takeoff-board-items .meta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.takeoff-board-items .meta strong {
+  font-size: 12px;
+}
+
+.takeoff-board-items .meta small {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.takeoff-board-items em {
+  font-style: normal;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--blue-deep);
+  min-width: 1.5rem;
+  text-align: right;
+}
+
+.takeoff-board-items input {
+  width: 64px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.takeoff-board-main {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.takeoff-board-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.takeoff-board-panel > header {
+  align-items: flex-start;
+}
+
+@media (max-width: 960px) {
+  .takeoff-board {
+    grid-template-columns: 1fr;
+  }
+}
+
+.takeoff-overlay-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
+}
+
+.takeoff-overlay-toolbar label {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.takeoff-overlay-toolbar select {
+  min-width: 160px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.takeoff-overlay-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.takeoff-overlay-legend .legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: var(--canvas);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.takeoff-overlay-legend .legend.on {
+  border-color: rgba(0, 110, 184, 0.35);
+  background: var(--surface);
+}
+
+.takeoff-overlay-legend .swatch,
+.takeoff-overlay-list .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--swatch, var(--blue));
+  display: inline-block;
+}
+
+.takeoff-overlay-count {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  flex: 1 1 180px;
+}
+
+.takeoff-overlay-stage {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #dfe5ec;
+  overflow: auto;
+  max-height: min(70vh, 820px);
+}
+
+.takeoff-overlay-canvas-wrap {
+  position: relative;
+  display: inline-block;
+  min-width: 100%;
+}
+
+.takeoff-overlay-pdf,
+.takeoff-overlay-hits {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.takeoff-overlay-tools {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.takeoff-overlay-tools .tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 11px;
+  background: var(--canvas);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.takeoff-overlay-tools .tool.on {
+  background: var(--blue-soft);
+  border-color: rgba(0, 110, 184, 0.45);
+  color: var(--blue-deep);
+}
+
+.takeoff-skill-secondary.danger {
+  border-color: rgba(180, 58, 58, 0.35);
+  color: var(--red);
+}
+
+.takeoff-overlay-canvas-wrap.tool-add {
+  cursor: crosshair;
+}
+
+.takeoff-overlay-canvas-wrap.tool-delete {
+  cursor: not-allowed;
+}
+
+.takeoff-overlay-canvas-wrap.tool-select {
+  cursor: default;
+}
+
+.takeoff-overlay-hits {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.takeoff-overlay-list li.selected button {
+  background: var(--blue-soft);
+}
+
+.takeoff-overlay-selected {
+  margin-top: 10px;
+}
+
+.takeoff-overlay-status {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  left: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.takeoff-overlay-status.error {
+  color: var(--red);
+}
+
+.takeoff-overlay-list {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 10px 12px;
+}
+
+.takeoff-overlay-list h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.takeoff-overlay-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.takeoff-overlay-list li.empty {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 8px;
+}
+
+.takeoff-overlay-list button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 12px auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.takeoff-overlay-list button:hover {
+  background: var(--canvas);
+}
+
+.takeoff-overlay-list li.excluded button {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+.takeoff-overlay-list em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.takeoff-overlay-empty {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--line);
+  background: var(--canvas);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.takeoff-skill-empty-state {
+  padding: 48px 28px;
+  max-width: 720px;
+}
+
+.takeoff-skill-empty-state p {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.spin {
+  animation: takeoff-skill-spin 0.9s linear infinite;
+}
+
+@keyframes takeoff-skill-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 960px) {
+  .takeoff-skill-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .takeoff-skill-topbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

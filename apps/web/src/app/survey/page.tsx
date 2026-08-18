@@ -3,11 +3,25 @@
 import { useEffect, useMemo, useState } from "react";
 import { Archive, ClipboardList, FileSearch, LayoutDashboard, Loader2, Plus, Sparkles, Trash2, X } from "lucide-react";
 import type { SurveyJobLink, SurveyLinkType, SurveyRecord } from "@hubflo/domain";
+import { useBrand } from "@/components/BrandProvider";
+import { resolveBrandLogoUrl } from "@/lib/branding";
 
 const requestHeaders: HeadersInit = {
   "x-hubflo-role": "Office",
-  "x-hubflo-employee-id": "Brian Kerr",
 };
+
+async function surveyApiFetch(input: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers || {});
+  for (const [key, value] of Object.entries(requestHeaders)) {
+    if (!headers.has(key) && typeof value === "string") headers.set(key, value);
+  }
+  const response = await fetch(input, { ...init, credentials: "same-origin", headers });
+  if (response.status === 401 && typeof window !== "undefined") {
+    const next = `${window.location.pathname}${window.location.search}`;
+    window.location.assign(`/login?next=${encodeURIComponent(next || "/survey")}`);
+  }
+  return response;
+}
 
 type CoreQuote = {
   id: string;
@@ -158,7 +172,7 @@ export default function SurveyDirectoryPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/surveys${includeArchived ? "?includeArchived=1" : ""}`, { headers: requestHeaders });
+      const response = await surveyApiFetch(`/api/surveys${includeArchived ? "?includeArchived=1" : ""}`, { headers: requestHeaders, credentials: "same-origin" });
       if (!response.ok) throw new Error("Unable to load surveys.");
       setSurveys((await response.json()) as SurveyRecord[]);
     } catch (loadError) {
@@ -171,10 +185,10 @@ export default function SurveyDirectoryPage() {
   async function loadCoreRecords() {
     try {
       const [quotesRes, leadsRes, jobsRes, sitesRes] = await Promise.all([
-        fetch("/api/quotes", { headers: requestHeaders }),
-        fetch("/api/leads", { headers: requestHeaders }),
-        fetch("/api/jobs", { headers: requestHeaders }),
-        fetch("/api/client-sites", { headers: requestHeaders }),
+        surveyApiFetch("/api/quotes", { headers: requestHeaders, credentials: "same-origin" }),
+        surveyApiFetch("/api/leads", { headers: requestHeaders, credentials: "same-origin" }),
+        surveyApiFetch("/api/jobs", { headers: requestHeaders, credentials: "same-origin" }),
+        surveyApiFetch("/api/client-sites", { headers: requestHeaders, credentials: "same-origin" }),
       ]);
       if (quotesRes.ok) setQuotes((await quotesRes.json()) as CoreQuote[]);
       if (leadsRes.ok) setLeads((await leadsRes.json()) as CoreLead[]);
@@ -202,9 +216,9 @@ export default function SurveyDirectoryPage() {
       const jobLink: SurveyJobLink | undefined = choice
         ? { type: choice.type, id: choice.id, reference: choice.reference }
         : undefined;
-      const response = await fetch("/api/surveys", {
+      const response = await surveyApiFetch("/api/surveys", {
         method: "POST",
-        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        headers: { ...requestHeaders, "Content-Type": "application/json" }, credentials: "same-origin",
         body: JSON.stringify({
           clientMutationId: crypto.randomUUID(),
           customerName: choice?.customerName || "",
@@ -310,7 +324,7 @@ export default function SurveyDirectoryPage() {
     setError("");
     setNotice("");
     try {
-      const response = await fetch(`/api/surveys/${encodeURIComponent(survey.id)}?mode=archive&expectedVersion=${survey.version}`, {
+      const response = await surveyApiFetch(`/api/surveys/${encodeURIComponent(survey.id)}?mode=archive&expectedVersion=${survey.version}`, {
         method: "DELETE",
         headers: requestHeaders,
       });
@@ -331,7 +345,7 @@ export default function SurveyDirectoryPage() {
     setError("");
     setNotice("");
     try {
-      const response = await fetch(`/api/surveys/${encodeURIComponent(survey.id)}?mode=delete`, {
+      const response = await surveyApiFetch(`/api/surveys/${encodeURIComponent(survey.id)}?mode=delete`, {
         method: "DELETE",
         headers: requestHeaders,
       });
@@ -346,13 +360,16 @@ export default function SurveyDirectoryPage() {
     }
   }
 
+  const brand = useBrand();
+
   return (
     <main className="survey-simple-app">
       <header className="survey-simple-topbar">
         <div className="survey-simple-brand">
-          <img src="/app-icons/nexa-estimator-apple-touch-icon.png" alt="NeXa" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={resolveBrandLogoUrl(brand, "survey")} alt={brand.companyName} />
           <span>
-            <strong>NeXa Surveyor</strong>
+            <strong>{brand.surveyAppName}</strong>
             <small>Upload · describe · cost centres</small>
           </span>
         </div>
@@ -372,8 +389,9 @@ export default function SurveyDirectoryPage() {
       <section className="survey-simple-directory">
         <div className="survey-simple-directory-head">
           <div>
+            <p className="survey-simple-eyebrow">Blake · survey backbone</p>
             <h1>Surveys</h1>
-            <p>Link a Core quote, lead or job, then upload evidence and generate cost centres.</p>
+            <p>Link a Core quote, lead or job, then upload evidence and let Blake generate cost centres and RFQ checks.</p>
           </div>
           <div className="survey-simple-directory-actions">
             <label className="survey-simple-toggle">

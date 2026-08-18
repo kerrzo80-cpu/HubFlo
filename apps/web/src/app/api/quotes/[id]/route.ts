@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
-import { removeQuote, updateQuote, type Quote } from "@/lib/workflow-data";
+import { assertQuoteStatusTransition, getQuotes, removeQuote, updateQuote, type Quote } from "@/lib/workflow-data";
+import { clearSimproLinksForNexaRecord } from "@/lib/simpro-sync";
 
 export async function PATCH(
   request: NextRequest,
@@ -19,6 +20,17 @@ export async function PATCH(
   }
 
   const { id } = await params;
+  const current = getQuotes().find((quote) => quote.id === id);
+  if (!current) {
+    return NextResponse.json({ error: "Quote not found" }, { status: 404 });
+  }
+  if (body.status) {
+    const transitionError = assertQuoteStatusTransition(current.status, body.status);
+    if (transitionError) {
+      return NextResponse.json({ error: transitionError, code: "QUOTE_STATUS_TRANSITION" }, { status: 409 });
+    }
+  }
+
   const updated = updateQuote(id, body);
   if (!updated) {
     return NextResponse.json({ error: "Quote not found" }, { status: 404 });
@@ -41,6 +53,7 @@ export async function DELETE(
   if (!removed) {
     return NextResponse.json({ error: "Quote not found" }, { status: 404 });
   }
+  clearSimproLinksForNexaRecord("quotes", id);
 
   return NextResponse.json({ success: true });
 }

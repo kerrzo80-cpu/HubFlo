@@ -1,33 +1,41 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 
-const iconVersion = "20260711b";
+import {
+  appDisplayName,
+  defaultBusinessBrandingSettings,
+  resolveBrandIconUrl,
+  toPublicBranding,
+  type BrandAppKey,
+  type PublicBranding,
+} from "@/lib/branding";
+import { useBrand } from "@/components/BrandProvider";
 
-const appProfiles = {
-  core: {
-    title: "NeXa Core",
-    manifest: "/manifest-core.json",
-    appleIcon: "/app-icons/nexa-core-apple-touch-icon.png",
-    icon: "/app-icons/nexa-core-icon-512.png",
-  },
-  estimator: {
-    title: "NeXa Estimator",
-    manifest: "/manifest-estimator.json",
-    appleIcon: "/app-icons/nexa-estimator-apple-touch-icon.png",
-    icon: "/app-icons/nexa-estimator-icon-512.png",
-  },
-  takeoffs: {
-    title: "NeXa Takeoffs",
-    manifest: "/manifest-takeoffs.json",
-    appleIcon: "/app-icons/nexa-takeoffs-apple-touch-icon.png",
-    icon: "/app-icons/nexa-takeoffs-icon-512.png",
-  },
+const iconVersion = "20260806g";
+
+type Profile = {
+  app: BrandAppKey;
+  title: string;
+  manifest: string;
+  icon: string;
+  themeColor: string;
 };
 
 function withVersion(path: string) {
-  return `${path}?v=${iconVersion}`;
+  const joiner = path.includes("?") ? "&" : "?";
+  return `${path}${joiner}v=${iconVersion}`;
+}
+
+/** Swap home=1 → apple=1 for 180×180 apple-touch derivatives. */
+function toAppleTouchHref(iconPath: string) {
+  if (!iconPath.includes("/api/branding/assets/")) return iconPath;
+  const [base, query = ""] = iconPath.split("?");
+  const params = new URLSearchParams(query);
+  params.delete("home");
+  params.set("apple", "1");
+  return `${base}?${params.toString()}`;
 }
 
 function upsertMeta(name: string, content: string) {
@@ -39,7 +47,8 @@ function upsertMeta(name: string, content: string) {
 }
 
 function upsertLink(rel: string, href: string, options: { sizes?: string; type?: string } = {}) {
-  const link = document.head.querySelector<HTMLLinkElement>(`link[data-nexa-pwa="${rel}"]`) ?? document.createElement("link");
+  const link =
+    document.head.querySelector<HTMLLinkElement>(`link[data-nexa-pwa="${rel}"]`) ?? document.createElement("link");
   link.rel = rel;
   link.href = href;
   link.dataset.nexaPwa = rel;
@@ -48,46 +57,92 @@ function upsertLink(rel: string, href: string, options: { sizes?: string; type?:
   if (!link.parentElement) document.head.appendChild(link);
 }
 
-function chooseProfile(pathname: string) {
-  if (pathname.startsWith("/takeoff")) return appProfiles.takeoffs;
-  if (pathname.startsWith("/estimator") || pathname.startsWith("/survey")) return appProfiles.estimator;
-  return appProfiles.core;
+function chooseApp(pathname: string): BrandAppKey {
+  if (pathname.startsWith("/takeoff")) return "takeoffs";
+  if (pathname.startsWith("/field")) return "field";
+  if (pathname.startsWith("/heat-design")) return "heat-design";
+  if (pathname.startsWith("/train")) return "trainer";
+  if (pathname.startsWith("/estimator") || pathname.startsWith("/survey")) return "survey";
+  return "core";
+}
+
+function buildProfile(pathname: string, brand: PublicBranding): Profile {
+  const app = chooseApp(pathname);
+  const title = appDisplayName(brand, app);
+  const icon = resolveBrandIconUrl(brand, app);
+  const manifestApp =
+    app === "survey" && pathname.startsWith("/estimator")
+      ? "estimator"
+      : app === "survey"
+        ? "survey"
+        : app;
+  return {
+    app,
+    title,
+    manifest: `/api/manifest/${manifestApp}`,
+    icon,
+    themeColor: brand.brandPrimaryColor || defaultBusinessBrandingSettings.brandPrimaryColor,
+  };
 }
 
 export function PwaIconLinks() {
   const pathname = usePathname();
+  const brandFromProvider = useBrand();
+  const [brand, setBrand] = useState<PublicBranding>(brandFromProvider);
 
   useEffect(() => {
-    const profile = chooseProfile(pathname);
+    setBrand(brandFromProvider);
+  }, [brandFromProvider]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch("/api/branding", { cache: "no-store" });
+        if (!response.ok) return;
+        const body = (await response.json()) as { branding?: PublicBranding };
+        if (!cancelled && body.branding) setBrand(toPublicBranding(body.branding));
+      } catch {
+        // Keep provider / defaults.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  useEffect(() => {
+    const profile = buildProfile(pathname, brand);
     document.title = profile.title;
 
     upsertMeta("application-name", profile.title);
     upsertMeta("apple-mobile-web-app-title", profile.title);
     upsertMeta("apple-mobile-web-app-capable", "yes");
     upsertMeta("mobile-web-app-capable", "yes");
-    upsertMeta("theme-color", "#006eb8");
+    upsertMeta("theme-color", profile.themeColor);
 
-    const appleIconHref = withVersion(profile.appleIcon);
-    const appIconHref = withVersion(profile.icon);
+    // Tab favicon uses the full wordmark (not the droplet-only home mark).
+    const tabFavicon = withVersion("/api/branding/favicon?size=32");
+    const appleTouchHref = withVersion("/api/branding/favicon?size=180");
 
     document.head.querySelectorAll<HTMLLinkElement>('link[rel="apple-touch-icon"]').forEach((link) => {
-      link.href = appleIconHref;
+      link.href = appleTouchHref;
       link.sizes = "180x180";
       link.type = "image/png";
     });
-    document.head.querySelectorAll<HTMLLinkElement>('link[rel="icon"]').forEach((link) => {
-      link.href = appIconHref;
-      link.sizes = "512x512";
+    document.head.querySelectorAll<HTMLLinkElement>('link[rel="icon"], link[rel="shortcut icon"]').forEach((link) => {
+      link.href = tabFavicon;
+      link.sizes = "32x32";
       link.type = "image/png";
     });
     document.head.querySelectorAll<HTMLLinkElement>('link[rel="manifest"]').forEach((link) => {
       link.href = profile.manifest;
     });
 
-    upsertLink("apple-touch-icon", appleIconHref, { sizes: "180x180", type: "image/png" });
-    upsertLink("icon", appIconHref, { sizes: "512x512", type: "image/png" });
+    upsertLink("apple-touch-icon", appleTouchHref, { sizes: "180x180", type: "image/png" });
+    upsertLink("icon", tabFavicon, { sizes: "32x32", type: "image/png" });
     upsertLink("manifest", profile.manifest);
-  }, [pathname]);
+  }, [brand, pathname]);
 
   return null;
 }

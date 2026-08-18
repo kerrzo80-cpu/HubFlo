@@ -5,6 +5,32 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function lineArrayHasDistinctCost(rows: unknown[]): boolean {
+  let sawSell = false;
+  for (const row of rows) {
+    const record = asRecord(row);
+    if (!record) continue;
+    const sell = Number(record.unitSell) || 0;
+    const cost = Number(record.unitCost) || 0;
+    if (sell > 0) sawSell = true;
+    if (sell > 0 && cost > 0 && Math.abs(cost - sell) >= 0.005) return true;
+  }
+  // No sell lines → not a charge-only stamp to defend against.
+  return !sawSell;
+}
+
+function preferRicherLineArray(serverArr: unknown[], clientArr: unknown[]): unknown[] | null {
+  if (serverArr.length > clientArr.length) return serverArr;
+  if (!serverArr.length) return null;
+  if (serverArr.length === clientArr.length) {
+    const serverDistinct = lineArrayHasDistinctCost(serverArr);
+    const clientDistinct = lineArrayHasDistinctCost(clientArr);
+    // Stale browser tab still holding cost===sell must not wipe a fresh import.
+    if (serverDistinct && !clientDistinct) return serverArr;
+  }
+  return null;
+}
+
 function eventId(value: unknown) {
   const record = asRecord(value);
   return typeof record?.id === "string" && record.id.trim() ? record.id.trim() : "";
@@ -348,6 +374,182 @@ function mergeLineJsonPreferringUnitCosts(serverValue: unknown, clientValue: unk
   }
 }
 
+function paymentKey(payment: Record<string, unknown>) {
+  const sourcePaymentId = typeof payment.sourcePaymentId === "string" ? payment.sourcePaymentId.trim() : "";
+  if (sourcePaymentId) return sourcePaymentId;
+  const id = typeof payment.id === "string" ? payment.id.trim() : "";
+  return id;
+}
+
+/** Union payment rows by id/sourcePaymentId so SumUp webhook rows survive stale Core autosaves. */
+export function mergeInvoicePayments(serverValue: unknown, clientValue: unknown) {
+  const server = Array.isArray(serverValue) ? serverValue : [];
+  const client = Array.isArray(clientValue) ? clientValue : [];
+  if (!client.length && server.length) return server;
+  if (!server.length) return client;
+
+  const byKey = new Map<string, Record<string, unknown>>();
+  for (const item of server) {
+    const record = asRecord(item);
+    const key = record ? paymentKey(record) : "";
+    if (key && record) byKey.set(key, record);
+  }
+  for (const item of client) {
+    const record = asRecord(item);
+    const key = record ? paymentKey(record) : "";
+    if (!key || !record) continue;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, record);
+      continue;
+    }
+    byKey.set(key, {
+      ...existing,
+      ...record,
+      // Prefer any Xero linkage already recorded on either side.
+      xeroPaymentId: existing.xeroPaymentId || record.xeroPaymentId,
+      xeroPushStatus: existing.xeroPushStatus || record.xeroPushStatus,
+      sourceInvoiceId: existing.sourceInvoiceId || record.sourceInvoiceId,
+      note: String(record.note || existing.note || ""),
+    });
+  }
+  return Array.from(byKey.values());
+}
+
+function paymentStatusFromAmounts(paidAmount: number, chargeTotal: number, vatRate: number) {
+  const total = Math.round((chargeTotal + chargeTotal * ((vatRate || 0) / 100)) * 100) / 100;
+  if (paidAmount <= 0) return "Unpaid" as const;
+  if (paidAmount + 0.009 >= total) return "Paid" as const;
+  return "Part paid" as const;
+}
+
+/**
+ * Merge invoice arrays by id so a stale Core autosave cannot drop Field-created drafts
+ * (or any invoice the browser payload omitted).
+ */
+export function mergeInvoicesById(serverValue: unknown, clientValue: unknown) {
+  const server = Array.isArray(serverValue) ? serverValue : [];
+  const client = Array.isArray(clientValue) ? clientValue : [];
+  // Empty browser payload must never wipe server invoices.
+  if (!client.length && server.length) return server;
+
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const item of server) {
+    const record = asRecord(item);
+    const id = typeof record?.id === "string" ? record.id.trim() : "";
+    if (id && record) byId.set(id, record);
+  }
+  for (const item of client) {
+    const record = asRecord(item);
+    const id = typeof record?.id === "string" ? record.id.trim() : "";
+    if (!id || !record) continue;
+    const existing = byId.get(id) || {};
+    const next = { ...existing, ...record };
+    // Prefer richer line lists (Field draft / office edit) when one side is empty.
+    const serverLines = Array.isArray(existing.lines) ? (existing.lines as unknown[]) : [];
+    const clientLines = Array.isArray(record.lines) ? (record.lines as unknown[]) : [];
+    if (serverLines.length && !clientLines.length) next.lines = serverLines;
+    if (clientLines.length && !serverLines.length) next.lines = clientLines;
+    // Never lose a Sent / Queued accounts export marker from the other side.
+    const serverAccounts = String(existing.accountsStatus || "");
+    const clientAccounts = String(record.accountsStatus || "");
+    if (serverAccounts === "Sent" && clientAccounts !== "Sent") {
+      next.accountsStatus = existing.accountsStatus;
+      if (existing.xeroInvoiceId) next.xeroInvoiceId = existing.xeroInvoiceId;
+      if (existing.xeroExportedAt) next.xeroExportedAt = existing.xeroExportedAt;
+    }
+    // Protect SumUp / Xero payment ledger from stale unpaid Core autosaves.
+    const mergedPayments = mergeInvoicePayments(existing.payments, record.payments) as Array<
+      Record<string, unknown>
+    >;
+    next.payments = mergedPayments;
+    if (mergedPayments.length) {
+      const paidAmount =
+        Math.round(mergedPayments.reduce((sum, row) => sum + (Number(row.amount) || 0), 0) * 100) / 100;
+      next.paidAmount = paidAmount;
+      const chargeTotal = Number(next.chargeTotal ?? existing.chargeTotal ?? record.chargeTotal) || 0;
+      const vatRate = Number(next.vatRate ?? existing.vatRate ?? record.vatRate) || 0;
+      const paymentStatus = paymentStatusFromAmounts(paidAmount, chargeTotal, vatRate);
+      next.paymentStatus = paymentStatus;
+      if (paymentStatus === "Paid") next.status = "Paid";
+      else if (paymentStatus === "Part paid") next.status = "Partially paid";
+    } else {
+      // Keep server paid markers when client wiped payments but left stale unpaid fields.
+      const serverPaid = Number(existing.paidAmount) || 0;
+      const clientPaid = Number(record.paidAmount) || 0;
+      if (serverPaid > clientPaid) {
+        next.paidAmount = existing.paidAmount;
+        next.paymentStatus = existing.paymentStatus;
+        if (existing.status === "Paid" || existing.status === "Partially paid") {
+          next.status = existing.status;
+        }
+      }
+    }
+    byId.set(id, next);
+  }
+  // Keep server invoices the client omitted (stale Core tab after Field auto-draft).
+  for (const item of server) {
+    const record = asRecord(item);
+    const id = typeof record?.id === "string" ? record.id.trim() : "";
+    if (!id || !record) continue;
+    if (!client.some((entry) => {
+      const clientRecord = asRecord(entry);
+      return typeof clientRecord?.id === "string" && clientRecord.id.trim() === id;
+    })) {
+      byId.set(id, record);
+    }
+  }
+  return Array.from(byId.values());
+}
+
+function mergeKeyedArraysById(serverValue: unknown, clientValue: unknown) {
+  const server = asRecord(serverValue) || {};
+  const client = asRecord(clientValue) || {};
+  const keys = new Set([...Object.keys(server), ...Object.keys(client)]);
+  const merged: Record<string, unknown[]> = {};
+
+  for (const key of keys) {
+    const serverRows = Array.isArray(server[key]) ? (server[key] as unknown[]) : [];
+    const clientRows = Array.isArray(client[key]) ? (client[key] as unknown[]) : [];
+    // Never let an empty browser payload wipe richer server import data.
+    if (!clientRows.length && serverRows.length) {
+      merged[key] = serverRows;
+      continue;
+    }
+    const byId = new Map<string, Record<string, unknown>>();
+    for (const item of serverRows) {
+      const record = asRecord(item);
+      const id = typeof record?.id === "string" ? record.id : "";
+      if (id && record) byId.set(id, record);
+    }
+    for (const item of clientRows) {
+      const record = asRecord(item);
+      const id = typeof record?.id === "string" ? record.id : "";
+      if (!id || !record) continue;
+      const existing = byId.get(id) || {};
+      const next = { ...existing, ...record };
+      // Prefer richer line arrays so a stale browser tab cannot strip imported materials/labour
+      // or re-stamp charge-only (cost===sell) prices over a good Apply write.
+      for (const field of ["lines", "materials", "labour", "labor"] as const) {
+        const serverArr = Array.isArray(existing[field]) ? (existing[field] as unknown[]) : [];
+        const clientArr = Array.isArray(record[field]) ? (record[field] as unknown[]) : [];
+        const preferred = preferRicherLineArray(serverArr, clientArr);
+        if (preferred) next[field] = preferred;
+      }
+      const serverDesc = String(existing.clientDescription || existing.engineerDescription || "").trim();
+      const clientDesc = String(record.clientDescription || record.engineerDescription || "").trim();
+      if (serverDesc.length > clientDesc.length) {
+        if (existing.clientDescription) next.clientDescription = existing.clientDescription;
+        if (existing.engineerDescription) next.engineerDescription = existing.engineerDescription;
+      }
+      byId.set(id, next);
+    }
+    merged[key] = Array.from(byId.values());
+  }
+
+  return merged;
+}
+
 /**
  * Merge a Core client hub PUT onto the live server hub so Field/daywork writes
  * are not wiped by a stale browser tab.
@@ -361,9 +563,15 @@ export function mergeHubDetailState(serverState: HubDetailState, clientState: Hu
     jobDeliveryEvents: mergeJobDeliveryEvents(serverState.jobDeliveryEvents, clientState.jobDeliveryEvents),
     jobCostCentres: mergeJobCostCentres(serverState.jobCostCentres, clientState.jobCostCentres),
     jobVariationSections: mergeJobVariationSections(serverState.jobVariationSections, clientState.jobVariationSections),
+    quoteCostCentres: mergeKeyedArraysById(serverState.quoteCostCentres, clientState.quoteCostCentres),
+    quoteSections: mergeKeyedArraysById(serverState.quoteSections, clientState.quoteSections),
+    jobSections: mergeKeyedArraysById(serverState.jobSections, clientState.jobSections),
+    jobSchedulePlans: mergeKeyedArraysById(serverState.jobSchedulePlans, clientState.jobSchedulePlans),
+    quoteSchedulePlans: mergeKeyedArraysById(serverState.quoteSchedulePlans, clientState.quoteSchedulePlans),
     dayworkSheets: mergeDayworkSheets(
       (serverState as HubDetailState & { dayworkSheets?: unknown }).dayworkSheets,
       (clientState as HubDetailState & { dayworkSheets?: unknown }).dayworkSheets,
     ),
+    invoices: mergeInvoicesById(serverState.invoices, clientState.invoices),
   };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -8,22 +8,38 @@ import {
   CheckCircle2,
   ClipboardList,
   FileSearch,
+  LayoutDashboard,
   Loader2,
   Ruler,
   Save,
   ScanLine,
+  Send,
   Sparkles,
-  Upload,
 } from "lucide-react";
 import type { SurveyAnswer, SurveyJobLink, SurveyLinkType, SurveyPhoto, SurveyPhotoCategory, SurveyRecord } from "@hubflo/domain";
 import type { QuickCostCentre } from "@/lib/survey-quick-pack";
 import { BuddyCharacter } from "@/lib/BuddyCharacter";
+import { useBrand } from "@/components/BrandProvider";
+import { FileDropZone } from "@/components/FileDropZone";
+import { resolveBrandLogoUrl } from "@/lib/branding";
 import { prepareSurveyEvidenceFile } from "@/lib/survey-evidence-prepare";
 
 const requestHeaders: HeadersInit = {
   "x-hubflo-role": "Office",
-  "x-hubflo-employee-id": "Brian Kerr",
 };
+
+async function surveyApiFetch(input: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers || {});
+  for (const [key, value] of Object.entries(requestHeaders)) {
+    if (!headers.has(key) && typeof value === "string") headers.set(key, value);
+  }
+  const response = await fetch(input, { ...init, credentials: "same-origin", headers });
+  if (response.status === 401 && typeof window !== "undefined") {
+    const next = `${window.location.pathname}${window.location.search}`;
+    window.location.assign(`/login?next=${encodeURIComponent(next || "/survey")}`);
+  }
+  return response;
+}
 
 type SaveState = "Saved" | "Unsaved" | "Saving" | "Error";
 
@@ -113,6 +129,7 @@ export default function SimpleSurveyWorkspacePage() {
   const [noticeTone, setNoticeTone] = useState<"ok" | "warn">("ok");
   const [uploading, setUploading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [sendingToQuote, setSendingToQuote] = useState(false);
   const [costCentres, setCostCentres] = useState<QuickCostCentre[]>([]);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [linkType, setLinkType] = useState<SurveyLinkType | "">("");
@@ -125,7 +142,6 @@ export default function SimpleSurveyWorkspacePage() {
   const surveyRef = useRef<SurveyRecord | null>(null);
   const pendingPatchRef = useRef<Partial<SurveyRecord>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const evidenceSummary = useMemo(() => {
     if (!survey) return { drawings: 0, photos: 0, scans: 0 };
@@ -143,7 +159,7 @@ export default function SimpleSurveyWorkspacePage() {
   useEffect(() => {
     async function loadAiStatus() {
       try {
-        const response = await fetch("/api/takeoff-ai/status", { headers: requestHeaders });
+        const response = await surveyApiFetch("/api/takeoff-ai/status", { headers: requestHeaders, credentials: "same-origin" });
         if (!response.ok) return;
         setAiStatus((await response.json()) as AiStatus);
       } catch {
@@ -157,10 +173,10 @@ export default function SimpleSurveyWorkspacePage() {
     async function loadCore() {
       try {
         const [quotesRes, leadsRes, jobsRes, sitesRes] = await Promise.all([
-          fetch("/api/quotes", { headers: requestHeaders }),
-          fetch("/api/leads", { headers: requestHeaders }),
-          fetch("/api/jobs", { headers: requestHeaders }),
-          fetch("/api/client-sites", { headers: requestHeaders }),
+          surveyApiFetch("/api/quotes", { headers: requestHeaders, credentials: "same-origin" }),
+          surveyApiFetch("/api/leads", { headers: requestHeaders, credentials: "same-origin" }),
+          surveyApiFetch("/api/jobs", { headers: requestHeaders, credentials: "same-origin" }),
+          surveyApiFetch("/api/client-sites", { headers: requestHeaders, credentials: "same-origin" }),
         ]);
         if (quotesRes.ok) setQuotes((await quotesRes.json()) as CoreQuote[]);
         if (leadsRes.ok) setLeads((await leadsRes.json()) as CoreLead[]);
@@ -183,13 +199,13 @@ export default function SimpleSurveyWorkspacePage() {
     async function load() {
       setError("");
       try {
-        const response = await fetch(`/api/surveys/${encodeURIComponent(surveyId)}`, { headers: requestHeaders });
+        const response = await surveyApiFetch(`/api/surveys/${encodeURIComponent(surveyId)}`, { headers: requestHeaders, credentials: "same-origin" });
         if (!response.ok) throw new Error("Unable to open this survey.");
         const loaded = await response.json() as SurveyRecord;
         setSurvey(loaded);
         surveyRef.current = loaded;
         if (loaded.estimateId) {
-          const estimateResponse = await fetch(`/api/estimates/${encodeURIComponent(loaded.estimateId)}`, { headers: requestHeaders });
+          const estimateResponse = await surveyApiFetch(`/api/estimates/${encodeURIComponent(loaded.estimateId)}`, { headers: requestHeaders, credentials: "same-origin" });
           if (estimateResponse.ok) {
             const estimate = await estimateResponse.json() as {
               scopeOfWorks?: string[];
@@ -260,9 +276,9 @@ export default function SimpleSurveyWorkspacePage() {
     pendingPatchRef.current = {};
     setSaveState("Saving");
     try {
-      const response = await fetch(`/api/surveys/${encodeURIComponent(current.id)}`, {
+      const response = await surveyApiFetch(`/api/surveys/${encodeURIComponent(current.id)}`, {
         method: "PATCH",
-        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        headers: { ...requestHeaders, "Content-Type": "application/json" }, credentials: "same-origin",
         body: JSON.stringify({ expectedVersion: current.version, patch }),
       });
       const body = await readJsonResponse<SurveyRecord & { error?: string; current?: SurveyRecord }>(response);
@@ -388,13 +404,11 @@ export default function SimpleSurveyWorkspacePage() {
         : `/?job=${encodeURIComponent(survey.jobLink.id)}`
     : null;
 
-  async function uploadEvidence(event: ChangeEvent<HTMLInputElement>) {
-    const files = event.target.files ? Array.from(event.target.files) : [];
+  async function uploadEvidenceFiles(files: File[]) {
     const current = await flushAutosave();
     if (!files.length) return;
     if (!current) {
       setError("Save the survey first, then try uploading again.");
-      event.target.value = "";
       return;
     }
     setUploading(true);
@@ -414,9 +428,10 @@ export default function SimpleSurveyWorkspacePage() {
         formData.append("caption", file.name || "Site photo");
         formData.append("surveySection", "Evidence");
         formData.append("expectedVersion", String(surveyRef.current?.version || latest.version));
-        const response = await fetch(`/api/surveys/${encodeURIComponent(latest.id)}/photos`, {
+        const response = await surveyApiFetch(`/api/surveys/${encodeURIComponent(latest.id)}/photos`, {
           method: "POST",
           headers: requestHeaders,
+          credentials: "same-origin",
           body: formData,
         });
         const body = await readJsonResponse<{ survey?: SurveyRecord; error?: string }>(response);
@@ -432,7 +447,6 @@ export default function SimpleSurveyWorkspacePage() {
       setError(uploadError instanceof Error ? uploadError.message : "Unable to upload evidence.");
     } finally {
       setUploading(false);
-      event.target.value = "";
     }
   }
 
@@ -447,9 +461,9 @@ export default function SimpleSurveyWorkspacePage() {
     setError("");
     setNotice("");
     try {
-      const response = await fetch(`/api/surveys/${encodeURIComponent(current.id)}/quick-pack`, {
+      const response = await surveyApiFetch(`/api/surveys/${encodeURIComponent(current.id)}/quick-pack`, {
         method: "POST",
-        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        headers: { ...requestHeaders, "Content-Type": "application/json" }, credentials: "same-origin",
         body: JSON.stringify({ expectedVersion: current.version }),
       });
       const body = await readJsonResponse<{
@@ -480,6 +494,14 @@ export default function SimpleSurveyWorkspacePage() {
         throw new Error(body.error || "Unable to generate cost centres.");
       }
       setCostCentres(body.costCentres);
+      if (body.estimateId || body.survey?.estimateId) {
+        // Keep estimate id on survey so Send to quote can run immediately.
+        const estimateId = body.estimateId || body.survey?.estimateId;
+        if (estimateId && body.survey && !body.survey.estimateId) {
+          setSurvey({ ...body.survey, estimateId });
+          surveyRef.current = { ...body.survey, estimateId };
+        }
+      }
       setNoticeTone(body.aiUsed ? "ok" : "warn");
       setNotice(body.summary || (body.aiUsed ? "Blake built the cost centres." : "Rule-based draft ready — check OpenAI status above."));
     } catch (generateError) {
@@ -489,21 +511,64 @@ export default function SimpleSurveyWorkspacePage() {
     }
   }
 
+  async function sendToQuote() {
+    const current = await flushAutosave();
+    if (!current) return;
+    const estimateId = current.estimateId;
+    if (!estimateId) {
+      setError("Generate cost centres first, then send them to a quote.");
+      return;
+    }
+    if (current.jobLink?.type !== "Quote") {
+      setError("Link this survey to a Core quote above, then send to quote.");
+      return;
+    }
+    setSendingToQuote(true);
+    setError("");
+    setNotice("");
+    try {
+      const estimateResponse = await surveyApiFetch(`/api/estimates/${encodeURIComponent(estimateId)}`, { headers: requestHeaders, credentials: "same-origin" });
+      const estimateBody = await readJsonResponse<{ version?: number; error?: string }>(estimateResponse);
+      if (!estimateResponse.ok) throw new Error(estimateBody.error || "Unable to load the estimate pack.");
+      const response = await surveyApiFetch(`/api/estimates/${encodeURIComponent(estimateId)}/push-to-quote`, {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" }, credentials: "same-origin",
+        body: JSON.stringify({ expectedVersion: estimateBody.version }),
+      });
+      const body = await readJsonResponse<{
+        quote?: { id: string; ref: string };
+        costCentres?: unknown[];
+        unpricedCount?: number;
+        error?: string;
+      }>(response);
+      if (!response.ok || !body.quote) throw new Error(body.error || "Unable to send this survey into the quote.");
+      setNoticeTone("ok");
+      setNotice(
+        `Sent to ${body.quote.ref}${body.unpricedCount ? ` · ${body.unpricedCount} supplier RFQ line(s) at £0 provisional` : ""}. Use Open Quote above to review in Core.`,
+      );
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "Unable to send to quote.");
+    } finally {
+      setSendingToQuote(false);
+    }
+  }
+
   if (!survey) {
     return (
       <main className="survey-simple-loading">
         <Loader2 className="spin" size={22} />
         <strong>{error || "Opening survey"}</strong>
+        <a href="/">Core</a>
         <a href="/survey">Back to surveys</a>
       </main>
     );
   }
 
   const takeoffHref = survey.legacyTakeoffProjectId
-    ? `/takeoff?project=${encodeURIComponent(survey.legacyTakeoffProjectId)}&tab=markup`
+    ? `/takeoff?projectId=${encodeURIComponent(survey.legacyTakeoffProjectId)}`
     : "/takeoff";
   const boqHref = survey.legacyTakeoffProjectId
-    ? `/takeoff?project=${encodeURIComponent(survey.legacyTakeoffProjectId)}&tab=boq`
+    ? `/takeoff?projectId=${encodeURIComponent(survey.legacyTakeoffProjectId)}&tab=boq`
     : "/takeoff?tab=boq";
   const buddyQuestions = survey.answers.filter((answer) =>
     answer.section === "Blake checks" || answer.section === "Buddy checks",
@@ -526,42 +591,91 @@ export default function SimpleSurveyWorkspacePage() {
     queuePatch({ answers: nextAnswers });
   }
 
+  const brand = useBrand();
+
   return (
     <main className="survey-simple-app">
       <header className="survey-simple-topbar">
         <div className="survey-simple-brand">
-          <img src="/app-icons/nexa-estimator-apple-touch-icon.png" alt="NeXa" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={resolveBrandLogoUrl(brand, "survey")} alt={brand.companyName} />
           <span>
-            <strong>NeXa Surveyor</strong>
+            <strong>{brand.surveyAppName}</strong>
             <small>{survey.reference}</small>
           </span>
         </div>
         <div className="survey-simple-top-actions">
           <span className={`survey-simple-ai ${aiStatus?.connected ? "connected" : "missing"}`}>
-            <Sparkles size={14} />
-            {aiStatus == null ? "Checking AI…" : aiStatus.connected ? `AI ready · ${aiStatus.model || "OpenAI"}` : "AI key missing"}
+            <BuddyCharacter
+              mood={aiStatus == null ? "thinking" : aiStatus.connected ? "good" : "alert"}
+              size="sm"
+              interactive={false}
+              title="Blake"
+            />
+            {aiStatus == null
+              ? "Checking Blake…"
+              : aiStatus.connected
+                ? `Blake ready · ${aiStatus.model || "OpenAI"}`
+                : "Blake key missing"}
           </span>
           <span className={`survey-simple-save ${saveState.toLowerCase()}`}>
             {saveState === "Saving" ? <Loader2 className="spin" size={14} /> : saveState === "Saved" ? <CheckCircle2 size={14} /> : <Save size={14} />}
             {saveState}
           </span>
+          <a href="/"><LayoutDashboard size={16} /> Core</a>
           <a href="/survey"><ArrowLeft size={16} /> Surveys</a>
         </div>
       </header>
 
       <section className="survey-simple-stage">
         <div className="survey-simple-hero">
-          <h1>Survey</h1>
-          <p>Evidence in, works description, then Blake builds cost centres for markup and supplier RFQ.</p>
+          <p className="survey-simple-eyebrow">Blake · survey backbone</p>
+          <h1>Site survey</h1>
+          <p>Capture photos and drawings first. Link the Core record, add the works note, then let Blake build cost centres and RFQ checks.</p>
         </div>
 
         {aiStatus && !aiStatus.connected ? (
           <p className="survey-simple-warning">
-            OpenAI is not connected on this live service. Set <code>{aiStatus.keyName || "OPENAI_API_KEY"}</code> on Render → nexa-live → Environment, then Manual Deploy.
+            OpenAI is not connected. Add your key in Core → Setup → Integrations → Blake AI, or set <code>{aiStatus.keyName || "OPENAI_API_KEY"}</code> in this environment and redeploy.
           </p>
         ) : null}
         {notice ? <p className={noticeTone === "warn" ? "survey-simple-warning" : "survey-simple-notice"}>{notice}</p> : null}
         {error ? <p className="survey-simple-error">{error}</p> : null}
+
+        <div className="survey-simple-upload survey-simple-upload-featured">
+          <div>
+            <strong>Evidence</strong>
+            <p>
+              {evidenceSummary.drawings} drawings · {evidenceSummary.photos} photos · {evidenceSummary.scans} scans
+              {!survey.photos.length ? " — start with site photos and plans" : ""}
+            </p>
+          </div>
+          <FileDropZone
+            accept="image/*,image/heic,image/heif,.heic,.heif,.jpg,.jpeg,.png,.webp,.pdf,application/pdf"
+            multiple
+            disabled={uploading}
+            label={uploading ? "Uploading…" : "Drop photos / drawings here or click"}
+            hint="Images and PDFs"
+            onFiles={(files) => void uploadEvidenceFiles(files)}
+            className="survey-simple-upload-drop"
+          />
+        </div>
+
+        {survey.photos.length ? (
+          <ul className="survey-simple-evidence survey-simple-evidence-grid">
+            {survey.photos.map((photo) => (
+              <li key={photo.id}>
+                {isLidarOrModel(photo) ? <ScanLine size={15} /> : /\.pdf$/i.test(photo.fileName) ? <FileSearch size={15} /> : <Camera size={15} />}
+                <span>
+                  <strong>{photo.fileName}</strong>
+                  <small>{photo.category}{photo.caption ? ` · ${photo.caption}` : ""}</small>
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="survey-simple-empty-evidence">No evidence yet. Photos and PDFs will show here as a grid.</p>
+        )}
 
         <div className="survey-simple-grid">
           <label>
@@ -574,13 +688,19 @@ export default function SimpleSurveyWorkspacePage() {
           </label>
         </div>
 
-        <section className="survey-simple-core-link">
+        <details className="survey-simple-core-link" open={!survey.jobLink}>
+          <summary>
+            <strong>Linked Core record</strong>
+            <span>
+              {survey.jobLink
+                ? `${survey.jobLink.type} ${survey.jobLink.reference}`
+                : "Optional — connect quote / lead / job"}
+            </span>
+          </summary>
           <header>
             <div>
-              <strong>Linked Core record</strong>
               <p>
-                Connect this survey to the quote (or lead/job) in NeXa Core. Customer and site can prefill from that record —
-                you should not re-type them as a disconnected draft.
+                Connect this survey to the quote (or lead/job) in NeXa Core. Customer and site can prefill from that record.
               </p>
             </div>
             {survey.jobLink && coreOpenHref ? (
@@ -685,45 +805,7 @@ export default function SimpleSurveyWorkspacePage() {
               <p className="survey-simple-empty">No matching Core records.</p>
             ) : null}
           </div>
-        </section>
-
-        <div className="survey-simple-upload">
-          <div>
-            <strong>Evidence</strong>
-            <p>{evidenceSummary.drawings} drawings · {evidenceSummary.photos} photos · {evidenceSummary.scans} scans</p>
-          </div>
-          <button
-            type="button"
-            className="survey-simple-upload-button"
-            disabled={uploading}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {uploading ? <Loader2 className="spin" size={17} /> : <Upload size={17} />}
-            {uploading ? "Uploading…" : "Upload"}
-          </button>
-          <input
-            ref={fileInputRef}
-            hidden
-            type="file"
-            multiple
-            accept="image/*,image/heic,image/heif,.heic,.heif,.jpg,.jpeg,.png,.webp,.pdf,application/pdf"
-            onChange={(event) => void uploadEvidence(event)}
-          />
-        </div>
-
-        {survey.photos.length ? (
-          <ul className="survey-simple-evidence">
-            {survey.photos.map((photo) => (
-              <li key={photo.id}>
-                {isLidarOrModel(photo) ? <ScanLine size={15} /> : /\.pdf$/i.test(photo.fileName) ? <FileSearch size={15} /> : <Camera size={15} />}
-                <span>
-                  <strong>{photo.fileName}</strong>
-                  <small>{photo.category}{photo.caption ? ` · ${photo.caption}` : ""}</small>
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
+        </details>
 
         <label className="survey-simple-works">
           Description of works
@@ -736,9 +818,29 @@ export default function SimpleSurveyWorkspacePage() {
         </label>
 
         <div className="survey-simple-cta-row">
-          <button type="button" className="survey-simple-primary" disabled={generating || !survey.customerRequirements.trim()} onClick={() => void generateCostCentres()}>
-            {generating ? <Loader2 className="spin" size={17} /> : <Sparkles size={17} />}
-            {generating ? "Building…" : costCentres.length ? "Rebuild cost centres" : "Generate cost centres"}
+          <button type="button" className="survey-simple-primary is-blake" disabled={generating || sendingToQuote || !survey.customerRequirements.trim()} onClick={() => void generateCostCentres()}>
+            {generating ? (
+              <Loader2 className="spin" size={17} />
+            ) : (
+              <BuddyCharacter mood={costCentres.length ? "guide" : "thinking"} size="sm" interactive={false} title="Blake" />
+            )}
+            {generating ? "Blake building…" : costCentres.length ? "Rebuild with Blake" : "Ask Blake for cost centres"}
+          </button>
+          <button
+            type="button"
+            className="survey-simple-primary"
+            disabled={sendingToQuote || generating || !survey.estimateId || survey.jobLink?.type !== "Quote"}
+            title={
+              !survey.estimateId
+                ? "Generate cost centres first"
+                : survey.jobLink?.type !== "Quote"
+                  ? "Link a Core quote above first"
+                  : "Send cost centres into the linked Core quote"
+            }
+            onClick={() => void sendToQuote()}
+          >
+            {sendingToQuote ? <Loader2 className="spin" size={17} /> : <Send size={17} />}
+            {sendingToQuote ? "Sending…" : "Send to quote"}
           </button>
         </div>
 
@@ -751,8 +853,8 @@ export default function SimpleSurveyWorkspacePage() {
               </h2>
               <p>
                 {openBuddyQuestions.length
-                  ? `Blake needs ${openBuddyQuestions.length} answer${openBuddyQuestions.length === 1 ? "" : "s"} before the RFQ is tight. Answer below, then rebuild.`
-                  : "Blake’s checks are answered. Rebuild cost centres to tighten materials and labour."}
+                  ? `Blake needs ${openBuddyQuestions.length} answer${openBuddyQuestions.length === 1 ? "" : "s"} before the RFQ is tight. Answer below, then rebuild with Blake.`
+                  : "Blake’s checks are answered. Rebuild with Blake to tighten materials and labour."}
               </p>
             </header>
             <div className="survey-simple-buddy-list">

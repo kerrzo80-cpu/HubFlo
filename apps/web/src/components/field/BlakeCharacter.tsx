@@ -2,16 +2,13 @@
 
 export type BlakeMood = "idle" | "alert" | "thinking" | "good" | "guide";
 
-/**
- * Ask Blake pose sheet — full stills from the brand mascot pack.
- * Swap the photo when the situation changes (no limb puppeting).
- */
+/** Transparent Blake cut-outs — same poses as Core. */
 const POSES: Record<BlakeMood, { src: string; label: string }> = {
-  idle: { src: "/brand/blake-poses/blake-idle.png", label: "Ask Blake ready" },
-  alert: { src: "/brand/blake-poses/blake-alert.png", label: "Blake spotted something" },
-  thinking: { src: "/brand/blake-poses/blake-thinking.png", label: "Blake analysing" },
-  guide: { src: "/brand/blake-poses/blake-guide.png", label: "Blake checking things out" },
-  good: { src: "/brand/blake-poses/blake-good.png", label: "Blake all good" },
+  idle: { src: "/brand/blake-poses/blake-idle.webp", label: "Ask Blake ready" },
+  alert: { src: "/brand/blake-poses/blake-alert.webp", label: "Blake spotted something" },
+  thinking: { src: "/brand/blake-poses/blake-thinking.webp", label: "Blake analysing" },
+  guide: { src: "/brand/blake-poses/blake-guide.webp", label: "Blake checking things out" },
+  good: { src: "/brand/blake-poses/blake-good.webp", label: "Blake all good" },
 };
 
 export function BlakeCharacter({

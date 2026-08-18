@@ -2,20 +2,55 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { ChevronRight } from "lucide-react";
+import { BlakeCharacter } from "@/components/field/BlakeCharacter";
 import { DayPicker } from "@/components/field/DayPicker";
 import { JobCard } from "@/components/field/JobCard";
+import { useBrand } from "@/components/BrandProvider";
 import { useNexaClient } from "@/lib/field/nexa";
 import { formatDuration, isoDate, todayLabel } from "@/lib/field/format";
 import { fieldPath } from "@/lib/field/routes";
 import type { FieldScheduleItem } from "@/lib/field/types";
 
+type FieldAlert = {
+  id: string;
+  kind: string;
+  scheduleId: string;
+  jobRef: string;
+  title: string;
+  detail: string;
+  status: string;
+};
+
+const SEEN_ALERTS_KEY = "ewg-field-po-alerts-seen";
+
+function readSeenAlertIds() {
+  try {
+    const raw = window.localStorage.getItem(SEEN_ALERTS_KEY);
+    const parsed = raw ? (JSON.parse(raw) as string[]) : [];
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function writeSeenAlertIds(ids: string[]) {
+  try {
+    window.localStorage.setItem(SEEN_ALERTS_KEY, JSON.stringify(ids.slice(0, 40)));
+  } catch {
+    // Ignore storage failures on private mode.
+  }
+}
+
 export default function MyDayPage() {
+  const brand = useBrand();
   const client = useNexaClient();
   const [selectedDate, setSelectedDate] = useState(isoDate);
   const [jobs, setJobs] = useState<FieldScheduleItem[]>([]);
   const [datesWithJobs, setDatesWithJobs] = useState<string[]>([]);
   const [engineerName, setEngineerName] = useState("Field engineer");
   const [error, setError] = useState("");
+  const [alerts, setAlerts] = useState<FieldAlert[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,6 +88,48 @@ export default function MyDayPage() {
     };
   }, [client, selectedDate]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAlerts() {
+      try {
+        const response = await fetch(
+          `/api/field/alerts?date=${encodeURIComponent(selectedDate)}`,
+          { credentials: "include", cache: "no-store" },
+        );
+        if (!response.ok || cancelled) return;
+        const body = (await response.json()) as { alerts?: FieldAlert[] };
+        const next = Array.isArray(body.alerts) ? body.alerts : [];
+        if (cancelled) return;
+        setAlerts(next);
+
+        const seen = readSeenAlertIds();
+        const fresh = next.filter((alert) => !seen.has(alert.id));
+        if (!fresh.length || typeof window === "undefined" || !("Notification" in window)) return;
+
+        const notify = async () => {
+          if (Notification.permission === "default") {
+            await Notification.requestPermission();
+          }
+          if (Notification.permission !== "granted") return;
+          for (const alert of fresh.slice(0, 3)) {
+            new Notification(alert.title, {
+              body: alert.detail,
+              tag: alert.id,
+            });
+          }
+          writeSeenAlertIds([...seen, ...fresh.map((alert) => alert.id)]);
+        };
+        void notify();
+      } catch {
+        // Alerts are best-effort.
+      }
+    }
+    void loadAlerts();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate]);
+
   const totalHours = jobs.reduce((sum, job) => sum + job.durationHours, 0);
   const firstJob = jobs[0];
   const isToday = selectedDate === isoDate();
@@ -67,6 +144,22 @@ export default function MyDayPage() {
             ? `${jobs.length} job${jobs.length === 1 ? "" : "s"} · ${formatDuration(totalHours)} booked`
             : "No jobs booked"}
         </p>
+        <p style={{ marginTop: 10 }}>
+          <a
+            className="field-next-job"
+            href={`/api/dispatch/run-sheet?date=${encodeURIComponent(selectedDate)}`}
+            target="_blank"
+            rel="noreferrer"
+            style={{ display: "inline-flex", marginTop: 0 }}
+          >
+            <span>Dispatch</span>
+            <strong>
+              {jobs.length
+                ? `Print run sheet · ${jobs.length} job${jobs.length === 1 ? "" : "s"} · 20m travel`
+                : "Print run sheet · no jobs today"}
+            </strong>
+          </a>
+        </p>
       </header>
 
       <DayPicker
@@ -74,6 +167,26 @@ export default function MyDayPage() {
         datesWithJobs={datesWithJobs}
         onSelectDate={setSelectedDate}
       />
+
+      {alerts.length ? (
+        <section className="field-alert-list" aria-label="Office updates">
+          {alerts.map((alert) => (
+            <Link
+              key={alert.id}
+              href={
+                alert.scheduleId
+                  ? fieldPath(`/jobs/${encodeURIComponent(alert.scheduleId)}?tab=po`)
+                  : fieldPath("/")
+              }
+              className={`field-alert-card is-${alert.status === "Approved" ? "good" : alert.status === "Rejected" ? "bad" : "info"}`}
+            >
+              <span>{alert.title}</span>
+              <strong>{alert.detail}</strong>
+              <small>Open POs tab</small>
+            </Link>
+          ))}
+        </section>
+      ) : null}
 
       {firstJob && isToday ? (
         <Link href={fieldPath(`/jobs/${firstJob.scheduleId}`)} className="field-next-job">
@@ -83,6 +196,35 @@ export default function MyDayPage() {
           </strong>
         </Link>
       ) : null}
+
+      <Link
+        href={
+          firstJob && isToday
+            ? fieldPath(`/ask?job=${encodeURIComponent(firstJob.scheduleId)}`)
+            : fieldPath("/ask")
+        }
+        className="field-blake-row"
+      >
+        <BlakeCharacter mood="idle" size="md" />
+        <span className="field-blake-row-copy">
+          <strong>Ask Blake</strong>
+          <small>
+            {firstJob && isToday
+              ? `Stuck on ${firstJob.customer}? Fault diagnosis and next steps`
+              : "On-site fault diagnosis, checks and next steps"}
+          </small>
+        </span>
+        <ChevronRight size={18} aria-hidden className="field-blake-row-chevron" />
+      </Link>
+
+      <Link href="/train" className="field-blake-row is-soft">
+        <BlakeCharacter mood="guide" size="md" />
+        <span className="field-blake-row-copy">
+          <strong>Blake Trainer</strong>
+          <small>Voice training · approved {brand.trainerAppName} materials only</small>
+        </span>
+        <ChevronRight size={18} aria-hidden className="field-blake-row-chevron" />
+      </Link>
 
       {error ? <div className="feedback error">{error}</div> : null}
 

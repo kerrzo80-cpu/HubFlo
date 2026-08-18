@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { sendEmailMessage } from "@/lib/email-integration-store";
 import { parseJsonRequestBody } from "@/lib/http";
 import {
   getVariationPortalRequestsByJob,
   upsertVariationPortalRequest,
   type VariationPortalStatus,
 } from "@/lib/variation-portal-data";
+
+function variationPortalPublicUrl(token: string) {
+  const base = (process.env.NEXA_PUBLIC_APP_URL || "https://nexa-live.onrender.com").replace(/\/$/, "");
+  return `${base}/client/variations/${token}`;
+}
 
 type CreateVariationPortalPayload = {
   variationEventId: string;
@@ -66,6 +72,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
+  const sellValue = Number.isFinite(payload.sellValue) ? payload.sellValue : 0;
+  const { assertVariationSellValue } = await import("@/lib/commercial-safeguards");
+  const sellGate = assertVariationSellValue(sellValue);
+  if (sellGate) {
+    return NextResponse.json({ error: sellGate }, { status: 422 });
+  }
+
   const created = upsertVariationPortalRequest({
     variationEventId: payload.variationEventId,
     jobId: payload.jobId,
@@ -73,11 +86,38 @@ export async function POST(request: NextRequest) {
     summary: payload.summary,
     description: payload.description || payload.summary,
     costValue: Number.isFinite(payload.costValue) ? payload.costValue : 0,
-    sellValue: Number.isFinite(payload.sellValue) ? payload.sellValue : 0,
+    sellValue,
     actor: payload.actor,
     clientEmail: payload.clientEmail?.trim(),
     requiresClientApproval: payload.requiresClientApproval ?? true,
   });
 
-  return NextResponse.json(created, { status: 201 });
+  const clientEmail = payload.clientEmail?.trim();
+  let emailSent = false;
+  let emailError: string | undefined;
+  if (clientEmail && clientEmail.includes("@")) {
+    const portalUrl = variationPortalPublicUrl(created.token);
+    const sell = Number.isFinite(payload.sellValue) ? payload.sellValue : 0;
+    try {
+      await sendEmailMessage({
+        to: clientEmail,
+        subject: `${payload.jobRef} — please approve variation: ${payload.summary}`,
+        text: [
+          `Please review and approve an additional variation for ${payload.jobRef}.`,
+          "",
+          `Variation: ${payload.summary}`,
+          `Amount (ex VAT): £${sell.toFixed(2)}`,
+          "",
+          `Approve or decline here: ${portalUrl}`,
+          "",
+          "If the link does not open, reply to this email and the office will help.",
+        ].join("\n"),
+      });
+      emailSent = true;
+    } catch (error) {
+      emailError = error instanceof Error ? error.message : "Email send failed";
+    }
+  }
+
+  return NextResponse.json({ ...created, emailSent, emailError }, { status: 201 });
 }

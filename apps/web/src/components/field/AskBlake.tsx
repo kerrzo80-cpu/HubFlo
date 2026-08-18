@@ -1,18 +1,34 @@
 "use client";
 
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { Camera, ImagePlus, SendHorizontal, X } from "lucide-react";
+import { Camera, ImagePlus, SendHorizontal, Video, X } from "lucide-react";
 import { BlakeCharacter } from "@/components/field/BlakeCharacter";
+import { FileDropZone } from "@/components/FileDropZone";
 import {
   ASK_BLAKE_MAX_PHOTOS,
   type AskBlakeJobContext,
   type AskBlakeMessage,
 } from "@/lib/field/ask-blake";
-import { compressAskBlakeFiles, compressAskBlakePhotos, ASK_BLAKE_RAW_PHOTO_LIMIT_BYTES } from "@/lib/field/ask-blake-media";
+import {
+  compressAskBlakeFiles,
+  compressAskBlakePhotos,
+  frameFromAskBlakeVideo,
+  ASK_BLAKE_RAW_PHOTO_LIMIT_BYTES,
+} from "@/lib/field/ask-blake-media";
 
 type AskBlakeChatProps = {
   job?: AskBlakeJobContext | null;
   apiPath?: string;
+};
+
+type AttachmentKind = "photo" | "video";
+
+type PendingAttachment = {
+  kind: AttachmentKind;
+  previewUrl: string;
+  /** JPEG data URL for Blake (photos compressed; videos = still frame). */
+  imageDataUrl: string;
+  label: string;
 };
 
 export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: AskBlakeChatProps) {
@@ -20,18 +36,17 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
     {
       role: "assistant",
       text: job?.jobRef
-        ? `Ask me anything about ${job.jobRef}${job.costCentre ? ` · ${job.costCentre}` : ""}. Describe the fault or attach photos.`
-        : "Ask Blake — describe the fault, or attach site photos. I’ll give likely cause, checks and next steps.",
+        ? `Ask me anything about ${job.jobRef}${job.costCentre ? ` · ${job.costCentre}` : ""}. Describe the fault or attach photos / a short video.`
+        : "Ask Blake — describe the fault, or attach site photos or a short video. I’ll give likely cause, checks and next steps.",
     },
   ]);
   const [draft, setDraft] = useState("");
-  const [photos, setPhotos] = useState<string[]>([]);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [busy, setBusy] = useState(false);
-  const [preparingPhotos, setPreparingPhotos] = useState(false);
+  const [preparingMedia, setPreparingMedia] = useState(false);
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const libraryRef = useRef<HTMLInputElement | null>(null);
   const cameraRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -44,13 +59,13 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
     abortRef.current?.abort();
   }, []);
 
-  async function onPickImages(fileList: FileList | null) {
+  async function onPickImages(fileList: FileList | File[] | null) {
     const files = fileList ? Array.from(fileList) : [];
     if (!files.length) return;
 
-    const remaining = ASK_BLAKE_MAX_PHOTOS - photos.length;
+    const remaining = ASK_BLAKE_MAX_PHOTOS - attachments.length;
     if (remaining <= 0) {
-      setError(`You can attach up to ${ASK_BLAKE_MAX_PHOTOS} photos.`);
+      setError(`You can attach up to ${ASK_BLAKE_MAX_PHOTOS} photos / video frames.`);
       return;
     }
 
@@ -72,22 +87,78 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
       }
     }
 
-    setPreparingPhotos(true);
+    setPreparingMedia(true);
     setError("");
     try {
-      // Shrink 15–50MB phone-camera files down before attaching.
       const compressed = await compressAskBlakeFiles(selected);
-      setPhotos((current) => [...current, ...compressed].slice(0, ASK_BLAKE_MAX_PHOTOS));
-      setError(files.length > remaining ? `Added ${remaining} — max ${ASK_BLAKE_MAX_PHOTOS} photos.` : "");
+      const next: PendingAttachment[] = compressed.map((imageDataUrl, index) => ({
+        kind: "photo" as const,
+        previewUrl: imageDataUrl,
+        imageDataUrl,
+        label: selected[index]?.name || `Photo ${index + 1}`,
+      }));
+      setAttachments((current) => [...current, ...next].slice(0, ASK_BLAKE_MAX_PHOTOS));
+      setError(files.length > remaining ? `Added ${remaining} — max ${ASK_BLAKE_MAX_PHOTOS}.` : "");
     } catch {
       setError("Could not prepare those photos. Try again, or take a new shot.");
     } finally {
-      setPreparingPhotos(false);
+      setPreparingMedia(false);
     }
   }
 
-  function removePhoto(index: number) {
-    setPhotos((current) => current.filter((_, itemIndex) => itemIndex !== index));
+  async function onPickVideo(fileList: FileList | File[] | null) {
+    const file = fileList ? Array.from(fileList)[0] : undefined;
+    if (!file) return;
+
+    const remaining = ASK_BLAKE_MAX_PHOTOS - attachments.length;
+    if (remaining <= 0) {
+      setError(`You can attach up to ${ASK_BLAKE_MAX_PHOTOS} photos / video frames.`);
+      return;
+    }
+
+    const type = (file.type || "").toLowerCase();
+    const name = file.name.toLowerCase();
+    const looksLikeVideo = type.startsWith("video/") || /\.(mp4|mov|webm|m4v)$/i.test(name);
+    if (!looksLikeVideo) {
+      setError("Attach a short site video (mp4 / mov).");
+      return;
+    }
+    if (file.size > ASK_BLAKE_RAW_PHOTO_LIMIT_BYTES) {
+      setError("That video is too large (over 80MB). Try a shorter clip.");
+      return;
+    }
+
+    setPreparingMedia(true);
+    setError("");
+    try {
+      const frame = await frameFromAskBlakeVideo(file);
+      const objectUrl = URL.createObjectURL(file);
+      setAttachments((current) =>
+        [
+          ...current,
+          {
+            kind: "video" as const,
+            previewUrl: objectUrl,
+            imageDataUrl: frame,
+            label: file.name || "Site video",
+          },
+        ].slice(0, ASK_BLAKE_MAX_PHOTOS),
+      );
+    } catch {
+      setError("Could not read that video. Try a shorter mp4, or send a photo instead.");
+    } finally {
+      setPreparingMedia(false);
+    }
+  }
+
+  function removeAttachment(index: number) {
+    setAttachments((current) => {
+      const item = current[index];
+      if (item?.kind === "video" && item.previewUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(item.previewUrl);
+      }
+      return current.filter((_, itemIndex) => itemIndex !== index);
+    });
   }
 
   function cancelBusy() {
@@ -99,14 +170,18 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
 
   async function send(message: string) {
     const trimmed = message.trim();
-    if ((!trimmed && !photos.length) || busy) return;
+    if ((!trimmed && !attachments.length) || busy) return;
 
+    const hasVideo = attachments.some((item) => item.kind === "video");
+    const photoCount = attachments.filter((item) => item.kind === "photo").length;
     const userText = trimmed || (
-      photos.length > 1
-        ? "What do you see in these photos, and what should I check next?"
-        : "What do you see in this photo, and what should I check next?"
+      hasVideo && photoCount === 0
+        ? "What do you see in this video still, and what should I check next?"
+        : attachments.length > 1
+          ? "What do you see in these photos, and what should I check next?"
+          : "What do you see in this photo, and what should I check next?"
     );
-    const attached = [...photos];
+    const attached = [...attachments];
     const nextHistory = messages.filter((item) => item.role === "user" || item.role === "assistant");
     const userMessage: AskBlakeMessage = {
       role: "user",
@@ -116,7 +191,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
     };
     setMessages((current) => [...current, userMessage]);
     setDraft("");
-    setPhotos([]);
+    setAttachments([]);
     setBusy(true);
     setError("");
     setWarning("");
@@ -127,13 +202,15 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
     const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const compressed = await compressAskBlakePhotos(attached);
+      const compressed = await compressAskBlakePhotos(attached.map((item) => item.imageDataUrl));
       const response = await fetch(apiPath, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({
-          message: userText,
+          message: hasVideo
+            ? `${userText}\n\n(Note: a site video was attached — Blake is reviewing a still frame from it.)`
+            : userText,
           imageDataUrls: compressed,
           history: nextHistory.slice(-10),
           job,
@@ -158,6 +235,11 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
       if (!body.reply?.trim()) throw new Error("Ask Blake returned an empty reply.");
       setMessages((current) => [...current, { role: "assistant", text: body.reply!.trim() }]);
       if (body.warning) setWarning(body.warning);
+      for (const item of attached) {
+        if (item.kind === "video" && item.previewUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(item.previewUrl);
+        }
+      }
     } catch (sendError) {
       const aborted = sendError instanceof DOMException && sendError.name === "AbortError";
       setError(
@@ -167,7 +249,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
       );
       setMessages((current) => current.slice(0, -1));
       setDraft(trimmed);
-      setPhotos(attached);
+      setAttachments(attached);
     } finally {
       window.clearTimeout(timeoutId);
       if (abortRef.current === controller) abortRef.current = null;
@@ -180,7 +262,13 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
     void send(draft);
   }
 
-  const canAddMore = photos.length < ASK_BLAKE_MAX_PHOTOS;
+  const canAddMore = attachments.length < ASK_BLAKE_MAX_PHOTOS;
+  const lastAssistantIndex = (() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i]?.role === "assistant") return i;
+    }
+    return -1;
+  })();
 
   return (
     <section className="ask-blake" aria-label="Ask Blake">
@@ -193,7 +281,15 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
             {message.role === "assistant" ? (
               <span className="ask-blake-avatar">
                 <BlakeCharacter
-                  mood={index === 0 ? "idle" : "good"}
+                  mood={
+                    error && index === lastAssistantIndex
+                      ? "alert"
+                      : index === 0
+                        ? "idle"
+                        : index === lastAssistantIndex
+                          ? "good"
+                          : "guide"
+                  }
                   size="sm"
                 />
               </span>
@@ -203,8 +299,8 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
               {message.hasImage ? (
                 <span className="ask-blake-photo-tag">
                   {(message.imageCount ?? 1) > 1
-                    ? `${message.imageCount} photos attached`
-                    : "Photo attached"}
+                    ? `${message.imageCount} media attached`
+                    : "Media attached"}
                 </span>
               ) : null}
             </div>
@@ -228,37 +324,31 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
 
       {warning ? <div className="feedback">{warning}</div> : null}
       {error ? <div className="feedback error">{error}</div> : null}
-      {preparingPhotos ? <div className="feedback">Shrinking photo for Blake…</div> : null}
+      {preparingMedia ? <div className="feedback">Preparing media for Blake…</div> : null}
 
-      {photos.length ? (
-        <div className="ask-blake-preview-row" aria-label="Attached photos">
-          {photos.map((photo, index) => (
-            <div key={`${index}-${photo.slice(-24)}`} className="ask-blake-preview">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={photo} alt={`Attached site photo ${index + 1}`} />
-              <button type="button" aria-label={`Remove photo ${index + 1}`} onClick={() => removePhoto(index)}>
+      {attachments.length ? (
+        <div className="ask-blake-preview-row" aria-label="Attached media">
+          {attachments.map((item, index) => (
+            <div key={`${index}-${item.label}`} className="ask-blake-preview">
+              {item.kind === "video" ? (
+                // eslint-disable-next-line jsx-a11y/media-has-caption
+                <video src={item.previewUrl} muted playsInline />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={item.previewUrl} alt={`Attached site photo ${index + 1}`} />
+              )}
+              <button type="button" aria-label={`Remove attachment ${index + 1}`} onClick={() => removeAttachment(index)}>
                 <X size={16} />
               </button>
             </div>
           ))}
           <p className="ask-blake-photo-count muted">
-            {photos.length}/{ASK_BLAKE_MAX_PHOTOS}
+            {attachments.length}/{ASK_BLAKE_MAX_PHOTOS}
           </p>
         </div>
       ) : null}
 
       <form className="ask-blake-composer" onSubmit={onSubmit}>
-        <input
-          ref={libraryRef}
-          type="file"
-          accept="image/*,.heic,.heif"
-          multiple
-          hidden
-          onChange={(event) => {
-            void onPickImages(event.target.files);
-            event.currentTarget.value = "";
-          }}
-        />
         <input
           ref={cameraRef}
           type="file"
@@ -271,39 +361,55 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
           }}
         />
         <div className="ask-blake-attach">
-          <button
-            type="button"
-            className="ask-blake-icon-btn"
-            aria-label="Upload photos"
-            title="Upload photos"
-            onClick={() => libraryRef.current?.click()}
-            disabled={busy || preparingPhotos || !canAddMore}
+          <FileDropZone
+            accept="image/*,.heic,.heif"
+            multiple
+            disabled={busy || preparingMedia || !canAddMore}
+            compact
+            className="ask-blake-drop"
+            label="Drop photos"
+            onFiles={(files) => void onPickImages(files)}
           >
-            <ImagePlus size={18} />
-          </button>
+            <span className="ask-blake-icon-btn" aria-hidden>
+              <ImagePlus size={18} />
+            </span>
+          </FileDropZone>
           <button
             type="button"
             className="ask-blake-icon-btn"
             aria-label="Take photo"
             title="Take photo"
             onClick={() => cameraRef.current?.click()}
-            disabled={busy || preparingPhotos || !canAddMore}
+            disabled={busy || preparingMedia || !canAddMore}
           >
             <Camera size={18} />
           </button>
+          <FileDropZone
+            accept="video/*,.mp4,.mov,.webm,.m4v"
+            capture="environment"
+            disabled={busy || preparingMedia || !canAddMore}
+            compact
+            className="ask-blake-drop"
+            label="Drop video"
+            onFiles={(files) => void onPickVideo(files)}
+          >
+            <span className="ask-blake-icon-btn" aria-hidden>
+              <Video size={18} />
+            </span>
+          </FileDropZone>
         </div>
         <textarea
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder={job ? "Ask about this job…" : "Ask Blake…"}
           rows={2}
-          disabled={busy || preparingPhotos}
+          disabled={busy || preparingMedia}
         />
         <button
           type="submit"
           className="ask-blake-icon-btn is-send"
           aria-label="Send"
-          disabled={busy || preparingPhotos || (!draft.trim() && !photos.length)}
+          disabled={busy || preparingMedia || (!draft.trim() && !attachments.length)}
         >
           <SendHorizontal size={18} />
         </button>

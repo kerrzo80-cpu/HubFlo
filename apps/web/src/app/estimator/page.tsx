@@ -20,11 +20,31 @@ import {
   X,
 } from "lucide-react";
 import type { EstimateLabourLine, EstimateMaterialLine, EstimateRecord, SurveyRecord } from "@hubflo/domain";
+import { useBrand } from "@/components/BrandProvider";
+import { resolveBrandLogoUrl } from "@/lib/branding";
+import {
+  chipClassForPricingState,
+  derivePricingState,
+  PRICING_STATE_HINT,
+  PRICING_STATE_LABEL,
+} from "@/lib/price-ledger";
 
 const requestHeaders: HeadersInit = {
   "x-hubflo-role": "Office",
-  "x-hubflo-employee-id": "Brian Kerr",
 };
+
+async function apiFetch(input: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers || {});
+  for (const [key, value] of Object.entries(requestHeaders)) {
+    if (!headers.has(key) && typeof value === "string") headers.set(key, value);
+  }
+  const response = await fetch(input, { ...init, credentials: "same-origin", headers });
+  if (response.status === 401 && typeof window !== "undefined") {
+    const next = `${window.location.pathname}${window.location.search}`;
+    window.location.assign(`/login?next=${encodeURIComponent(next || "/estimator")}`);
+  }
+  return response;
+}
 
 type EstimateTab = "summary" | "materials" | "labour" | "rfq" | "simpro" | "source";
 type EditableLine =
@@ -90,11 +110,11 @@ export default function EstimatorPage() {
     setLoading(true);
     setError("");
     try {
-      const estimateResponse = await fetch(`/api/estimates/${encodeURIComponent(id)}`, { headers: requestHeaders });
+      const estimateResponse = await apiFetch(`/api/estimates/${encodeURIComponent(id)}`, { headers: requestHeaders });
       if (!estimateResponse.ok) throw new Error("Unable to open this estimate.");
       const loaded = await estimateResponse.json() as EstimateRecord;
       setEstimate(loaded);
-      const surveyResponse = await fetch(`/api/surveys/${encodeURIComponent(loaded.surveyId)}`, { headers: requestHeaders });
+      const surveyResponse = await apiFetch(`/api/surveys/${encodeURIComponent(loaded.surveyId)}`, { headers: requestHeaders });
       setSurvey(surveyResponse.ok ? await surveyResponse.json() as SurveyRecord : null);
       window.history.replaceState(null, "", `/estimator?estimate=${encodeURIComponent(loaded.id)}`);
     } catch (loadError) {
@@ -107,7 +127,7 @@ export default function EstimatorPage() {
   useEffect(() => {
     void (async () => {
       try {
-        const response = await fetch("/api/estimates", { headers: requestHeaders });
+        const response = await apiFetch("/api/estimates", { headers: requestHeaders });
         if (!response.ok) throw new Error("Unable to load estimates.");
         const loaded = await response.json() as EstimateRecord[];
         setEstimates(loaded);
@@ -176,7 +196,7 @@ export default function EstimatorPage() {
     setWorking(true);
     setError("");
     try {
-      const response = await fetch(`/api/estimates/${encodeURIComponent(estimate.id)}/pricing`, {
+      const response = await apiFetch(`/api/estimates/${encodeURIComponent(estimate.id)}/pricing`, {
         method: "PATCH",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -209,19 +229,33 @@ export default function EstimatorPage() {
     setWorking(true);
     setError("");
     try {
+      const materialCost = (editValues.unitCost || "").trim() ? numberValue(editValues.unitCost) : undefined;
       const patch = editing.type === "Material" ? {
         quantity: numberValue(editValues.quantity),
-        unitCost: (editValues.unitCost || "").trim() ? numberValue(editValues.unitCost) : undefined,
+        unitCost: materialCost,
         markupPercent: numberValue(editValues.markupPercent),
         supplier: editValues.supplier,
         notes: editValues.notes,
+        ...(materialCost !== undefined
+          ? {
+              pricingState: "firm" as const,
+              pricingSource: "manual",
+              pricingNote: "Firm cost entered in Estimator",
+              pricedAt: new Date().toISOString(),
+              status: "Confirmed" as const,
+            }
+          : {
+              pricingState: "rfq" as const,
+              pricingSource: "supplier",
+              status: "Supplier RFQ" as const,
+            }),
       } : {
         hours: numberValue(editValues.hours),
         costRate: numberValue(editValues.costRate),
         sellRate: numberValue(editValues.sellRate),
         notes: editValues.notes,
       };
-      const response = await fetch(`/api/estimates/${encodeURIComponent(estimate.id)}`, {
+      const response = await apiFetch(`/api/estimates/${encodeURIComponent(estimate.id)}`, {
         method: "PATCH",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -251,7 +285,7 @@ export default function EstimatorPage() {
     setWorking(true);
     setError("");
     try {
-      const response = await fetch(`/api/estimates/${encodeURIComponent(estimate.id)}/regenerate`, {
+      const response = await apiFetch(`/api/estimates/${encodeURIComponent(estimate.id)}/regenerate`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ expectedVersion: estimate.version }),
@@ -273,7 +307,7 @@ export default function EstimatorPage() {
     setWorking(true);
     setError("");
     try {
-      const response = await fetch(`/api/estimates/${encodeURIComponent(estimate.id)}/push-to-quote`, {
+      const response = await apiFetch(`/api/estimates/${encodeURIComponent(estimate.id)}/push-to-quote`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ expectedVersion: estimate.version }),
@@ -282,7 +316,7 @@ export default function EstimatorPage() {
       if (!response.ok) throw new Error(body.error || "Unable to push this estimate into the quote.");
       setEstimate(body.estimate as EstimateRecord);
       setEstimates((current) => current.map((item) => item.id === body.estimate.id ? body.estimate as EstimateRecord : item));
-      setNotice(`${body.quote.ref} now contains ${body.costCentres.length} itemised cost centre(s) from this estimate.`);
+      setNotice(`${body.quote.ref} now contains ${body.costCentres.length} itemised cost centre(s) from this estimate${body.unpricedCount ? ` · ${body.unpricedCount} supplier RFQ line(s) at £0 provisional` : ""}.`);
     } catch (pushError) {
       setError(pushError instanceof Error ? pushError.message : "Unable to push estimate into quote.");
     } finally {
@@ -290,12 +324,15 @@ export default function EstimatorPage() {
     }
   }
 
+  const brand = useBrand();
+
   return (
     <main className="estimator-app">
       <header className="estimator-header">
         <div>
-          <img src="/app-icons/nexa-estimator-apple-touch-icon.png" alt="NeXa Estimator" />
-          <span><strong>NeXa Estimator</strong><small>Survey to priced work package</small></span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={resolveBrandLogoUrl(brand, "estimator")} alt={brand.companyName} />
+          <span><strong>{brand.surveyAppName}</strong><small>Survey to priced work package</small></span>
         </div>
         <nav><a href="/"><ArrowLeft size={17} /> Core</a><a href="/survey"><ClipboardList size={17} /> Surveys</a></nav>
       </header>
@@ -310,7 +347,7 @@ export default function EstimatorPage() {
               <em>Survey v{item.sourceSurveyVersion} · {new Date(item.updatedAt).toLocaleDateString("en-GB")}</em>
             </button>
           ))}
-          {!estimates.length && !loading ? <p>Complete a guided survey and use Generate AI estimate pack to create the first estimate.</p> : null}
+          {!estimates.length && !loading ? <p>Open a survey, generate cost centres, then use Send to quote — or open an estimate pack here.</p> : null}
         </aside>
 
         <section className="estimator-workspace">
@@ -320,7 +357,33 @@ export default function EstimatorPage() {
             <>
               <div className="estimator-titlebar">
                 <div><span className="guided-eyebrow">{estimate.reference} · {estimate.pricingProfile.name}</span><h1>{survey?.customerName || "Survey estimate"}</h1><p>{survey?.siteAddress || estimate.scopeOfWorks[0]}</p></div>
-                <div><b data-status={estimate.status}>{estimate.coreQuoteRef ? `${estimate.status} · ${estimate.coreQuoteRef}` : estimate.status}</b><button type="button" className="secondary" onClick={() => void regenerate()} disabled={working}><RefreshCw className={working ? "spin" : ""} size={16} /> Regenerate</button><button type="button" title={totals.unpriced ? "Price the supplier RFQ items before pushing this estimate" : undefined} onClick={() => void pushToQuote()} disabled={working || Boolean(totals.unpriced) || !estimate.scopeOfWorks.length}><Send size={16} /> {estimate.coreQuoteRef ? `Update ${estimate.coreQuoteRef}` : "Push to quote"}</button></div>
+                <div>
+                  <b data-status={estimate.status}>
+                    {estimate.coreQuoteRef ? (
+                      <>
+                        {estimate.status} ·{" "}
+                        {estimate.coreQuoteId ? (
+                          <a href={`/?quote=${encodeURIComponent(estimate.coreQuoteId)}`}>{estimate.coreQuoteRef}</a>
+                        ) : (
+                          estimate.coreQuoteRef
+                        )}
+                      </>
+                    ) : (
+                      estimate.status
+                    )}
+                  </b>
+                  <button type="button" className="secondary" onClick={() => void regenerate()} disabled={working}>
+                    <RefreshCw className={working ? "spin" : ""} size={16} /> Regenerate
+                  </button>
+                  <button
+                    type="button"
+                    title={totals.unpriced ? "Unpriced supplier RFQ lines will push at £0 provisional" : undefined}
+                    onClick={() => void pushToQuote()}
+                    disabled={working || !estimate.scopeOfWorks.length}
+                  >
+                    <Send size={16} /> {estimate.coreQuoteRef ? `Update ${estimate.coreQuoteRef}` : "Push to quote"}
+                  </button>
+                </div>
               </div>
               {error ? <p className="estimator-message error"><AlertTriangle size={16} /> {error}</p> : null}
               {notice ? <p className="estimator-message"><CheckCircle2 size={16} /> {notice}</p> : null}
@@ -419,7 +482,47 @@ export default function EstimatorPage() {
 }
 
 function EstimateMaterialTable({ lines, onEdit }: { lines: EstimateMaterialLine[]; onEdit: (line: EstimateMaterialLine) => void }) {
-  return <div className="estimate-table material"><div className="head"><span>Description</span><span>Qty</span><span>Cost</span><span>Markup</span><span>Sell</span><span>Status</span><span /></div>{lines.map((line) => { const cost = (line.unitCost || 0) * line.quantity; const sell = cost * (1 + line.markupPercent / 100); return <div className="row" key={line.id}><span data-label="Description"><strong>{line.description}</strong><small>{line.calculationExplanation}</small></span><span data-label="Qty">{line.quantity} {line.unit}</span><span data-label="Cost">{line.unitCost === undefined ? "Unpriced" : money(cost)}</span><span data-label="Markup">{line.markupPercent}%</span><span data-label="Sell">{line.unitCost === undefined ? "-" : money(sell)}</span><span data-label="Status"><b data-line-status={line.status}>{line.status}</b></span><span><button type="button" title="Edit material line" onClick={() => onEdit(line)}><Pencil size={15} /></button></span></div>; })}</div>;
+  return (
+    <div className="estimate-table material">
+      <div className="head">
+        <span>Description</span>
+        <span>Qty</span>
+        <span>Cost</span>
+        <span>Markup</span>
+        <span>Sell</span>
+        <span>Status</span>
+        <span />
+      </div>
+      {lines.map((line) => {
+        const cost = (line.unitCost || 0) * line.quantity;
+        const sell = cost * (1 + line.markupPercent / 100);
+        const state = derivePricingState(line);
+        return (
+          <div className="row" key={line.id}>
+            <span data-label="Description">
+              <strong>
+                {line.description}{" "}
+                <span className={chipClassForPricingState(state)} title={line.pricingNote || PRICING_STATE_HINT[state]}>
+                  {PRICING_STATE_LABEL[state]}
+                </span>
+              </strong>
+              <small>{line.calculationExplanation}</small>
+            </span>
+            <span data-label="Qty">{line.quantity} {line.unit}</span>
+            <span data-label="Cost">{line.unitCost === undefined ? "Unpriced" : money(cost)}</span>
+            <span data-label="Markup">{line.markupPercent}%</span>
+            <span data-label="Sell">{line.unitCost === undefined ? "-" : money(sell)}</span>
+            <span data-label="Status"><b data-line-status={line.status}>{line.status}</b></span>
+            <span>
+              <button type="button" title="Edit material line" onClick={() => onEdit(line)}>
+                <Pencil size={15} />
+              </button>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function EstimateLabourTable({ lines, onEdit }: { lines: EstimateLabourLine[]; onEdit: (line: EstimateLabourLine) => void }) {

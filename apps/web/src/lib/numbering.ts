@@ -67,6 +67,13 @@ export function referenceNumber(value: string | undefined | null) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+/** Highest reference number first (latest issued number at the top). */
+export function compareReferenceDesc(left?: string | null, right?: string | null) {
+  const byNumber = referenceNumber(right) - referenceNumber(left);
+  if (byNumber !== 0) return byNumber;
+  return String(right ?? "").localeCompare(String(left ?? ""), undefined, { numeric: true, sensitivity: "base" });
+}
+
 export function nextReferenceNumber(
   kind: NumberingKind,
   settings: NumberingSettingsLike,

@@ -4,6 +4,7 @@ import {
   ArrowRight,
   BarChart3,
   Bot,
+  Flame,
   CalendarDays,
   Check,
   ChevronRight,
@@ -74,8 +75,8 @@ const demoFrames: Record<DemoKey, Array<{ label: string; title: string; copy: st
   surveyor: [
     {
       label: "Capture",
-      title: "Guided survey on site",
-      copy: "Questions adapt to the actual work instead of forcing a fixed checklist.",
+      title: "Survey on site",
+      copy: "Capture the real job with photos, rooms and scope — not a fixed paper checklist.",
     },
     {
       label: "Measure",
@@ -90,7 +91,7 @@ const demoFrames: Record<DemoKey, Array<{ label: string; title: string; copy: st
     {
       label: "Send",
       title: "Cost centres arrive in Core",
-      copy: "The confirmed estimate becomes an editable quote, ready for approval.",
+      copy: "Survey → Send to quote lands an editable Core quote, ready for approval.",
     },
   ],
 };
@@ -106,7 +107,7 @@ const moduleRows = [
     icon: ScanLine,
     name: "Surveyor",
     statement: "Capture the job properly",
-    detail: "Guided surveys, photos, measurements, LiDAR, heat loss and evidence gates.",
+    detail: "Surveys, photos, measurements, LiDAR, heat loss and evidence gates.",
   },
   {
     icon: Layers3,
@@ -115,10 +116,10 @@ const moduleRows = [
     detail: "Mark up drawings, build quantities by floor, flat, system and cost centre.",
   },
   {
-    icon: BarChart3,
-    name: "Estimator",
-    statement: "Know the commercial position",
-    detail: "Assemblies, supplier pricing, labour build-up, markup and margin review.",
+    icon: Flame,
+    name: "Heat Design",
+    statement: "Size the heating system",
+    detail: "Floor plans, emitters, pipe routes and kit that push into Takeoff and Core quotes.",
   },
   {
     icon: HardHat,
@@ -338,10 +339,11 @@ export function NexaSalesExperience() {
           <a href="#blake" onClick={() => setMenuOpen(false)}>Blake AI</a>
           <a href="#modules" onClick={() => setMenuOpen(false)}>Modules</a>
           <a href="#demo" onClick={() => setMenuOpen(false)}>Demos</a>
+          <a href="/early-access" onClick={() => setMenuOpen(false)}>Early access</a>
         </nav>
         <div className={styles.headerActions}>
           <a className={styles.textAction} href="/login">Sign in</a>
-          <a className={styles.primaryAction} href="mailto:brian.kerr@errolwatsongroup.com?subject=NeXa%20product%20demo">Request a demo <ArrowRight size={16} /></a>
+          <a className={styles.primaryAction} href="/early-access">Company production <ArrowRight size={16} /></a>
         </div>
         <button className={styles.menuButton} type="button" onClick={() => setMenuOpen((open) => !open)} aria-label={menuOpen ? "Close menu" : "Open menu"}>
           {menuOpen ? <X size={21} /> : <Menu size={21} />}
@@ -349,27 +351,30 @@ export function NexaSalesExperience() {
       </header>
 
       <section className={styles.hero} id="top">
+        <div className={styles.heroAtmosphere} aria-hidden />
         <div className={styles.heroProduct}><ProductShell /></div>
         <div className={styles.heroCopy}>
-          <span className={styles.eyebrow}>AI operating system for service businesses</span>
           <h1>NeXa</h1>
-          <p>Run the full job lifecycle from one connected command centre, with Blake working across the operation.</p>
+          <p>
+            The all-in-one ops package for service work — Core, Survey, Takeoff, Heat Design and Field on one live record.
+          </p>
           <div className={styles.heroActions}>
-            <a className={styles.primaryAction} href="#demo"><Play size={16} /> Watch the product demos</a>
-            <a className={styles.secondaryAction} href="#product">Explore NeXa <ChevronRight size={16} /></a>
-          </div>
-          <div className={styles.heroProof}>
-            <span><Check size={15} /> Quote to cash</span>
-            <span><Check size={15} /> Office to field</span>
-            <span><Check size={15} /> Human-controlled AI</span>
+            <a className={styles.primaryAction} href="/early-access">
+              Company production <ArrowRight size={16} />
+            </a>
+            <a className={styles.secondaryAction} href="#demo">
+              <Play size={16} /> See it move
+            </a>
           </div>
         </div>
       </section>
 
       <section className={styles.statementBand} id="product">
-        <span>One live operational record</span>
-        <h2>Every decision stays connected to the work.</h2>
-        <p>NeXa binds the customer, site, scope, price, programme, people, evidence, costs and invoice into one controlled workflow.</p>
+        <span>One package. Not five tools.</span>
+        <h2>Project delivery without the re-keying.</h2>
+        <p>
+          NeXa keeps customer, site, survey, design, quantities, price, programme, people, evidence and invoice on one controlled record — from enquiry through to cash.
+        </p>
         <div className={styles.lifecycle}>
           {["Enquiry", "Survey", "Estimate", "Quote", "Schedule", "Deliver", "Invoice", "Learn"].map((item, index) => (
             <span key={item}><b>{String(index + 1).padStart(2, "0")}</b>{item}</span>
@@ -406,9 +411,9 @@ export function NexaSalesExperience() {
 
       <section className={styles.modulesBand} id="modules">
         <header>
-          <span className={styles.eyebrow}>One connected system</span>
-          <h2>Use the right tool for each part of the job.</h2>
-          <p>Each NeXa module has one clear purpose. The information moves between them without rebuilding the work.</p>
+          <span className={styles.eyebrow}>The NeXa package</span>
+          <h2>Core, Survey, Takeoff, Heat Design and Field.</h2>
+          <p>One company package. Each module has one job — the work moves between them without rebuilding the job.</p>
         </header>
         <div className={styles.moduleList}>
           {moduleRows.map(({ icon: Icon, name, statement, detail }, index) => (
@@ -451,20 +456,29 @@ export function NexaSalesExperience() {
         </div>
       </section>
 
-      <section className={styles.ctaBand}>
-        <Image src="/brand/nexa-command-mark.svg" width={58} height={58} alt="" />
-        <h2>Bring the whole operation into one view.</h2>
-        <p>See how NeXa can fit your customers, teams, workflows and existing systems.</p>
-        <div>
-          <a className={styles.primaryAction} href="mailto:brian.kerr@errolwatsongroup.com?subject=NeXa%20product%20demo">Request a demonstration <ArrowRight size={16} /></a>
-          <a className={styles.secondaryAction} href="/login">Open NeXa workspace</a>
+      <section className={styles.earlyAccessBand} id="early-access">
+        <div className={styles.earlyAccessInner}>
+          <span className={styles.eyebrow}>Company production</span>
+          <h2>The package, ready as early access.</h2>
+          <p>
+            One named-company package: Core through Field, Blake AI, backups and a clear ops checklist.
+            simPRO stays optional until NeXa is the system of record.
+          </p>
+          <div className={styles.earlyAccessActions}>
+            <a className={styles.primaryAction} href="/early-access">
+              View early access pack <ArrowRight size={16} />
+            </a>
+            <a className={styles.secondaryAction} href="/login">
+              Sign in to Core
+            </a>
+          </div>
         </div>
       </section>
 
       <footer className={styles.footer}>
         <Image src="/brand/nexa-command-lockup-dark.svg" width={132} height={34} alt="NeXa" />
-        <span>Bound into one command centre.</span>
-        <div><a href="#product">Product</a><a href="#demo">Demos</a><a href="/login">Sign in</a></div>
+        <span>One package for the whole job.</span>
+        <div><a href="#product">Product</a><a href="#demo">Demos</a><a href="/early-access">Early access</a><a href="/login">Sign in</a></div>
         <small>© 2026 NeXa. Product demonstration data is synthetic.</small>
       </footer>
     </main>

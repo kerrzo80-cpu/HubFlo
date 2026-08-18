@@ -34,6 +34,18 @@ test("a colder design temperature increases heat loss", () => {
   assert.ok(calculateRoomHeatLoss(room, -10).watts > calculateRoomHeatLoss(room, 5).watts);
 });
 
+test("room ACH and targetTemp overrides change ventilation and totals", () => {
+  const base = makeBlankRoom(2, { withDefaultWindow: false });
+  const airtight = calculateRoomHeatLoss({ ...base, airChanges: 0.3 });
+  const leaky = calculateRoomHeatLoss({ ...base, airChanges: 2 });
+  assert.ok(leaky.ventilationLoss > airtight.ventilationLoss);
+  assert.ok(leaky.watts > airtight.watts);
+  const warmer = calculateRoomHeatLoss({ ...base, targetTemp: 24 });
+  const cooler = calculateRoomHeatLoss({ ...base, targetTemp: 18 });
+  assert.ok(warmer.watts > cooler.watts);
+  assert.equal(warmer.targetTemp, 24);
+});
+
 test("suggestHeatPump returns a valid unit for normal and oversized loads", () => {
   const small = suggestHeatPump(3, 45);
   assert.ok(small && typeof small.id === "string");

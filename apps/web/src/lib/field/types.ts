@@ -8,9 +8,14 @@ export type FieldJobStatus =
 export type FieldAttachment = {
   id: string;
   name: string;
-  type: "PDF" | "Photo" | "Drawing" | "Note";
+  type: "PDF" | "Photo" | "Drawing" | "Note" | "Video";
   uploadedBy: string;
   uploadedAt: string;
+  /** Public Field API path when bytes were synced. */
+  url?: string;
+  mimeType?: string;
+  size?: number;
+  storageKey?: string;
 };
 
 export type FieldEvidenceType = "Photo" | "Text" | "Number" | "Signature" | "Checkbox";
@@ -19,6 +24,8 @@ export type FieldRequirementValue = {
   text?: string;
   numberValue?: string;
   photoName?: string;
+  photoUrl?: string;
+  photoId?: string;
   capturedAt?: string;
 };
 
@@ -68,6 +75,8 @@ export type FieldScheduleItem = {
   attachments: FieldAttachment[];
   photos: FieldAttachment[];
   requirements: FieldRequirement[];
+  costCentreTemplate?: string;
+  costCentreId?: string;
 };
 
 export type TimeCheckLineStatus = "pending" | "confirmed" | "amended";

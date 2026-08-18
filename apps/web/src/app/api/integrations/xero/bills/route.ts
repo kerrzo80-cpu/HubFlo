@@ -3,9 +3,15 @@ import { writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import { employeeHeaderName, getAccessProfileFromHeaders } from "@/lib/access";
+import { getHubDetailState } from "@/lib/hub-detail-store";
 import { parseJsonRequestBody } from "@/lib/http";
 import { getServerStoreDirectory, loadServerStore, writeServerStore } from "@/lib/server-store";
+import { resolvePurchaseAccountCode, xeroAccountCodesFromFinanceSettings } from "@/lib/xero-account-codes";
 import { getStoredXeroTenantId, resolveXeroAccessToken } from "@/lib/xero-auth";
+
+function purchaseAccountCode() {
+  return resolvePurchaseAccountCode(xeroAccountCodesFromFinanceSettings(getHubDetailState().financeSettings));
+}
 
 export const runtime = "nodejs";
 
@@ -65,7 +71,7 @@ function buildBillCsv(bill: XeroBillInput) {
       line.description,
       String(line.quantity || 1),
       line.unitAmount.toFixed(2),
-      "310",
+      purchaseAccountCode(),
       "INPUT2",
       bill.notes || bill.jobRef || "",
     ]),
@@ -126,7 +132,7 @@ async function tryLiveXeroBillUpsert(bill: XeroBillInput) {
       Description: line.description,
       Quantity: Math.max(line.quantity || 1, 0.0001),
       UnitAmount: line.unitAmount,
-      AccountCode: "310",
+      AccountCode: purchaseAccountCode(),
       TaxType: "INPUT2",
     })),
     Status: "AUTHORISED",

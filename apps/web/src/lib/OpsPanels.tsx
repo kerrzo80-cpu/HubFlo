@@ -101,6 +101,7 @@ export function StockOpsPanel({
     supplier: "",
   });
   const [draft, setDraft] = useState({
+    id: "",
     sku: "",
     name: "",
     unit: "each",
@@ -209,6 +210,7 @@ export function StockOpsPanel({
         body: JSON.stringify({
           action: "upsert-item",
           item: {
+            id: draft.id || undefined,
             sku: draft.sku,
             name: draft.name,
             unit: draft.unit,
@@ -220,8 +222,12 @@ export function StockOpsPanel({
       });
       const upsertBody = await upsert.json();
       if (!upsert.ok) throw new Error(upsertBody.error || "Unable to save item");
-      const item = (upsertBody.items as StockSnapshot["items"]).find((row) => row.sku.toLowerCase() === draft.sku.trim().toLowerCase());
-      if (item && draft.locationId && Number(draft.qty) > 0) {
+      const item = (upsertBody.items as StockSnapshot["items"]).find(
+        (row) =>
+          (draft.id && row.id === draft.id) || row.sku.toLowerCase() === draft.sku.trim().toLowerCase(),
+      );
+      const isEdit = Boolean(draft.id);
+      if (!isEdit && item && draft.locationId && Number(draft.qty) > 0) {
         const move = await fetch("/api/stock", {
           method: "POST",
           headers: { ...requestHeaders, "Content-Type": "application/json" },
@@ -243,11 +249,70 @@ export function StockOpsPanel({
         }
       } else {
         setSnapshot(upsertBody as StockSnapshot);
+        if (item?.id) {
+          setSupplierEditById((current) => ({ ...current, [item.id]: draft.preferredSupplier.trim() }));
+        }
       }
-      onNotice(`${draft.name} saved into stock.`);
-      setDraft((current) => ({ ...current, sku: "", name: "", preferredSupplier: "", qty: "1" }));
+      onNotice(isEdit ? `${draft.name} updated.` : `${draft.name} saved into stock.`);
+      setDraft((current) => ({
+        ...current,
+        id: "",
+        sku: "",
+        name: "",
+        preferredSupplier: "",
+        qty: "1",
+        minLevel: "0",
+        unitCost: "0",
+        unit: "each",
+      }));
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to save stock");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function editStockItem(item: StockSnapshot["items"][number]) {
+    setDraft((current) => ({
+      ...current,
+      id: item.id,
+      sku: item.sku,
+      name: item.name,
+      unit: item.unit || "each",
+      minLevel: String(item.minLevel ?? 0),
+      unitCost: String(item.unitCost ?? 0),
+      preferredSupplier: item.preferredSupplier || "",
+      qty: "0",
+    }));
+    onNotice(`Editing ${item.sku} — update the form then save.`);
+  }
+
+  async function removeStockItem(item: StockSnapshot["items"][number]) {
+    if (!window.confirm(`Remove ${item.sku} · ${item.name} from stock?`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/stock", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "archive-item", itemId: item.id }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to remove stock item");
+      setSnapshot(body as StockSnapshot);
+      if (draft.id === item.id) {
+        setDraft((current) => ({
+          ...current,
+          id: "",
+          sku: "",
+          name: "",
+          preferredSupplier: "",
+          qty: "1",
+        }));
+      }
+      onNotice(`${item.name} removed from stock.`);
+    } catch (removeError) {
+      setError(removeError instanceof Error ? removeError.message : "Unable to remove stock item");
     } finally {
       setBusy(false);
     }
@@ -455,7 +520,7 @@ export function StockOpsPanel({
       {error ? <p className="ops-module-error">{error}</p> : null}
       <div className="ops-module-grid">
         <article>
-          <h3>Add / receive item</h3>
+          <h3>{draft.id ? "Edit stock item" : "Add / receive item"}</h3>
           <div className="ops-form-grid">
             <label>SKU<input value={draft.sku} onChange={(e) => setDraft((c) => ({ ...c, sku: e.target.value }))} /></label>
             <label>Name<input value={draft.name} onChange={(e) => setDraft((c) => ({ ...c, name: e.target.value }))} /></label>
@@ -470,19 +535,46 @@ export function StockOpsPanel({
                 placeholder="e.g. Plumbase"
               />
             </label>
-            <label>
-              Location
-              <select value={draft.locationId} onChange={(e) => setDraft((c) => ({ ...c, locationId: e.target.value }))}>
-                {(snapshot?.locations || []).map((location) => (
-                  <option key={location.id} value={location.id}>{location.name}</option>
-                ))}
-              </select>
-            </label>
-            <label>Qty to receive<input value={draft.qty} onChange={(e) => setDraft((c) => ({ ...c, qty: e.target.value }))} /></label>
+            {!draft.id ? (
+              <>
+                <label>
+                  Location
+                  <select value={draft.locationId} onChange={(e) => setDraft((c) => ({ ...c, locationId: e.target.value }))}>
+                    {(snapshot?.locations || []).map((location) => (
+                      <option key={location.id} value={location.id}>{location.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>Qty to receive<input value={draft.qty} onChange={(e) => setDraft((c) => ({ ...c, qty: e.target.value }))} /></label>
+              </>
+            ) : null}
           </div>
-          <button className="primary-button" type="button" disabled={busy} onClick={() => void addItemAndReceipt()}>
-            <Plus size={15} /> Save &amp; receive
-          </button>
+          <div className="setup-template-actions">
+            <button className="primary-button" type="button" disabled={busy} onClick={() => void addItemAndReceipt()}>
+              <Plus size={15} /> {draft.id ? "Save item" : "Save & receive"}
+            </button>
+            {draft.id ? (
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() =>
+                  setDraft((current) => ({
+                    ...current,
+                    id: "",
+                    sku: "",
+                    name: "",
+                    preferredSupplier: "",
+                    qty: "1",
+                    minLevel: "0",
+                    unitCost: "0",
+                    unit: "each",
+                  }))
+                }
+              >
+                Cancel edit
+              </button>
+            ) : null}
+          </div>
         </article>
         <article>
           <h3>Transfer / issue / return / stocktake</h3>
@@ -593,6 +685,7 @@ export function StockOpsPanel({
               </li>
             ))}
           </ul>
+          <p className="muted">Edit or remove vans/warehouse under Setup → Stock locations.</p>
           <h3>Low stock</h3>
           {(snapshot?.lowStock || []).length ? (
             <>
@@ -677,6 +770,7 @@ export function StockOpsPanel({
           <span>Min</span>
           <span>Cost</span>
           <span>Preferred supplier</span>
+          <span>Actions</span>
         </div>
         {(snapshot?.items || []).map((item) => (
           <div className="ops-table-row ops-table-row-stock" key={item.id}>
@@ -699,6 +793,14 @@ export function StockOpsPanel({
                 aria-label={`Preferred supplier for ${item.sku}`}
               />
             </label>
+            <div className="ops-row-actions">
+              <button className="secondary-button" type="button" disabled={busy} onClick={() => editStockItem(item)}>
+                Edit
+              </button>
+              <button className="secondary-button" type="button" disabled={busy} onClick={() => void removeStockItem(item)}>
+                Remove
+              </button>
+            </div>
           </div>
         ))}
         {!snapshot?.items.length ? <p className="muted">No stock items yet — receive a PO or add one above.</p> : null}
@@ -1017,11 +1119,13 @@ export function RecurringOpsPanel({
   onNotice,
   onGenerateJob,
   onGenerateInvoice,
+  actor,
 }: {
   requestHeaders: RequestHeaders;
   onNotice: (message: string) => void;
   onGenerateJob: (plan: RecurringPlan) => Promise<string | null>;
   onGenerateInvoice: (plan: RecurringPlan) => Promise<string | null>;
+  actor?: string;
 }) {
   const [plans, setPlans] = useState<RecurringPlan[]>([]);
   const [due, setDue] = useState<RecurringPlan[]>([]);
@@ -1030,6 +1134,19 @@ export function RecurringOpsPanel({
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [generatingAll, setGeneratingAll] = useState(false);
   const [draft, setDraft] = useState({
+    id: "",
+    kind: "Job" as "Job" | "Invoice",
+    name: "",
+    customer: "",
+    site: "",
+    description: "",
+    frequency: "Monthly",
+    nextDueDate: new Date().toISOString().slice(0, 10),
+    amount: "",
+  });
+
+  const blankDraft = () => ({
+    id: "",
     kind: "Job" as "Job" | "Invoice",
     name: "",
     customer: "",
@@ -1070,17 +1187,57 @@ export function RecurringOpsPanel({
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "upsert",
-          ...draft,
+          id: draft.id || undefined,
+          kind: draft.kind,
+          name: draft.name,
+          customer: draft.customer,
+          site: draft.site,
+          description: draft.description,
+          frequency: draft.frequency,
+          nextDueDate: draft.nextDueDate,
           amount: draft.amount ? Number(draft.amount) : undefined,
         }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Unable to save plan");
       applyLists(body);
-      onNotice("Recurring plan saved.");
-      setDraft((current) => ({ ...current, name: "", description: "", amount: "" }));
+      onNotice(draft.id ? "Recurring plan updated." : "Recurring plan saved.");
+      setDraft(blankDraft());
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to save plan");
+    }
+  }
+
+  function editPlan(plan: RecurringPlan) {
+    setDraft({
+      id: plan.id,
+      kind: plan.kind,
+      name: plan.name,
+      customer: plan.customer,
+      site: plan.site || "",
+      description: plan.description,
+      frequency: plan.frequency,
+      nextDueDate: plan.nextDueDate,
+      amount: plan.amount != null ? String(plan.amount) : "",
+    });
+    onNotice(`Editing ${plan.name} — update the form then save.`);
+  }
+
+  async function removePlan(plan: RecurringPlan) {
+    if (!window.confirm(`Remove recurring plan “${plan.name}”?`)) return;
+    try {
+      const response = await fetch("/api/recurring", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", id: plan.id }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to remove plan");
+      applyLists(body);
+      if (draft.id === plan.id) setDraft(blankDraft());
+      onNotice(`${plan.name} removed.`);
+    } catch (removeError) {
+      setError(removeError instanceof Error ? removeError.message : "Unable to remove plan");
     }
   }
 
@@ -1102,7 +1259,22 @@ export function RecurringOpsPanel({
 
   async function generate(plan: RecurringPlan) {
     setGeneratingId(plan.id);
+    setError("");
     try {
+      const response = await fetch("/api/recurring", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "generate", id: plan.id, actor }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to generate plan on the server");
+      applyLists(body);
+      const ref = body.result?.ref || body.generated?.[0]?.ref;
+      if (!ref) throw new Error("Recurring plan generated but no reference was returned.");
+      setError("");
+      onNotice(`${plan.kind} ${ref} generated from ${plan.name}. Next due ${body.plan?.nextDueDate || "advanced"}.`);
+    } catch (serverError) {
+      setError(serverError instanceof Error ? serverError.message : "Unable to generate recurring plan");
       const ref = plan.kind === "Job" ? await onGenerateJob(plan) : await onGenerateInvoice(plan);
       if (!ref) return;
       const response = await fetch("/api/recurring", {
@@ -1116,6 +1288,7 @@ export function RecurringOpsPanel({
         return;
       }
       applyLists(body);
+      setError("");
       onNotice(`${plan.kind} ${ref} generated from ${plan.name}. Next due ${body.plan?.nextDueDate || "advanced"}.`);
     } finally {
       setGeneratingId(null);
@@ -1128,8 +1301,29 @@ export function RecurringOpsPanel({
       return;
     }
     setGeneratingAll(true);
-    let created = 0;
+    setError("");
     try {
+      const response = await fetch("/api/recurring", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "generate-due", actor }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to generate due plans on the server");
+      applyLists(body);
+      const created = Array.isArray(body.generated) ? body.generated.length : 0;
+      const errors = Array.isArray(body.errors) ? body.errors.length : 0;
+      setError("");
+      onNotice(
+        created
+          ? `Generated ${created} recurring record(s)${errors ? `; ${errors} failed` : ""}.`
+          : errors
+            ? `No recurring records were generated; ${errors} failed.`
+            : "No recurring records were generated.",
+      );
+      await load();
+    } catch {
+      let created = 0;
       for (const plan of [...due]) {
         const ref = plan.kind === "Job" ? await onGenerateJob(plan) : await onGenerateInvoice(plan);
         if (!ref) continue;
@@ -1143,6 +1337,7 @@ export function RecurringOpsPanel({
         applyLists(body);
         created += 1;
       }
+      setError("");
       onNotice(created ? `Generated ${created} recurring record(s).` : "No recurring records were generated.");
       await load();
     } finally {
@@ -1193,9 +1388,16 @@ export function RecurringOpsPanel({
         <label className="full">Description<input value={draft.description} onChange={(e) => setDraft((c) => ({ ...c, description: e.target.value }))} /></label>
         <label>Amount (invoices)<input value={draft.amount} onChange={(e) => setDraft((c) => ({ ...c, amount: e.target.value }))} /></label>
       </div>
-      <button className="primary-button" type="button" onClick={() => void savePlan()}>
-        <Plus size={15} /> Save plan
-      </button>
+      <div className="setup-template-actions">
+        <button className="primary-button" type="button" onClick={() => void savePlan()}>
+          <Plus size={15} /> {draft.id ? "Update plan" : "Save plan"}
+        </button>
+        {draft.id ? (
+          <button className="secondary-button" type="button" onClick={() => setDraft(blankDraft())}>
+            Cancel edit
+          </button>
+        ) : null}
+      </div>
       <h3>Due / overdue ({due.length})</h3>
       <div className="ops-table">
         <div className="ops-table-head"><span>Plan</span><span>Customer</span><span>Due</span><span>Kind</span><span /></div>
@@ -1240,9 +1442,16 @@ export function RecurringOpsPanel({
       </div>
       <h3>All plans</h3>
       <div className="ops-table">
-        <div className="ops-table-head"><span>Plan</span><span>Frequency</span><span>Next due</span><span>Last</span><span>Active</span></div>
+        <div className="ops-table-head ops-table-row-recurring">
+          <span>Plan</span>
+          <span>Frequency</span>
+          <span>Next due</span>
+          <span>Last</span>
+          <span>Active</span>
+          <span>Actions</span>
+        </div>
         {plans.map((plan) => (
-          <div className="ops-table-row" key={plan.id}>
+          <div className="ops-table-row ops-table-row-recurring" key={plan.id}>
             <strong>{plan.name}</strong>
             <span>{plan.frequency}</span>
             <span>{plan.nextDueDate}</span>
@@ -1254,8 +1463,17 @@ export function RecurringOpsPanel({
             >
               {plan.active ? "Pause" : "Activate"}
             </button>
+            <div className="ops-row-actions">
+              <button className="secondary-button" type="button" onClick={() => editPlan(plan)}>
+                Edit
+              </button>
+              <button className="secondary-button" type="button" onClick={() => void removePlan(plan)}>
+                Remove
+              </button>
+            </div>
           </div>
         ))}
+        {!plans.length ? <p className="muted">No recurring plans yet.</p> : null}
       </div>
     </section>
   );

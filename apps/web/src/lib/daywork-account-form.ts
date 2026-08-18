@@ -52,6 +52,8 @@ export type DayworkAccountRecord = {
   /** Printed names next to drawn signatures (required — signatures may be illegible). */
   plumberSignerName?: string;
   clientSignerName?: string;
+  /** Optional email so Field can send the client a hours/materials copy (no costs). */
+  clientEmail?: string;
   completedAt?: string;
   populatedFrom: "engineer-app" | "core";
 };
@@ -65,6 +67,137 @@ export type DayworkSheetSnapshot = DayworkAccountRecord & {
 
 export function dayworkSheetKey(jobId: string, costCentreId: string) {
   return `${jobId}:${costCentreId}`;
+}
+
+/** Dual signatures = submitted to Core; Field must treat as locked read-only. */
+export function isDayworkSubmittedToCore(record?: DayworkAccountRecord | null): boolean {
+  if (!record) return false;
+  if ((record as DayworkAccountRecord & { hasSignatures?: boolean }).hasSignatures === true) return true;
+  return Boolean(
+    String(record.plumberSignature || "").trim() && String(record.clientSignature || "").trim(),
+  );
+}
+
+/** Field stop/go rows that belong to a Daywork sheet (not the job gas/plumbing checklist). */
+export function isDayworkRequirement(item: {
+  id?: string;
+  stage?: string;
+  stepId?: string;
+  costCentreId?: string;
+}): boolean {
+  if (item.stage === "Daywork") return true;
+  if (item.stepId?.startsWith("daywork-")) return true;
+  if (item.costCentreId && /daywork/i.test(item.costCentreId)) return true;
+  const id = String(item.id || "");
+  if (id.startsWith("daywork-")) return true;
+  if (id.includes("-daywork-account") || id.includes(":daywork-")) return true;
+  return false;
+}
+
+/**
+ * Poll/list payload without base64 signature images (keeps bandwidth down).
+ * Full signatures stay on disk and are only loaded for PDF / valuation export.
+ */
+export function summarizeDayworkSheetForPoll<T extends DayworkAccountRecord>(
+  sheet: T,
+): T & { hasSignatures: boolean } {
+  const hasSignatures = isDayworkSubmittedToCore(sheet);
+  const {
+    plumberSignature: _plumberSignature,
+    clientSignature: _clientSignature,
+    ...rest
+  } = sheet as T & { plumberSignature?: string; clientSignature?: string };
+  return {
+    ...(rest as T),
+    plumberSignature: "",
+    clientSignature: "",
+    hasSignatures,
+  };
+}
+
+export function summarizeDayworkSheetsMapForPoll(
+  sheets: Record<string, DayworkAccountRecord> | null | undefined,
+): Record<string, DayworkAccountRecord & { hasSignatures: boolean }> {
+  const out: Record<string, DayworkAccountRecord & { hasSignatures: boolean }> = {};
+  for (const [key, sheet] of Object.entries(sheets || {})) {
+    if (!sheet || typeof sheet !== "object") continue;
+    out[key] = summarizeDayworkSheetForPoll(sheet);
+  }
+  return out;
+}
+
+/** Stable ordinal from cost-centre id (`…-daywork-account` → 1, `…-daywork-account-2` → 2). */
+export function dayworkSheetNumber(jobId: string, costCentreId: string): number {
+  const prefix = `${jobId}-daywork-account`;
+  const trimmed = String(costCentreId || "").trim();
+  if (!trimmed) return Number.MAX_SAFE_INTEGER;
+  if (trimmed === prefix) return 1;
+  if (trimmed.startsWith(`${prefix}-`)) {
+    const suffix = trimmed.slice(prefix.length + 1);
+    const n = Number(suffix);
+    if (Number.isInteger(n) && n > 0) return n;
+  }
+  return Number.MAX_SAFE_INTEGER;
+}
+
+export function dayworkSheetListLabel(jobId: string, costCentreId: string): string {
+  const n = dayworkSheetNumber(jobId, costCentreId);
+  return n < Number.MAX_SAFE_INTEGER ? `Daywork ${n}` : "Daywork";
+}
+
+export function sortDayworkSheetsByNumber<T extends { costCentreId: string; updatedAt?: string; completedAt?: string }>(
+  jobId: string,
+  sheets: T[],
+): T[] {
+  return [...sheets].sort((left, right) => {
+    const leftN = dayworkSheetNumber(jobId, left.costCentreId);
+    const rightN = dayworkSheetNumber(jobId, right.costCentreId);
+    if (leftN !== rightN) return leftN - rightN;
+    const leftAt = String(left.completedAt || left.updatedAt || "");
+    const rightAt = String(right.completedAt || right.updatedAt || "");
+    return leftAt.localeCompare(rightAt);
+  });
+}
+
+/** Drop office pricing so Field never displays Daywork £ values. */
+export function stripDayworkOfficePricing<T extends DayworkAccountRecord>(record: T): T {
+  const {
+    labourRate: _labourRate,
+    materialsCost: _materialsCost,
+    plantCost: _plantCost,
+    markupPercent: _markupPercent,
+    ...rest
+  } = record;
+  void _labourRate;
+  void _materialsCost;
+  void _plantCost;
+  void _markupPercent;
+  return rest as T;
+}
+
+/** Client / Field copy — hours, materials and plant qty only (no rates, unit costs or totals). */
+export function stripDayworkCostsForClientCopy<T extends DayworkAccountRecord>(record: T): T {
+  const stripLines = (json?: string) =>
+    serialiseDayworkLineItems(
+      parseDayworkLineItems(json).map((item) => ({
+        description: item.description,
+        qty: item.qty,
+      })),
+    );
+  return stripDayworkOfficePricing({
+    ...record,
+    materialsJson: stripLines(record.materialsJson),
+    plantJson: stripLines(record.plantJson),
+    materialsCost: undefined,
+    plantCost: undefined,
+  } as T);
+}
+
+export function isValidDayworkClientEmail(value: string): boolean {
+  const email = value.trim();
+  if (!email) return false;
+  // Practical Field check — full RFC validation is unnecessary here.
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 200;
 }
 
 export function parseDayworkLabourDays(value?: string): DayworkLabourDay[] {
@@ -215,26 +348,51 @@ function formatLabourDays(record: DayworkAccountRecord | null | undefined) {
   const days = parseDayworkLabourDays(record?.labourDaysJson);
   if (!days.length) return record?.labourHours ? `${record.labourHours} hrs` : "";
   return days
-    .filter((row) => row.day || row.hours)
+    .filter((row) => Number(String(row.hours || "").replace(/[^0-9.]/g, "")) > 0)
     .map((row) => `${row.day || "Day"} ${row.hours || "0"}h`)
     .join(" · ");
 }
 
-function formatLineItems(value?: string) {
+function formatLineItems(value?: string, options?: { includePrices?: boolean }) {
   const items = parseDayworkLineItems(value);
   if (!items.length) return "";
+  const includePrices = Boolean(options?.includePrices);
   return items
     .filter((item) => item.description || item.qty)
     .map((item) => {
+      const qtyBit = item.qty ? ` × ${item.qty}` : "";
+      if (!includePrices) return `${item.description || "Item"}${qtyBit}`;
       const amount = dayworkLineAmount(item);
       const unit = parseMoney(item.unitCost);
       const priced =
         unit > 0
           ? ` @ ${money(unit)}${amount ? ` = ${money(amount)}` : ""}`
           : "";
-      return `${item.description || "Item"}${item.qty ? ` × ${item.qty}` : ""}${priced}`;
+      return `${item.description || "Item"}${qtyBit}${priced}`;
     })
     .join("; ");
+}
+
+/** Human summary for Field checklist — never dump raw JSON or £ values. */
+export function formatFieldDayworkEvidenceSummary(label: string, raw: string): string {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  const lower = label.toLowerCase();
+  if (text.startsWith("[") || text.startsWith("{")) {
+    if (lower.includes("labour") || lower.includes("hours")) {
+      const days = parseDayworkLabourDays(text);
+      if (days.length) {
+        const worked = days.filter((row) => Number(String(row.hours || "").replace(/[^0-9.]/g, "")) > 0);
+        if (!worked.length) return "No hours entered";
+        return worked.map((row) => `${row.day || "Day"} ${row.hours}h`).join(" · ");
+      }
+    }
+    if (lower.includes("material") || lower.includes("plant")) {
+      const summary = formatLineItems(text, { includePrices: false });
+      if (summary) return summary;
+    }
+  }
+  return text;
 }
 
 export type DayworkAccountContext = {
@@ -244,6 +402,8 @@ export type DayworkAccountContext = {
   jobRef: string;
   contract?: string;
   record: DayworkAccountRecord | null;
+  /** Client copy omits rates, £ columns and office totals. */
+  variant?: "office" | "client";
 };
 
 export type DayworkFormSection = {
@@ -290,14 +450,14 @@ export function buildDayworkFormSections(context: DayworkAccountContext): Daywor
     {
       section: "Materials",
       rows: [
-        row("materials", "Materials used", formatLineItems(record?.materialsJson)),
+        row("materials", "Materials used", formatLineItems(record?.materialsJson, { includePrices: true })),
         row("materialsCost", "Materials total", money(totals.materials) || "Set unit prices in Core"),
       ],
     },
     {
       section: "Plant",
       rows: [
-        row("plant", "Plant used", formatLineItems(record?.plantJson)),
+        row("plant", "Plant used", formatLineItems(record?.plantJson, { includePrices: true })),
         row("plantCost", "Plant total", money(totals.plant) || "Set unit prices in Core"),
       ],
     },
@@ -338,7 +498,20 @@ export type DayworkSheetDraft = {
   clientSignature: string;
   plumberSignerName: string;
   clientSignerName: string;
+  clientEmail: string;
 };
+
+export function normalizeWeekLabourDays(days: DayworkLabourDay[] | undefined | null): DayworkLabourDay[] {
+  const byDay = new Map(
+    (days || [])
+      .filter((row) => row.day.trim())
+      .map((row) => [row.day.trim(), String(row.hours ?? "").trim()] as const),
+  );
+  return DAYWORK_WEEKDAY_OPTIONS.map((day) => ({
+    day: day.id,
+    hours: byDay.get(day.id) || "",
+  }));
+}
 
 /** Upcoming Sunday as DD-MM-YYYY so Field Save is not blocked by an empty week-ending. */
 export function defaultDayworkWeekEndingUk(from: Date = new Date()): string {
@@ -353,20 +526,22 @@ export function defaultDayworkWeekEndingUk(from: Date = new Date()): string {
 }
 
 export function emptyDayworkSheetDraft(defaults?: Partial<DayworkSheetDraft>): DayworkSheetDraft {
+  const { labourDays: incomingDays, ...rest } = defaults || {};
   return {
     description: "",
     weekEnding: defaultDayworkWeekEndingUk(),
     voReference: "",
     labourName: "",
     labourTrade: "Plumber",
-    labourDays: [{ day: "Mon", hours: "" }],
     materials: [{ description: "", qty: "" }],
     plant: [{ description: "", qty: "" }],
     plumberSignature: "",
     clientSignature: "",
     plumberSignerName: "",
     clientSignerName: "",
-    ...defaults,
+    clientEmail: "",
+    ...rest,
+    labourDays: normalizeWeekLabourDays(incomingDays),
   };
 }
 
@@ -377,19 +552,26 @@ export function dayworkDraftFromRecord(
   const labourDays = parseDayworkLabourDays(record?.labourDaysJson);
   const materials = parseDayworkLineItems(record?.materialsJson);
   const plant = parseDayworkLineItems(record?.plantJson);
+  const weekDays =
+    labourDays.length > 0
+      ? normalizeWeekLabourDays(labourDays)
+      : normalizeWeekLabourDays(
+          record?.labourHours ? [{ day: "Mon", hours: record.labourHours }] : [],
+        );
   return emptyDayworkSheetDraft({
     description: record?.description || "",
     weekEnding: toUkDateDisplay(record?.weekEnding || ""),
     voReference: record?.voReference || "",
     labourName: record?.labourName || defaults?.labourName || "",
     labourTrade: record?.labourTrade || defaults?.labourTrade || "Plumber",
-    labourDays: labourDays.length ? labourDays : [{ day: "Mon", hours: record?.labourHours || "" }],
+    labourDays: weekDays,
     materials: materials.length ? materials : [{ description: "", qty: "" }],
     plant: plant.length ? plant : [{ description: "", qty: "" }],
     plumberSignature: record?.plumberSignature || "",
     clientSignature: record?.clientSignature || "",
     plumberSignerName: record?.plumberSignerName || defaults?.plumberSignerName || record?.labourName || "",
     clientSignerName: record?.clientSignerName || defaults?.clientSignerName || "",
+    clientEmail: record?.clientEmail || defaults?.clientEmail || "",
   });
 }
 
@@ -421,6 +603,7 @@ export function dayworkRecordFromDraft(
     clientSignature: draft.clientSignature.trim(),
     plumberSignerName: draft.plumberSignerName.trim(),
     clientSignerName: draft.clientSignerName.trim(),
+    clientEmail: draft.clientEmail.trim(),
     completedAt: new Date().toISOString(),
     populatedFrom,
   };
@@ -450,6 +633,9 @@ export function validateDayworkSheetDraft(draft: DayworkSheetDraft): string | nu
   }
   if (!draft.clientSignature.trim() || (draft.clientSignature.trim().length < 2 && !draft.clientSignature.startsWith("data:image/"))) {
     return "Client signature is required — draw it on the pad.";
+  }
+  if (draft.clientEmail.trim() && !isValidDayworkClientEmail(draft.clientEmail)) {
+    return "Enter a valid client email address, or leave it blank.";
   }
   return null;
 }

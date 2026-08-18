@@ -1,11 +1,19 @@
 import { getHubDetailState, saveHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
-import { writeDayworkSheetSnapshot, listDayworkSheetsFromStore } from "@/lib/daywork-sheets-store";
+import {
+  deleteDayworkSheetFromStore,
+  getDayworkSheetFromStore,
+  listDayworkSheetsFromStore,
+  writeDayworkSheetSnapshot,
+} from "@/lib/daywork-sheets-store";
 import { listSiteAssets, upsertSiteAsset } from "@/lib/site-assets-data";
+import { upsertAnnualServiceRecurringPlan } from "@/lib/recurring-data";
 import {
   dayworkAccountTotals,
   dayworkSheetKey,
+  isDayworkSubmittedToCore,
   mergeDayworkLineUnitCosts,
   parseDayworkLineItems,
+  sortDayworkSheetsByNumber,
   totalDayworkLabourHours,
   withDerivedDayworkLineTotals,
   type DayworkAccountRecord,
@@ -41,6 +49,8 @@ export type EngineerFlowStepEvidenceValue = {
   text?: string;
   numberValue?: string;
   photoName?: string;
+  photoUrl?: string;
+  photoId?: string;
   capturedAt?: string;
 };
 
@@ -254,6 +264,20 @@ export const boilerReplacementFlowTemplate: EngineerFlowTemplate = {
     { id: "new-location", stage: "New Boiler", label: "Confirm new boiler location", evidence: "Text", required: true },
     { id: "commissioning", stage: "Commissioning", label: "Complete commissioning readings", evidence: "Number", required: true },
     { id: "benchmark", stage: "Commissioning", label: "Complete benchmark/compliance checklist", evidence: "Checkbox", required: true },
+    {
+      id: "replacement-next-due",
+      stage: "Handover",
+      label: "Next boiler service due",
+      evidence: "Text",
+      required: true,
+      formField: "nextServiceDate",
+      validation: {
+        pattern: "^\\d{2}-\\d{2}-\\d{4}$",
+        inputKind: "date",
+        helpText: "UK date — when the next annual service is due (DD-MM-YYYY). Creates a recurring job for Carol.",
+        placeholder: "DD-MM-YYYY",
+      },
+    },
     { id: "customer-handover", stage: "Handover", label: "Customer handover and sign-off", evidence: "Signature", required: true },
   ],
 };
@@ -334,7 +358,7 @@ export const dayworkAccountFlowTemplate: EngineerFlowTemplate = {
       evidence: "Text",
       required: true,
       formField: "labourDaysJson",
-      validation: { minLength: 2, helpText: "One or more days with hours.", placeholder: "JSON labour days" },
+      validation: { minLength: 2, helpText: "Use the Daywork sheet Mon–Sun hours grid.", placeholder: "Mon–Sun hours" },
     },
     {
       id: "daywork-materials",
@@ -343,7 +367,7 @@ export const dayworkAccountFlowTemplate: EngineerFlowTemplate = {
       evidence: "Text",
       required: false,
       formField: "materialsJson",
-      validation: { helpText: "Multiple materials with quantities.", placeholder: "JSON materials" },
+      validation: { helpText: "Use the Daywork sheet materials list (description + qty).", placeholder: "Materials list" },
     },
     {
       id: "daywork-plant",
@@ -352,7 +376,7 @@ export const dayworkAccountFlowTemplate: EngineerFlowTemplate = {
       evidence: "Text",
       required: false,
       formField: "plantJson",
-      validation: { helpText: "Multiple plant items with quantities.", placeholder: "JSON plant" },
+      validation: { helpText: "Use the Daywork sheet plant list (description + qty).", placeholder: "Plant list" },
     },
     {
       id: "daywork-plumber-name",
@@ -756,6 +780,10 @@ export function buildGasServiceRecordFromEvidence(
 export function syncGasServiceRecordToSiteAsset(options: {
   siteId?: string;
   clientId?: string;
+  customerName?: string;
+  siteLabel?: string;
+  sourceJobId?: string;
+  sourceJobRef?: string;
   record: GasServiceRecord;
 }) {
   if (!options.siteId || !options.record.nextServiceDate) return null;
@@ -788,7 +816,30 @@ export function syncGasServiceRecordToSiteAsset(options: {
       ? `Gas service record · defects: ${options.record.defects}`
       : "Gas service record completed via engineer stop/go.",
   };
-  return upsertSiteAsset(payload);
+  const updatedAssets = upsertSiteAsset(payload);
+  const saved =
+    updatedAssets.find((asset) => asset.id === match?.id) ||
+    updatedAssets.find((asset) => asset.serialNumber === payload.serialNumber && asset.nextServiceDate === nextServiceIso) ||
+    updatedAssets[0] ||
+    null;
+
+  try {
+    upsertAnnualServiceRecurringPlan({
+      siteId: options.siteId,
+      clientId: options.clientId,
+      customer: options.customerName || "Customer",
+      site: options.siteLabel,
+      assetId: saved?.id,
+      assetName: saved?.name || makeModel || "boiler",
+      nextServiceDate: nextServiceIso,
+      sourceJobId: options.sourceJobId,
+      sourceJobRef: options.sourceJobRef,
+    });
+  } catch {
+    // Recurring plan sync is best-effort.
+  }
+
+  return saved;
 }
 
 export function buildDayworkAccountRecordFromEvidence(
@@ -970,6 +1021,71 @@ export function ensureDayworkVariationCostCentre(jobId: string): string {
     clientDescription: "Reactive daywork / variation works recorded on the Daywork Account sheet.",
     engineerDescription:
       "Complete the Daywork Account stop/go on Field — labour, materials and dual sign-off populate Core Variations.",
+    materials: [],
+    labour: [],
+  });
+  centresByJob[jobId] = centres;
+  saveHubDetailState({
+    ...hubState,
+    jobCostCentres: centresByJob,
+    jobVariationSections: sectionsByJob,
+  });
+  return costCentreId;
+}
+
+/** Create another Daywork variation centre so Field can raise multiple sheets on one job. */
+export function createAdditionalDayworkCostCentre(jobId: string): string {
+  const primaryId = ensureDayworkVariationCostCentre(jobId);
+  const hubState = getHubDetailState();
+  const centresByJob = { ...((hubState.jobCostCentres ?? {}) as Record<string, Array<Record<string, unknown>>>) };
+  const centres = Array.isArray(centresByJob[jobId]) ? [...centresByJob[jobId]] : [];
+  const dayworkCentres = centres.filter((centre) => {
+    const templateName = String(centre.templateName || "").toLowerCase();
+    const name = String(centre.name || "").toLowerCase();
+    return templateName.includes("daywork") || name.includes("daywork");
+  });
+  const sheets = listDayworkSheetsForJob(jobId);
+  // If the primary centre has no signed sheet yet, keep using it instead of spawning empties.
+  const primarySheet = sheets.find((sheet) => sheet.costCentreId === primaryId);
+  const primarySigned = Boolean(
+    primarySheet &&
+      String(primarySheet.plumberSignature || "").trim() &&
+      String(primarySheet.clientSignature || "").trim(),
+  );
+  if (!primarySigned && dayworkCentres.length <= 1) {
+    return primaryId;
+  }
+
+  const nextIndex = dayworkCentres.length + 1;
+  const costCentreId = `${jobId}-daywork-account-${nextIndex}`;
+  if (centres.some((centre) => centre.id === costCentreId)) {
+    return costCentreId;
+  }
+
+  const sectionsByJob = { ...((hubState.jobVariationSections ?? {}) as Record<string, Array<Record<string, unknown>>>) };
+  const sections = Array.isArray(sectionsByJob[jobId]) ? [...sectionsByJob[jobId]] : [];
+  let sectionId = sections.find((section) => String(section.name || "").toLowerCase().includes("daywork"))?.id as
+    | string
+    | undefined;
+  if (!sectionId || typeof sectionId !== "string") {
+    sectionId = `${jobId}-variation-section-daywork`;
+    sections.push({
+      id: sectionId,
+      name: "Daywork / reactive variations",
+      description: "Reactive daywork sheets raised from Field.",
+    });
+    sectionsByJob[jobId] = sections;
+  }
+
+  centres.push({
+    id: costCentreId,
+    name: `Daywork account ${nextIndex}`,
+    templateName: DAYWORK_COST_CENTRE_TEMPLATE,
+    variation: true,
+    variationSectionId: sectionId,
+    clientDescription: "Additional reactive daywork / variation sheet from Field.",
+    engineerDescription:
+      "Complete this Daywork Account on Field — labour, materials and dual sign-off populate Core Variations.",
     materials: [],
     labour: [],
   });
@@ -1359,5 +1475,98 @@ export function listDayworkSheetsForJob(jobId: string): DayworkSheetSnapshot[] {
   for (const sheet of fromStore) {
     byKey.set(dayworkSheetKey(sheet.jobId, sheet.costCentreId), sheet);
   }
-  return Array.from(byKey.values());
+  // Include additional Daywork centres opened by mistake (no sheet yet) so Field can Discard them.
+  // Primary `…-daywork-account` only appears once a real sheet exists.
+  const centresByJob = (fromHub.jobCostCentres ?? {}) as Record<string, Array<Record<string, unknown>>>;
+  const centres = Array.isArray(centresByJob[jobId]) ? centresByJob[jobId] : [];
+  const primaryId = `${jobId}-daywork-account`;
+  for (const centre of centres) {
+    const costCentreId = typeof centre.id === "string" ? centre.id.trim() : "";
+    if (!costCentreId || costCentreId === primaryId) continue;
+    const isDaywork =
+      costCentreId.includes("daywork") ||
+      /daywork/i.test(String(centre.name || "")) ||
+      /daywork/i.test(String(centre.templateName || ""));
+    if (!isDaywork) continue;
+    const key = dayworkSheetKey(jobId, costCentreId);
+    if (byKey.has(key)) continue;
+    byKey.set(key, {
+      populatedFrom: "engineer-app",
+      jobId,
+      jobRef: jobId,
+      costCentreId,
+      updatedAt: "",
+    });
+  }
+  return sortDayworkSheetsByNumber(jobId, Array.from(byKey.values()));
+}
+
+/**
+ * Discard an unsigned Daywork sheet opened by mistake — removes sheet, evidence,
+ * variation event, and additional Daywork cost centres so Mark complete is not blocked.
+ */
+export function discardUnsignedDayworkSheet(options: {
+  jobId: string;
+  costCentreId: string;
+}): { discarded: boolean; reason?: string } {
+  const costCentreId = options.costCentreId.trim();
+  if (!costCentreId) return { discarded: false, reason: "Missing Daywork cost centre." };
+
+  const existing =
+    listDayworkSheetsForJob(options.jobId).find((sheet) => sheet.costCentreId === costCentreId) ||
+    getDayworkSheetFromStore(options.jobId, costCentreId);
+  if (existing && isDayworkSubmittedToCore(existing)) {
+    return { discarded: false, reason: "Submitted Daywork sheets cannot be discarded on Field." };
+  }
+
+  const hubState = getHubDetailState() as HubDetailState & {
+    flowStepEvidence?: Record<string, EngineerFlowStepEvidenceValue>;
+    dayworkSheets?: Record<string, DayworkSheetSnapshot>;
+  };
+  const sheetKey = dayworkSheetKey(options.jobId, costCentreId);
+  const nextSheets = { ...(hubState.dayworkSheets ?? {}) };
+  delete nextSheets[sheetKey];
+
+  const evidenceStore = { ...(hubState.flowStepEvidence ?? {}) };
+  const completionStore = { ...((hubState.flowStepCompletion ?? {}) as Record<string, boolean>) };
+  const prefix = `${options.jobId}:${costCentreId}:`;
+  for (const key of Object.keys(evidenceStore)) {
+    if (key.startsWith(prefix)) delete evidenceStore[key];
+  }
+  for (const key of Object.keys(completionStore)) {
+    if (key.startsWith(prefix)) delete completionStore[key];
+  }
+
+  const events = Array.isArray(hubState.jobDeliveryEvents)
+    ? ([...hubState.jobDeliveryEvents] as Array<Record<string, unknown>>).filter(
+        (event) => event.id !== `daywork-${options.jobId}-${costCentreId}`,
+      )
+    : [];
+
+  const centresByJob = { ...((hubState.jobCostCentres ?? {}) as Record<string, Array<Record<string, unknown>>>) };
+  const centres = Array.isArray(centresByJob[options.jobId]) ? [...centresByJob[options.jobId]] : [];
+  const primaryId = `${options.jobId}-daywork-account`;
+  // Always drop additional numbered centres; keep the primary centre shell if it exists.
+  const nextCentres =
+    costCentreId === primaryId
+      ? centres
+      : centres.filter((centre) => String(centre.id || "") !== costCentreId);
+  centresByJob[options.jobId] = nextCentres;
+
+  saveHubDetailState({
+    ...hubState,
+    flowStepEvidence: evidenceStore,
+    flowStepCompletion: completionStore,
+    dayworkSheets: nextSheets,
+    jobDeliveryEvents: events,
+    jobCostCentres: centresByJob,
+  });
+
+  try {
+    deleteDayworkSheetFromStore(options.jobId, costCentreId);
+  } catch {
+    // Hub state is the source of truth for Field list; durable store is best-effort.
+  }
+
+  return { discarded: true };
 }

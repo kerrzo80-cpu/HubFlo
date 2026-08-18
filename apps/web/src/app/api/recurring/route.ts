@@ -4,14 +4,18 @@ import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import {
   dueRecurringPlans,
+  deleteRecurringPlan,
   listRecurringPlans,
   markRecurringGenerated,
   setRecurringActive,
+  syncRecurringPlansFromSiteAssets,
   upcomingRecurringPlans,
   upsertRecurringPlan,
+  windowRecurringJobPlans,
   type RecurringFrequency,
   type RecurringKind,
 } from "@/lib/recurring-data";
+import { generateDueRecurringPlans, generateRecurringPlanById } from "@/lib/recurring-generate";
 
 export const runtime = "nodejs";
 
@@ -22,11 +26,19 @@ export async function GET(request: NextRequest) {
   }
   const includeInactive = request.nextUrl.searchParams.get("all") === "1";
   const asOf = request.nextUrl.searchParams.get("asOf") || undefined;
-  const upcomingDays = Number(request.nextUrl.searchParams.get("upcomingDays") || "7");
+  const upcomingDays = Number(request.nextUrl.searchParams.get("upcomingDays") || "28");
+  // Keep yearly service plans aligned with site asset next-service dates.
+  try {
+    syncRecurringPlansFromSiteAssets();
+  } catch {
+    // best-effort
+  }
+  const days = Number.isFinite(upcomingDays) ? upcomingDays : 28;
   return NextResponse.json({
     plans: listRecurringPlans(includeInactive),
     due: dueRecurringPlans(asOf),
-    upcoming: upcomingRecurringPlans(Number.isFinite(upcomingDays) ? upcomingDays : 7, asOf),
+    upcoming: upcomingRecurringPlans(days, asOf),
+    windowJobs: windowRecurringJobPlans(days, asOf),
   });
 }
 
@@ -37,7 +49,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await parseJsonRequestBody<{
-    action?: "upsert" | "activate" | "deactivate" | "mark-generated";
+    action?: "upsert" | "activate" | "deactivate" | "mark-generated" | "delete" | "generate" | "generate-due";
     id?: string;
     kind?: RecurringKind;
     name?: string;
@@ -52,9 +64,42 @@ export async function POST(request: NextRequest) {
     notes?: string;
     generatedRef?: string;
     active?: boolean;
+    asOf?: string;
+    actor?: string;
+    limit?: number;
   }>(request);
 
   try {
+    if (body?.action === "generate") {
+      if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const result = generateRecurringPlanById({ id: body.id, actor: body.actor });
+      const plan = listRecurringPlans(true).find((item) => item.id === body.id) ?? null;
+      return NextResponse.json({
+        result,
+        generated: [result],
+        plan,
+        plans: listRecurringPlans(true),
+        due: dueRecurringPlans(),
+        upcoming: upcomingRecurringPlans(),
+      });
+    }
+    if (body?.action === "generate-due") {
+      const result = generateDueRecurringPlans({ asOf: body.asOf, actor: body.actor, limit: body.limit });
+      return NextResponse.json({
+        ...result,
+        plans: listRecurringPlans(true),
+        due: dueRecurringPlans(body.asOf),
+        upcoming: upcomingRecurringPlans(7, body.asOf),
+      });
+    }
+    if (body?.action === "delete") {
+      if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      return NextResponse.json({
+        plans: deleteRecurringPlan(body.id),
+        due: dueRecurringPlans(),
+        upcoming: upcomingRecurringPlans(),
+      });
+    }
     if (body?.action === "activate" || body?.action === "deactivate") {
       if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
       return NextResponse.json({

@@ -7,33 +7,31 @@ type BuddyCharacterProps = {
   size?: "sm" | "md" | "lg" | "hero";
   className?: string;
   title?: string;
-  /** Soft bob on hover — no disjointed limb puppeting. */
   interactive?: boolean;
 };
 
 /**
- * Blake pose sheet — one full still per mood.
- * No masked body parts: swap the photo when the situation changes.
+ * Blake pose stills — transparent cut-outs, no studio background, no fake animation.
  */
 const BLAKE_POSES: Record<BuddyMood, { src: string; label: string }> = {
   idle: {
-    src: "/brand/blake-poses/blake-idle.png",
+    src: "/brand/blake-poses/blake-idle.webp",
     label: "Blake ready",
   },
   alert: {
-    src: "/brand/blake-poses/blake-alert.png",
+    src: "/brand/blake-poses/blake-alert.webp",
     label: "Blake spotted something",
   },
   thinking: {
-    src: "/brand/blake-poses/blake-thinking.png",
+    src: "/brand/blake-poses/blake-thinking.webp",
     label: "Blake working",
   },
   guide: {
-    src: "/brand/blake-poses/blake-guide.png",
+    src: "/brand/blake-poses/blake-guide.webp",
     label: "Blake checking things over",
   },
   good: {
-    src: "/brand/blake-poses/blake-good.png",
+    src: "/brand/blake-poses/blake-good.webp",
     label: "Blake all good",
   },
 };
@@ -63,13 +61,7 @@ export function BuddyCharacter({
     >
       <span className="blake-character-stage">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          key={pose.src}
-          src={pose.src}
-          alt=""
-          className="blake-pose"
-          draggable={false}
-        />
+        <img key={pose.src} src={pose.src} alt="" className="blake-pose" draggable={false} />
       </span>
     </span>
   );

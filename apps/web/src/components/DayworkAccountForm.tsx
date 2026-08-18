@@ -12,6 +12,7 @@ import {
   type DayworkAccountRecord,
   type DayworkLineItem,
 } from "@/lib/daywork-account-form";
+import type { FormDocumentChrome } from "@/lib/form-document-chrome";
 
 export type DayworkOfficeCostsPayload = {
   labourRate: string;
@@ -24,9 +25,14 @@ export type DayworkOfficeCostsPayload = {
 
 type Props = {
   context: DayworkAccountContext;
+  /** Optional Setup → Customise forms chrome (logo, title, colours). */
+  chrome?: FormDocumentChrome | null;
   /** When set, office can price labour rate + each material/plant line before valuations. */
   onSaveOfficeCosts?: (costs: DayworkOfficeCostsPayload) => Promise<void> | void;
   savingOfficeCosts?: boolean;
+  /** Clears the Action notification once office has finished with this sheet. */
+  onMarkDealtWith?: () => void | Promise<void>;
+  markingDealtWith?: boolean;
   /** Opens the valuation PDF preview (same file attached to valuations). */
   onPreviewPdf?: () => void | Promise<void>;
   previewingPdf?: boolean;
@@ -39,8 +45,11 @@ function money(value: number) {
 
 export function DayworkAccountForm({
   context,
+  chrome,
   onSaveOfficeCosts,
   savingOfficeCosts,
+  onMarkDealtWith,
+  markingDealtWith,
   onPreviewPdf,
   previewingPdf,
 }: Props) {
@@ -121,15 +130,26 @@ export function DayworkAccountForm({
   }
 
   return (
-    <article className="daywork-account-form">
+    <article
+      className="daywork-account-form"
+      style={chrome?.headerColor ? { ["--daywork-accent" as string]: chrome.headerColor } : undefined}
+    >
       <header className="daywork-account-masthead">
-        <div>
-          <p className="daywork-account-kicker">Errol Watson Group style sheet</p>
-          <h3>Daywork Account</h3>
-          <p>
-            Capture labour hours, materials used and dual sign-off on Field or in Core. Office sets labour rate and a
-            unit price for each material / plant line before valuations.
-          </p>
+        <div className="daywork-account-brand">
+          {chrome?.showLogo !== false && chrome?.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={chrome.logoUrl} alt={chrome.tradingName || "Company logo"} />
+          ) : null}
+          <div>
+            <p className="daywork-account-kicker">
+              {chrome?.headerNote || chrome?.tradingName || "Daywork style sheet"}
+            </p>
+            <h3>{chrome?.title || "Daywork Account"}</h3>
+            <p>
+              {chrome?.intro ||
+                "Capture labour hours, materials used and dual sign-off on Field or in Core. Office sets labour rate and a unit price for each material / plant line before valuations."}
+            </p>
+          </div>
         </div>
         <div className="daywork-account-ref">
           <strong>{context.jobRef}</strong>
@@ -238,14 +258,26 @@ export function DayworkAccountForm({
               {liveTotals.labourHours ? `${liveTotals.labourHours} hrs from Field` : "No Field hours yet"}
               {` · mats ${money(liveTotals.materials)} · plant ${money(liveTotals.plant)} · total ${money(liveTotals.total)}`}
             </strong>
-            <button
-              className="simpro-blue-button"
-              type="button"
-              disabled={Boolean(savingOfficeCosts)}
-              onClick={() => void saveCosts()}
-            >
-              {savingOfficeCosts ? "Saving…" : "Save office costs"}
-            </button>
+            <div className="daywork-office-pricing-buttons">
+              <button
+                className="simpro-blue-button"
+                type="button"
+                disabled={Boolean(savingOfficeCosts) || Boolean(markingDealtWith)}
+                onClick={() => void saveCosts()}
+              >
+                {savingOfficeCosts ? "Saving…" : "Save office costs"}
+              </button>
+              {onMarkDealtWith ? (
+                <button
+                  className="simpro-grey-button"
+                  type="button"
+                  disabled={Boolean(savingOfficeCosts) || Boolean(markingDealtWith)}
+                  onClick={() => void onMarkDealtWith()}
+                >
+                  {markingDealtWith ? "Signing off…" : "Mark dealt with"}
+                </button>
+              ) : null}
+            </div>
           </div>
         </section>
       ) : null}
