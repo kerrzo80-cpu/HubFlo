@@ -15890,6 +15890,16 @@ button.record-folder-card-button.is-active {
   gap: 18px;
 }
 
+.attention-queue-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.attention-queue-tabs .secondary-button {
+  font-size: 12px;
+}
+
 .attention-queue-panel {
   display: grid;
   gap: 16px;
