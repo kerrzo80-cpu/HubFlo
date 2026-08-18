@@ -33,6 +33,17 @@ const userAuthPublicPaths = new Set([
   "/early-access",
   "/trial-ended",
 ]);
+/**
+ * Render cron endpoints authenticate with shared secrets inside the route
+ * (x-nexa-backup-secret / x-nexa-import-tick-secret). They must bypass session
+ * gates in this proxy or cron gets 401 Unauthenticated before the handler runs.
+ */
+export const secretAuthCronPaths = new Set([
+  "/api/office-backup/cron",
+  "/api/integrations/simpro/sync/cron",
+  "/api/integrations/simpro/import/tick",
+  "/api/reports/board-pack/cron",
+]);
 const publicAssetPaths = new Set([
   "/ewg-logo.png",
   "/ewg-mark.png",
@@ -100,6 +111,7 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname === "/api/health" || pathname === "/api/health/smoke") return NextResponse.next();
+  if (secretAuthCronPaths.has(pathname)) return NextResponse.next();
   if (isTrialAccessExpired()) {
     if (isTrialExpiredAllowedPath(pathname)) return NextResponse.next();
     if (pathname.startsWith("/api/")) {
