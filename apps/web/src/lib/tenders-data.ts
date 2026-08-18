@@ -10,6 +10,7 @@ import {
 } from "@/lib/server-store";
 import {
   isBoqSheetEchoHeader,
+  layerSectionFromSheetName,
   looksLikeSupplierQuoteSheetName,
   looksLikeTakeoffPipeMetreLine,
 } from "@/lib/tender-boq-sections";
@@ -1404,14 +1405,29 @@ function resolveBoqSheetKey(lines: TenderBoqLine[], name: string): string | null
 
 function stampBoqLineOntoSheet(line: TenderBoqLine, fromKey: string, toKey: string): TenderBoqLine {
   const from = fromKey.trim();
+  const to = toKey.trim();
   const section = (line.section || "").trim();
   const sheet = (line.sheet || "").trim();
   const echoedHome = !section || section === from || section === sheet;
-  return {
+  const fromLayer = layerSectionFromSheetName(from);
+  const toLayer = layerSectionFromSheetName(to);
+
+  let nextSection = line.section;
+  if (echoedHome) {
+    if (fromLayer && !toLayer) nextSection = fromLayer;
+    else if (fromLayer && toLayer) nextSection = toLayer;
+    else nextSection = to;
+  }
+
+  const next: TenderBoqLine = {
     ...line,
-    sheet: toKey,
-    section: echoedHome ? toKey : line.section,
+    sheet: to,
+    section: nextSection,
   };
+  if (line.kind === "header" && echoedHome && nextSection && nextSection !== to) {
+    next.description = nextSection;
+  }
+  return next;
 }
 
 /**
@@ -1445,7 +1461,6 @@ export function moveBoqLinesToSheet(
     if (!home) throw new Error("Sheet not found.");
     for (const line of existing.boqLines) {
       if ((line.sheet || "").trim() !== home) continue;
-      if (isBoqSheetEchoHeader(line)) continue;
       moveIds.add(line.id);
     }
   } else {
@@ -1480,6 +1495,32 @@ export function moveBoqLinesToSheet(
   }
 
   if (!moving.length) throw new Error("Those lines are already on that sheet.");
+
+  const sourceLayer = [...sourceKeys]
+    .map((key) => layerSectionFromSheetName(key))
+    .find(Boolean);
+  const destLayer = layerSectionFromSheetName(sheetKey);
+  if (sourceLayer && !destLayer) {
+    const destHasLayerHeader = staying.some(
+      (line) =>
+        (line.sheet || "").trim() === sheetKey
+        && line.kind === "header"
+        && (line.section || line.description || "").trim() === sourceLayer,
+    );
+    const batchHasLayerHeader = moving.some(
+      (line) =>
+        line.kind === "header" && (line.section || line.description || "").trim() === sourceLayer,
+    );
+    if (!destHasLayerHeader && !batchHasLayerHeader) {
+      moving.unshift({
+        id: uid("boq"),
+        kind: "header",
+        description: sourceLayer,
+        sheet: sheetKey,
+        section: sourceLayer,
+      });
+    }
+  }
 
   let kept = staying;
   if (options?.removeEmptySource) {

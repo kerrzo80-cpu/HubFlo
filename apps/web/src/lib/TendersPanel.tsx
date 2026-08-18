@@ -1823,7 +1823,7 @@ export function TendersPanel({
                   Supplier priced PDF/Excel as extra lines: keep Add to BoQ (default when lines exist), then drop the file below — it appends new sheet tab(s) named from the file only (paste box is ignored and cleared). Supplier quote PDFs (Filpumps, William Wilson, etc.) merge into one tab named from the filename; other multi-page BoQ PDFs keep Page 1, Page 2…; Excel keeps worksheet names; duplicates get “ (2)”. Documents → Supplier quotes only stores the file; it does not pull lines into the bill. Use Replace BoQ only when you intend to wipe current lines.
                 </p>
                 <p className="tenders-boq-blake-note">
-                  Sheet tabs: + Sheet / Rename / Remove sheet. Lines: Add line on the open sheet, edit cells, trash a row, or tick lines and Delete selected / Move to sheet… / Merge into tab…. Merge selected into another tab (or new); if the whole sheet is ticked, the empty tab is removed. Tick measured lines then run Blake — only ticked lines are budget-priced. Guide rates only; unsure lines stay blank.
+                  Sheet tabs: + Sheet / Rename / Remove sheet. Lines: Add line on the open sheet, edit cells, trash a row, or tick lines and Delete selected / Move to sheet… / Merge into tab…. Merge selected into another tab (or new); if the whole sheet is ticked, the empty tab is removed. Takeoff push uses one tab per house type with Heating / Hot & cold / Gas as section headers inside. Tick measured lines then run Blake — only ticked lines are budget-priced. Guide rates only; unsure lines stay blank.
                 </p>
                 <div className="tenders-boq-blake-actions">
                   <button

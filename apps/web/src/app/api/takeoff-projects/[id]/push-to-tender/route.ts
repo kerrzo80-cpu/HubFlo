@@ -72,6 +72,6 @@ export async function POST(
 
   return NextResponse.json({
     ...result,
-    note: `Open Core → Tenders → “${result.tender.name}” → BoQ. Lines are split into ${result.sheetCount} Takeoff · layer sheet(s).`,
+    note: `Open Core → Tenders → “${result.tender.name}” → BoQ. Lines are split into ${result.sheetCount} Takeoff · house-type sheet(s), with Heating / Hot & cold / Gas as sections inside each tab.`,
   });
 }

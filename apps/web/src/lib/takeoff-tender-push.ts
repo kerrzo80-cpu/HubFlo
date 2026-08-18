@@ -27,7 +27,7 @@ export type TakeoffTenderPushResult = {
   auditEvent: AuditEvent;
 };
 
-/** Push Studio BoQ onto a linked Core tender — one sheet per Draw-as service layer. */
+/** Push Studio BoQ onto a linked Core tender — one sheet tab per house type, layers as sections. */
 export function pushTakeoffProjectToTender(
   projectId: string,
   tenderId: string,
@@ -44,7 +44,11 @@ export function pushTakeoffProjectToTender(
   const takeoffLines = buildTakeoffTenderBoqLines(project.studio, {
     library: getTakeoffRateLibrary(),
     projectRef: project.reference,
-    documents: project.documents.map((doc) => ({ id: doc.id, fileName: doc.fileName })),
+    documents: project.documents.map((doc) => ({
+      id: doc.id,
+      fileName: doc.fileName,
+      notes: doc.notes,
+    })),
   });
   if (!takeoffLines.length) return null;
 
@@ -56,7 +60,7 @@ export function pushTakeoffProjectToTender(
   );
   const measuredCount = takeoffLines.filter((line) => line.kind === "measured").length;
 
-  const descriptionNote = `Takeoff ${project.reference} BoQ — ${measuredCount} line(s) across ${sheetNames.size} layer sheet(s)`;
+  const descriptionNote = `Takeoff ${project.reference} BoQ — ${measuredCount} line(s) across ${sheetNames.size} house-type sheet(s)`;
   const nextMaterialsNote = tender.materialsNote?.includes("Takeoff")
     ? tender.materialsNote
     : [tender.materialsNote, descriptionNote].filter(Boolean).join("\n").trim();
@@ -87,7 +91,7 @@ export function pushTakeoffProjectToTender(
     action: "updated",
     recordType: "tender",
     recordId: updatedTender.id,
-    summary: `Takeoff ${project.reference} pushed ${measuredCount} BoQ line(s) into tender ${updatedTender.name} (${sheetNames.size} layer sheet(s)).`,
+    summary: `Takeoff ${project.reference} pushed ${measuredCount} BoQ line(s) into tender ${updatedTender.name} (${sheetNames.size} house-type sheet(s)).`,
     source: "Takeoff",
     importance: "normal",
   });

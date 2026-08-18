@@ -58,7 +58,7 @@ describe("Takeoff Studio left-rail layout contract", () => {
     const drawingsStart = pageTsx.indexOf("<h2>Drawings</h2>");
     assert.ok(drawingsStart > -1);
     const slice = pageTsx.slice(drawingsStart, drawingsStart + 4500);
-    const listIdx = slice.indexOf("nexa-studio-doc-list");
+    const listIdx = slice.indexOf("TakeoffDrawingFolders");
     const dropIdx = slice.indexOf("nexa-studio-drawing-drop");
     assert.ok(listIdx > -1);
     assert.ok(dropIdx > -1);

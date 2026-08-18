@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { withHouseTypeNote } from "./takeoff-drawing-labels.ts";
 import { createDefaultStudioState, type StudioState } from "./takeoff-studio.ts";
 import {
   TAKEOFF_BOQ_SHEET_PREFIX,
@@ -66,19 +67,82 @@ function studioWithTwoLayers(): StudioState {
   };
 }
 
-test("takeoffBoqSheetName prefixes Draw-as layer labels", () => {
-  assert.equal(takeoffBoqSheetName("Hot & cold"), `${TAKEOFF_BOQ_SHEET_PREFIX}Hot & cold`);
-  assert.equal(takeoffBoqSheetName(`${TAKEOFF_BOQ_SHEET_PREFIX}Heating`), `${TAKEOFF_BOQ_SHEET_PREFIX}Heating`);
+test("takeoffBoqSheetName prefixes house-type labels", () => {
+  assert.equal(takeoffBoqSheetName("House Type A"), `${TAKEOFF_BOQ_SHEET_PREFIX}House Type A`);
+  assert.equal(
+    takeoffBoqSheetName(`${TAKEOFF_BOQ_SHEET_PREFIX}House Type B`),
+    `${TAKEOFF_BOQ_SHEET_PREFIX}House Type B`,
+  );
 });
 
-test("buildTakeoffTenderBoqLines splits sheets by service layer", () => {
-  const lines = buildTakeoffTenderBoqLines(studioWithTwoLayers(), { projectRef: "TK-100" });
+test("buildTakeoffTenderBoqLines uses one tab per house type with layer sections", () => {
+  const lines = buildTakeoffTenderBoqLines(studioWithTwoLayers(), {
+    projectRef: "TK-100",
+    documents: [
+      {
+        id: "doc-1",
+        fileName: "plan.pdf",
+        notes: withHouseTypeNote([], "House Type A"),
+      },
+    ],
+  });
   const sheets = [...new Set(lines.map((line) => line.sheet).filter(Boolean))];
-  assert.ok(sheets.includes(`${TAKEOFF_BOQ_SHEET_PREFIX}Hot & cold`));
-  assert.ok(sheets.includes(`${TAKEOFF_BOQ_SHEET_PREFIX}Heating`));
-  assert.ok(lines.some((line) => line.kind === "measured" && line.sheet?.includes("Hot & cold")));
-  assert.ok(lines.some((line) => line.kind === "measured" && line.sheet?.includes("Heating")));
+  assert.deepEqual(sheets, [`${TAKEOFF_BOQ_SHEET_PREFIX}House Type A`]);
+  assert.ok(lines.some((line) => line.kind === "header" && line.section === "Hot & cold"));
+  assert.ok(lines.some((line) => line.kind === "header" && line.section === "Heating"));
+  assert.ok(lines.some((line) => line.kind === "measured" && line.section === "Pipework"));
   assert.ok(lines.every((line) => isTakeoffBoqLine(line)));
+});
+
+test("buildTakeoffTenderBoqLines splits two house types into two tabs", () => {
+  const base = studioWithTwoLayers();
+  const hotClsId = base.geometries.find((geo) => geo.id === "geo-cold")!.classificationId;
+  const studio: StudioState = {
+    ...base,
+    scales: [
+      { documentId: "doc-a", page: 1, metresPerUnit: 0.01, label: "1:100" },
+      { documentId: "doc-b", page: 1, metresPerUnit: 0.01, label: "1:100" },
+    ],
+    geometries: [
+      {
+        id: "geo-a",
+        kind: "linear",
+        classificationId: hotClsId,
+        documentId: "doc-a",
+        page: 1,
+        points: [
+          { x: 0, y: 0 },
+          { x: 100, y: 0 },
+        ],
+        material: "Copper",
+        diameter: "15mm",
+      },
+      {
+        id: "geo-b",
+        kind: "linear",
+        classificationId: hotClsId,
+        documentId: "doc-b",
+        page: 1,
+        points: [
+          { x: 0, y: 0 },
+          { x: 80, y: 0 },
+        ],
+        material: "Copper",
+        diameter: "15mm",
+      },
+    ],
+  };
+  const lines = buildTakeoffTenderBoqLines(studio, {
+    documents: [
+      { id: "doc-a", fileName: "a.pdf", notes: withHouseTypeNote([], "House Type A") },
+      { id: "doc-b", fileName: "b.pdf", notes: withHouseTypeNote([], "House Type B") },
+    ],
+  });
+  const sheets = [...new Set(lines.map((line) => line.sheet).filter(Boolean))].sort();
+  assert.deepEqual(sheets, [
+    `${TAKEOFF_BOQ_SHEET_PREFIX}House Type A`,
+    `${TAKEOFF_BOQ_SHEET_PREFIX}House Type B`,
+  ]);
 });
 
 test("mergeTakeoffBoqLines replaces prior Takeoff sheets only", () => {
@@ -101,11 +165,19 @@ test("mergeTakeoffBoqLines replaces prior Takeoff sheets only", () => {
       unit: "nr",
       rate: 10,
       value: 10,
-      sheet: `${TAKEOFF_BOQ_SHEET_PREFIX}Hot & cold`,
+      sheet: `${TAKEOFF_BOQ_SHEET_PREFIX}House Type A`,
       section: "Pipework",
     },
   ];
-  const next = buildTakeoffTenderBoqLines(studioWithTwoLayers());
+  const next = buildTakeoffTenderBoqLines(studioWithTwoLayers(), {
+    documents: [
+      {
+        id: "doc-1",
+        fileName: "plan.pdf",
+        notes: withHouseTypeNote([], "House Type A"),
+      },
+    ],
+  });
   const merged = mergeTakeoffBoqLines(existing, next);
   assert.equal(merged.some((line) => line.id === "other-1"), true);
   assert.equal(merged.some((line) => line.id === "takeoff-boq-old"), false);
@@ -163,8 +235,16 @@ test("buildTakeoffTenderBoqLines groups quantities by floor from drawing names",
 
   const lines = buildTakeoffTenderBoqLines(studio, {
     documents: [
-      { id: "doc-ground", fileName: "Ground floor - gas.pdf" },
-      { id: "doc-first", fileName: "First floor - gas.pdf" },
+      {
+        id: "doc-ground",
+        fileName: "Ground floor - gas.pdf",
+        notes: withHouseTypeNote([], "House Type A"),
+      },
+      {
+        id: "doc-first",
+        fileName: "First floor - gas.pdf",
+        notes: withHouseTypeNote([], "House Type A"),
+      },
     ],
   });
   assert.ok(lines.some((line) => line.kind === "header" && line.description === "Ground"));

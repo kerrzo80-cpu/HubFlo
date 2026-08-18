@@ -19,10 +19,15 @@ import { resolveBrandLogoUrl } from "@/lib/branding";
 import { employeeHeaderName, roleHeaderName } from "@/lib/access";
 import type { TakeoffDocument, TakeoffProject } from "@/lib/takeoff-data";
 import {
-  takeoffDrawingDisplayLabel,
+  assignDrawingHouseType,
+  drawingFolderOpenKeys,
+  inferDrawingFolderMeta,
+} from "@/lib/takeoff-drawing-folders";
+import {
   takeoffSourceFolderLabel,
   takeoffSourceTenderDocId,
 } from "@/lib/takeoff-drawing-labels";
+import { TakeoffDrawingFolders } from "@/app/takeoff/studio/TakeoffDrawingFolders";
 import { countMarkupsOnTenderDocuments } from "@/lib/takeoff-tender-archive";
 import {
   downloadTakeoffStudioLocalDraft,
@@ -143,10 +148,15 @@ function formatAuditWhen(createdAt: string) {
 }
 
 function sortDrawingDocs(docs: TakeoffDocument[]) {
+  const allNames = docs.map((doc) => doc.fileName);
   return docs.slice().sort((a, b) => {
-    const setA = takeoffSourceFolderLabel(a.notes) || "";
-    const setB = takeoffSourceFolderLabel(b.notes) || "";
-    return setA.localeCompare(setB) || a.fileName.localeCompare(b.fileName);
+    const metaA = inferDrawingFolderMeta(a, allNames);
+    const metaB = inferDrawingFolderMeta(b, allNames);
+    return (
+      metaA.houseType.localeCompare(metaB.houseType, undefined, { numeric: true })
+      || (metaA.discipline || "").localeCompare(metaB.discipline || "")
+      || a.fileName.localeCompare(b.fileName)
+    );
   });
 }
 
@@ -211,6 +221,8 @@ export default function TakeoffStudioPage() {
   /** Collapsible Draw-as groups (Valves, Boilers / plant, …) — mirrors Size accordion chrome. */
   const [openClassGroups, setOpenClassGroups] = useState<Record<string, boolean>>({});
   const [newLayerName, setNewLayerName] = useState("");
+  const [extraDrawingFolders, setExtraDrawingFolders] = useState<string[]>([]);
+  const [openDrawingFolders, setOpenDrawingFolders] = useState<Record<string, boolean>>({});
   /** Accordion: Linked | Drawings | Draw as | More — Projects lives under More. */
   const [railAccordions, setRailAccordions] = useState({
     link: true,
@@ -284,6 +296,23 @@ export default function TakeoffStudioPage() {
       prev[activeDrawGroupKey] ? prev : { ...prev, [activeDrawGroupKey]: true },
     );
   }, [activeDrawGroupKey, activeLayerId]);
+
+  useEffect(() => {
+    setExtraDrawingFolders([]);
+    setOpenDrawingFolders({});
+  }, [selected?.id]);
+
+  useEffect(() => {
+    if (!activeDoc) return;
+    const keys = drawingFolderOpenKeys(
+      inferDrawingFolderMeta(activeDoc, drawingDocs.map((doc) => doc.fileName)),
+    );
+    setOpenDrawingFolders((prev) => ({
+      ...prev,
+      [keys.houseType]: true,
+      [`${keys.houseType}::${keys.discipline}`]: true,
+    }));
+  }, [activeDoc?.id, selected?.id]);
   const quantities = summariseStudioQuantities(studio);
   const layerBoq = summariseStudioBoq(studio, activeLayerId);
   const masterBoq = summariseStudioBoq(studio, "all");
@@ -310,7 +339,14 @@ export default function TakeoffStudioPage() {
   const tenderDrawingCount = linkedTender?.drawingCount ?? 0;
   const sourcedFromTenderCount = drawingDocs.filter((doc) => takeoffSourceTenderDocId(doc.notes)).length;
   const tenderDrawingsPending = Math.max(0, tenderDrawingCount - sourcedFromTenderCount);
-  const activeDrawingSetLabel = activeDoc ? takeoffSourceFolderLabel(activeDoc.notes) : undefined;
+  const activeDrawingFolderMeta = activeDoc
+    ? inferDrawingFolderMeta(activeDoc, drawingDocs.map((doc) => doc.fileName))
+    : undefined;
+  const activeDrawingSetLabel = activeDrawingFolderMeta
+    ? [activeDrawingFolderMeta.houseType, activeDrawingFolderMeta.discipline].filter(Boolean).join(" / ")
+    : activeDoc
+      ? takeoffSourceFolderLabel(activeDoc.notes)
+      : undefined;
   // Pin review board is fixture counts only — ignore legacy pipe-metre rows in aiReviewMeasured.
   const aiReviewRows = (studio.aiReviewMeasured || []).filter((row) => row.unit === "nr");
   const aiReviewPinCount = aiReviewRows.reduce(
@@ -873,6 +909,63 @@ export default function TakeoffStudioPage() {
     setNewLayerName("");
     void persistStudio(next);
     show(`Added layer “${newLayerName.trim()}”`);
+  }
+
+  async function persistDocuments(
+    nextDocuments: TakeoffDocument[],
+    options?: { skipHistory?: boolean; immediate?: boolean },
+  ) {
+    if (!selected) return null;
+    const optimistic: TakeoffProject = {
+      ...selected,
+      documents: nextDocuments,
+      updatedAt: new Date().toISOString(),
+    };
+    upsert(optimistic);
+    setSaveState("saving");
+    try {
+      const response = await apiFetch(`/api/takeoff-projects/${selected.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documents: nextDocuments }),
+        skipAuthRedirect: true,
+      });
+      if (!response.ok) throw new Error(`Could not save drawing folders (${response.status})`);
+      const project = (await response.json()) as TakeoffProject;
+      upsert(project);
+      setSaveState("saved");
+      setError(null);
+      return project;
+    } catch (err) {
+      setSaveState("error");
+      setError(err instanceof Error ? err.message : "Could not save drawing folders");
+      return null;
+    }
+  }
+
+  function toggleDrawingFolder(key: string) {
+    setOpenDrawingFolders((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  function createDrawingFolder(name: string) {
+    const label = name.trim();
+    if (!label) return;
+    setExtraDrawingFolders((prev) => (prev.some((row) => row.toLowerCase() === label.toLowerCase()) ? prev : [...prev, label]));
+    setOpenDrawingFolders((prev) => ({
+      ...prev,
+      [label.trim().toLowerCase().replace(/\s+/g, " ")]: true,
+    }));
+    show(`Folder “${label}” ready — move drawings with the folder dropdown.`);
+  }
+
+  function assignDrawingToHouseType(documentId: string, houseType: string) {
+    if (!selected) return;
+    const nextDocuments = assignDrawingHouseType(selected.documents, documentId, houseType);
+    void persistDocuments(nextDocuments, { immediate: true });
+  }
+
+  function openDrawingDocument(documentId: string) {
+    void persistStudio({ ...studio, activeDocumentId: documentId, activePage: 1 });
   }
 
   async function uploadDrawingFiles(files: File[]) {
@@ -1811,7 +1904,7 @@ export default function TakeoffStudioPage() {
         + (typeof result.sellTotal === "number" && result.sellTotal > 0
           ? ` · ≈ £${result.sellTotal.toFixed(0)}`
           : "")
-        + ". Open Core → Tenders → BoQ to review Takeoff · Hot & cold / Heating / Gas sheets.",
+        + ". Open Core → Tenders → BoQ — one tab per house type, with Heating / Hot & cold / Gas as sections inside.",
         16000,
       );
     } catch (err) {
@@ -2569,21 +2662,16 @@ export default function TakeoffStudioPage() {
                     <div className="nexa-studio-rail-acc-body">
                       {/* List first, compact dropzone after — never stack dropzone over names. */}
                       <div className="nexa-studio-doc-list">
-                        {drawingDocs.length ? drawingDocs.map((doc: TakeoffDocument) => {
-                          const setLabel = takeoffSourceFolderLabel(doc.notes);
-                          return (
-                            <button
-                              key={doc.id}
-                              type="button"
-                              className={doc.id === activeDoc?.id ? "on" : undefined}
-                              title={takeoffDrawingDisplayLabel(doc.fileName, doc.notes)}
-                              onClick={() => void persistStudio({ ...studio, activeDocumentId: doc.id, activePage: 1 })}
-                            >
-                              {setLabel ? <strong className="nexa-studio-doc-set">{setLabel}</strong> : null}
-                              <span className="nexa-studio-doc-name">{doc.fileName}</span>
-                            </button>
-                          );
-                        }) : <p className="muted">Upload a PDF or sync from the linked tender.</p>}
+                        <TakeoffDrawingFolders
+                          documents={drawingDocs}
+                          activeDocumentId={activeDoc?.id}
+                          extraHouseTypes={extraDrawingFolders}
+                          openKeys={openDrawingFolders}
+                          onToggle={toggleDrawingFolder}
+                          onOpenDocument={openDrawingDocument}
+                          onAssignHouseType={assignDrawingToHouseType}
+                          onCreateFolder={createDrawingFolder}
+                        />
                       </div>
                       {selected.sourceTenderId ? (
                         <div className="nexa-studio-drawing-sync">

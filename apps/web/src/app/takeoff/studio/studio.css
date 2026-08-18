@@ -1051,7 +1051,7 @@
 }
 
 .nexa-studio-project-list button,
-.nexa-studio-doc-list button,
+.nexa-studio-doc-file,
 .nexa-studio-class-pick {
   text-align: left;
   border: 1px solid transparent;
@@ -1063,10 +1063,121 @@
   min-height: 32px;
 }
 
-.nexa-studio-doc-list button {
+.nexa-studio-doc-file {
   display: grid;
   gap: 1px;
   width: 100%;
+  min-width: 0;
+}
+
+.nexa-studio-doc-folder {
+  display: grid;
+  gap: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, #fff 72%, transparent);
+  overflow: hidden;
+}
+
+.nexa-studio-doc-folder.has-active {
+  border-color: color-mix(in srgb, var(--blue-deep) 35%, var(--line));
+}
+
+.nexa-studio-doc-folder-nested {
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+}
+
+.nexa-studio-doc-folder-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-height: 30px;
+}
+
+.nexa-studio-doc-folder-toggle:hover {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.nexa-studio-doc-folder-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.nexa-studio-doc-folder-label em {
+  font-style: normal;
+  font-weight: 600;
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: none;
+}
+
+.nexa-studio-doc-folder-toggle strong {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.nexa-studio-doc-folder-toggle svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+  transition: transform 140ms ease;
+}
+
+.nexa-studio-doc-folder.is-open > .nexa-studio-doc-folder-toggle svg {
+  transform: rotate(180deg);
+}
+
+.nexa-studio-doc-folder-body {
+  display: grid;
+  gap: 2px;
+  padding: 0 4px 6px;
+  border-top: 1px dashed color-mix(in srgb, var(--line) 80%, transparent);
+}
+
+.nexa-studio-doc-folder-create {
+  margin: 0 0 6px;
+}
+
+.nexa-studio-doc-file-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px;
+  gap: 2px;
+  align-items: stretch;
+}
+
+.nexa-studio-doc-move {
+  display: grid;
+  align-items: center;
+  min-width: 0;
+}
+
+.nexa-studio-doc-move select {
+  width: 100%;
+  min-width: 0;
+  max-width: 72px;
+  font-size: 10px;
+  font-weight: 700;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--muted);
+  padding: 2px 2px 2px 4px;
 }
 
 .nexa-studio-doc-set {
@@ -1140,7 +1251,8 @@
 }
 
 .nexa-studio-project-list button.on,
-.nexa-studio-doc-list button.on,
+.nexa-studio-doc-file.on,
+.nexa-studio-doc-file-row.on,
 .nexa-studio-class-row.on {
   border-color: rgba(25, 152, 207, 0.4);
   background: #eef7fc;

@@ -322,4 +322,47 @@ describe("BoQ move / merge lines across sheet tabs", () => {
     const reloaded = getTender("tender-boq-new-sheet-line");
     assert.equal(reloaded?.boqLines.find((line) => line.id === "keep-1")?.sheet, "Issued BoQ");
   });
+
+  it("merge from legacy layer tab onto house-type tab adds a layer section header", () => {
+    seedTender("tender-boq-merge-house", [
+      {
+        id: "heat-h",
+        kind: "header",
+        description: "Heating",
+        sheet: "Takeoff · Heating",
+        section: "Heating",
+      },
+      {
+        id: "rad-1",
+        kind: "measured",
+        description: "Radiator",
+        quantity: 2,
+        unit: "nr",
+        sheet: "Takeoff · Heating",
+        section: "Heating",
+      },
+      {
+        id: "house-h",
+        kind: "header",
+        description: "Takeoff · House Type A",
+        sheet: "Takeoff · House Type A",
+        section: "Takeoff · House Type A",
+      },
+    ]);
+
+    const result = mergeBoqLinesIntoSheet("tender-boq-merge-house", {
+      lineIds: ["rad-1"],
+      targetName: "Takeoff · House Type A",
+      sourceSheet: "Takeoff · Heating",
+    });
+    assert.equal(result.tender.boqLines.find((line) => line.id === "rad-1")?.sheet, "Takeoff · House Type A");
+    assert.ok(
+      result.tender.boqLines.some(
+        (line) =>
+          line.kind === "header"
+          && line.sheet === "Takeoff · House Type A"
+          && line.section === "Heating",
+      ),
+    );
+  });
 });

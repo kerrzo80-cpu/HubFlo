@@ -51,6 +51,25 @@ export function looksLikeSupplierQuoteSheetName(sheet: string): boolean {
   );
 }
 
+const BOQ_LAYER_SECTION_ALIASES: Array<{ label: string; match: RegExp }> = [
+  { label: "Hot & cold", match: /^(?:takeoff\s*·\s*)?(?:hot\s*(?:&|and)\s*cold|h\s*&\s*c|h&c)$/i },
+  { label: "Heating", match: /^(?:takeoff\s*·\s*)?heating$/i },
+  { label: "Gas", match: /^(?:takeoff\s*·\s*)?gas$/i },
+  { label: "Sanitary & waste", match: /^(?:takeoff\s*·\s*)?(?:sanitary(?:\s*&\s*waste)?|waste)$/i },
+  { label: "Waste", match: /^(?:takeoff\s*·\s*)?waste$/i },
+  { label: "General", match: /^(?:takeoff\s*·\s*)?general$/i },
+];
+
+/** Layer name when a sheet tab is itself a service (Heating, Takeoff · Gas, …). */
+export function layerSectionFromSheetName(sheet: string | null | undefined): string | null {
+  const raw = (sheet || "").trim();
+  if (!raw) return null;
+  for (const row of BOQ_LAYER_SECTION_ALIASES) {
+    if (row.match.test(raw)) return row.label;
+  }
+  return null;
+}
+
 /**
  * Resolve the sheet/section label for a line index — prefers stored `section`,
  * otherwise the nearest preceding header row.

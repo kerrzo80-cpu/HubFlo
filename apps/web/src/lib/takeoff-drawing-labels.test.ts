@@ -3,8 +3,10 @@ import { describe, it } from "node:test";
 
 import {
   takeoffDrawingDisplayLabel,
+  takeoffHouseTypeNote,
   takeoffSourceFolderLabel,
   takeoffSourceTenderDocId,
+  withHouseTypeNote,
   withSourceFolderNote,
 } from "@/lib/takeoff-drawing-labels";
 
@@ -25,5 +27,12 @@ describe("takeoff drawing labels", () => {
     assert.deepEqual(once, ["sourceTenderDoc:x", "sourceFolder:Hot & cold"]);
     const twice = withSourceFolderNote(once, "Gas");
     assert.deepEqual(twice, ["sourceTenderDoc:x", "sourceFolder:Gas"]);
+  });
+
+  it("stores house-type folder assignments", () => {
+    const notes = withHouseTypeNote(["sourceTenderDoc:doc-1"], "House Type A");
+    assert.equal(takeoffHouseTypeNote(notes), "House Type A");
+    const cleared = withHouseTypeNote(notes, "Ungrouped");
+    assert.equal(takeoffHouseTypeNote(cleared), undefined);
   });
 });
