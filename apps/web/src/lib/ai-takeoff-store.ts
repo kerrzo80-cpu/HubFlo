@@ -1,4 +1,5 @@
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
+import { dedupeTakeoffLines } from "@/lib/ai-takeoff-calc";
 import {
   DEFAULT_AI_TAKEOFF_PRICING_RULES,
   type AiTakeoffAssumption,
@@ -203,4 +204,12 @@ export function createAiTakeoffRevision(
 
 export function makeAiTakeoffLineId() {
   return newId("line");
+}
+
+export function dedupeAiTakeoffLines(tenderId: string): { state: TenderAiTakeoffState; removed: number } {
+  const state = getTenderAiTakeoffState(tenderId);
+  const { lines, removed } = dedupeTakeoffLines(state.lines);
+  if (!removed) return { state, removed: 0 };
+  state.lines = lines;
+  return { state: saveTenderAiTakeoffState(state), removed };
 }

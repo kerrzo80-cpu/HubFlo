@@ -144,19 +144,57 @@ export function findDuplicateTakeoffLines(lines: AiTakeoffLine[]): string[] {
   const dupes: string[] = [];
   for (const line of lines) {
     if (line.status === "rejected" || line.kind === "header" || line.kind === "note") continue;
-    const key = [
-      line.houseType || "",
-      line.plotNumber || "",
-      line.costCentre || "",
-      line.ref || "",
-      line.description.trim().toLowerCase(),
-      line.unit || "",
-    ].join("|");
+    const key = takeoffLineDedupeKey(line);
     const prior = seen.get(key);
     if (prior) dupes.push(`${line.id} duplicates ${prior}`);
     else seen.set(key, line.id);
   }
   return dupes;
+}
+
+export function takeoffLineDedupeKey(line: AiTakeoffLine): string {
+  return [
+    line.houseType || "",
+    line.plotNumber || "",
+    line.costCentre || "",
+    line.ref || "",
+    line.description.trim().toLowerCase(),
+    line.unit || "",
+  ].join("|");
+}
+
+/**
+ * Keep one line per duplicate key. Prefer applied > accepted > proposed;
+ * among equals keep the earliest id so re-imports don't thrash.
+ */
+export function dedupeTakeoffLines(lines: AiTakeoffLine[]): { lines: AiTakeoffLine[]; removed: number } {
+  const rank = (status: AiTakeoffLine["status"]) => {
+    if (status === "applied") return 3;
+    if (status === "accepted") return 2;
+    if (status === "proposed") return 1;
+    return 0;
+  };
+  const byKey = new Map<string, AiTakeoffLine>();
+  const passthrough: AiTakeoffLine[] = [];
+  for (const line of lines) {
+    if (line.status === "rejected" || line.kind === "header" || line.kind === "note") {
+      passthrough.push(line);
+      continue;
+    }
+    const key = takeoffLineDedupeKey(line);
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, line);
+      continue;
+    }
+    const preferNew =
+      rank(line.status) > rank(existing.status) ||
+      (rank(line.status) === rank(existing.status) && line.updatedAt > existing.updatedAt);
+    if (preferNew) byKey.set(key, line);
+  }
+  const kept = [...byKey.values(), ...passthrough];
+  const removed = Math.max(0, lines.length - kept.length);
+  return { lines: kept, removed };
 }
 
 export function validatePlotRegister(

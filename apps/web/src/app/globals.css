@@ -40696,30 +40696,70 @@ button.nexa-kpi-card,
   border: 1px solid #fed7aa;
 }
 
+.tenders-ai-takeoff-validation-body {
+  flex: 1;
+  min-width: 0;
+}
+
 .tenders-ai-takeoff-validation p {
   margin: 0 0 4px;
+}
+
+.tenders-ai-takeoff-validation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .tenders-ai-takeoff-grid {
   display: grid;
   gap: 14px;
   grid-template-columns: minmax(0, 1.6fr) minmax(220px, 0.8fr);
+  align-items: stretch;
+  min-height: min(62vh, 720px);
 }
 
-.tenders-ai-takeoff-chat,
+.tenders-ai-takeoff-chat {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  min-height: min(62vh, 720px);
+  max-height: min(70vh, 820px);
+  overflow: hidden;
+}
+
 .tenders-ai-takeoff-side {
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   background: #fff;
   padding: 12px;
+  max-height: min(70vh, 820px);
+  overflow: auto;
 }
 
 .tenders-ai-takeoff-messages {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
-  max-height: 360px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
-  margin-bottom: 12px;
+  padding-right: 4px;
+  margin-bottom: 0;
+}
+
+.tenders-ai-takeoff-composer {
+  display: grid;
+  gap: 8px;
+  flex: 0 0 auto;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+  background: #fff;
 }
 
 .tenders-ai-msg span {
@@ -40753,11 +40793,6 @@ button.nexa-kpi-card,
   padding: 8px 10px;
   border-radius: 10px;
   background: #f8fafc;
-}
-
-.tenders-ai-takeoff-composer {
-  display: grid;
-  gap: 8px;
 }
 
 .tenders-ai-takeoff-composer textarea {

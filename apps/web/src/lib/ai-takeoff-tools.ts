@@ -21,6 +21,7 @@ import {
   setAiTakeoffPlots,
   updateAiTakeoffPricingRules,
   upsertAiTakeoffLines,
+  dedupeAiTakeoffLines,
 } from "@/lib/ai-takeoff-store";
 import { getRecordDocument, readRecordDocumentFile } from "@/lib/record-documents";
 import { getTender, parseBoqFromWorkbookSheets } from "@/lib/tenders-data";
@@ -391,10 +392,14 @@ export function executeAiTakeoffTool(
       }
 
       state = getTenderAiTakeoffState(tenderId);
+      const { state: deduped, removed } = dedupeAiTakeoffLines(tenderId);
+      state = deduped;
       const totals = calculateProjectTotals(state.lines, state.plots, state.pricingRules);
       return {
         ok: true,
-        message: `Imported ${importedTotal} takeoff line(s) into area “${area}”. ${notes.join(" ")} Project sell £${totals.totalSell.toFixed(2)} (ex VAT). Click Apply to BoQ when ready.`,
+        message: `Imported ${importedTotal} takeoff line(s) into area “${area}”. ${notes.join(" ")}${
+          removed ? ` Removed ${removed} duplicate(s).` : ""
+        } Project sell £${totals.totalSell.toFixed(2)} (ex VAT). Click Apply to BoQ when ready.`,
         state,
       };
     }

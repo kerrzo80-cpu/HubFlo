@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Calculator, RefreshCw, Send, Sparkles } from "lucide-react";
 
 import type {
@@ -56,6 +56,7 @@ export function TenderAiTakeoffPanel({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [showRules, setShowRules] = useState(false);
+  const messagesRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(async () => {
     const response = await fetch(`/api/tenders/${encodeURIComponent(tenderId)}/ai-takeoff`, {
@@ -77,10 +78,25 @@ export function TenderAiTakeoffPanel({
     void load();
   }, [load]);
 
+  useEffect(() => {
+    const node = messagesRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, [state?.messages.length, busy]);
+
   const liveTotals = useMemo(() => {
     if (!state) return totals;
     return calculateProjectTotals(state.lines, state.plots, state.pricingRules);
   }, [state, totals]);
+
+  const duplicateCount = useMemo(
+    () => validation.filter((row) => /duplicates/i.test(row)).length,
+    [validation],
+  );
+  const otherValidation = useMemo(
+    () => validation.filter((row) => !/duplicates/i.test(row)),
+    [validation],
+  );
 
   async function postAction(body: Record<string, unknown>) {
     setBusy(true);
@@ -90,7 +106,7 @@ export function TenderAiTakeoffPanel({
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const payload = (await response.json().catch(() => null)) as ApiPayload | null;
+      const payload = (await response.json().catch(() => null)) as ApiPayload & { removed?: number } | null;
       if (payload?.state) setState(payload.state);
       if (payload?.totals) setTotals(payload.totals);
       if (payload?.validation) setValidation(payload.validation);
@@ -98,6 +114,9 @@ export function TenderAiTakeoffPanel({
       if (!response.ok) {
         onNotice(payload?.error || "Blake takeoff request failed.");
         return false;
+      }
+      if (typeof payload?.removed === "number" && payload.removed > 0) {
+        onNotice(`Removed ${payload.removed} duplicate takeoff line(s).`);
       }
       return true;
     } finally {
@@ -243,20 +262,38 @@ export function TenderAiTakeoffPanel({
         </article>
       </div>
 
-      {validation.length ? (
+      {duplicateCount || otherValidation.length ? (
         <div className="tenders-ai-takeoff-validation">
           <AlertTriangle size={15} />
-          <div>
-            {validation.map((row) => (
+          <div className="tenders-ai-takeoff-validation-body">
+            {duplicateCount ? (
+              <p>
+                {duplicateCount} duplicate takeoff line{duplicateCount === 1 ? "" : "s"} from a repeated import.
+              </p>
+            ) : null}
+            {otherValidation.slice(0, 6).map((row) => (
               <p key={row}>{row}</p>
             ))}
+            {otherValidation.length > 6 ? <p>+{otherValidation.length - 6} more</p> : null}
+            {duplicateCount ? (
+              <div className="tenders-ai-takeoff-validation-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={busy}
+                  onClick={() => void postAction({ action: "dedupe-lines" })}
+                >
+                  Remove duplicates
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
 
       <div className="tenders-ai-takeoff-grid">
         <section className="tenders-ai-takeoff-chat">
-          <div className="tenders-ai-takeoff-messages">
+          <div className="tenders-ai-takeoff-messages" ref={messagesRef}>
             {state.messages.length === 0 ? (
               <p className="setup-inline-note">
                 Try: “This is a health club refurb — treat as one area, import Plumbing.xlsx from Documents, price with
@@ -332,7 +369,14 @@ export function TenderAiTakeoffPanel({
           </div>
           <div>
             <h4>Documents linked</h4>
-            <p>{state.files.length ? state.files.map((file) => file.name).join(", ") : "Syncs from Documents tab"}</p>
+            <p>
+              {state.files.length
+                ? `${state.files.length} file${state.files.length === 1 ? "" : "s"} · ${state.files
+                    .slice(0, 4)
+                    .map((file) => file.name)
+                    .join(", ")}${state.files.length > 4 ? "…" : ""}`
+                : "Syncs from Documents tab"}
+            </p>
           </div>
         </aside>
       </div>

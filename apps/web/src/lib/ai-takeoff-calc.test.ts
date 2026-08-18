@@ -5,6 +5,7 @@ import {
   calculateHouseTypeTotal,
   calculateProjectTotals,
   calculateTakeoffLine,
+  dedupeTakeoffLines,
   findDuplicateTakeoffLines,
   roundLabourHours,
   validatePlotRegister,
@@ -151,4 +152,17 @@ test("all-in sell rate keeps rate × qty equal to line sell", () => {
   const allIn = Math.round((calc.lineTotalSell / calc.quantity) * 100) / 100;
   assert.equal(Math.round(allIn * calc.quantity * 100) / 100, calc.lineTotalSell);
   assert.notEqual(Math.round(calc.unitCost * 1.3 * calc.quantity * 100) / 100, calc.lineTotalSell);
+});
+
+test("dedupeTakeoffLines keeps one row per key", () => {
+  const lines = [
+    line({ id: "a", description: "Pipe", houseType: "HT-A", quantity: 10, unit: "m", status: "proposed" }),
+    line({ id: "b", description: "Pipe", houseType: "HT-A", quantity: 10, unit: "m", status: "proposed" }),
+    line({ id: "c", description: "Basin", houseType: "HT-A", quantity: 1, unit: "nr", status: "applied" }),
+    line({ id: "d", description: "Basin", houseType: "HT-A", quantity: 1, unit: "nr", status: "proposed" }),
+  ];
+  const result = dedupeTakeoffLines(lines);
+  assert.equal(result.removed, 2);
+  assert.equal(result.lines.length, 2);
+  assert.ok(result.lines.some((row) => row.id === "c" && row.status === "applied"));
 });

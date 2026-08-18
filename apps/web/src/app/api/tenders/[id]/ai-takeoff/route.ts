@@ -4,6 +4,7 @@ import { AI_TAKEOFF_TOOL_DEFINITIONS, executeAiTakeoffTool, patchAiTakeoffLinked
 import {
   appendAiTakeoffMessage,
   attachAiTakeoffFile,
+  dedupeAiTakeoffLines,
   getTenderAiTakeoffState,
   updateAiTakeoffPricingRules,
 } from "@/lib/ai-takeoff-store";
@@ -17,7 +18,7 @@ type Params = { params: Promise<{ id: string }> };
 
 type ChatBody = {
   message?: string;
-  action?: "chat" | "sync-files" | "update-rules" | "recalculate";
+  action?: "chat" | "sync-files" | "update-rules" | "recalculate" | "dedupe-lines";
   pricingRules?: Record<string, unknown>;
 };
 
@@ -67,6 +68,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       url: doc.url,
     });
   }
+  // Quietly collapse duplicate imports from earlier tool loops / re-runs.
+  dedupeAiTakeoffLines(id);
   const refreshed = getTenderAiTakeoffState(id);
   if (tender.linkedTakeoffId && refreshed.linkedTakeoffId !== tender.linkedTakeoffId) {
     patchAiTakeoffLinkedProject(id, tender.linkedTakeoffId);
@@ -124,6 +127,16 @@ export async function POST(request: NextRequest, { params }: Params) {
       ...findDuplicateTakeoffLines(state.lines),
     ];
     return NextResponse.json({ state, totals, validation });
+  }
+
+  if (action === "dedupe-lines") {
+    const { state, removed } = dedupeAiTakeoffLines(id);
+    const totals = calculateProjectTotals(state.lines, state.plots, state.pricingRules);
+    const validation = [
+      ...validatePlotRegister(state.plots, state.houseTypes),
+      ...findDuplicateTakeoffLines(state.lines),
+    ];
+    return NextResponse.json({ state, totals, validation, removed });
   }
 
   const message = body?.message?.trim();
