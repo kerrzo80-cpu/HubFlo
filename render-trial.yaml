@@ -1,0 +1,38 @@
+# Separate friend-trial instance. Do not share disks or secrets with nexa-live / nexa-pilot.
+# Apply this file as its own Render Blueprint (path: render-trial.yaml).
+# autoDeploy is off so office WIP does not land on the trial.
+services:
+  - type: web
+    name: nexa-trial
+    runtime: node
+    region: frankfurt
+    plan: standard
+    autoDeploy: false
+    healthCheckPath: /api/health
+    buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile --filter @hubflo/web... && NODE_OPTIONS=--max-old-space-size=3072 pnpm --filter @hubflo/web build && echo "nexa-runtime-mem=standard-1536-v1"
+    startCommand: NODE_OPTIONS=--max-old-space-size=1536 node apps/web/node_modules/next/dist/bin/next start apps/web --hostname 0.0.0.0 --port $PORT
+    disk:
+      name: nexa-trial-data
+      mountPath: /var/data
+      sizeGB: 5
+    envVars:
+      - key: NODE_VERSION
+        value: 24.14.0
+      - key: NEXA_STORE_PATH
+        value: /var/data/nexa-trial.sqlite
+      - key: NEXA_STORE_DIR
+        value: /var/data
+      - key: NEXA_WORKSPACE_MODE
+        value: live
+      - key: NEXA_AUTH_MODE
+        value: users
+      - key: NEXA_ADMIN_NAME
+        value: Trial Admin
+      - key: NEXA_ADMIN_USERNAME
+        value: trial.admin
+      - key: NEXA_ADMIN_EMPLOYEE_ID
+        value: emp-trial-admin
+      - key: NEXA_ADMIN_PASSWORD
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        value: https://nexa-trial.onrender.com
