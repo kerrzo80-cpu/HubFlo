@@ -127,3 +127,28 @@ test("set_single_area_project skips housing plot nag for commercial jobs", () =>
 test("house types without a plot register do not fail validation", () => {
   assert.equal(validatePlotRegister([], ["Health Club"]).length, 0);
 });
+
+test("typed lines still total when plot register is empty", () => {
+  const lines = [
+    line({
+      id: "a",
+      description: "Pipe",
+      houseType: "Health Club",
+      quantity: 10,
+      unitCost: 5,
+      labourHours: 1,
+    }),
+  ];
+  const totals = calculateProjectTotals(lines, [], DEFAULT_AI_TAKEOFF_PRICING_RULES);
+  assert.equal(totals.totalSell, 135);
+  assert.equal(totals.labourHours, 1);
+});
+
+test("all-in sell rate keeps rate × qty equal to line sell", () => {
+  const calc = calculateTakeoffLine(
+    line({ description: "Pipe", quantity: 10, unitCost: 5, labourHours: 1 }),
+  );
+  const allIn = Math.round((calc.lineTotalSell / calc.quantity) * 100) / 100;
+  assert.equal(Math.round(allIn * calc.quantity * 100) / 100, calc.lineTotalSell);
+  assert.notEqual(Math.round(calc.unitCost * 1.3 * calc.quantity * 100) / 100, calc.lineTotalSell);
+});

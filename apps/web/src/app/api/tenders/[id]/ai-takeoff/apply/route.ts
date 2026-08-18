@@ -53,20 +53,24 @@ export async function POST(request: NextRequest, { params }: Params) {
     const calc = calculateTakeoffLine(line, state.pricingRules);
     const kind: TenderBoqLine["kind"] =
       line.kind === "header" || line.kind === "note" ? line.kind : "measured";
+    // All-in sell rate so rate × qty === value (materials + labour), not materials-only.
     const sellRate =
-      calc.unitCost > 0
-        ? Math.round(calc.unitCost * (1 + calc.markupPercent / 100) * 100) / 100
-        : calc.labourHours > 0
-          ? calc.labourRate
-          : 0;
+      kind === "measured" && calc.quantity > 0
+        ? Math.round((calc.lineTotalSell / calc.quantity) * 100) / 100
+        : 0;
+    const areaLabel = line.houseType
+      ? state.plots.length <= 1
+        ? `Area: ${line.houseType}`
+        : `House: ${line.houseType}`
+      : null;
     return {
       id: `ai-takeoff-${line.id}`,
       kind,
       ref: line.ref || `AI-${index + 1}`,
       description: [
         line.description,
-        line.houseType ? `House: ${line.houseType}` : null,
-        line.plotNumber ? `Plot: ${line.plotNumber}` : null,
+        areaLabel,
+        line.plotNumber && state.plots.length > 1 ? `Plot: ${line.plotNumber}` : null,
         line.phase && line.phase !== "general" ? line.phase : null,
       ]
         .filter(Boolean)
@@ -76,8 +80,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       rate: kind === "measured" ? sellRate : null,
       value: kind === "measured" ? calc.lineTotalSell : null,
       sheet: sheetName,
-      section: line.costCentre || "AI Takeoff",
-      pricingSource: "manual" as const,
+      section: line.costCentre || "Blake Takeoff",
+      pricingSource: "blake-budget" as const,
     };
   });
 

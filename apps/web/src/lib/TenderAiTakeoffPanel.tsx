@@ -284,7 +284,7 @@ export function TenderAiTakeoffPanel({
             <textarea
               rows={3}
               value={message}
-              placeholder="Ask the assistant to take off quantities, assign plots, or record assumptions…"
+              placeholder="Ask Blake to import an issued BoQ, set a single area, or take off quantities…"
               disabled={busy}
               onChange={(event) => setMessage(event.target.value)}
               onKeyDown={(event) => {
@@ -302,7 +302,7 @@ export function TenderAiTakeoffPanel({
 
         <aside className="tenders-ai-takeoff-side">
           <div>
-            <h4>House types</h4>
+            <h4>Areas / house types</h4>
             <p>{state.houseTypes.length ? state.houseTypes.join(", ") : "None yet"}</p>
           </div>
           <div>
@@ -313,7 +313,7 @@ export function TenderAiTakeoffPanel({
                     .slice(0, 12)
                     .map((row) => `${row.plot}→${row.houseType}`)
                     .join(", ") + (state.plots.length > 12 ? ` (+${state.plots.length - 12})` : "")
-                : "None yet"}
+                : "None (ok for single-area jobs)"}
             </p>
           </div>
           <div>
@@ -342,7 +342,7 @@ export function TenderAiTakeoffPanel({
           <thead>
             <tr>
               <th>Status</th>
-              <th>House / plot</th>
+              <th>Area / plot</th>
               <th>Phase</th>
               <th>Description</th>
               <th>Qty</th>
@@ -356,7 +356,7 @@ export function TenderAiTakeoffPanel({
           <tbody>
             {state.lines.length === 0 ? (
               <tr>
-                <td colSpan={10}>No proposed lines yet — use chat to add takeoff items.</td>
+                <td colSpan={10}>No proposed lines yet — ask Blake to import an issued BoQ or add takeoff items.</td>
               </tr>
             ) : (
               state.lines.map((line: AiTakeoffLine) => {

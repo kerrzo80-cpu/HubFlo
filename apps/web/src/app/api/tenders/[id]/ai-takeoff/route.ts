@@ -150,6 +150,11 @@ export async function POST(request: NextRequest, { params }: Params) {
     .map((doc) => `- ${doc.kind}: ${doc.name}`)
     .join("\n");
 
+  const recentChat = state.messages
+    .slice(-8)
+    .map((row) => `${row.role === "assistant" ? "Blake" : row.role}: ${row.text}`)
+    .join("\n");
+
   const snapshot = {
     tender: { id: tender.id, name: tender.name, client: tender.client, status: tender.status },
     pricingRules: state.pricingRules,
@@ -163,7 +168,13 @@ export async function POST(request: NextRequest, { params }: Params) {
   };
 
   try {
-    const input = [
+    type ToolCallRow = { name: string; args: Record<string, unknown>; result?: string; callId?: string };
+    const toolCalls: ToolCallRow[] = [];
+    let assistantText = "";
+    let responseId: string | undefined;
+    let conversationId = state.openaiConversationId;
+
+    const initialInput: unknown[] = [
       {
         role: "system",
         content: [{ type: "input_text", text: SYSTEM_PROMPT }],
@@ -172,68 +183,104 @@ export async function POST(request: NextRequest, { params }: Params) {
         role: "user",
         content: [{
           type: "input_text",
-          text: `Tender snapshot JSON:\n${JSON.stringify(snapshot)}\n\nUser message:\n${message}`,
+          text: [
+            `Tender snapshot JSON:\n${JSON.stringify(snapshot)}`,
+            recentChat ? `\nRecent chat:\n${recentChat}` : "",
+            `\nUser message:\n${message}`,
+          ].join(""),
         }],
       },
     ];
 
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${ai.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: ai.model,
-        input,
-        tools: AI_TAKEOFF_TOOL_DEFINITIONS,
-        store: true,
-        ...(state.openaiConversationId ? { conversation: state.openaiConversationId } : {}),
-      }),
-    });
+    let nextInput: unknown[] = initialInput;
+    let previousResponseId: string | undefined;
 
-    const payload = await response.json().catch(() => null) as Record<string, unknown> | null;
-    if (!response.ok) {
-      const errText = typeof payload?.error === "object" && payload.error && "message" in (payload.error as object)
-        ? String((payload.error as { message?: string }).message)
-        : `OpenAI error ${response.status}`;
-      appendAiTakeoffMessage(id, { role: "assistant", text: `Could not reach OpenAI: ${errText}` });
-      return NextResponse.json({ state: getTenderAiTakeoffState(id), error: errText }, { status: 502 });
-    }
+    for (let round = 0; round < 4; round += 1) {
+      const response = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${ai.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: ai.model,
+          input: nextInput,
+          tools: AI_TAKEOFF_TOOL_DEFINITIONS,
+          store: true,
+          ...(previousResponseId
+            ? { previous_response_id: previousResponseId }
+            : conversationId
+              ? { conversation: conversationId }
+              : {}),
+        }),
+      });
 
-    const responseId = typeof payload?.id === "string" ? payload.id : undefined;
-    const conversationId = typeof payload?.conversation === "string"
-      ? payload.conversation
-      : typeof (payload?.conversation as { id?: string } | undefined)?.id === "string"
-        ? (payload?.conversation as { id: string }).id
-        : undefined;
-    if (conversationId) patchAiTakeoffLinkedProject(id, undefined, conversationId);
+      const payload = await response.json().catch(() => null) as Record<string, unknown> | null;
+      if (!response.ok) {
+        const errText = typeof payload?.error === "object" && payload.error && "message" in (payload.error as object)
+          ? String((payload.error as { message?: string }).message)
+          : `OpenAI error ${response.status}`;
+        // Soft-fallback: if conversation id is stale, retry once without it on first round.
+        if (round === 0 && conversationId && /conversation|not found|invalid/i.test(errText)) {
+          conversationId = undefined;
+          patchAiTakeoffLinkedProject(id, undefined, "");
+          continue;
+        }
+        appendAiTakeoffMessage(id, { role: "assistant", text: `Could not reach OpenAI: ${errText}` });
+        return NextResponse.json({ state: getTenderAiTakeoffState(id), error: errText }, { status: 502 });
+      }
 
-    const toolCalls: Array<{ name: string; args: Record<string, unknown>; result?: string }> = [];
-    const output = Array.isArray(payload?.output) ? payload.output : [];
-    let assistantText = "";
+      responseId = typeof payload?.id === "string" ? payload.id : responseId;
+      previousResponseId = responseId;
+      const nextConversationId = typeof payload?.conversation === "string"
+        ? payload.conversation
+        : typeof (payload?.conversation as { id?: string } | undefined)?.id === "string"
+          ? (payload?.conversation as { id: string }).id
+          : undefined;
+      if (nextConversationId) {
+        conversationId = nextConversationId;
+        patchAiTakeoffLinkedProject(id, undefined, conversationId);
+      }
 
-    for (const item of output) {
-      if (!item || typeof item !== "object") continue;
-      const row = item as Record<string, unknown>;
-      if (row.type === "message" && Array.isArray(row.content)) {
-        for (const part of row.content) {
-          if (part && typeof part === "object" && (part as { type?: string }).type === "output_text") {
-            assistantText += String((part as { text?: string }).text || "");
+      const output = Array.isArray(payload?.output) ? payload.output : [];
+      const roundToolOutputs: Array<{ type: string; call_id: string; output: string }> = [];
+      let roundHadTools = false;
+      assistantText = "";
+
+      for (const item of output) {
+        if (!item || typeof item !== "object") continue;
+        const row = item as Record<string, unknown>;
+        if (row.type === "message" && Array.isArray(row.content)) {
+          for (const part of row.content) {
+            if (part && typeof part === "object" && (part as { type?: string }).type === "output_text") {
+              assistantText += String((part as { text?: string }).text || "");
+            }
+          }
+        }
+        if (row.type === "function_call") {
+          roundHadTools = true;
+          const name = String(row.name || "");
+          const callId = String(row.call_id || row.id || "");
+          let args: Record<string, unknown> = {};
+          try {
+            args = JSON.parse(String(row.arguments || "{}")) as Record<string, unknown>;
+          } catch {
+            args = {};
+          }
+          const result = executeAiTakeoffTool(id, name, args);
+          toolCalls.push({ name, args, result: result.message, callId });
+          if (callId) {
+            roundToolOutputs.push({
+              type: "function_call_output",
+              call_id: callId,
+              output: result.message,
+            });
           }
         }
       }
-      if (row.type === "function_call") {
-        const name = String(row.name || "");
-        let args: Record<string, unknown> = {};
-        try {
-          args = JSON.parse(String(row.arguments || "{}")) as Record<string, unknown>;
-        } catch {
-          args = {};
-        }
-        const result = executeAiTakeoffTool(id, name, args);
-        toolCalls.push({ name, args, result: result.message });
-      }
+
+      if (!roundHadTools || !roundToolOutputs.length) break;
+      nextInput = roundToolOutputs;
     }
 
     if (!assistantText && toolCalls.length) {

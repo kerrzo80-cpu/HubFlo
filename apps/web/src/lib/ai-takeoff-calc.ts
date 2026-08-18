@@ -22,7 +22,12 @@ export function calculateTakeoffLine(
 ): CalculatedTakeoffLine {
   const qty = Number.isFinite(line.quantity) ? Math.max(0, line.quantity) : 0;
   const unitCost = Number.isFinite(line.unitCost) ? Math.max(0, line.unitCost) : 0;
-  const markup = Number.isFinite(line.markupPercent) ? line.markupPercent : rules.materialsMarkupPercent;
+  const sanitary = /sanitary|basin|wc|toilet|shower|bath|urinal|bidet|tap|mixer/i.test(line.description);
+  const markup = Number.isFinite(line.markupPercent)
+    ? line.markupPercent
+    : sanitary
+      ? rules.sanitarywareMarkupPercent
+      : rules.materialsMarkupPercent;
   const labourHours = roundLabourHours(
     Number.isFinite(line.labourHours) ? line.labourHours : 0,
     rules.labourRoundToHours,
@@ -97,13 +102,30 @@ export function calculateProjectTotals(
     projectHours += house.labourHours;
   }
 
-  // Lines without house type still count once at project level
+  const coveredHouseTypes = new Set(houseTypes);
+
+  // Lines without house/area type still count once at project level
   const orphan = lines
     .filter((line) => line.status !== "rejected" && !line.houseType)
     .map((line) => calculateTakeoffLine(line, rules));
   projectSell += orphan.reduce((sum, row) => sum + row.lineTotalSell, 0);
   projectCost += orphan.reduce((sum, row) => sum + row.lineTotalCost, 0);
   projectHours += orphan.reduce((sum, row) => sum + row.labourHours, 0);
+
+  // Area/house-typed lines with no matching plot register entry were previously
+  // dropped to £0 (create_house_type without assign_plots / incomplete commercial setup).
+  // Count those once — do not also multiply them by a plot register.
+  const uncoveredTyped = lines
+    .filter(
+      (line) =>
+        line.status !== "rejected" &&
+        Boolean(line.houseType) &&
+        !coveredHouseTypes.has(String(line.houseType)),
+    )
+    .map((line) => calculateTakeoffLine(line, rules));
+  projectSell += uncoveredTyped.reduce((sum, row) => sum + row.lineTotalSell, 0);
+  projectCost += uncoveredTyped.reduce((sum, row) => sum + row.lineTotalCost, 0);
+  projectHours += uncoveredTyped.reduce((sum, row) => sum + row.labourHours, 0);
 
   const vat = roundMoney(projectSell * (vatRatePercent / 100));
   return {

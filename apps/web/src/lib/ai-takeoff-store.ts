@@ -96,6 +96,25 @@ export function upsertAiTakeoffLines(tenderId: string, lines: AiTakeoffLine[]): 
   return saveTenderAiTakeoffState(state);
 }
 
+/** Drop proposed/accepted lines from a source document before re-import (keeps applied). */
+export function replaceAiTakeoffLinesFromSource(
+  tenderId: string,
+  sourceDocument: string,
+  lines: AiTakeoffLine[],
+): TenderAiTakeoffState {
+  const state = getTenderAiTakeoffState(tenderId);
+  const source = sourceDocument.trim().toLowerCase();
+  const kept = state.lines.filter((line) => {
+    if (line.status === "applied") return true;
+    const from = String(line.sourceDocument || "").trim().toLowerCase();
+    return !source || from !== source;
+  });
+  const byId = new Map(kept.map((line) => [line.id, line]));
+  for (const line of lines) byId.set(line.id, line);
+  state.lines = Array.from(byId.values());
+  return saveTenderAiTakeoffState(state);
+}
+
 export function addAiTakeoffAssumption(
   tenderId: string,
   assumption: Omit<AiTakeoffAssumption, "id" | "createdAt" | "revisionId"> & {

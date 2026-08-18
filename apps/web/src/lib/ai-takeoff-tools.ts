@@ -15,6 +15,7 @@ import {
   addAiTakeoffAssumption,
   getTenderAiTakeoffState,
   makeAiTakeoffLineId,
+  replaceAiTakeoffLinesFromSource,
   saveTenderAiTakeoffState,
   setAiTakeoffHouseTypes,
   setAiTakeoffPlots,
@@ -297,12 +298,10 @@ export function executeAiTakeoffTool(
       const candidates = (tender.documents || []).filter((doc) => {
         const kind = String(doc.kind || "");
         const name = String(doc.name || "");
-        const isBoq =
-          kind === "issued-boq" ||
-          kind === "priced-boq" ||
-          /\.(xlsx|xls|csv)$/i.test(name) ||
-          /boq|bill|plumbing/i.test(name);
-        if (!isBoq) return false;
+        if (!/\.(xlsx|xls)$/i.test(name)) return false;
+        const kindMatch = kind === "issued-boq" || kind === "priced-boq";
+        const nameMatch = /boq|bill|plumbing|mechanical|heating/i.test(name);
+        if (!kindMatch && !nameMatch) return false;
         if (!hint) return true;
         return name.toLowerCase().includes(hint);
       });
@@ -325,8 +324,8 @@ export function executeAiTakeoffTool(
 
       const area = state.houseTypes[0] || "Whole building";
       const maxLines = Math.min(800, Math.max(1, Math.floor(asNumber(args.maxLines, 400))));
-      const imported: AiTakeoffLine[] = [];
       const notes: string[] = [];
+      let importedTotal = 0;
 
       for (const doc of candidates.slice(0, 3)) {
         const recordId = recordDocumentIdFromUrl(doc.url);
@@ -339,14 +338,11 @@ export function executeAiTakeoffTool(
           notes.push(`Empty file for ${doc.name}.`);
           continue;
         }
-        if (!/\.(xlsx|xls)$/i.test(doc.name) && !/sheet|excel/i.test(String(doc.mimeType || ""))) {
-          notes.push(`Skipped non-Excel document ${doc.name}.`);
-          continue;
-        }
         try {
           const sheets = workbookBoqSheetsFromBuffer(file.bytes);
           const parsed = parseBoqFromWorkbookSheets(sheets, doc.name);
           const measured = parsed.lines.filter((line) => line.kind === "measured");
+          const imported: AiTakeoffLine[] = [];
           for (const line of measured) {
             if (imported.length >= maxLines) break;
             const qty = typeof line.quantity === "number" && Number.isFinite(line.quantity) ? line.quantity : 0;
@@ -378,25 +374,27 @@ export function executeAiTakeoffTool(
               updatedAt: new Date().toISOString(),
             });
           }
-          notes.push(`Parsed ${doc.name}: ${measured.length} measured row(s).`);
+          state = replaceAiTakeoffLinesFromSource(tenderId, doc.name, imported);
+          importedTotal += imported.length;
+          notes.push(`Parsed ${doc.name}: ${measured.length} measured row(s), kept ${imported.length}.`);
         } catch (error) {
           notes.push(`Failed to parse ${doc.name}: ${error instanceof Error ? error.message : "error"}`);
         }
       }
 
-      if (!imported.length) {
+      if (!importedTotal) {
         return {
           ok: false,
           message: `No measured BoQ lines imported. ${notes.join(" ")}`,
-          state,
+          state: getTenderAiTakeoffState(tenderId),
         };
       }
 
-      state = upsertAiTakeoffLines(tenderId, imported);
+      state = getTenderAiTakeoffState(tenderId);
       const totals = calculateProjectTotals(state.lines, state.plots, state.pricingRules);
       return {
         ok: true,
-        message: `Imported ${imported.length} takeoff line(s) into area “${area}”. ${notes.join(" ")} Project sell £${totals.totalSell.toFixed(2)} (ex VAT). Click Apply to BoQ when ready.`,
+        message: `Imported ${importedTotal} takeoff line(s) into area “${area}”. ${notes.join(" ")} Project sell £${totals.totalSell.toFixed(2)} (ex VAT). Click Apply to BoQ when ready.`,
         state,
       };
     }
@@ -489,6 +487,8 @@ export function executeAiTakeoffTool(
 export function patchAiTakeoffLinkedProject(tenderId: string, linkedTakeoffId?: string, conversationId?: string) {
   const state = getTenderAiTakeoffState(tenderId);
   if (linkedTakeoffId) state.linkedTakeoffId = linkedTakeoffId;
-  if (conversationId) state.openaiConversationId = conversationId;
+  if (conversationId !== undefined) {
+    state.openaiConversationId = conversationId.trim() || undefined;
+  }
   return saveTenderAiTakeoffState(state);
 }
