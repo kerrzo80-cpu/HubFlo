@@ -36,6 +36,9 @@ export async function GET() {
       lastFilename: officeBackup.lastFilename || null,
       lastError: officeBackup.lastError || null,
       neverBackedUp: !officeBackup.lastOkAt,
+      cronSecretConfigured: Boolean(
+        process.env.NEXA_BACKUP_CRON_SECRET?.trim() || process.env.NEXA_IMPORT_TICK_SECRET?.trim(),
+      ),
       s3Hint: "Set BACKUP_S3_* on nexa-live for off-site copies. Local Render disk alone is not durable.",
     },
     openai: {

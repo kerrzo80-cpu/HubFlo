@@ -1,35 +1,48 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { getAccessProfileFromHeaders } from "@/lib/access";
 import { runOfficeBackup } from "@/lib/office-backup";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-function canRunWithSecret(request: NextRequest) {
-  const expected =
-    process.env.NEXA_BACKUP_CRON_SECRET?.trim() || process.env.NEXA_IMPORT_TICK_SECRET?.trim();
-  if (!expected) return false;
-  const provided = request.headers.get("x-nexa-backup-secret")?.trim()
-    || request.headers.get("x-nexa-import-tick-secret")?.trim();
-  return Boolean(provided && provided === expected);
+function expectedBackupCronSecret() {
+  return process.env.NEXA_BACKUP_CRON_SECRET?.trim() || process.env.NEXA_IMPORT_TICK_SECRET?.trim() || "";
 }
 
-function canManage(request: NextRequest) {
-  const access = getAccessProfileFromHeaders(request.headers);
-  return access.canCustomize || access.showFinance;
+function providedBackupCronSecret(request: NextRequest) {
+  return (
+    request.headers.get("x-nexa-backup-secret")?.trim()
+    || request.headers.get("x-nexa-import-tick-secret")?.trim()
+    || ""
+  );
 }
 
 /**
- * Nightly office backup. Auth: admin session or x-nexa-backup-secret
- * (NEXA_BACKUP_CRON_SECRET or NEXA_IMPORT_TICK_SECRET).
+ * Nightly office backup for Render cron only.
+ * Auth: x-nexa-backup-secret must match NEXA_BACKUP_CRON_SECRET
+ * (or NEXA_IMPORT_TICK_SECRET fallback) on this web service.
+ * Interactive "Backup now" uses POST /api/office-backup (session auth).
  */
 export async function POST(request: NextRequest) {
-  if (!canManage(request) && !canRunWithSecret(request)) {
+  const expected = expectedBackupCronSecret();
+  if (!expected) {
+    return NextResponse.json(
+      {
+        error: "Backup cron secret not configured",
+        detail:
+          "Set NEXA_BACKUP_CRON_SECRET on this web service (nexa-live or nexa-pilot), use the same value on the nightly-backup cron, then redeploy/restart the web service.",
+      },
+      { status: 503 },
+    );
+  }
+
+  const provided = providedBackupCronSecret(request);
+  if (!provided || provided !== expected) {
     return NextResponse.json(
       {
         error: "Forbidden",
-        detail: "Set NEXA_BACKUP_CRON_SECRET on the web service and this cron (same value), send x-nexa-backup-secret, or run Backup now from Setup.",
+        detail:
+          "x-nexa-backup-secret does not match NEXA_BACKUP_CRON_SECRET on this web service. Copy the exact same value onto both the web service and the nightly-backup cron, then restart both.",
       },
       { status: 403 },
     );
