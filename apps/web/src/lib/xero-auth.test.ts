@@ -21,6 +21,7 @@ test("xero oauth start URL, PKCE, placeholders, and office copy", async (t) => {
     startXeroAuthorization,
     getXeroAuthStatus,
     officeMessageForXeroOAuthError,
+    pickXeroTenantFromConnections,
     XERO_MISSING_CREDENTIALS_MESSAGE,
     XERO_OFFICE_CONNECT_COPY,
     XERO_UNAUTHORIZED_CLIENT_MESSAGE,
@@ -70,6 +71,8 @@ test("xero oauth start URL, PKCE, placeholders, and office copy", async (t) => {
   assert.equal(url.searchParams.get("code_challenge_method"), "S256");
   assert.ok(url.searchParams.get("code_challenge"));
   assert.ok(url.searchParams.get("state"));
+  assert.ok(url.searchParams.get("prompt")?.includes("login"));
+  assert.ok(url.searchParams.get("prompt")?.includes("consent"));
   const status = getXeroAuthStatus();
   assert.equal(status.canConnect, true);
   assert.ok(status.officeMessage?.includes("don’t need a Xero developer account") || status.officeMessage?.includes("don't need a Xero developer account"));
@@ -91,4 +94,21 @@ test("xero oauth start URL, PKCE, placeholders, and office copy", async (t) => {
     "offline_access accounting.invoices accounting.payments accounting.contacts accounting.settings",
   );
   delete process.env.XERO_SCOPES;
+
+  const demoTenant = {
+    tenantId: "demo-tenant",
+    tenantName: "Demo Company",
+    authEventId: "event-old",
+    updatedDateUtc: "2024-01-01T00:00:00Z",
+  };
+  const liveTenant = {
+    tenantId: "live-tenant",
+    tenantName: "EWG Ltd",
+    authEventId: "event-new",
+    updatedDateUtc: "2026-08-18T00:00:00Z",
+  };
+  const token = `x.${Buffer.from(JSON.stringify({ authentication_event_id: "event-new" })).toString("base64url")}.y`;
+  const picked = pickXeroTenantFromConnections([demoTenant, liveTenant], token);
+  assert.equal(picked.tenantId, "live-tenant");
+  assert.equal(picked.tenantName, "EWG Ltd");
 });

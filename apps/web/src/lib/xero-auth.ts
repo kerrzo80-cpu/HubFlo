@@ -47,6 +47,8 @@ const STORE = "nexa-xero-auth-v1";
 const tokenStore = loadServerStore<XeroAuthStore>(STORE, {});
 const XERO_AUTHORIZE_URL = "https://login.xero.com/identity/connect/authorize";
 const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
+/** Force a fresh Xero login + consent so a demo.xero.com browser session is not reused. */
+const XERO_AUTHORIZE_PROMPT = "login consent";
 const XERO_REQUIRED_SCOPES = [
   "offline_access",
   "accounting.invoices",
@@ -69,9 +71,45 @@ export const XERO_MISSING_CREDENTIALS_MESSAGE =
 export const XERO_UNAUTHORIZED_CLIENT_MESSAGE =
   "Xero did not recognise NeXa’s app on this server (unknown or disabled Client ID). You still don’t need a developer account. Ask the person who hosts NeXa to check XERO_CLIENT_ID / XERO_CLIENT_SECRET on Render — they must be the enabled NeXa Web App, not a draft or Custom Connection — then try Connect Xero again.";
 
+type XeroConnectionRow = {
+  tenantId?: string;
+  tenantName?: string;
+  authEventId?: string;
+  updatedDateUtc?: string;
+  createdDateUtc?: string;
+};
+
 function persistTokenStore() {
   tokenStore.updatedAt = new Date().toISOString();
   writeServerStore(STORE, tokenStore);
+}
+
+function authenticationEventIdFromAccessToken(accessToken: string) {
+  const payload = accessToken.split(".")[1];
+  if (!payload) return "";
+  try {
+    const json = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
+    return typeof json.authentication_event_id === "string" ? json.authentication_event_id : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Prefer the organisation from this OAuth event over a previously stored demo tenant. */
+export function pickXeroTenantFromConnections(connections: XeroConnectionRow[], accessToken: string) {
+  const withId = connections.filter((row) => Boolean(row.tenantId?.trim()));
+  const eventId = authenticationEventIdFromAccessToken(accessToken);
+  const fromThisAuth = eventId ? withId.filter((row) => row.authEventId === eventId) : [];
+  const pool = fromThisAuth.length ? fromThisAuth : withId;
+  const newest = [...pool].sort((a, b) => {
+    const aAt = Date.parse(a.updatedDateUtc || a.createdDateUtc || "") || 0;
+    const bAt = Date.parse(b.updatedDateUtc || b.createdDateUtc || "") || 0;
+    return bAt - aAt;
+  })[0];
+  return {
+    tenantId: newest?.tenantId?.trim() || "",
+    tenantName: newest?.tenantName?.trim() || "",
+  };
 }
 
 function env(name: string) {
@@ -201,6 +239,7 @@ export function startXeroAuthorization(request?: Request) {
   url.searchParams.set("state", state);
   url.searchParams.set("code_challenge", challenge);
   url.searchParams.set("code_challenge_method", "S256");
+  url.searchParams.set("prompt", XERO_AUTHORIZE_PROMPT);
   return { authUrl: url.toString(), redirectUri: app.redirectUri, state };
 }
 
@@ -308,22 +347,21 @@ export async function exchangeXeroAuthorizationCode(
   tokenStore.oauthState = undefined;
   tokenStore.codeVerifier = undefined;
 
-  let tenantId = env("XERO_TENANT_ID") || options?.tenantIdHint || tokenStore.tenantId || "";
-  let tenantName = tokenStore.tenantName || "";
+  let tenantId = "";
+  let tenantName = "";
   try {
     const connections = await fetch("https://api.xero.com/connections", {
       headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
     });
-    const list = (await connections.json().catch(() => [])) as Array<{
-      tenantId?: string;
-      tenantName?: string;
-    }>;
-    const first = Array.isArray(list) ? list.find((row) => row.tenantId) : undefined;
-    tenantId = tenantId || first?.tenantId || "";
-    tenantName = tenantName || first?.tenantName || "";
+    const list = (await connections.json().catch(() => [])) as XeroConnectionRow[];
+    const chosen = pickXeroTenantFromConnections(Array.isArray(list) ? list : [], accessToken);
+    tenantId = chosen.tenantId;
+    tenantName = chosen.tenantName;
   } catch {
-    // keep existing
+    // fall through to hints / previously stored tenant
   }
+  tenantId = tenantId || options?.tenantIdHint || env("XERO_TENANT_ID") || tokenStore.tenantId || "";
+  tenantName = tenantName || tokenStore.tenantName || "";
   if (!tenantId) {
     persistTokenStore();
     throw new Error(
