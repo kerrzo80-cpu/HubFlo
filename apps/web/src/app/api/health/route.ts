@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { openAiKeySource, resolveOpenAiApiKey } from "@/lib/openai-env";
 import { getServerStoreBackend } from "@/lib/server-store";
+import { getXeroAuthStatus } from "@/lib/xero-auth";
 import { readDayworkSheetsStore } from "@/lib/daywork-sheets-store";
 import { readDayworkWriteLog } from "@/lib/daywork-write-log";
 
@@ -22,6 +23,7 @@ export async function GET() {
   const lastWrite = writeLog.attempts[0] || null;
   const openaiConnected = Boolean(resolveOpenAiApiKey());
   const openaiSource = openAiKeySource();
+  const xero = getXeroAuthStatus();
 
   return NextResponse.json({
     ok: true,
@@ -30,6 +32,13 @@ export async function GET() {
     openai: {
       connected: openaiConnected,
       source: openaiSource,
+    },
+    xero: {
+      appConfigured: xero.canConnect,
+      connected: xero.configured,
+      mode: xero.mode,
+      credentialSource: xero.credentialSource,
+      redirectUri: xero.redirectUri ?? null,
     },
     deployment: {
       branch: process.env.RENDER_GIT_BRANCH ?? "local",

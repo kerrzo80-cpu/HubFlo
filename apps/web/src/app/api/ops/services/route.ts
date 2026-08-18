@@ -66,8 +66,12 @@ export async function GET(request: Request) {
     {
       id: "xero",
       label: "Xero",
-      status: xero.configured ? ("ready" as const) : ("warning" as const),
-      detail: xero.configured ? `Connected (${xero.mode})` : "Not connected (optional for early access)",
+      status: xero.configured ? ("ready" as const) : xero.canConnect ? ("warning" as const) : ("blocked" as const),
+      detail: xero.configured
+        ? `Connected (${xero.mode})${xero.tenantName ? ` · ${xero.tenantName}` : ""}`
+        : xero.canConnect
+          ? "App ready — office still needs to Connect Xero"
+          : "NeXa Xero app not configured on this server (set XERO_CLIENT_ID / SECRET on Render)",
       required: false,
     },
     {
