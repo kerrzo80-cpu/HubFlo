@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { openAiKeySource, resolveOpenAiApiKey } from "@/lib/openai-env";
 import { getServerStoreBackend } from "@/lib/server-store";
+import { getOfficeBackupStatus } from "@/lib/office-backup";
 import { getXeroAuthStatus } from "@/lib/xero-auth";
 import { readDayworkSheetsStore } from "@/lib/daywork-sheets-store";
 import { readDayworkWriteLog } from "@/lib/daywork-write-log";
@@ -24,11 +25,17 @@ export async function GET() {
   const openaiConnected = Boolean(resolveOpenAiApiKey());
   const openaiSource = openAiKeySource();
   const xero = getXeroAuthStatus();
+  const officeBackup = getOfficeBackupStatus();
 
   return NextResponse.json({
     ok: true,
     app: "nexa",
     store: getServerStoreBackend(),
+    officeBackup: {
+      lastOkAt: officeBackup.lastOkAt || null,
+      lastFilename: officeBackup.lastFilename || null,
+      lastError: officeBackup.lastError || null,
+    },
     openai: {
       connected: openaiConnected,
       source: openaiSource,
@@ -102,6 +109,7 @@ export async function GET() {
       simproImportScope: "clients-sites-80-leads-10-quotes-30-jobs-80-deep-80-v7",
       simproLeadsImport: "latest-10-open-stage-status-v2",
       simproEodRefresh: "weekday-1800-utc-cron-v1",
+      officeBackup: "nightly-sqlite-files-s3-v1",
       actionAlertsRouting: "folders-and-daywork-signoff-v1",
       personalisingBranding: "square-app-icons-v5-wordmark",
       browserTabFavicon: "ewg-wordmark-tab-v1",

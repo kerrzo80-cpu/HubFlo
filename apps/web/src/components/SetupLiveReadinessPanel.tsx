@@ -48,6 +48,41 @@ type ServiceRow = {
   required?: boolean;
 };
 
+type OfficeBackupRecord = {
+  filename: string;
+  createdAt: string;
+  bytes: number;
+  destination?: string;
+  sqliteIncluded?: boolean;
+  fileDirs?: string[];
+};
+
+type OfficeBackupStatus = {
+  lastOkAt?: string;
+  lastRunAt?: string;
+  lastError?: string;
+  lastFilename?: string;
+  lastBytes?: number;
+  running?: boolean;
+  s3Configured?: boolean;
+  backups?: OfficeBackupRecord[];
+  note?: string;
+};
+
+function formatBytes(bytes?: number) {
+  if (!bytes) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatWhen(iso?: string) {
+  if (!iso) return "Never";
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  return at.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
+}
+
 function statusClass(status: string) {
   if (status === "ready") return "setup-status-label ready";
   if (status === "warning") return "setup-status-label warn";
@@ -61,13 +96,16 @@ export function SetupLiveReadinessPanel() {
   const [backupNote, setBackupNote] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [services, setServices] = useState<ServiceRow[]>([]);
+  const [officeBackup, setOfficeBackup] = useState<OfficeBackupStatus | null>(null);
+  const [officeBackupBusy, setOfficeBackupBusy] = useState(false);
 
   async function refresh() {
-    const [readyRes, openaiRes, backupRes, servicesRes] = await Promise.all([
+    const [readyRes, openaiRes, backupRes, servicesRes, officeRes] = await Promise.all([
       fetch("/api/go-live/readiness", { cache: "no-store" }),
       fetch("/api/integrations/openai", { cache: "no-store" }),
       fetch("/api/prototype-backup?format=verify", { cache: "no-store" }),
       fetch("/api/ops/services", { cache: "no-store" }),
+      fetch("/api/office-backup", { cache: "no-store" }),
     ]);
     if (readyRes.ok) setReadiness((await readyRes.json()) as ReadinessResponse);
     else setError(`Readiness ${readyRes.status}`);
@@ -82,6 +120,9 @@ export function SetupLiveReadinessPanel() {
     if (servicesRes.ok) {
       const body = await servicesRes.json();
       setServices(Array.isArray(body.services) ? body.services : []);
+    }
+    if (officeRes.ok) {
+      setOfficeBackup((await officeRes.json()) as OfficeBackupStatus);
     }
   }
 
@@ -98,6 +139,30 @@ export function SetupLiveReadinessPanel() {
       cancelled = true;
     };
   }, []);
+
+  async function runOfficeBackupNow() {
+    setOfficeBackupBusy(true);
+    try {
+      const response = await fetch("/api/office-backup", { method: "POST" });
+      const body = await response.json();
+      if (!response.ok) {
+        setOfficeBackup((current) => ({
+          ...(current || {}),
+          lastError: body.error || `Backup failed (${response.status})`,
+        }));
+        return;
+      }
+      setOfficeBackup((body.status || body) as OfficeBackupStatus);
+      await refresh();
+    } catch (err) {
+      setOfficeBackup((current) => ({
+        ...(current || {}),
+        lastError: err instanceof Error ? err.message : "Backup failed",
+      }));
+    } finally {
+      setOfficeBackupBusy(false);
+    }
+  }
 
   async function runOpenAiSmoke() {
     setSmoke("Checking…");
@@ -172,7 +237,99 @@ export function SetupLiveReadinessPanel() {
           ? `${warnings} warning${warnings === 1 ? "" : "s"}`
           : "Almost ready";
 
+  const latestBackup = officeBackup?.backups?.[0];
+  const backupStatus = officeBackupBusy || officeBackup?.running
+    ? "warning"
+    : officeBackup?.lastError
+      ? "blocked"
+      : officeBackup?.lastOkAt
+        ? "ready"
+        : "warning";
+
   return (
+    <>
+    <section className="setup-panel setup-readiness">
+      <div className="documents-toolbar">
+        <div>
+          <span className="permission-heading">Keep office information safe</span>
+          <h2>Office backups</h2>
+          <p className="setup-panel-lead">
+            Saves jobs, tenders, takeoffs, surveys and the PDF / drawing files stored on this server.
+            Download a copy and keep it off this server — Google Drive or the office NAS. A disk wipe
+            here would also wipe the copies that stay on Render.
+          </p>
+        </div>
+        <div className="setup-template-actions">
+          <button
+            type="button"
+            className="primary-button"
+            disabled={officeBackupBusy || officeBackup?.running}
+            onClick={() => void runOfficeBackupNow()}
+          >
+            {officeBackupBusy || officeBackup?.running ? "Backing up…" : "Backup now"}
+          </button>
+          {latestBackup ? (
+            <a
+              className="secondary-button"
+              href={`/api/office-backup?download=${encodeURIComponent(latestBackup.filename)}`}
+            >
+              Download latest
+            </a>
+          ) : null}
+          <span className={statusClass(backupStatus)}>
+            {officeBackupBusy || officeBackup?.running
+              ? "Running"
+              : officeBackup?.lastOkAt
+                ? `Last backup ${formatWhen(officeBackup.lastOkAt)}`
+                : "No backup yet"}
+          </span>
+        </div>
+      </div>
+      {officeBackup?.lastError ? <p className="setup-inline-note">{officeBackup.lastError}</p> : null}
+      <p className="setup-inline-note">
+        Tender and takeoff PDFs can be up to 250MB each and are stored as files, not only inside the
+        database. {officeBackup?.s3Configured
+          ? "Nightly copies are also sent to your off-site S3 bucket."
+          : "To send nightly copies off this server automatically, add BACKUP_S3_BUCKET and keys in Render. Until then, download this and keep it off this server."}
+      </p>
+      <div className="setup-readiness-grid">
+        <article>
+          <span>Last backup</span>
+          <strong>{formatWhen(officeBackup?.lastOkAt)}</strong>
+          <small>
+            {latestBackup
+              ? `${formatBytes(latestBackup.bytes)} · ${latestBackup.fileDirs?.length || 0} document folders · ${latestBackup.sqliteIncluded ? "database included" : "records included"}`
+              : "Click Backup now, then download the file to Drive or NAS."}
+          </small>
+        </article>
+        <article>
+          <span>Off-site copy</span>
+          <strong className={statusClass(officeBackup?.s3Configured ? "ready" : "warning")}>
+            {officeBackup?.s3Configured ? "S3 connected" : "Download and keep off-server"}
+          </strong>
+          <small>
+            Nightly at 02:15 UTC once NEXA_BACKUP_CRON_SECRET is set on Render. Last 14 daily copies
+            are kept so the disk does not fill.
+          </small>
+        </article>
+      </div>
+      {officeBackup?.backups?.length ? (
+        <div className="setup-readiness-grid" style={{ marginTop: 12 }}>
+          {officeBackup.backups.slice(0, 5).map((row) => (
+            <article key={row.filename}>
+              <span>{formatWhen(row.createdAt)}</span>
+              <strong>
+                <a href={`/api/office-backup?download=${encodeURIComponent(row.filename)}`}>
+                  Download {formatBytes(row.bytes)}
+                </a>
+              </strong>
+              <small>{row.filename}</small>
+            </article>
+          ))}
+        </div>
+      ) : null}
+    </section>
+
     <section className="setup-panel setup-readiness">
       <div className="documents-toolbar">
         <div>
@@ -271,5 +428,6 @@ export function SetupLiveReadinessPanel() {
         ) : null}
       </div>
     </section>
+    </>
   );
 }

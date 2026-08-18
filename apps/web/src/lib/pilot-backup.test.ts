@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   PILOT_BACKUP_STORE_NAMES,
+  redactBackupStoreValue,
   restorePilotBackup,
   runRestoreFireDrill,
   summariseStore,
@@ -26,7 +27,7 @@ describe("pilot-backup", () => {
       product: "NeXa company backup",
       purpose: "test",
       generatedAt: new Date().toISOString(),
-      version: 2,
+      version: 3,
       stores: Object.fromEntries(PILOT_BACKUP_STORE_NAMES.map((name) => [name, { ok: true, name }])),
     };
     const verification = verifyPilotBackup(backup);
@@ -44,6 +45,20 @@ describe("pilot-backup", () => {
   it("rejects invalid backup", () => {
     const bad = verifyPilotBackup({ hello: true });
     assert.equal(bad.ok, false);
+  });
+
+  it("strips API keys and mailbox secrets from backup snapshots", () => {
+    const openai = redactBackupStoreValue("nexa-openai-config", { apiKey: "sk-live-office-secret", model: "gpt-4.1-mini" });
+    const json = JSON.stringify(openai);
+    assert.equal(json.includes("sk-live-office-secret"), false);
+    assert.equal((openai as { model?: string }).model, "gpt-4.1-mini");
+    const mail = redactBackupStoreValue("employee-mailboxes", {
+      byEmployeeId: { "emp-1": { senderEmail: "office@example.com", encryptedSecret: "very-secret-app-password" } },
+    });
+    const mailJson = JSON.stringify(mail);
+    assert.equal(mailJson.includes("very-secret-app-password"), false);
+    assert.equal(mailJson.includes("office@example.com"), true);
+    assert.equal(redactBackupStoreValue("auth-store", { users: [{ password: "x" }] }), null);
   });
 
   it("runs a shadow restore fire-drill against written stores", () => {

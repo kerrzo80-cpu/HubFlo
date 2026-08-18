@@ -23,7 +23,7 @@ export const EARLY_ACCESS_PACK = {
     "Core office command centre + Field engineer app",
     "Blake AI (OpenAI-backed) across Survey, Heat Design and Takeoff",
     "Price Ledger: Budget / Guide / RFQ / Firm",
-    "Company backup export, restore dry-run and shadow restore fire-drill",
+    "Company backup export, nightly archive, restore dry-run and shadow restore fire-drill",
     "Setup ops checklist and services monitor",
   ],
   excluded: [
@@ -49,7 +49,7 @@ export const EARLY_ACCESS_PACK = {
   simproStance:
     "simPRO stays as an optional bridge until NeXa is clearly the system of record. It is not a go-live blocker.",
   exitTerms:
-    "You can export a full company backup at any time from Setup → Ops checklist. Auth passwords are never included in the backup file.",
+    "You can make a full office backup (records plus PDFs) at any time from Setup → Overview. Download it and keep it off this server. Auth passwords are never included.",
   acceptanceProof: [
     "20 end-to-end test jobs run on live (survey / heat / direct → quote → job → invoice)",
     "Leads, quotes, jobs and invoices persist in the live company store",

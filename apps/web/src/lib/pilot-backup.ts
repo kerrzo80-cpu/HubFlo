@@ -29,7 +29,51 @@ export const PILOT_BACKUP_STORE_NAMES = [
   "nexa-accounting-provider-v1",
   "employee-mailboxes",
   "nexa-faults-v1",
+  "nexa-tenders-v1",
+  "record-documents-store",
+  "nexa-setup-config-v1",
+  "nexa-recurring-v1",
+  "nexa-prebuilds-v1",
+  "nexa-stock-v1",
+  "nexa-site-assets-v1",
+  "nexa-cash-reconcile-periods-v1",
+  "nexa-board-pack-schedule-v1",
+  "client-portal-hub-v1",
+  "blake-record-memory-v1",
+  "nexa-sumup-checkouts-v1",
+  "simpro-sync-store",
+  "simpro-entity-links",
+  "simpro-import-runs",
+  "email-integration",
+  "nexa-xero-bills-v1",
+  "nexa-xero-exports-v1",
+  "daywork-write-log",
 ] as const;
+
+/** Stores that must never appear in a downloadable / off-site backup. */
+export const BACKUP_EXCLUDED_STORE_NAMES = [
+  "auth-store",
+  "email-settings-secret",
+  "nexa-xero-auth-v1",
+  "simpro-auth-store",
+  "nexa-pre-restore-snapshot-v1",
+  "nexa-ops-firedrill-v1",
+  "nexa-office-backup-status-v1",
+] as const;
+
+const SECRET_VALUE_KEYS = new Set([
+  "apiKey",
+  "encryptedSecret",
+  "password",
+  "passwordHash",
+  "refreshToken",
+  "accessToken",
+  "clientSecret",
+  "xeroClientSecret",
+  "codeVerifier",
+  "appPassword",
+  "secret",
+]);
 
 /** Preferred alias — same store set. */
 export const COMPANY_BACKUP_STORE_NAMES = PILOT_BACKUP_STORE_NAMES;
@@ -72,7 +116,7 @@ function approxItemCount(value: unknown): number | undefined {
   if (Array.isArray(value)) return value.length;
   if (!value || typeof value !== "object") return undefined;
   const record = value as Record<string, unknown>;
-  for (const key of ["leads", "quotes", "jobs", "invoices", "clients", "projects", "surveys", "estimates", "sheets", "users", "kits"]) {
+  for (const key of ["leads", "quotes", "jobs", "invoices", "clients", "projects", "surveys", "estimates", "sheets", "users", "kits", "tenders", "documents"]) {
     if (Array.isArray(record[key])) return record[key].length;
   }
   if (record.jobs && typeof record.jobs === "object" && !Array.isArray(record.jobs)) {
@@ -101,15 +145,42 @@ export function summariseStore(name: string, value: unknown | null): StoreSummar
   };
 }
 
+export function isExcludedBackupStore(name: string) {
+  if ((BACKUP_EXCLUDED_STORE_NAMES as readonly string[]).includes(name)) return true;
+  if (name.startsWith("__firedrill__")) return true;
+  return false;
+}
+
+function redactSecretKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => redactSecretKeys(item));
+  if (!value || typeof value !== "object") return value;
+  const next: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    if (SECRET_VALUE_KEYS.has(key)) {
+      if (typeof nested === "string" && nested.trim()) next[`${key}Present`] = true;
+      continue;
+    }
+    next[key] = redactSecretKeys(nested);
+  }
+  return next;
+}
+
+/** Strip API keys, mailbox passwords and OAuth tokens from a store snapshot. */
+export function redactBackupStoreValue(name: string, value: unknown): unknown | null {
+  if (isExcludedBackupStore(name)) return null;
+  if (value === null || value === undefined) return value;
+  return redactSecretKeys(value);
+}
+
 export function collectPilotBackup(): PilotBackupPayload {
   const stores = Object.fromEntries(
-    PILOT_BACKUP_STORE_NAMES.map((name) => [name, readServerStoreSnapshot(name)]),
+    PILOT_BACKUP_STORE_NAMES.map((name) => [name, redactBackupStoreValue(name, readServerStoreSnapshot(name))]),
   );
   return {
     product: "NeXa company backup",
     purpose: "Company ops backup",
     generatedAt: new Date().toISOString(),
-    version: 2,
+    version: 3,
     stores,
   };
 }

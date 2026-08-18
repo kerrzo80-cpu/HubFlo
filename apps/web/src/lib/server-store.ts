@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync, readFileSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, unlinkSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 // Treat empty/whitespace-only env values as unset. Nullish coalescing (??) keeps
@@ -188,7 +188,64 @@ export function getServerStoreBackend() {
   return getSqliteStore() ? "sqlite" : "json";
 }
 
+export function getSqliteStorePath() {
+  return SQLITE_STORE_PATH;
+}
+
 export function getServerStoreDirectory() {
   ensureStoreDirectory();
   return STORE_DIR;
+}
+
+/** Flush WAL so a file copy / VACUUM INTO sees the latest writes. */
+export function checkpointSqliteStore() {
+  const database = getSqliteStore();
+  if (!database) return false;
+  try {
+    database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Consistent SQLite snapshot for backups. Destination must not already exist. */
+export function vacuumSqliteStoreInto(destPath: string) {
+  const database = getSqliteStore();
+  if (!database) return false;
+  try {
+    mkdirSync(path.dirname(destPath), { recursive: true });
+    if (existsSync(destPath)) unlinkSync(destPath);
+    const escaped = destPath.replace(/'/g, "''");
+    database.exec(`VACUUM INTO '${escaped}'`);
+    return existsSync(destPath);
+  } catch {
+    return false;
+  }
+}
+
+export function listServerStoreNames(): string[] {
+  const names = new Set<string>();
+  const database = getSqliteStore();
+  if (database) {
+    try {
+      const rows = database.prepare("SELECT name FROM pilot_store").all() as Array<{ name?: string }>;
+      for (const row of rows) {
+        if (row?.name) names.add(row.name);
+      }
+    } catch {
+      // ignore
+    }
+  }
+  try {
+    if (existsSync(STORE_DIR)) {
+      for (const entry of readdirSync(STORE_DIR, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.endsWith(STORE_FILE_EXT)) continue;
+        names.add(entry.name.slice(0, -STORE_FILE_EXT.length));
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return [...names].sort();
 }

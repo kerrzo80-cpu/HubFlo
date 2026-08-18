@@ -3512,7 +3512,7 @@ const costCentreTemplates = [
 ];
 
 const setupCategories: Array<{ key: SetupCategory; label: string; detail: string; subItems?: string[] }> = [
-  { key: "overview", label: "Overview", detail: "System readiness and live setup position" },
+  { key: "overview", label: "Overview", detail: "Backups, system readiness and live setup position" },
   { key: "business", label: "Business profile", detail: "Company details, personalising, logos and colours across all apps", subItems: ["Company", "Personalising", "Portal"] },
   { key: "forms", label: "Customise forms", detail: "Headers, logos and wording for quotes, jobs, invoices, POs, dayworks and Gas Safe certs", subItems: ["Quote", "Job sheet", "Application for payment", "Invoice", "Purchase order", "Daywork", "Gas Safe", "Gas warning notice", "Gas installation cert"] },
   { key: "documents", label: "Documents", detail: "Default folders, visibility and record scopes", subItems: ["Folders", "Visibility", "Engineer pack"] },

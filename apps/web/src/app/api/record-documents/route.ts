@@ -9,6 +9,7 @@ import {
 } from "@/lib/record-documents";
 
 const scopes: RecordDocumentScope[] = ["lead", "quote", "job", "invoice", "tender", "fault"];
+const MAX_RECORD_DOCUMENT_BYTES = 250 * 1024 * 1024;
 
 function canManage(request: NextRequest) {
   const access = getAccessProfileFromHeaders(request.headers);
@@ -52,6 +53,13 @@ export async function POST(request: NextRequest) {
   const files = formData.getAll("files").filter((item): item is File => typeof File !== "undefined" && item instanceof File);
   if (!files.length) {
     return NextResponse.json({ error: "No files uploaded" }, { status: 400 });
+  }
+  const oversized = files.find((file) => file.size > MAX_RECORD_DOCUMENT_BYTES);
+  if (oversized) {
+    return NextResponse.json(
+      { error: `${oversized.name} is over the 250MB upload limit. Split the file or upload it to Takeoff as a drawing.` },
+      { status: 413 },
+    );
   }
 
   const saved = [];

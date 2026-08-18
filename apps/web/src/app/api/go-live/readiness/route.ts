@@ -7,6 +7,7 @@ import { getLeads } from "@/lib/lead-store";
 import { openAiKeySource, resolveOpenAiApiKey } from "@/lib/openai-env";
 import { getClientSites, getClients } from "@/lib/people-data";
 import { currentStoreVerification, getLastFireDrillResult } from "@/lib/pilot-backup";
+import { getOfficeBackupStatus, officeBackupIsStale } from "@/lib/office-backup";
 import { getSimproBridgeStatus } from "@/lib/simpro-bridge";
 import { getEstimates, getSurveys } from "@/lib/survey-estimator-store";
 import { getTakeoffProjects } from "@/lib/takeoff-data";
@@ -32,6 +33,8 @@ export async function GET(request: Request) {
   const fireDrill = getLastFireDrillResult();
   const fireDrillAgeMs = fireDrill?.at ? Date.now() - Date.parse(fireDrill.at) : Number.POSITIVE_INFINITY;
   const fireDrillFresh = Boolean(fireDrill?.ok && fireDrillAgeMs <= FIRE_DRILL_FRESH_MS);
+  const officeBackup = getOfficeBackupStatus();
+  const officeBackupFresh = Boolean(officeBackup.lastOkAt && !officeBackupIsStale(officeBackup));
 
   const counts = {
     clients: getClients().length,
@@ -85,6 +88,18 @@ export async function GET(request: Request) {
       detail: backup.ok
         ? `${Math.round(backup.totalBytes / 1024)} KB exportable · dry-run + shadow fire-drill available`
         : "Could not summarise company stores for export.",
+    },
+    {
+      id: "officeBackup",
+      status: officeBackupFresh ? "ready" : officeBackup.lastOkAt ? "warning" : "blocked",
+      label: officeBackupFresh
+        ? "Office backup (records + documents)"
+        : officeBackup.lastOkAt
+          ? "Office backup stale (>20 hours)"
+          : "Office backup not run",
+      detail: officeBackup.lastOkAt
+        ? `Last good copy ${officeBackup.lastOkAt}${officeBackup.lastFilename ? ` · ${officeBackup.lastFilename}` : ""}. Download from Setup → Overview and keep off this server.`
+        : "Run Setup → Overview → Backup now. That saves jobs, tenders, takeoffs and PDF files.",
     },
     {
       id: "restoreFireDrill",

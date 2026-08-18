@@ -15,7 +15,7 @@ const nextConfig: NextConfig = {
     // Survey/Takeoff uploads go through proxy.ts; keep the buffered body large enough for phone photos.
     proxyClientMaxBodySize: "300mb",
     serverActions: {
-      bodySizeLimit: "50mb",
+      bodySizeLimit: "300mb",
     },
     // Tree-shake lucide icon imports in the Core mega-page.
     optimizePackageImports: ["lucide-react"],

@@ -2322,9 +2322,9 @@ export type CopyTenderDocumentsToJobResult = {
 };
 
 /** Soft caps so Mark Won / Sync drawings cannot load every PDF into RAM at once. */
-const TENDER_DOC_COPY_MAX_FILE_BYTES = 8 * 1024 * 1024;
-const TENDER_DOC_COPY_MAX_TOTAL_BYTES = 24 * 1024 * 1024;
-const TENDER_DOC_COPY_MAX_FILES = 20;
+const TENDER_DOC_COPY_MAX_FILE_BYTES = 250 * 1024 * 1024;
+const TENDER_DOC_COPY_MAX_TOTAL_BYTES = 500 * 1024 * 1024;
+const TENDER_DOC_COPY_MAX_FILES = 80;
 
 /** Copy tender Documents (drawings, specs, BoQs) onto the linked job record-documents hub. */
 export function copyTenderDocumentsToJob(
@@ -2676,8 +2676,8 @@ export function copyTenderDrawingsToTakeoff(tender: Tender, takeoffId: string): 
   }
 
   // Soft budget so large tenders stay honest in UI rather than silently truncating at 4.
-  const MAX_COPY_BYTES_PER_FILE = 40 * 1024 * 1024;
-  const MAX_COPY_TOTAL_BYTES = 250 * 1024 * 1024;
+  const MAX_COPY_BYTES_PER_FILE = 250 * 1024 * 1024;
+  const MAX_COPY_TOTAL_BYTES = 500 * 1024 * 1024;
 
   const storageRoot = path.join(getServerStoreDirectory(), "takeoff-files", takeoffId);
   mkdirSync(storageRoot, { recursive: true });
