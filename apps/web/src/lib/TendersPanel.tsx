@@ -869,12 +869,32 @@ export function TendersPanel({
         addedSheets?: string[];
       };
       if (!response.ok) throw new Error(payload.error || "Upload failed");
-      if (Array.isArray(payload.tenders)) setTenders(payload.tenders);
-      else if (payload.tender?.id) {
+      if (Array.isArray(payload.tenders)) {
+        setTenders((prev) => {
+          const leanById = new Map(payload.tenders!.map((row) => [row.id, row]));
+          return prev.map((row) => {
+            const lean = leanById.get(row.id);
+            if (!lean) return row;
+            return {
+              ...row,
+              ...lean,
+              boqLines: lean.boqLines?.length ? lean.boqLines : row.boqLines,
+            };
+          });
+        });
+      }
+      if (payload.tender?.id) {
         setTenders((current) => {
           const exists = current.some((row) => row.id === payload.tender!.id);
-          if (exists) return current.map((row) => (row.id === payload.tender!.id ? payload.tender! : row));
-          return [payload.tender!, ...current];
+          const next = payload.tender!;
+          if (exists) {
+            return current.map((row) =>
+              row.id === next.id
+                ? { ...row, ...next, boqLines: next.boqLines?.length ? next.boqLines : row.boqLines }
+                : row,
+            );
+          }
+          return [next, ...current];
         });
       }
       if (payload.tender?.id) setSelectedId(payload.tender.id);
@@ -1310,9 +1330,33 @@ export function TendersPanel({
         throw new Error(payload.error);
       }
 
-      if (Array.isArray(payload.tenders)) setTenders(payload.tenders);
-      else if (payload.tender) {
-        setTenders((prev) => prev.map((row) => (row.id === payload!.tender!.id ? payload!.tender! : row)));
+      if (Array.isArray(payload.tenders)) {
+        setTenders((prev) => {
+          const leanById = new Map(payload.tenders!.map((row) => [row.id, row]));
+          return prev.map((row) => {
+            const lean = leanById.get(row.id);
+            if (!lean) return row;
+            // Lean list strips BoQ — keep local bill lines when response has none.
+            return {
+              ...row,
+              ...lean,
+              boqLines: lean.boqLines?.length ? lean.boqLines : row.boqLines,
+            };
+          });
+        });
+      }
+      if (payload.tender) {
+        setTenders((prev) =>
+          prev.map((row) => {
+            if (row.id !== payload!.tender!.id) return row;
+            const next = payload!.tender!;
+            return {
+              ...row,
+              ...next,
+              boqLines: next.boqLines?.length ? next.boqLines : row.boqLines,
+            };
+          }),
+        );
       }
       const blank = payload.leftBlank ?? 0;
       const targeted = payload.targetedCount ?? lineIds.length;

@@ -63,7 +63,11 @@ function tagLine(
   if (source === "blake-budget") {
     return stampBudgetPrice(line, unitCost, note || BUDGET_NOTE) as KitLine;
   }
-  if (source === "rate-library" || source === "rule" || source === "catalogue") {
+  if (source === "catalogue") {
+    const tagged = stampGuidePrice(line, unitCost, "catalogue", note || "Office catalogue — confirmed cost") as KitLine;
+    return { ...tagged, pricingState: "firm", pricingSource: "catalogue" };
+  }
+  if (source === "rate-library" || source === "rule") {
     return stampGuidePrice(line, unitCost, source, note) as KitLine;
   }
   const state = pricingStateFromSource(source, unitCost);
@@ -91,7 +95,16 @@ export function applyTaggedGuidePrices(lines: KitLine[]): KitLine[] {
       );
     }
     if (line.unitCost > 0 && before.unitCost === 0) {
-      return tagLine(line, line.unitCost, "rate-library", "NeXa rate library guide — amend when supplier quote lands");
+      const source = line.pricingSource === "catalogue" ? "catalogue" : "rate-library";
+      return tagLine(
+        line,
+        line.unitCost,
+        source,
+        line.pricingNote ||
+          (source === "catalogue"
+            ? "Office catalogue — confirmed cost"
+            : "NeXa rate library guide — amend when supplier quote lands"),
+      );
     }
     return { ...line, pricingSource: before.pricingSource };
   });
@@ -277,7 +290,10 @@ export async function budgetPriceKitWithBlake(
   const needsPrice = libraryFirst.filter(
     (line) =>
       !(line.unitCost > 0)
-      || (options.forceRefreshBudget && (line.pricingSource === "blake-budget" || !line.pricingSource)),
+      || (options.forceRefreshBudget
+        && (line.pricingSource === "blake-budget" || !line.pricingSource)
+        && line.pricingSource !== "catalogue"
+        && line.pricingState !== "firm"),
   );
 
   // If library already filled everything and we're not refreshing, skip the API call.
@@ -335,7 +351,9 @@ export async function budgetPriceKitWithBlake(
 
   const priced = libraryFirst.map((line) => {
     const aiCost = byId.get(line.id);
-    if (aiCost !== undefined && aiCost > 0) {
+    const protect =
+      line.pricingSource === "catalogue" || line.pricingState === "firm" || line.pricingSource === "supplier";
+    if (aiCost !== undefined && aiCost > 0 && !protect) {
       return tagLine(line, aiCost, "blake-budget", BUDGET_NOTE);
     }
     if (line.unitCost > 0) {

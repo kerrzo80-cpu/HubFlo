@@ -46,45 +46,54 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const payload = await parseJsonRequestBody<HubDetailState>(request);
-  if (!payload || typeof payload !== "object") {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
+  try {
+    const payload = await parseJsonRequestBody<HubDetailState>(request);
+    if (!payload || typeof payload !== "object") {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
 
-  // Collapse tender BoQ dumps in the inbound payload before merge/clone.
-  if (payload.jobCostCentres && typeof payload.jobCostCentres === "object") {
-    leanJobCostCentresMap(payload.jobCostCentres);
-  }
+    // Collapse tender BoQ dumps in the inbound payload before merge/clone.
+    if (payload.jobCostCentres && typeof payload.jobCostCentres === "object") {
+      leanJobCostCentresMap(payload.jobCostCentres);
+    }
 
-  const current = getHubDetailState();
-  const merged = mergeHubDetailState(current, payload);
+    const current = getHubDetailState();
+    const merged = mergeHubDetailState(current, payload);
 
-  if (payload.jobSchedulePlans !== undefined) {
-    // Only hard-block when schedule plans actually change. Pre-existing imported
-    // clashes must not fail every unrelated hub autosave (Setup, invoices, etc.).
-    const before = JSON.stringify(current.jobSchedulePlans ?? {});
-    const after = JSON.stringify(payload.jobSchedulePlans ?? {});
-    if (before !== after) {
-      const leadAssignments = leadSurveysToAssignments(getLeads());
-      const clashError = assertNoHubScheduleClashes(
-        (merged.jobSchedulePlans || {}) as Record<string, HubScheduleAssignment[]>,
-        leadAssignments,
-      );
-      if (clashError) {
-        return NextResponse.json({ error: clashError, code: "SCHEDULE_CLASH" }, { status: 409 });
+    if (payload.jobSchedulePlans !== undefined) {
+      // Only hard-block when schedule plans actually change. Pre-existing imported
+      // clashes must not fail every unrelated hub autosave (Setup, invoices, etc.).
+      const before = JSON.stringify(current.jobSchedulePlans ?? {});
+      const after = JSON.stringify(payload.jobSchedulePlans ?? {});
+      if (before !== after) {
+        const leadAssignments = leadSurveysToAssignments(getLeads());
+        const clashError = assertNoHubScheduleClashes(
+          (merged.jobSchedulePlans || {}) as Record<string, HubScheduleAssignment[]>,
+          leadAssignments,
+        );
+        if (clashError) {
+          return NextResponse.json({ error: clashError, code: "SCHEDULE_CLASH" }, { status: 409 });
+        }
       }
     }
-  }
 
-  const saved = saveHubDetailState(merged);
-  try {
-    reconcileDayworkVariationsFromEvidence();
-  } catch {
-    // Best-effort: rebuild Daywork variation cards if Core omitted them.
+    const saved = saveHubDetailState(merged);
+    try {
+      reconcileDayworkVariationsFromEvidence();
+    } catch {
+      // Best-effort: rebuild Daywork variation cards if Core omitted them.
+    }
+    // Autosave callers only check ok — never echo the full hub (that OOMed Render on volume jobs).
+    return NextResponse.json({
+      ok: true,
+      updatedAt: saved.updatedAt || new Date().toISOString(),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Hub save failed";
+    const oom = /heap|out of memory|ENOMEM|allocation/i.test(message);
+    return NextResponse.json(
+      { error: oom ? "Hub save too large — try again after closing fat BoQ views." : message },
+      { status: oom ? 413 : 500 },
+    );
   }
-  // Autosave callers only check ok — never echo the full hub (that OOMed Render on volume jobs).
-  return NextResponse.json({
-    ok: true,
-    updatedAt: saved.updatedAt || new Date().toISOString(),
-  });
 }

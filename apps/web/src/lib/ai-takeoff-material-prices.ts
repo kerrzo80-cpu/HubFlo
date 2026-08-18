@@ -6,6 +6,7 @@
 import { softGuideUnitCost } from "@/lib/ai-soft-guide-prices";
 import type { AiTakeoffLine } from "@/lib/ai-takeoff-assistant-types";
 import { budgetPriceKitWithBlake } from "@/lib/blake-budget-prices";
+import { lookupCatalogUnitCost } from "@/lib/catalog-price-lookup";
 import type { KitLine } from "@/lib/heat-design/types";
 import { applyTakeoffRatesToMaterials } from "@/lib/takeoff-studio-rates";
 import {
@@ -13,18 +14,27 @@ import {
   normalizeBoqUnitForLookup,
 } from "@/lib/tender-boq-blake-prices";
 
-export type MaterialPriceSource = "bill" | "library" | "soft-guide" | "blake-budget" | "none";
+export type MaterialPriceSource = "bill" | "catalogue" | "library" | "soft-guide" | "blake-budget" | "none";
 
 export function resolveTakeoffMaterialUnitCost(
   description: string,
   unit: string,
   billRate = 0,
-): { unitCost: number; source: MaterialPriceSource } {
+  catalog?: Parameters<typeof lookupCatalogUnitCost>[2],
+): { unitCost: number; source: MaterialPriceSource; note?: string } {
   if (Number.isFinite(billRate) && billRate > 0) {
     return { unitCost: Math.round(billRate * 100) / 100, source: "bill" };
   }
   const normalisedUnit = normalizeBoqUnitForLookup(unit);
   const normalisedDescription = normalizeBoqDescriptionForLookup(description);
+  const catalogHit = lookupCatalogUnitCost(normalisedDescription, normalisedUnit, catalog);
+  if (catalogHit && catalogHit.unitCost > 0) {
+    return {
+      unitCost: catalogHit.unitCost,
+      source: "catalogue",
+      note: `Office catalogue · ${catalogHit.catalogName}`,
+    };
+  }
   const [fromLibrary] = applyTakeoffRatesToMaterials([
     {
       id: "probe",
@@ -64,7 +74,8 @@ export function priceAiTakeoffLinesFromGuides(lines: AiTakeoffLine[]): {
     return {
       ...line,
       unitCost,
-      confidence: source === "library" ? ("Medium" as const) : ("Low" as const),
+      confidence:
+        source === "catalogue" ? ("High" as const) : source === "library" ? ("Medium" as const) : ("Low" as const),
       updatedAt: now,
     };
   });

@@ -12,7 +12,9 @@ import { calculateProjectTotals, findDuplicateTakeoffLines, validatePlotRegister
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
-import { getTender } from "@/lib/tenders-data";
+import { getTenderLean } from "@/lib/tenders-data";
+
+export const maxDuration = 120;
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -28,8 +30,9 @@ Talk like an experienced QS/estimator: clear, specific, and honest. Never sound 
 How you think:
 - Read the user's last message and answer THAT. Prefer short, concrete replies over procedure dumps.
 - Use tools to change data; then explain what actually changed (counts, £, what is still blank).
+- When the user asks to price materials / budget prices / “price this properly”, call price_takeoff_materials (with Blake budget) after lines exist. Prefer office materials catalogue matches as confirmed costs; then library; then Blake budgets for gaps.
 - If Cost shows £0, materials are NOT priced — say so. Do not claim “materials are applied automatically”.
-- When the user asks to price materials / budget prices / “price this properly”, call price_takeoff_materials (with Blake budget) after lines exist. Import alone is not enough for branded sanitaryware.
+- Mention when a line was priced from the office catalogue (confirmed) vs Blake budget (provisional).
 - When they say delete all / start again / clear the list, call clear_takeoff_lines (includeApplied true), then re-import if needed. Do not pretend the table is empty if it still has rows.
 - Commercial / health club / single building: set_single_area_project — never nag for housing plots.
 - Issued BoQ already on Documents: import_issued_boq_lines (then price_takeoff_materials when they want materials).
@@ -43,7 +46,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const { id } = await params;
-  const tender = getTender(id);
+  const tender = getTenderLean(id);
   if (!tender) return NextResponse.json({ error: "Tender not found" }, { status: 404 });
 
   const state = getTenderAiTakeoffState(id);
@@ -84,7 +87,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Forbidden — needs quote create permission." }, { status: 403 });
   }
   const { id } = await params;
-  const tender = getTender(id);
+  const tender = getTenderLean(id);
   if (!tender) return NextResponse.json({ error: "Tender not found" }, { status: 404 });
 
   const body = await parseJsonRequestBody<ChatBody>(request);
@@ -206,6 +209,7 @@ export async function POST(request: NextRequest, { params }: Params) {
           Authorization: `Bearer ${ai.apiKey}`,
           "Content-Type": "application/json",
         },
+        signal: AbortSignal.timeout(45_000),
         body: JSON.stringify({
           model: ai.model,
           input: nextInput,

@@ -7,7 +7,8 @@ import {
   importBoqIntoTender,
   importBoqWorkbookIntoTender,
   importTrackerRows,
-  listTenders,
+  listTendersLean,
+  leanTenderForClient,
   resolveTenderDocumentFolderKind,
   type TenderDocumentKind,
 } from "@/lib/tenders-data";
@@ -122,7 +123,7 @@ export async function POST(request: NextRequest) {
         : [];
       return NextResponse.json({
         tender,
-        tenders: listTenders(),
+        tenders: listTendersLean(),
         mode,
         measured,
         addedSheets,
@@ -176,7 +177,7 @@ export async function POST(request: NextRequest) {
         note: String(formData.get("note") || "") || undefined,
       });
 
-      return NextResponse.json({ tender, document: saved, tenders: listTenders() }, { status: 201 });
+      return NextResponse.json({ tender: leanTenderForClient(tender), document: saved, tenders: listTendersLean() }, { status: 201 });
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });

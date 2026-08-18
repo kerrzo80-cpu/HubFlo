@@ -470,6 +470,12 @@ export function getTender(id: string) {
   return raw ? attachBoq(raw) : null;
 }
 
+/** Metadata + documents only — never attaches BoQ side-store (Blake chat / tracker safe). */
+export function getTenderLean(id: string) {
+  const raw = readStoreRaw().tenders.find((tender) => tender.id === id);
+  return raw ? leanTenderForClient(raw) : null;
+}
+
 function normalizeTenderDocument(input: Partial<TenderDocument> | null | undefined): TenderDocument {
   const kindRaw = typeof input?.kind === "string" ? input.kind : "other";
   const kind: TenderDocumentKind = isTenderDocumentKind(kindRaw) ? kindRaw : "other";
