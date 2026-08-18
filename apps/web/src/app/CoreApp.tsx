@@ -83,6 +83,7 @@ import type { Job, PurchaseRequest, PurchaseStatus, Quote, QuoteStatus } from "@
 import { isPlaceholderBankDetails, isPlaceholderCompanyRegistration } from "@/lib/commercial-safeguards";
 import { DEFAULT_OVERHEAD_PERCENT } from "@/lib/reports-board-pack";
 import { assertNoHubScheduleClashes, leadSurveysToAssignments } from "@/lib/schedule-clash";
+import { effectiveJobHealthTone } from "@/lib/job-health-tone";
 import {
   businessImportLabels,
   businessImportTemplateHeaders,
@@ -12098,6 +12099,8 @@ export default function CoreApp() {
               const detail = body && typeof body.error === "string" ? body.error : `Hub state save failed with ${response.status}`;
               if (body?.code === "SCHEDULE_CLASH") {
                 showNotice(detail);
+                // Clash is a deliberate reject of a schedule edit — not a workspace fallback failure.
+                return;
               }
               throw new Error(detail);
             });
@@ -13064,35 +13067,29 @@ export default function CoreApp() {
 
   const jobHealthDirectoryGroups = useMemo(
     () => {
-      const onTrack = filteredJobs.filter((job) => job.health !== "amber" && job.health !== "red");
-      const attention = filteredJobs.filter(
-        (job) => job.health === "amber" || job.status === "Approval required",
-      );
-      const blocked = filteredJobs.filter(
-        (job) =>
-          job.health === "red" ||
-          job.status === "Waiting on parts" ||
-          job.status === "Waiting on customer",
-      );
+      const today = new Date().toISOString().slice(0, 10);
+      const onTrack = filteredJobs.filter((job) => effectiveJobHealthTone(job, today) === "green");
+      const attention = filteredJobs.filter((job) => effectiveJobHealthTone(job, today) === "amber");
+      const blocked = filteredJobs.filter((job) => effectiveJobHealthTone(job, today) === "red");
       return [
         {
           key: "health-on-track",
           label: "On track",
-          detail: "Jobs not waiting on approval, parts or customer",
+          detail: "Jobs not overdue or waiting on approval, parts or customer",
           tone: "green",
           items: onTrack,
         },
         {
           key: "health-attention",
           label: "Attention",
-          detail: "Approval required — office needs to approve something on the job",
+          detail: "Overdue, approval required, or other jobs needing office follow-up",
           tone: "amber",
           items: attention,
         },
         {
           key: "health-blocked",
           label: "Blocked",
-          detail: "Waiting on parts or waiting on the customer",
+          detail: "Waiting on parts, waiting on the customer, or marked blocked",
           tone: "red",
           items: blocked,
         },

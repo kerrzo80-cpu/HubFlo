@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { effectiveJobHealthTone, type JobHealthTone } from "@/lib/job-health-tone";
+
 type AnyRecord = Record<string, unknown>;
 
 const gbp = new Intl.NumberFormat("en-GB", {
@@ -56,7 +58,7 @@ const HEALTH_COLORS = {
   red: "#f04438",
 } as const;
 
-export type JobHealthTone = keyof typeof HEALTH_COLORS;
+export type { JobHealthTone };
 
 const BAR_PALETTE = ["#006eb8", "#2e8c7d", "#f79009", "#7a5af8", "#f04438", "#12b76a", "#2e90fa"];
 
@@ -247,18 +249,16 @@ export function DashboardOverview({
     const counts = { green: 0, amber: 0, red: 0 };
     const today = now.toISOString().slice(0, 10);
     for (const job of jobs) {
-      let h = str(job, "health");
-      const status = str(job, "status");
-      const scheduled = str(job, "scheduledDate").slice(0, 10);
-      const due = str(job, "due").slice(0, 10);
-      const closed = ["Completed", "Invoiced", "Cancelled"].includes(status);
-      if (!closed && ((scheduled && scheduled < today) || (due && due < today))) {
-        h = h === "red" ? "red" : "amber";
-      }
-      if (h === "amber") counts.amber += 1;
-      else if (h === "red") counts.red += 1;
-      else if (h === "green") counts.green += 1;
-      else counts.amber += 1; // never inflate On track from blue/unknown
+      const tone = effectiveJobHealthTone(
+        {
+          health: str(job, "health"),
+          status: str(job, "status"),
+          scheduledDate: str(job, "scheduledDate"),
+          due: str(job, "due"),
+        },
+        today,
+      );
+      counts[tone] += 1;
     }
     return counts;
   }, [jobs, now]);
@@ -372,6 +372,7 @@ export function DashboardOverview({
                 <button
                   type="button"
                   className="nexa-kpi-legend-btn"
+                  onClick={() => openHealth("amber")}
                 >
                   <span style={{ background: HEALTH_COLORS.amber }} /> Attention <strong>{health.amber}</strong>
                 </button>

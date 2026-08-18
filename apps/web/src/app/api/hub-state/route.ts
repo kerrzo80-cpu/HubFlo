@@ -60,13 +60,19 @@ export async function PUT(request: Request) {
   const merged = mergeHubDetailState(current, payload);
 
   if (payload.jobSchedulePlans !== undefined) {
-    const leadAssignments = leadSurveysToAssignments(getLeads());
-    const clashError = assertNoHubScheduleClashes(
-      (merged.jobSchedulePlans || {}) as Record<string, HubScheduleAssignment[]>,
-      leadAssignments,
-    );
-    if (clashError) {
-      return NextResponse.json({ error: clashError, code: "SCHEDULE_CLASH" }, { status: 409 });
+    // Only hard-block when schedule plans actually change. Pre-existing imported
+    // clashes must not fail every unrelated hub autosave (Setup, invoices, etc.).
+    const before = JSON.stringify(current.jobSchedulePlans ?? {});
+    const after = JSON.stringify(payload.jobSchedulePlans ?? {});
+    if (before !== after) {
+      const leadAssignments = leadSurveysToAssignments(getLeads());
+      const clashError = assertNoHubScheduleClashes(
+        (merged.jobSchedulePlans || {}) as Record<string, HubScheduleAssignment[]>,
+        leadAssignments,
+      );
+      if (clashError) {
+        return NextResponse.json({ error: clashError, code: "SCHEDULE_CLASH" }, { status: 409 });
+      }
     }
   }
 
