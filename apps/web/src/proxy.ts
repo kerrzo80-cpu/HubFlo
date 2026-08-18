@@ -1,6 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { employeeHeaderName, permissionHeaderName, roleHeaderName } from "@/lib/access";
+import {
+  employeeHeaderName,
+  getAccessProfile,
+  hasCoreOfficeAccess,
+  hasFieldAppAccess,
+  permissionHeaderName,
+  roleHeaderName,
+} from "@/lib/access";
 import { getAuthUserForSession, isUserAuthenticationEnabled, nexaSessionCookie } from "@/lib/auth-store";
 import { isTrialAccessExpired, isTrialExpiredAllowedPath, TRIAL_ENDED_PATH } from "@/lib/trial-licence";
 
@@ -196,6 +203,37 @@ export function proxy(request: NextRequest) {
     requestHeaders.set(permissionHeaderName, JSON.stringify(user.permissions));
     requestHeaders.set("x-nexa-auth-user-id", user.id);
     requestHeaders.set("x-nexa-auth-user-name", user.name);
+
+    const access = getAccessProfile(user.role, user.permissions);
+    const fieldOnly = hasFieldAppAccess(access) && !hasCoreOfficeAccess(access);
+    if (fieldOnly) {
+      const allowedFieldPrefixes = [
+        "/field",
+        "/api/field",
+        "/api/auth",
+        "/api/health",
+        "/api/branding",
+        "/api/manifest",
+        "/login",
+      ];
+      const allowed =
+        allowedFieldPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)) ||
+        publicAssetPaths.has(pathname) ||
+        publicAssetPrefixes.some((prefix) => pathname.startsWith(prefix));
+      if (!allowed) {
+        if (pathname.startsWith("/api/")) {
+          return NextResponse.json(
+            { error: "This account is Field-only. Open /field — Core office modules are disabled." },
+            { status: 403 },
+          );
+        }
+        const fieldUrl = request.nextUrl.clone();
+        fieldUrl.pathname = "/field";
+        fieldUrl.search = "";
+        return NextResponse.redirect(fieldUrl);
+      }
+    }
+
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 

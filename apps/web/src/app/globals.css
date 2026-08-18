@@ -39183,6 +39183,21 @@ kbd,
   padding: 0 6px;
 }
 
+.dashboard-weekly-gantt-row header strong {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.dashboard-weekly-gantt-swatch {
+  border: 1px solid rgba(15, 40, 55, 0.18);
+  border-radius: 999px;
+  display: inline-block;
+  flex: 0 0 auto;
+  height: 10px;
+  width: 10px;
+}
+
 .dashboard-weekly-gantt-bar {
   align-items: center;
   background: #2f9fc4;

@@ -134,9 +134,13 @@ import { applyFirmSupplierCost } from "@/lib/price-ledger";
 import {
   employeeHeaderName,
   getAccessProfile,
+  hasCoreOfficeAccess,
+  hasFieldAppAccess,
   permissionHeaderName,
+  resolveEmployeeGanttColor,
   roleChoices,
   roleHeaderName,
+  toStoredAccessProfile,
   type AccessOverride,
   type AccessProfile,
   type Employee as EmployeeCard,
@@ -2512,6 +2516,7 @@ type EmployeeProfileDraft = {
   address: string;
   startDate: string;
   roleLabel: string;
+  ganttColor: string;
   hourlyRate: string;
   overtimeRate: string;
   niMultiplier: string;
@@ -2609,6 +2614,10 @@ const sideNavigation: Array<{
 ];
 
 const permissionOptions: PermissionRow[] = [
+  { key: "showCore", label: "Core office (dashboard, registers, setup)" },
+  { key: "showField", label: "Field app" },
+  { key: "showSurveyor", label: "Surveyor addon" },
+  { key: "showTakeoff", label: "Takeoff / Heat Design addons" },
   { key: "showCustomers", label: "Customer visibility" },
   { key: "showJobs", label: "Job visibility" },
   { key: "showQuotes", label: "Quote visibility" },
@@ -4278,16 +4287,27 @@ const seedEmployees: EmployeeCard[] = [
     name: "Chris Lawson",
     role: "Engineer",
     permissions: {
+      showCore: false,
+      showField: true,
+      showSurveyor: false,
+      showTakeoff: false,
       showQuotes: false,
       showFinance: false,
-      showAssets: true,
-      showStock: true,
+      showAssets: false,
+      showStock: false,
+      showJobs: false,
+      showCustomers: false,
+      showSchedule: false,
+      canCreateJob: false,
+      canEditJobs: false,
+      canRequestPurchase: false,
     },
     profile: {
       email: "chris.lawson@errolwatsongroup.com",
       phone: "07700 445544",
       address: "Aberdeen City, Aberdeen, AB11 5RR",
       startDate: "2022-08-18",
+      ganttColor: "#2e8c7d",
       payroll: {
         hourlyRate: 31.5,
         overtimeRate: 45,
@@ -5494,6 +5514,7 @@ const blankEmployeeProfileTemplate: EmployeeProfileDraft = {
   address: "",
   startDate: "",
   roleLabel: "",
+  ganttColor: "#006eb8",
   hourlyRate: "",
   overtimeRate: "",
   niMultiplier: "",
@@ -5531,6 +5552,7 @@ function makeEmployeeProfileDraft(employee?: EmployeeCard | null): EmployeeProfi
     address: profile?.address ?? "",
     startDate: profile?.startDate ?? "",
     roleLabel: profile?.roleLabel ?? "",
+    ganttColor: resolveEmployeeGanttColor(employee?.name ?? "", profile?.ganttColor),
     hourlyRate: profile?.payroll?.hourlyRate?.toString() ?? "",
     overtimeRate: profile?.payroll?.overtimeRate?.toString() ?? "",
     niMultiplier: profile?.payroll?.niMultiplier?.toString() ?? "",
@@ -9245,15 +9267,15 @@ export default function CoreApp() {
   );
 
   const access = useMemo(
-    () => getAccessProfile(activeEmployee?.role ?? "Manager", activeEmployee?.permissions ?? {}),
+    () => getAccessProfile(activeEmployee?.role ?? "Read-only", activeEmployee?.permissions ?? {}),
     [activeEmployee],
   );
 
   const requestHeaders = useMemo<HeadersInit>(
     () => ({
-      [roleHeaderName]: activeEmployee?.role ?? "Manager",
+      [roleHeaderName]: activeEmployee?.role ?? "Read-only",
       [employeeHeaderName]: activeEmployee?.id ?? "",
-      [permissionHeaderName]: JSON.stringify(activeEmployee?.permissions ?? {}),
+      [permissionHeaderName]: JSON.stringify(toStoredAccessProfile(activeEmployee?.role, activeEmployee?.permissions)),
     }),
     [activeEmployee],
   );
@@ -11249,6 +11271,15 @@ export default function CoreApp() {
     });
     setLoggedInEmployeeId(employeeId);
     setActiveEmployeeId(employeeId);
+    const signedInAccess = getAccessProfile(serverAuthUser.role, serverAuthUser.permissions);
+    if (
+      typeof window !== "undefined" &&
+      hasFieldAppAccess(signedInAccess) &&
+      !hasCoreOfficeAccess(signedInAccess) &&
+      !window.location.pathname.startsWith("/field")
+    ) {
+      window.location.assign("/field");
+    }
   }, [serverAuthMode, serverAuthUser]);
 
   useEffect(() => {
@@ -11257,7 +11288,7 @@ export default function CoreApp() {
     if (loadedEmployeeDraftIdRef.current === editingEmployeeId) return;
     loadedEmployeeDraftIdRef.current = editingEmployeeId;
     setEmployeeRoleDraft(activeEditingEmployee.role);
-    setEmployeePermissionDraft({ ...(activeEditingEmployee.permissions ?? {}) });
+    setEmployeePermissionDraft(toStoredAccessProfile(activeEditingEmployee.role, activeEditingEmployee.permissions));
     const draft = makeEmployeeProfileDraft(activeEditingEmployee);
     setEmployeeProfileDraft(serverAuthMode === "users" ? { ...draft, loginPassword: "" } : draft);
   }, [editingEmployeeId, activeEditingEmployee, newEmployeeId, serverAuthMode]);
@@ -13286,7 +13317,11 @@ export default function CoreApp() {
   );
 
   const visibleModules = useMemo(() => {
+    if (!hasCoreOfficeAccess(access)) return [];
     return modules.filter((module) => {
+      if (module.label === "Dashboard") return true;
+      if (module.label === "Blake Trainer") return access.showSurveyor || access.canCustomize;
+      if (module.label === "Leads") return access.canCreateLead || access.showCustomers || access.showQuotes;
       if (module.label === "People" && !access.showCustomers) return false;
       if (module.label === "Jobs" && !access.showJobs) return false;
       if (module.label === "Dayworks") return access.showJobs || access.showFinance;
@@ -13302,9 +13337,10 @@ export default function CoreApp() {
       }
       if (module.label === "Xero" || module.label === "Reports") return access.showFinance;
       if (module.label === "Recurring") return access.showJobs || access.showFinance;
+      if (module.label === "Setup") return access.canCustomize || activeEmployee?.role === "Owner/Admin";
       return true;
     });
-  }, [access]);
+  }, [access, activeEmployee?.role]);
 
   const visibleSideNav = useMemo(() => {
     return activeEmployee?.role === "Engineer"
@@ -14420,6 +14456,15 @@ export default function CoreApp() {
 
   // Overview gantt uses the same people set as Schedules (not only the three hardcoded surveyors).
   const dashboardGanttPeople = schedulerDiaryPeople;
+
+  const dashboardGanttPersonColors = useMemo(() => {
+    const colors: Record<string, string> = {};
+    for (const name of dashboardGanttPeople) {
+      const employee = employees.find((item) => item.name.trim().toLowerCase() === name.toLowerCase());
+      colors[name] = resolveEmployeeGanttColor(name, employee?.profile?.ganttColor);
+    }
+    return colors;
+  }, [dashboardGanttPeople, employees]);
 
   const schedulerSelectedJob = useMemo(
     () => jobs.find((job) => job.id === schedulerSelectedJobId) ?? null,
@@ -18427,6 +18472,11 @@ export default function CoreApp() {
           : item,
       ),
     );
+    const signedInAccess = getAccessProfile(employee.role, employee.permissions);
+    if (hasFieldAppAccess(signedInAccess) && !hasCoreOfficeAccess(signedInAccess)) {
+      window.location.assign("/field");
+      return;
+    }
     logAuditEvent({
       actor: employee.name,
       action: "signed in",
@@ -29600,17 +29650,13 @@ export default function CoreApp() {
 
   function toggleEmployeePermission(permission: keyof AccessProfile) {
     if (!editingEmployeeId) return;
-    const baseForRole = getAccessProfile(employeeRoleDraft);
     const nextValue = !employeeAccessForEditor[permission];
-    const merged = { ...employeePermissionDraft };
-
-    if (nextValue === baseForRole[permission]) {
-      delete merged[permission];
-    } else {
-      merged[permission] = nextValue;
-    }
-
-    setEmployeePermissionDraft(merged);
+    // Always store an explicit boolean so unticked boxes stay denied after save,
+    // even if the account role defaults would otherwise reopen them.
+    setEmployeePermissionDraft((current) => ({
+      ...current,
+      [permission]: nextValue,
+    }));
   }
 
   function addEmployeeLicense() {
@@ -29788,6 +29834,7 @@ export default function CoreApp() {
       showNotice("Enter the employee's name before saving.");
       return;
     }
+    const savedPermissions = toStoredAccessProfile(employeeRoleDraft, employeePermissionDraft);
     const savedEmployeeEmail = employeeProfileDraft.email.trim();
     const savedLoginUsername =
       normalizeLoginInput(employeeProfileDraft.loginUsername) ||
@@ -29807,7 +29854,7 @@ export default function CoreApp() {
               ...employee,
               name: savedEmployeeName,
               role: employeeRoleDraft,
-              permissions: { ...employeePermissionDraft },
+              permissions: { ...savedPermissions },
               login: {
                 username: savedLoginUsername,
                 password: savedLoginPassword,
@@ -29820,6 +29867,9 @@ export default function CoreApp() {
                 address: employeeProfileDraft.address.trim() || undefined,
                 startDate: employeeProfileDraft.startDate.trim() || undefined,
                 roleLabel: employeeProfileDraft.roleLabel.trim() || undefined,
+                ganttColor: /^#[0-9a-fA-F]{6}$/.test(employeeProfileDraft.ganttColor.trim())
+                  ? employeeProfileDraft.ganttColor.trim().toLowerCase()
+                  : undefined,
                 payroll: {
                   hourlyRate: cleanNumber(employeeProfileDraft.hourlyRate),
                   overtimeRate: cleanNumber(employeeProfileDraft.overtimeRate),
@@ -29841,6 +29891,7 @@ export default function CoreApp() {
           : employee,
     );
     setEmployees(nextEmployees);
+    setEmployeePermissionDraft({ ...savedPermissions });
 
     try {
       const hubResponse = await fetch("/api/hub-state", {
@@ -29874,7 +29925,7 @@ export default function CoreApp() {
           name: savedEmployeeName,
           username: savedLoginUsername,
           role: employeeRoleDraft,
-          permissions: employeePermissionDraft,
+          permissions: savedPermissions,
           enabled: employeeProfileDraft.loginEnabled,
           ...(enteredLoginPassword ? { password: enteredLoginPassword } : {}),
         };
@@ -33697,6 +33748,7 @@ export default function CoreApp() {
           <DashboardWeeklyGantt
             days={dashboardWeekDays}
             people={dashboardGanttPeople}
+            personColors={dashboardGanttPersonColors}
             bookings={allScheduleBookings}
             nowMarker={dashboardGanttNowMarker}
             formatDayLabel={(day) => formatScheduleDate(day, { weekday: "short", day: "numeric", month: "short" })}
@@ -34453,26 +34505,36 @@ export default function CoreApp() {
 
           <div className="sidebar-divider" />
           <p className="sidebar-label">Addons</p>
-          <a href="/train" className="context-link" aria-label="Blake Trainer" data-tooltip="Blake Trainer">
-            <MessageCircle size={17} />
-            <span>Blake Trainer</span>
-          </a>
-          <a href="/survey" className="context-link" aria-label="Surveyor" data-tooltip="Surveyor">
-            <Sparkles size={17} />
-            <span>Surveyor</span>
-          </a>
-          <a href="/takeoff" className="context-link" aria-label="Takeoff" data-tooltip="Takeoff">
-            <FileText size={17} />
-            <span>Takeoff</span>
-          </a>
-          <a href="/heat-design" className="context-link" aria-label="Heat Design" data-tooltip="Heat Design — floor plan, emitters, link kit to quote or job">
-            <Flame size={17} />
-            <span>Heat Design</span>
-          </a>
-          <a href="/field" className="context-link" aria-label={businessSettings.fieldAppName} data-tooltip={businessSettings.fieldAppName}>
-            <HardHat size={17} />
-            <span>Field</span>
-          </a>
+          {access.showSurveyor || access.canCustomize ? (
+            <a href="/train" className="context-link" aria-label="Blake Trainer" data-tooltip="Blake Trainer">
+              <MessageCircle size={17} />
+              <span>Blake Trainer</span>
+            </a>
+          ) : null}
+          {access.showSurveyor ? (
+            <a href="/survey" className="context-link" aria-label="Surveyor" data-tooltip="Surveyor">
+              <Sparkles size={17} />
+              <span>Surveyor</span>
+            </a>
+          ) : null}
+          {access.showTakeoff ? (
+            <a href="/takeoff" className="context-link" aria-label="Takeoff" data-tooltip="Takeoff">
+              <FileText size={17} />
+              <span>Takeoff</span>
+            </a>
+          ) : null}
+          {access.showTakeoff ? (
+            <a href="/heat-design" className="context-link" aria-label="Heat Design" data-tooltip="Heat Design — floor plan, emitters, link kit to quote or job">
+              <Flame size={17} />
+              <span>Heat Design</span>
+            </a>
+          ) : null}
+          {hasFieldAppAccess(access) ? (
+            <a href="/field" className="context-link" aria-label={businessSettings.fieldAppName} data-tooltip={businessSettings.fieldAppName}>
+              <HardHat size={17} />
+              <span>Field</span>
+            </a>
+          ) : null}
 
           <div className="context-sidebar-blake">
             <button
@@ -49963,6 +50025,26 @@ export default function CoreApp() {
                         />
                       </label>
                       <label>
+                        Gantt colour
+                        <span className="personalising-color-row">
+                          <input
+                            type="color"
+                            value={/^#[0-9a-fA-F]{6}$/.test(employeeProfileDraft.ganttColor) ? employeeProfileDraft.ganttColor : "#006eb8"}
+                            onChange={(event) =>
+                              setEmployeeProfileDraft((current) => ({ ...current, ganttColor: event.target.value }))
+                            }
+                            aria-label="Pick Gantt colour"
+                          />
+                          <input
+                            value={employeeProfileDraft.ganttColor}
+                            onChange={(event) =>
+                              setEmployeeProfileDraft((current) => ({ ...current, ganttColor: event.target.value }))
+                            }
+                            placeholder="#006eb8"
+                          />
+                        </span>
+                      </label>
+                      <label>
                         Start date
                         <input
                           value={employeeProfileDraft.startDate}
@@ -50333,7 +50415,8 @@ export default function CoreApp() {
                       <div className="employee-section-heading">
                         <span className="permission-heading">Permission controls</span>
                         <span className="employee-access-note">
-                          Configure what this employee can see and change inside NeXa.
+                          These apply when this employee signs in. Untick <strong>Core office</strong> and leave{" "}
+                          <strong>Field app</strong> on for plumbers — they are redirected to Field and blocked from Core.
                         </span>
                       </div>
                       <div className="employee-permissions-grid">

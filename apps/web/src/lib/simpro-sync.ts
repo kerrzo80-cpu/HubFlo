@@ -474,7 +474,8 @@ export const SIMPRO_QUOTE_IMPORT_LIMIT = 30;
 /** Pending + Progress + Complete working set (simPRO folder counts can exceed 60). */
 export const SIMPRO_JOB_IMPORT_LIMIT = 80;
 /** Latest open leads (including scheduled surveys) for the diary. */
-export const SIMPRO_LEAD_IMPORT_LIMIT = 10;
+/** Nightly / EOD working set — keep high enough to catch new open leads without a full dump. */
+export const SIMPRO_LEAD_IMPORT_LIMIT = 40;
 /** Bulk client/site directory imports must stay small — uncapped 40×250 was crashing Apply. */
 export const SIMPRO_CLIENT_IMPORT_LIMIT = 80;
 export const SIMPRO_SITE_IMPORT_LIMIT = 80;

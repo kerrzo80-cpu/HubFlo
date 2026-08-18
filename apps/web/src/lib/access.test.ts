@@ -5,9 +5,13 @@ import {
   defaultDeniedRole,
   getAccessProfile,
   getAccessProfileFromHeaders,
+  hasCoreOfficeAccess,
+  hasFieldAppAccess,
   permissionHeaderName,
+  resolveEmployeeGanttColor,
   roleAccess,
   roleHeaderName,
+  toStoredAccessProfile,
 } from "@/lib/access";
 
 describe("access ACL defaults", () => {
@@ -46,5 +50,34 @@ describe("access ACL defaults", () => {
     const profile = getAccessProfile(null, { canEditJobs: true });
     assert.equal(profile.canEditJobs, true);
     assert.equal(profile.canCustomize, false);
+  });
+
+  it("keeps Engineer Field-only by default", () => {
+    const profile = getAccessProfile("Engineer");
+    assert.equal(hasFieldAppAccess(profile), true);
+    assert.equal(hasCoreOfficeAccess(profile), false);
+    assert.equal(profile.showJobs, false);
+    assert.equal(profile.showFinance, false);
+  });
+
+  it("stores a full explicit profile so Owner/Admin merge cannot reopen unticked boxes", () => {
+    const stored = toStoredAccessProfile("Engineer", {
+      showCore: false,
+      showField: true,
+      showJobs: false,
+      showFinance: false,
+    });
+    const asIfOwner = getAccessProfile("Owner/Admin", stored);
+    assert.equal(asIfOwner.showCore, false);
+    assert.equal(asIfOwner.showField, true);
+    assert.equal(asIfOwner.showJobs, false);
+    assert.equal(asIfOwner.showFinance, false);
+    assert.equal(asIfOwner.canCustomize, false);
+  });
+
+  it("resolves gantt colours from profile or a stable name hash", () => {
+    assert.equal(resolveEmployeeGanttColor("Chris", "#ff00aa"), "#ff00aa");
+    assert.equal(resolveEmployeeGanttColor("Chris", "not-a-colour").startsWith("#"), true);
+    assert.equal(resolveEmployeeGanttColor("Chris"), resolveEmployeeGanttColor("Chris"));
   });
 });

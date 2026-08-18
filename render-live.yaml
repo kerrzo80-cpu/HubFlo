@@ -148,14 +148,14 @@ services:
       - key: NEXA_BACKUP_CRON_SECRET
         sync: false
 
-  # Weekday end-of-day pull of fresh simPRO data into NeXa (same working set as Apply).
-  # Set the same NEXA_IMPORT_TICK_SECRET on this cron and on nexa-live.
+  # Nightly simPRO pull — new/open leads, quotes, jobs, invoices, schedules (+ clients/sites).
+  # Same working set as Setup → Import Apply. Set the same NEXA_IMPORT_TICK_SECRET on this cron and on nexa-live.
   - type: cron
     name: nexa-live-simpro-eod
     runtime: node
     region: frankfurt
     plan: starter
-    schedule: "0 18 * * 1-5"
+    schedule: "0 21 * * *"
     buildCommand: echo "nexa-simpro-eod-cron"
     startCommand: >-
       node --input-type=module -e "
@@ -167,7 +167,10 @@ services:
           'content-type': 'application/json',
           'x-nexa-import-tick-secret': secret,
         },
-        body: '{}',
+        body: JSON.stringify({
+          entities: ['leads','quotes','jobs','schedules','invoices','clients','sites'],
+          actor: 'Nightly cron',
+        }),
       });
       const text = await res.text();
       console.log(res.status, text.slice(0, 2000));

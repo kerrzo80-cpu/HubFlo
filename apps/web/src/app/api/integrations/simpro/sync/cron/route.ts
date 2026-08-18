@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       kind: "simpro-eod-refresh",
-      scheduleHint: "Render cron weekdays 18:00 UTC (after typical UK close)",
+      scheduleHint: "Render cron nightly 21:00 UTC (leads, quotes, jobs, invoices, schedules)",
       run,
       status: getSimproSyncStatus(),
     });

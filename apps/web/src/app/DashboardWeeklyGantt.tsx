@@ -1,26 +1,8 @@
 "use client";
 
 import { CalendarDays } from "lucide-react";
+import { resolveEmployeeGanttColor } from "@/lib/access";
 import { scheduleBookingChipDetail, scheduleBookingChipLabel } from "@/lib/scheduler-availability";
-
-const EMPLOYEE_BAR_COLORS = [
-  "#006eb8",
-  "#2e8c7d",
-  "#f79009",
-  "#7a5af8",
-  "#f04438",
-  "#12b76a",
-  "#2e90fa",
-  "#c11574",
-  "#9b7b32",
-  "#175cd3",
-];
-
-function colorForEmployee(name: string) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  return EMPLOYEE_BAR_COLORS[hash % EMPLOYEE_BAR_COLORS.length] ?? "#006eb8";
-}
 
 const SLOTS_PER_DAY = 20;
 const START_MINUTES = 8 * 60;
@@ -103,6 +85,7 @@ export function computeDashboardGanttNowMarker(
 type Props = {
   days: string[];
   people: string[];
+  personColors?: Record<string, string>;
   bookings: DashboardGanttBooking[];
   nowMarker: DashboardGanttNowMarker | null;
   formatDayLabel: (day: string) => string;
@@ -113,6 +96,7 @@ type Props = {
 export function DashboardWeeklyGantt({
   days,
   people,
+  personColors,
   bookings,
   nowMarker,
   formatDayLabel,
@@ -163,11 +147,14 @@ export function DashboardWeeklyGantt({
 
           {people.map((person) => {
             const personBookings = weekBookings.filter((booking) => booking.surveyor === person);
-            const personColor = colorForEmployee(person);
+            const personColor = personColors?.[person] || resolveEmployeeGanttColor(person);
             return (
               <article className="dashboard-weekly-gantt-row" key={person}>
                 <header>
-                  <strong>{person}</strong>
+                  <strong>
+                    <i className="dashboard-weekly-gantt-swatch" style={{ background: personColor }} aria-hidden />
+                    {person}
+                  </strong>
                   <span>
                     {personBookings.length} item{personBookings.length === 1 ? "" : "s"}
                   </span>
