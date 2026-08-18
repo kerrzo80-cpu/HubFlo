@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: "Forbidden",
-        detail: "Set NEXA_BACKUP_CRON_SECRET on nexa-pilot and send it as x-nexa-backup-secret, or run Backup now from Setup.",
+        detail: "Set NEXA_BACKUP_CRON_SECRET on the web service and this cron (same value), send x-nexa-backup-secret, or run Backup now from Setup.",
       },
       { status: 403 },
     );
