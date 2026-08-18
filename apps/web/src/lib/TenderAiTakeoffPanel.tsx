@@ -180,7 +180,7 @@ export function TenderAiTakeoffPanel({
           <p>
             Takeoff chat for <strong>{tenderName}</strong>. Works for housing estates <em>and</em> commercial /
             single-building jobs — no fake house types required. Upload the issued BoQ under Documents, then ask Blake
-            to import and price it. Sell totals and markups are calculated in NeXa before Apply to BoQ.
+            to import and price materials. Cost is material £/unit — if it shows £0, ask Blake to price materials. Sell = materials (+ markup) + labour before Apply to BoQ.
           </p>
         </div>
         <div className="tenders-toolbar-actions">
@@ -297,7 +297,7 @@ export function TenderAiTakeoffPanel({
             {state.messages.length === 0 ? (
               <p className="setup-inline-note">
                 Try: “This is a health club refurb — treat as one area, import Plumbing.xlsx from Documents, price with
-                30% materials markup and labour at £70/h, then I’ll Apply to BoQ.”
+                30% materials markup and labour at £70/h, then price materials budgets so Cost is not £0.”
               </p>
             ) : (
               state.messages.map((row) => (

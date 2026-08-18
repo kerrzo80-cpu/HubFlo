@@ -79,15 +79,15 @@ test("detects duplicate lines and bad plot register", () => {
   assert.ok(validatePlotRegister([{ plot: "1", houseType: "HT-A" }], ["HT-A", "HT-B"]).some((row) => /no plots/i.test(row)));
 });
 
-test("tool handlers create house types and takeoff items", () => {
+test("tool handlers create house types and takeoff items", async () => {
   const tenderId = `test-ai-takeoff-${Date.now()}`;
-  const houses = executeAiTakeoffTool(tenderId, "create_house_type", { houseTypes: ["HT-A"] });
+  const houses = await executeAiTakeoffTool(tenderId, "create_house_type", { houseTypes: ["HT-A"] });
   assert.equal(houses.ok, true);
-  const plots = executeAiTakeoffTool(tenderId, "assign_plots", {
+  const plots = await executeAiTakeoffTool(tenderId, "assign_plots", {
     plots: [{ plot: "1", houseType: "HT-A" }],
   });
   assert.equal(plots.ok, true);
-  const item = executeAiTakeoffTool(tenderId, "add_takeoff_item", {
+  const item = await executeAiTakeoffTool(tenderId, "add_takeoff_item", {
     description: "Basin",
     quantity: 1,
     unit: "nr",
@@ -98,15 +98,15 @@ test("tool handlers create house types and takeoff items", () => {
   assert.equal(item.state.lines.length, 1);
 });
 
-test("set_single_area_project skips housing plot nag for commercial jobs", () => {
+test("set_single_area_project skips housing plot nag for commercial jobs", async () => {
   const tenderId = `test-ai-takeoff-single-${Date.now()}`;
-  const result = executeAiTakeoffTool(tenderId, "set_single_area_project", { areaName: "Health Club" });
+  const result = await executeAiTakeoffTool(tenderId, "set_single_area_project", { areaName: "Health Club" });
   assert.equal(result.ok, true);
   assert.deepEqual(result.state.houseTypes, ["Health Club"]);
   assert.deepEqual(result.state.plots, [{ plot: "1", houseType: "Health Club" }]);
   assert.equal(validatePlotRegister(result.state.plots, result.state.houseTypes).length, 0);
 
-  const priced = executeAiTakeoffTool(tenderId, "update_pricing_rules", {
+  const priced = await executeAiTakeoffTool(tenderId, "update_pricing_rules", {
     labourRatePerHour: 70,
     materialsMarkupPercent: 30,
   });
@@ -114,7 +114,7 @@ test("set_single_area_project skips housing plot nag for commercial jobs", () =>
   assert.equal(priced.state.pricingRules.labourRatePerHour, 70);
   assert.equal(priced.state.pricingRules.materialsMarkupPercent, 30);
 
-  const item = executeAiTakeoffTool(tenderId, "add_takeoff_item", {
+  const item = await executeAiTakeoffTool(tenderId, "add_takeoff_item", {
     description: "22mm copper",
     quantity: 10,
     unit: "m",
