@@ -20,6 +20,9 @@ import { employeeHeaderName, roleHeaderName } from "@/lib/access";
 import type { TakeoffDocument, TakeoffProject } from "@/lib/takeoff-data";
 import {
   takeoffDrawingDisplayLabel,
+  takeoffHouseTypeLabel,
+  takeoffDocumentHouseTypeMap,
+  listTakeoffHouseTypes,
   takeoffSourceFolderLabel,
   takeoffSourceTenderDocId,
 } from "@/lib/takeoff-drawing-labels";
@@ -192,6 +195,7 @@ export default function TakeoffStudioPage() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [boqOpen, setBoqOpen] = useState(false);
+  const [activeBoqHouseTab, setActiveBoqHouseTab] = useState<string>("");
   const [rateLibrary, setRateLibrary] = useState<TakeoffRateLibrary | null>(null);
   const [ratesOpen, setRatesOpen] = useState(false);
   const [ratesBusy, setRatesBusy] = useState(false);
@@ -280,9 +284,19 @@ export default function TakeoffStudioPage() {
     );
   }, [activeDrawGroupKey, activeLayerId]);
   const quantities = summariseStudioQuantities(studio);
+  const houseTypes = listTakeoffHouseTypes(drawingDocs);
+  const namedHouses = houseTypes.filter((name) => name !== "Unassigned");
+  const boqByHouse = namedHouses.length > 0;
+  const documentSetLabels = takeoffDocumentHouseTypeMap(drawingDocs);
+  const activeHouseTab = boqByHouse
+    ? (houseTypes.includes(activeBoqHouseTab) ? activeBoqHouseTab : namedHouses[0] || houseTypes[0] || "")
+    : "";
   const layerBoq = summariseStudioBoq(studio, activeLayerId);
   const masterBoq = summariseStudioBoq(studio, "all");
-  const boqForPanel = activeLayerId === "all" ? masterBoq : layerBoq;
+  const houseBoq = boqByHouse
+    ? summariseStudioBoq(studio, "all", { documentSetLabels, setFilter: activeHouseTab })
+    : [];
+  const boqForPanel = boqByHouse ? houseBoq : activeLayerId === "all" ? masterBoq : layerBoq;
   const pricedBoqForPanel = applyTakeoffRatesToMaterials(
     boqForPanel.map((row) => ({
       id: row.id,
@@ -293,12 +307,16 @@ export default function TakeoffStudioPage() {
       unitCost: 0,
       markupPercent: 0,
       supplierRequired: false,
+      layerLabel: row.layerLabel,
+      layerId: row.layerId,
     })),
     rateLibrary,
   );
   const boqMaterialCost = summarisePricedMaterials(pricedBoqForPanel).materialCost;
   const boqLayerLabel =
-    studioLayers.find((layer) => layer.id === activeLayerId)?.label || "Master / all";
+    boqByHouse
+      ? activeHouseTab || "House type"
+      : studioLayers.find((layer) => layer.id === activeLayerId)?.label || "Master / all";
   const linkedQuote = quotes.find((q) => q.id === selected?.linkedQuoteId);
   const linkedTender = tenders.find((t) => t.id === selected?.sourceTenderId);
   const linkedJob = jobs.find((j) => j.id === selected?.linkedJobId);
@@ -791,6 +809,17 @@ export default function TakeoffStudioPage() {
     void persistStudio({ ...studio, activeDocumentId: first.id, activePage: 1 }, {}, { skipHistory: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id, drawingDocs.map((d) => d.id).join("|")]);
+
+  useEffect(() => {
+    if (!boqOpen || !boqByHouse) return;
+    const fromDrawing = takeoffHouseTypeLabel(activeDoc?.notes);
+    if (fromDrawing !== "Unassigned" && namedHouses.includes(fromDrawing) && fromDrawing !== activeBoqHouseTab) {
+      setActiveBoqHouseTab(fromDrawing);
+    } else if (!houseTypes.includes(activeBoqHouseTab) && namedHouses[0]) {
+      setActiveBoqHouseTab(namedHouses[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boqOpen, selected?.id, activeDoc?.id, boqByHouse]);
 
   async function createProject() {
     setBusy("create");
@@ -2989,7 +3018,9 @@ export default function TakeoffStudioPage() {
                   <p className="eyebrow">Bill of quantities</p>
                   <h1>{boqLayerLabel}</h1>
                   <p className="muted">
-                    Full list for this takeoff — switch layers below. Drawing register stays on Mark when you go back.
+                    {boqByHouse
+                      ? "One tab per house type. Hot & cold, Heating and the rest stay on that house only — Bell starts at zero."
+                      : "Full list for this takeoff — switch layers below. Drawing register stays on Mark when you go back."}
                   </p>
                 </div>
                 <div className="nexa-studio-boq-workspace-actions">
@@ -3011,24 +3042,39 @@ export default function TakeoffStudioPage() {
                   </button>
                 </div>
               </header>
-              <div className="nexa-studio-boq-layers" role="tablist" aria-label="Cost centre layers">
-                {studioLayers.map((layer) => (
-                  <button
-                    key={layer.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={activeLayerId === layer.id}
-                    className={activeLayerId === layer.id ? "on" : undefined}
-                    onClick={() => void persistStudio(setStudioActiveLayer(studio, layer.id))}
-                  >
-                    {layer.id === "all" ? "Master" : layer.label}
-                  </button>
-                ))}
+              <div className="nexa-studio-boq-layers" role="tablist" aria-label={boqByHouse ? "House types" : "Cost centre layers"}>
+                {boqByHouse
+                  ? namedHouses.concat(houseTypes.includes("Unassigned") ? ["Unassigned"] : []).map((house) => (
+                      <button
+                        key={house}
+                        type="button"
+                        role="tab"
+                        aria-selected={activeHouseTab === house}
+                        className={activeHouseTab === house ? "on" : undefined}
+                        onClick={() => setActiveBoqHouseTab(house)}
+                      >
+                        {house}
+                      </button>
+                    ))
+                  : studioLayers.map((layer) => (
+                      <button
+                        key={layer.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={activeLayerId === layer.id}
+                        className={activeLayerId === layer.id ? "on" : undefined}
+                        onClick={() => void persistStudio(setStudioActiveLayer(studio, layer.id))}
+                      >
+                        {layer.id === "all" ? "Master" : layer.label}
+                      </button>
+                    ))}
               </div>
               <p className="nexa-studio-boq-workspace-meta">
-                {activeLayerId === "all"
-                  ? "Master BOQ — every cost centre."
-                  : `${boqLayerLabel} cost centre only. Master rolls them all up for Push.`}
+                {boqByHouse
+                  ? `${activeHouseTab} only — layers and quantities for this house type. Push still sends every house as its own tender tab.`
+                  : activeLayerId === "all"
+                    ? "Master BOQ — every cost centre."
+                    : `${boqLayerLabel} cost centre only. Master rolls them all up for Push.`}
                 {boqMaterialCost > 0 ? ` Indicative materials ≈ £${boqMaterialCost.toFixed(0)}.` : ""}
                 {boqForPanel.length ? ` · ${boqForPanel.length} line${boqForPanel.length === 1 ? "" : "s"}` : ""}
               </p>
@@ -3043,14 +3089,65 @@ export default function TakeoffStudioPage() {
               ) : null}
               {pricedBoqForPanel.length ? (
                 <div className="nexa-studio-boq-list nexa-studio-boq-list-full">
-                  {(["Pipework", "Fittings", "Counts", "Areas"] as const).map((section) => {
-                    const rows = pricedBoqForPanel.filter((row) => row.section === section);
-                    if (!rows.length) return null;
-                    return (
-                      <div key={section} className="nexa-studio-boq-section">
-                        <strong>{section}</strong>
+                  {(boqByHouse
+                    ? studioLayers
+                        .filter((layer) => layer.id !== "all")
+                        .map((layer) => ({
+                          key: layer.id,
+                          title: layer.label,
+                          rows: pricedBoqForPanel.filter((row) => row.layerId === layer.id),
+                        }))
+                        .filter((group) => group.rows.length)
+                    : (["Pipework", "Fittings", "Counts", "Areas"] as const).map((section) => ({
+                        key: section,
+                        title: section,
+                        rows: pricedBoqForPanel.filter((row) => row.section === section),
+                      })).filter((group) => group.rows.length)
+                  ).map((group) => (
+                      <div key={group.key} className="nexa-studio-boq-section">
+                        <strong>{group.title}</strong>
+                        {boqByHouse ? (
+                          (["Pipework", "Fittings", "Counts", "Areas"] as const).map((section) => {
+                            const rows = group.rows.filter((row) => row.section === section);
+                            if (!rows.length) return null;
+                            return (
+                              <div key={section}>
+                                <em>{section}</em>
+                                <ul>
+                                  {rows.map((row) => {
+                                    const state =
+                                      row.pricingState
+                                      || (row.supplierRequired || !(row.unitCost > 0) ? "rfq" : "guide");
+                                    return (
+                                      <li key={row.id}>
+                                        <span>
+                                          {row.description}{" "}
+                                          <small className={`price-ledger-chip is-${state}`}>
+                                            {state === "budget"
+                                              ? "Budget"
+                                              : state === "guide"
+                                                ? "Guide"
+                                                : state === "firm"
+                                                  ? "Firm"
+                                                  : "RFQ"}
+                                          </small>
+                                        </span>
+                                        <em>
+                                          {row.quantity} {row.unit}
+                                          {row.unitCost > 0
+                                            ? ` · £${(row.quantity * row.unitCost).toFixed(0)}`
+                                            : " · RFQ"}
+                                        </em>
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              </div>
+                            );
+                          })
+                        ) : (
                         <ul>
-                          {rows.map((row) => {
+                          {group.rows.map((row) => {
                             const state =
                               row.pricingState
                               || (row.supplierRequired || !(row.unitCost > 0) ? "rfq" : "guide");
@@ -3078,12 +3175,16 @@ export default function TakeoffStudioPage() {
                             );
                           })}
                         </ul>
+                        )}
                       </div>
-                    );
-                  })}
+                    ))}
                 </div>
               ) : (
-                <p className="empty">Nothing on this layer yet — go Back to drawing, Ask Blake or finish a Length run.</p>
+                <p className="empty">
+                  {boqByHouse
+                    ? `Nothing on ${activeHouseTab || "this house"} yet — go Back to drawing and mark that house type.`
+                    : "Nothing on this layer yet — go Back to drawing, Ask Blake or finish a Length run."}
+                </p>
               )}
             </div>
           ) : selected ? (

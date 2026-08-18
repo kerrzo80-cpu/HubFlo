@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   takeoffDrawingDisplayLabel,
+  takeoffHouseTypeLabel,
   takeoffSourceFolderLabel,
   takeoffSourceTenderDocId,
   withSourceFolderNote,
@@ -25,5 +26,12 @@ describe("takeoff drawing labels", () => {
     assert.deepEqual(once, ["sourceTenderDoc:x", "sourceFolder:Hot & cold"]);
     const twice = withSourceFolderNote(once, "Gas");
     assert.deepEqual(twice, ["sourceTenderDoc:x", "sourceFolder:Gas"]);
+  });
+
+  it("uses the top-level folder as the house-type tab", () => {
+    assert.equal(takeoffHouseTypeLabel(["sourceFolder:Belerno"]), "Belerno");
+    assert.equal(takeoffHouseTypeLabel(["sourceFolder:Belerno / Hot & cold"]), "Belerno");
+    assert.equal(takeoffHouseTypeLabel(["sourceFolder:Drawings"]), "Unassigned");
+    assert.equal(takeoffHouseTypeLabel([]), "Unassigned");
   });
 });

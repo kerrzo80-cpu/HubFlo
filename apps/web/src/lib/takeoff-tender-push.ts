@@ -27,7 +27,7 @@ export type TakeoffTenderPushResult = {
   auditEvent: AuditEvent;
 };
 
-/** Push Studio BoQ onto a linked Core tender — one sheet per Draw-as service layer. */
+/** Push Studio BoQ onto a linked Core tender — one sheet per house type when folders exist. */
 export function pushTakeoffProjectToTender(
   projectId: string,
   tenderId: string,
@@ -44,7 +44,11 @@ export function pushTakeoffProjectToTender(
   const takeoffLines = buildTakeoffTenderBoqLines(project.studio, {
     library: getTakeoffRateLibrary(),
     projectRef: project.reference,
-    documents: project.documents.map((doc) => ({ id: doc.id, fileName: doc.fileName })),
+    documents: project.documents.map((doc) => ({
+      id: doc.id,
+      fileName: doc.fileName,
+      notes: doc.notes,
+    })),
   });
   if (!takeoffLines.length) return null;
 

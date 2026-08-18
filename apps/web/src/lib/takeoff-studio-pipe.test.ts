@@ -470,3 +470,67 @@ describe("studio rise / drop metres", () => {
     );
   });
 });
+
+describe("studio BOQ house-type split", () => {
+  it("does not add Belerno and Bell hot-and-cold into one running total", () => {
+    const base = createDefaultStudioState();
+    const hotCls = base.classifications.find((row) => row.id === "cls-ai-P-PIPE-C");
+    assert.ok(hotCls);
+    const studio = {
+      ...base,
+      scales: [
+        { id: "s-bel", documentId: "doc-belerno", page: 1, metresPerUnit: 0.01, label: "1:100" },
+        { id: "s-bell", documentId: "doc-bell", page: 1, metresPerUnit: 0.01, label: "1:100" },
+      ],
+      geometries: [
+        {
+          id: "geo-bel",
+          kind: "linear" as const,
+          classificationId: hotCls.id,
+          documentId: "doc-belerno",
+          page: 1,
+          points: [
+            { x: 0, y: 0 },
+            { x: 100, y: 0 },
+          ],
+          material: "Copper",
+          diameter: "15mm",
+        },
+        {
+          id: "geo-bell",
+          kind: "linear" as const,
+          classificationId: hotCls.id,
+          documentId: "doc-bell",
+          page: 1,
+          points: [
+            { x: 0, y: 0 },
+            { x: 250, y: 0 },
+          ],
+          material: "Copper",
+          diameter: "15mm",
+        },
+      ],
+    };
+    const combined = summariseStudioBoq(studio, "hot-cold");
+    assert.equal(combined.length, 1);
+    assert.equal(combined[0]?.quantity, 3.5);
+
+    const split = summariseStudioBoq(studio, "all", {
+      documentSetLabels: { "doc-belerno": "Belerno", "doc-bell": "Bell" },
+    });
+    const belerno = split.filter((row) => row.setLabel === "Belerno");
+    const bell = split.filter((row) => row.setLabel === "Bell");
+    assert.equal(belerno.length, 1);
+    assert.equal(bell.length, 1);
+    assert.equal(belerno[0]?.quantity, 1);
+    assert.equal(bell[0]?.quantity, 2.5);
+
+    const belernoOnly = summariseStudioBoq(studio, "hot-cold", {
+      documentSetLabels: { "doc-belerno": "Belerno", "doc-bell": "Bell" },
+      setFilter: "Belerno",
+    });
+    assert.equal(belernoOnly.length, 1);
+    assert.equal(belernoOnly[0]?.quantity, 1);
+    assert.equal(belernoOnly[0]?.setLabel, "Belerno");
+  });
+});
