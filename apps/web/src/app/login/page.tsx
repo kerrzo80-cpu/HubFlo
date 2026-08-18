@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { KeyRound, LogIn } from "lucide-react";
+import { TrialEndedScreen } from "@/components/TrialEndedScreen";
 import { useBrand } from "@/components/BrandProvider";
 import { platformLabel } from "@/lib/branding";
 
@@ -11,13 +12,44 @@ function safeNextPath() {
   return next.startsWith("/") && !next.startsWith("//") ? next : "/";
 }
 
+type TrialStatus = {
+  trial?: boolean;
+  expired?: boolean;
+  daysRemaining?: number | null;
+};
+
+function trialDaysLabel(days: number | null | undefined) {
+  if (days == null) return "";
+  if (days <= 0) return "Trial ended";
+  if (days === 1) return "Trial: 1 day remaining";
+  return `Trial: ${days} days remaining`;
+}
+
 export default function LoginPage() {
   const brand = useBrand();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [trial, setTrial] = useState<TrialStatus | null>(null);
   const label = platformLabel(brand);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch("/api/trial-licence", { cache: "no-store" });
+        if (!response.ok) return;
+        const body = (await response.json()) as TrialStatus;
+        if (!cancelled) setTrial(body);
+      } catch {
+        // Live / pilot / offline: no trial banner.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -29,9 +61,10 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
-      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      const result = (await response.json().catch(() => ({}))) as { error?: string; trialExpired?: boolean };
       if (!response.ok) {
         setError(result.error || "Unable to sign in.");
+        if (result.trialExpired) setTrial({ trial: true, expired: true, daysRemaining: 0 });
         return;
       }
       window.location.assign(safeNextPath());
@@ -40,6 +73,10 @@ export default function LoginPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (trial?.trial && trial.expired) {
+    return <TrialEndedScreen />;
   }
 
   return (
@@ -90,6 +127,9 @@ export default function LoginPage() {
             {submitting ? "Signing in..." : "Sign in"}
           </button>
         </form>
+        {trial?.trial && trial.daysRemaining != null ? (
+          <p className="nexa-secure-login-trial-note">{trialDaysLabel(trial.daysRemaining)}</p>
+        ) : null}
       </section>
     </main>
   );

@@ -5,6 +5,7 @@ import {
   wipeServerStoreDirectories,
   writeServerStore,
 } from "@/lib/server-store";
+import { TRIAL_LICENCE_STORE_NAME } from "@/lib/trial-licence";
 import { isTrialCompanyResetAllowed, trialCompanyName } from "@/lib/workspace-mode";
 
 const TRIAL_WIPE_DIRS = [
@@ -21,7 +22,7 @@ const TRIAL_WIPE_DIRS = [
 export const TRIAL_WIPE_STORE = "nexa-trial-wipe-v1";
 /** Bump to force another trial disk wipe after deploy. Never run on nexa-live. */
 export const TRIAL_WIPE_GENERATION = 1;
-export const TRIAL_WIPE_KEEP_STORES = ["auth-store", TRIAL_WIPE_STORE] as const;
+export const TRIAL_WIPE_KEEP_STORES = ["auth-store", TRIAL_WIPE_STORE, TRIAL_LICENCE_STORE_NAME] as const;
 
 type TrialWipeState = {
   generation?: number;

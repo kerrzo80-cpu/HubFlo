@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { employeeHeaderName, permissionHeaderName, roleHeaderName } from "@/lib/access";
 import { getAuthUserForSession, isUserAuthenticationEnabled, nexaSessionCookie } from "@/lib/auth-store";
+import { isTrialAccessExpired, isTrialExpiredAllowedPath, TRIAL_ENDED_PATH } from "@/lib/trial-licence";
 
 const pilotPin = process.env.NEXA_PILOT_PIN;
 const pilotUser = process.env.NEXA_PILOT_USER?.trim() || "nexa";
@@ -25,10 +26,12 @@ const userAuthPublicPaths = new Set([
   "/api/health",
   "/api/health/smoke",
   "/api/branding",
+  "/api/trial-licence",
   "/api/postcode-lookup",
   "/heat-design",
   "/nexa",
   "/early-access",
+  "/trial-ended",
 ]);
 const publicAssetPaths = new Set([
   "/ewg-logo.png",
@@ -97,6 +100,19 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname === "/api/health" || pathname === "/api/health/smoke") return NextResponse.next();
+  if (isTrialAccessExpired()) {
+    if (isTrialExpiredAllowedPath(pathname)) return NextResponse.next();
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { error: "This trial has ended.", trialExpired: true },
+        { status: 403 },
+      );
+    }
+    const ended = request.nextUrl.clone();
+    ended.pathname = TRIAL_ENDED_PATH;
+    ended.search = "";
+    return NextResponse.redirect(ended);
+  }
   if (isPublicBrandingGet(request)) return NextResponse.next();
   if (
     publicAssetPaths.has(pathname) ||

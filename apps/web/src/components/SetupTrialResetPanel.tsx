@@ -2,22 +2,41 @@
 
 import { useEffect, useState } from "react";
 
+function trialDaysLabel(days: number | null | undefined) {
+  if (days == null) return "";
+  if (days <= 0) return "This trial has ended.";
+  if (days === 1) return "1 day remaining on this trial.";
+  return `${days} days remaining on this trial.`;
+}
+
 export function SetupTrialResetPanel() {
   const [available, setAvailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const [daysRemaining, setDaysRemaining] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const response = await fetch("/api/trial-reset", { cache: "no-store" });
-        if (!response.ok) return;
-        const body = (await response.json()) as { available?: boolean; note?: string };
-        if (!cancelled && body.available) {
-          setAvailable(true);
-          setNote(body.note || "");
+        const [resetResponse, licenceResponse] = await Promise.all([
+          fetch("/api/trial-reset", { cache: "no-store" }),
+          fetch("/api/trial-licence", { cache: "no-store" }),
+        ]);
+        if (!resetResponse.ok) return;
+        const body = (await resetResponse.json()) as { available?: boolean; note?: string };
+        if (cancelled || !body.available) return;
+        setAvailable(true);
+        setNote(body.note || "");
+        if (licenceResponse.ok) {
+          const licence = (await licenceResponse.json()) as {
+            trial?: boolean;
+            daysRemaining?: number | null;
+          };
+          if (licence.trial && licence.daysRemaining != null) {
+            setDaysRemaining(licence.daysRemaining);
+          }
         }
       } catch {
         // Hidden on live / unauthenticated.
@@ -57,7 +76,10 @@ export function SetupTrialResetPanel() {
         <div>
           <span className="permission-heading">Trial workspace</span>
           <h2>Reset company data</h2>
-          <p>{note || "Remove sample and leaked office data from this trial. Live office data is not touched."}</p>
+          <p>
+            {daysRemaining != null ? `${trialDaysLabel(daysRemaining)} ` : ""}
+            {note || "Remove sample and leaked office data from this trial. Live office data is not touched."}
+          </p>
         </div>
         <button className="danger-button" disabled={busy} type="button" onClick={() => void resetTrial()}>
           {busy ? "Clearing…" : "Reset company data"}

@@ -488,6 +488,7 @@
 .nexa-secure-login button:active { transform: translateY(0); }
 .nexa-secure-login button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
 .nexa-secure-login-error { background: var(--red-soft); border: 1px solid #efc7ca; border-radius: 12px; color: #a53036; font-size: 12px; margin: 0; padding: 11px 13px; }
+.nexa-secure-login-trial-note { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; text-align: center; }
 
 @media (max-width: 520px) {
   .nexa-secure-login { align-items: stretch; padding: 0; }
