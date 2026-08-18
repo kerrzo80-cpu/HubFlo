@@ -26,6 +26,11 @@ type PushBody = {
   emitterMode?: string;
   markupPercent?: number;
   kit: KitLine[];
+  coveragePercent?: number;
+  designLoadKw?: number;
+  capacityAtFlowKw?: number;
+  emitterShortfallCount?: number;
+  force?: boolean;
 };
 
 export async function POST(request: Request) {
@@ -40,6 +45,18 @@ export async function POST(request: Request) {
   const body = await parseJsonRequestBody<PushBody>(request);
   if (!body?.kit?.length) {
     return NextResponse.json({ error: "No kit materials to push." }, { status: 400 });
+  }
+
+  const { assertHeatDesignExportable } = await import("@/lib/commercial-safeguards");
+  const heatGate = assertHeatDesignExportable({
+    coveragePercent: body.coveragePercent,
+    designLoadKw: body.designLoadKw,
+    capacityAtFlowKw: body.capacityAtFlowKw,
+    emitterShortfallCount: body.emitterShortfallCount,
+    force: body.force,
+  });
+  if (heatGate) {
+    return NextResponse.json({ error: heatGate, code: "HEAT_DESIGN_UNSAFE" }, { status: 422 });
   }
 
   const { actor } = surveyRequestContext(request);

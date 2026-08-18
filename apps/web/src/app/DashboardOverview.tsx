@@ -245,14 +245,23 @@ export function DashboardOverview({
 
   const health = useMemo(() => {
     const counts = { green: 0, amber: 0, red: 0 };
+    const today = now.toISOString().slice(0, 10);
     for (const job of jobs) {
-      const h = str(job, "health");
+      let h = str(job, "health");
+      const status = str(job, "status");
+      const scheduled = str(job, "scheduledDate").slice(0, 10);
+      const due = str(job, "due").slice(0, 10);
+      const closed = ["Completed", "Invoiced", "Cancelled"].includes(status);
+      if (!closed && ((scheduled && scheduled < today) || (due && due < today))) {
+        h = h === "red" ? "red" : "amber";
+      }
       if (h === "amber") counts.amber += 1;
       else if (h === "red") counts.red += 1;
-      else counts.green += 1; // green / blue / missing → On track
+      else if (h === "green") counts.green += 1;
+      else counts.amber += 1; // never inflate On track from blue/unknown
     }
     return counts;
-  }, [jobs]);
+  }, [jobs, now]);
 
   const quotesByStatus = useMemo(() => countBy(quotes, "status"), [quotes]);
 

@@ -338,11 +338,20 @@ function getStore(): WorkflowStore {
   return workflowStore;
 }
 
-function deriveJobHealth(status: string): JobHealth {
+function deriveJobHealth(status: string, options?: { scheduledDate?: string; due?: string }): JobHealth {
   if (["Waiting on parts", "Waiting on customer"].includes(status)) return "red";
   if (status === "Approval required") return "amber";
   if (["Ready to invoice", "Invoiced", "Completed"].includes(status)) return "green";
-  return "blue";
+
+  const today = new Date().toISOString().slice(0, 10);
+  const openStatuses = ["Pending", "In Progress", "Scheduled", "Survey", "Quoted"];
+  const isOpen = openStatuses.includes(status) || !["Ready to invoice", "Invoiced", "Completed", "Cancelled"].includes(status);
+  if (isOpen) {
+    const scheduleOrDue = String(options?.scheduledDate || options?.due || "").slice(0, 10);
+    if (scheduleOrDue && scheduleOrDue < today) return "amber";
+  }
+  // Unknown / blue operational states are "in flight", not "on track".
+  return "amber";
 }
 
 function determineNextJobRef(jobs: Job[]): string {
@@ -484,7 +493,12 @@ export function updateJob(id: string, patch: Partial<Job>): Job | null {
         patch.site ?? current.site,
       )
     : undefined;
-  const nextHealth = patch.status ? deriveJobHealth(patch.status) : current.health;
+  const nextHealth = patch.status || patch.scheduledDate !== undefined || patch.due !== undefined
+    ? deriveJobHealth(patch.status ?? current.status, {
+        scheduledDate: patch.scheduledDate ?? current.scheduledDate,
+        due: patch.due ?? current.due,
+      })
+    : current.health;
   const updated: Job = {
     ...current,
     ...patch,
@@ -526,7 +540,10 @@ export function createJob(
     customer: client?.name ?? payload.customer,
     site: site?.address ?? payload.site,
     ref: nextRef,
-    health: payload.health ?? deriveJobHealth(payload.status),
+    health: payload.health ?? deriveJobHealth(payload.status, {
+      scheduledDate: payload.scheduledDate,
+      due: payload.due,
+    }),
   };
   return saveJob(created);
 }

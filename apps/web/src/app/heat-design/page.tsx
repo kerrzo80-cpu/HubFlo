@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { LayoutDashboard } from "lucide-react";
 import { BuddyCharacter } from "@/lib/BuddyCharacter";
+import { assertHeatDesignExportable } from "@/lib/commercial-safeguards";
 import {
   autoMarkExteriorWalls,
   applyPlanScaleCalibration,
@@ -436,6 +437,18 @@ export default function HeatDesignLabPage() {
   }, [pendingPrint, tab]);
 
   function requestPrint() {
+    if (design) {
+      const gate = assertHeatDesignExportable({
+        coveragePercent: design.coveragePercent,
+        designLoadKw: design.designLoadKw,
+        capacityAtFlowKw: design.capacityAtFlowKw,
+        emitterShortfallCount: design.emitterUpgradeCount,
+      });
+      if (gate) {
+        setNotice(gate);
+        return;
+      }
+    }
     setTab("report");
     setPendingPrint(true);
   }
@@ -800,6 +813,10 @@ export default function HeatDesignLabPage() {
           flowTemperature: project.flowTemperature,
           emitterMode: project.emitterMode,
           kit: design.kit,
+          coveragePercent: design.coveragePercent,
+          designLoadKw: design.designLoadKw,
+          capacityAtFlowKw: design.capacityAtFlowKw,
+          emitterShortfallCount: design.emitterUpgradeCount,
         }),
       });
       const data = await res.json().catch(() => ({}));
