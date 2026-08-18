@@ -28,6 +28,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (estimate.materialLines.some((line) => line.status === "TBC" && !line.notes.trim())) {
     return NextResponse.json({ error: "Review TBC materials before pushing the estimate into a quote." }, { status: 422 });
   }
+  const { assertMaterialsPricedForPush } = await import("@/lib/commercial-safeguards");
+  const priceGate = assertMaterialsPricedForPush(
+    estimate.materialLines.map((line) => ({
+      description: line.description,
+      quantity: line.quantity,
+      unitCost: line.unitCost,
+      status: line.status,
+      supplierRequired: line.status === "Supplier RFQ",
+    })),
+  );
+  if (priceGate) {
+    return NextResponse.json({ error: priceGate }, { status: 422 });
+  }
 
   const materialSell = (line: (typeof estimate.materialLines)[number]) => (line.unitCost || 0) * (1 + line.markupPercent / 100);
   const totalSell = estimate.materialLines.reduce((sum, line) => sum + materialSell(line) * line.quantity, 0)

@@ -72,6 +72,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
+  const sellValue = Number.isFinite(payload.sellValue) ? payload.sellValue : 0;
+  const { assertVariationSellValue } = await import("@/lib/commercial-safeguards");
+  const sellGate = assertVariationSellValue(sellValue);
+  if (sellGate) {
+    return NextResponse.json({ error: sellGate }, { status: 422 });
+  }
+
   const created = upsertVariationPortalRequest({
     variationEventId: payload.variationEventId,
     jobId: payload.jobId,
@@ -79,7 +86,7 @@ export async function POST(request: NextRequest) {
     summary: payload.summary,
     description: payload.description || payload.summary,
     costValue: Number.isFinite(payload.costValue) ? payload.costValue : 0,
-    sellValue: Number.isFinite(payload.sellValue) ? payload.sellValue : 0,
+    sellValue,
     actor: payload.actor,
     clientEmail: payload.clientEmail?.trim(),
     requiresClientApproval: payload.requiresClientApproval ?? true,

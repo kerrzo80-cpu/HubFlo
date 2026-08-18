@@ -71,6 +71,12 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Choose Accepted or Declined" }, { status: 400 });
   }
 
+  const { assertQuotePortalResponseAllowed } = await import("@/lib/commercial-safeguards");
+  const portalGate = assertQuotePortalResponseAllowed(quote.status);
+  if (portalGate) {
+    return NextResponse.json({ error: portalGate }, { status: 409 });
+  }
+
   if (quote.convertedJobId) {
     return NextResponse.json({
       quote,

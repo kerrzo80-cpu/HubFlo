@@ -220,6 +220,40 @@ export async function POST(request: Request, { params }: Params) {
   const costCentreId =
     body.costCentreId?.trim() || ensureDayworkVariationCostCentre(jobId);
 
+  const existingLocked =
+    getDayworkSheetFromStore(jobId, costCentreId) ||
+    listDayworkSheetsFromStore(jobId).find((sheet) => sheet.costCentreId === costCentreId) ||
+    null;
+  if (isDayworkSubmittedToCore(existingLocked)) {
+    const incoming = body.record || (body.draft ? dayworkRecordFromDraft(body.draft, "core") : null);
+    const clearingSignatures = Boolean(
+      incoming
+      && (
+        !String(incoming.plumberSignature || "").trim()
+        || !String(incoming.clientSignature || "").trim()
+      ),
+    );
+    if (clearingSignatures) {
+      recordDayworkWriteAttempt({
+        at: new Date().toISOString(),
+        source: "core-daywork",
+        jobId,
+        costCentreId,
+        ok: false,
+        error: "locked-signed-immutable",
+        hasSignatures: true,
+      });
+      return NextResponse.json(
+        {
+          error:
+            "This Daywork is signed and locked. Signatures cannot be cleared or overwritten. Create a new Daywork sheet if you need a correction.",
+          locked: true,
+        },
+        { status: 409 },
+      );
+    }
+  }
+
   let record = body.record;
   if (!record && body.draft) {
     const validationError = validateDayworkSheetDraft(body.draft);

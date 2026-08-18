@@ -38,6 +38,23 @@ export async function POST(
 
   const { id } = await params;
   const project = getTakeoffProject(id);
+  if (!project) {
+    return NextResponse.json({ error: "Takeoff project not found" }, { status: 404 });
+  }
+
+  const { assertMaterialsPricedForPush } = await import("@/lib/commercial-safeguards");
+  const priceGate = assertMaterialsPricedForPush(
+    (project.materialAllowances || []).map((line) => ({
+      description: line.description,
+      quantity: line.quantity,
+      unitCost: line.unitCost,
+      supplierRequired: line.supplierRequired,
+    })),
+  );
+  if (priceGate) {
+    return NextResponse.json({ error: priceGate }, { status: 422 });
+  }
+
   if (project?.studio && studioNeedsAiReview(project.studio) && !body.allowPendingAiReview) {
     return NextResponse.json(
       {
