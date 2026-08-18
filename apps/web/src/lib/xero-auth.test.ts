@@ -63,7 +63,8 @@ test("xero oauth start URL, PKCE, placeholders, and office copy", async (t) => {
   );
   assert.equal(url.searchParams.get("scope")?.includes("openid"), false);
   assert.equal(url.searchParams.get("scope")?.includes("offline_access"), true);
-  assert.equal(url.searchParams.get("scope")?.includes("accounting.transactions"), true);
+  assert.equal(url.searchParams.get("scope")?.includes("accounting.invoices"), true);
+  assert.equal(url.searchParams.get("scope")?.includes("accounting.payments"), true);
   assert.equal(url.searchParams.get("scope")?.includes("accounting.contacts"), true);
   assert.equal(url.searchParams.get("scope")?.includes("accounting.settings"), true);
   assert.equal(url.searchParams.get("code_challenge_method"), "S256");
@@ -80,7 +81,14 @@ test("xero oauth start URL, PKCE, placeholders, and office copy", async (t) => {
   const filteredUrl = new URL(filtered.authUrl);
   assert.equal(
     filteredUrl.searchParams.get("scope"),
-    "offline_access accounting.transactions accounting.contacts accounting.settings",
+    "offline_access accounting.invoices accounting.payments accounting.contacts accounting.settings",
+  );
+  process.env.XERO_SCOPES = "offline_access accounting.invoices accounting.contacts";
+  const fallback = startXeroAuthorization();
+  const fallbackUrl = new URL(fallback.authUrl);
+  assert.equal(
+    fallbackUrl.searchParams.get("scope"),
+    "offline_access accounting.invoices accounting.payments accounting.contacts accounting.settings",
   );
   delete process.env.XERO_SCOPES;
 });
