@@ -17892,9 +17892,118 @@ button.record-folder-card-button.is-active {
 }
 
 .variation-card.is-action-focused,
-.quote-row.clickable.is-action-focused {
+.quote-row.clickable.is-action-focused,
+.timesheet-pending-row.is-action-focused {
   border-color: #2f6fed;
   box-shadow: 0 0 0 2px rgba(47, 111, 237, 0.25);
+}
+
+.job-attention-banner {
+  align-items: flex-start;
+  background: #fff8eb;
+  border: 1px solid #f79009;
+  border-left: 4px solid #f79009;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin: 0 0 14px;
+  padding: 14px 16px;
+}
+
+.job-attention-banner strong {
+  display: block;
+  font-size: 15px;
+  margin-top: 2px;
+}
+
+.job-attention-banner p {
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+
+.variation-edit-field {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.variation-edit-field span {
+  color: var(--subtle);
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.variation-edit-field textarea,
+.variation-edit-field input {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+.timesheet-pending-approvals {
+  background: #fff;
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+}
+
+.timesheet-pending-approvals > header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.timesheet-pending-approvals h3 {
+  margin: 2px 0 0;
+}
+
+.timesheet-pending-list {
+  display: grid;
+  gap: 10px;
+}
+
+.timesheet-pending-row {
+  align-items: center;
+  border: 1px solid var(--line);
+  border-left: 4px solid #f79009;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 12px 14px;
+}
+
+.timesheet-pending-row.overdue {
+  border-left-color: #f04438;
+}
+
+.timesheet-pending-row > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.timesheet-pending-row span,
+.timesheet-pending-row small {
+  color: var(--muted);
+}
+
+.timesheet-pending-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.timesheet-pending-actions input {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  max-width: 88px;
+  padding: 6px 8px;
 }
 
 .job-finance-grid span,

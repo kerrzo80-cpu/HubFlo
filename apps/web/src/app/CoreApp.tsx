@@ -5714,14 +5714,16 @@ function buildJobVariations(job: Job): JobVariation[] {
       {
         id: `${job.id}-variation-allowance`,
         reference: "V-001",
-        title: "Client-requested scope allowance",
+        title: "Extra bathroom extract fan and make-good",
         status: "Quote drafted",
-        costValue: Math.round(job.value * 0.04),
-        sellValue: Math.round(job.value * 0.06),
-        description: "Engineer captured additional works requested on site. Office needs to price and issue for approval before proceeding.",
+        costValue: Math.max(120, Math.round(job.value * 0.04)),
+        sellValue: Math.max(180, Math.round(job.value * 0.06)),
+        description:
+          "Client asked on site for an additional bathroom extract fan, 3m of ducting to the external wall, and make-good to the ceiling after the first-fix visit. Works are not in the original quote — office to price and send for approval before proceeding.",
         reason: "Client request",
         labourHours: 4,
-        materialsUsed: "Materials to be confirmed from engineer note/photos.",
+        materialsUsed:
+          "1 × 100mm extract fan, 3m flexible ducting, external grille, silicone, fixings, ceiling make-good board and paint.",
         requiresClientApproval: true,
         clientApprovalStatus: "Not sent",
         engineerName: "Chris Lawson",
@@ -5793,25 +5795,35 @@ function mapVariationClientStatusFromPortalStatus(status: VariationPortalSyncRec
 }
 
 function buildEventVariationFromDeliveryEvent(event: JobDeliveryEvent, index: number): JobVariation {
+  const materials =
+    [event.materials, event.materialsCost ? `Materials cost £${event.materialsCost}` : ""]
+      .filter(Boolean)
+      .join(" · ") || undefined;
+  const descriptionParts = [
+    event.summary,
+    event.reason && event.reason !== "Engineer raised" && event.reason !== "Daywork account"
+      ? `Reason: ${event.reason}`
+      : "",
+  ].filter(Boolean);
   return {
     id: event.id,
     reference: `V-${String(index + 1).padStart(3, "0")}`,
     title:
       event.formType === "daywork"
         ? `Daywork · ${event.summary || "Account"}`
-        : event.summary || "Variation raised",
+        : (event.summary || "Variation raised").split(/[.!\n]/)[0]?.trim().slice(0, 72) || "Variation raised",
     status: mapVariationStatusFromEvent(event),
     costValue: event.costValue ?? 0,
     sellValue: event.sellValue ?? 0,
-    description: event.summary || "No variation summary captured.",
+    description: descriptionParts.join(". ") || "No variation summary captured.",
     reason: event.formType === "daywork" ? "Daywork account" : event.reason || "Engineer raised",
-  labourHours: event.hours,
-  materialsUsed: event.materials,
-  requiresClientApproval: event.requiresClientApproval ?? true,
-  clientApprovalStatus: mapVariationClientStatusFromEvent(event),
-  engineerName: event.actor,
-  portalToken: event.portalToken,
-  source: "event",
+    labourHours: event.hours,
+    materialsUsed: materials,
+    requiresClientApproval: event.requiresClientApproval ?? true,
+    clientApprovalStatus: mapVariationClientStatusFromEvent(event),
+    engineerName: event.actor,
+    portalToken: event.portalToken,
+    source: "event",
   };
 }
 
@@ -8577,6 +8589,13 @@ export default function CoreApp() {
   const [activeActionQueueKey, setActiveActionQueueKey] = useState<ActionQueueKey>("unassigned");
   /** Highlight a specific variation / timesheet after opening from Action notifications. */
   const [focusedActionRecordId, setFocusedActionRecordId] = useState<string | null>(null);
+  /** Why this job was opened from Attention / Blocked — shown as a banner on the job record. */
+  const [jobAttentionContext, setJobAttentionContext] = useState<{
+    jobId: string;
+    label: string;
+    detail: string;
+    code?: string;
+  } | null>(null);
   const [activeLeadFolderKey, setActiveLeadFolderKey] = useState("all");
   const [activeInvoiceFolderKey, setActiveInvoiceFolderKey] = useState("all");
   const [activeDayworkFolderKey, setActiveDayworkFolderKey] = useState<"review" | "completed" | "all">("review");
@@ -8720,13 +8739,23 @@ export default function CoreApp() {
       const node =
         document.getElementById(`variation-card-${focusedActionRecordId}`) ||
         document.getElementById(`action-focus-${focusedActionRecordId}`) ||
+        document.getElementById(`timesheet-pending-${focusedActionRecordId}`) ||
         document.querySelector(`[data-action-focus="true"]`);
       if (node && "scrollIntoView" in node) {
         (node as HTMLElement).scrollIntoView({ behavior: "smooth", block: "center" });
       }
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [focusedActionRecordId, homeView, activeJobFolderKey, activeJobCostCentreListTab]);
+  }, [focusedActionRecordId, homeView, activeJobFolderKey, activeJobCostCentreListTab, schedulePane]);
+
+  // Attention / Blocked folders moved to Action notifications — bounce old deep-links.
+  useEffect(() => {
+    if (homeView !== "jobs") return;
+    if (activeJobFolderKey === "health-attention" || activeJobFolderKey === "health-blocked") {
+      setActiveActionQueueKey(activeJobFolderKey);
+      setHomeView("action-queue");
+    }
+  }, [activeJobFolderKey, homeView]);
 
   useEffect(() => {
     setDirectorySelectedIds({
@@ -13988,12 +14017,15 @@ export default function CoreApp() {
         tone: "blue",
         items: filteredJobs,
       },
-      ...jobHealthDirectoryGroups.map((group) => ({
-        key: group.key,
-        label: `${group.label} (${group.items.length})`,
-        tone: group.tone,
-        items: group.items,
-      })),
+      // Attention / Blocked live in Action notifications — keep On track only as a health shortcut.
+      ...jobHealthDirectoryGroups
+        .filter((group) => group.key !== "health-attention" && group.key !== "health-blocked")
+        .map((group) => ({
+          key: group.key,
+          label: `${group.label} (${group.items.length})`,
+          tone: group.tone,
+          items: group.items,
+        })),
       ...jobDirectoryGroups,
     ],
     [filteredJobs, jobDirectoryGroups, jobHealthDirectoryGroups],
@@ -14282,7 +14314,7 @@ export default function CoreApp() {
           why: primary?.label ?? "Needs follow-up",
           detail: primary?.detail ?? job.next,
           status: job.status,
-          onOpen: () => openAttentionJob(job, primary),
+          onOpen: () => openAttentionJob(job, primary ?? undefined),
           actionLabel: "Open",
         })),
       },
@@ -14299,7 +14331,7 @@ export default function CoreApp() {
           why: primary?.label ?? "Blocked",
           detail: primary?.detail ?? job.next,
           status: job.status,
-          onOpen: () => openAttentionJob(job, primary),
+          onOpen: () => openAttentionJob(job, primary ?? undefined),
           actionLabel: "Open",
         })),
       },
@@ -21623,6 +21655,9 @@ export default function CoreApp() {
 
   function openJobDrawer(jobId: string) {
     const job = jobs.find((item) => item.id === jobId);
+    if (jobAttentionContext && jobAttentionContext.jobId !== jobId) {
+      setJobAttentionContext(null);
+    }
     rememberOpenWorkspaceTab({
       kind: "job",
       recordId: jobId,
@@ -21945,8 +21980,10 @@ export default function CoreApp() {
     const capturedVariations = [...jobDeliveryEvents, ...synthesisedDaywork]
       .filter((event) => event.jobId === job.id && event.kind === "variation")
       .map((event, index) => buildEventVariationFromDeliveryEvent(event, index));
+    const capturedIds = new Set(capturedVariations.map((row) => row.id));
+    const seedVariations = buildJobVariations(job).filter((row) => !capturedIds.has(row.id));
 
-    return [...capturedVariations, ...buildJobVariations(job)];
+    return [...capturedVariations, ...seedVariations];
   }
 
   function openInvoiceForQuote(quote: Quote) {
@@ -24412,7 +24449,7 @@ export default function CoreApp() {
     showNotice(`${variation.reference || "Variation"} opened on the Variations tab.`);
   }
 
-  /** Open Jobs → Timesheets (approve/reject), optionally snapped to the submission week. */
+  /** Open Schedules → Timesheets with pending submissions to approve — not the Jobs register. */
   function openTimesheetApproval(event?: JobDeliveryEvent, job?: Job) {
     const targetJob = job || (event ? jobs.find((item) => item.id === event.jobId) : undefined);
     if (event?.id) setFocusedActionRecordId(event.id);
@@ -24420,24 +24457,38 @@ export default function CoreApp() {
 
     if (event?.workDate) {
       setTimesheetWeekStart(startOfScheduleWeek(event.workDate));
+    } else if (event?.weekEnding) {
+      setTimesheetWeekStart(startOfScheduleWeek(event.weekEnding));
     }
 
-    setActiveJobFolderKey("timesheets");
-    setHomeView("jobs");
+    setSchedulePane("timesheets");
+    setHomeView("schedule");
     scrollWorkspaceToTop();
     showNotice(
       event
-        ? `Timesheet from ${event.actor || "engineer"} — approve or reject below.`
+        ? `Timesheet from ${event.actor || "engineer"} (${event.hours ?? 0}h) — approve or reject in the pending list.`
         : targetJob
-          ? `${targetJob.ref} — timesheet overdue; chase or open the job.`
-          : "Timesheets queue opened.",
+          ? `${targetJob.ref} — timesheet overdue; chase the engineer or confirm hours below.`
+          : "Timesheets opened — pending approvals are listed first.",
     );
   }
 
-  /** Route Attention/Blocked rows to the best surface for the primary reason. */
-  function openAttentionJob(job: Job, primary?: { code?: string; label?: string } | null) {
-    const code = primary?.code || "";
-    const label = (primary?.label || "").toLowerCase();
+  /** Route Attention/Blocked rows to the best surface for the primary reason, with a why banner on the job. */
+  function openAttentionJob(job: Job, primary?: { code?: string; label?: string; detail?: string } | null) {
+    const today = new Date().toISOString().slice(0, 10);
+    const reasons = jobAttentionReasons(job, today);
+    const reason = primary?.label
+      ? { code: primary.code, label: primary.label, detail: primary.detail || reasons[0]?.detail || job.next || "" }
+      : reasons[0] ?? primaryJobAttentionReason(job, today);
+    setJobAttentionContext({
+      jobId: job.id,
+      label: reason?.label || "Needs follow-up",
+      detail: reason?.detail || job.next || "Clear the next office action on this job",
+      code: reason?.code,
+    });
+
+    const code = reason?.code || primary?.code || "";
+    const label = (reason?.label || primary?.label || "").toLowerCase();
 
     if (code === "approval_required" || label.includes("approval")) {
       const variation = buildVariationsForJob(job).find(
@@ -24449,6 +24500,11 @@ export default function CoreApp() {
         openVariationRecord(job.id, variation);
         return;
       }
+      openJobDrawer(job.id);
+      setActiveJobTab("cost-centres");
+      setActiveJobCostCentreListTab("variations");
+      showNotice("Open the variation that needs approval — details are on the Variations tab.");
+      return;
     }
 
     if (code === "overdue_schedule" || code === "overdue_due" || label.includes("past booked") || label.includes("past due")) {
@@ -24457,7 +24513,11 @@ export default function CoreApp() {
     }
 
     const daywork = dashboardDayworkReviews.find((row) => row.jobId === job.id);
-    if (daywork && (label.includes("daywork") || /daywork/i.test(job.next || ""))) {
+    if (
+      daywork &&
+      code !== "imported_review" &&
+      (label.includes("daywork") || /daywork/i.test(job.next || ""))
+    ) {
       openDayworkAccountRecord(job.id, { costCentreId: daywork.costCentreId });
       return;
     }
@@ -24469,6 +24529,11 @@ export default function CoreApp() {
     }
 
     openJobDrawer(job.id);
+    if (code === "imported_review" || /review imported/i.test(job.next || "")) {
+      showNotice("Imported job — confirm customer, site and schedule, then update the next action.");
+    } else {
+      showNotice(`${reason?.label || "Needs attention"}: ${reason?.detail || job.next || "See the banner on this job."}`);
+    }
   }
 
   function openPurchaseOrderRegisterRow(request: PurchaseRequest) {
@@ -26526,15 +26591,168 @@ export default function CoreApp() {
     return updated ?? null;
   }
 
+  /** Promote a seed variation card into a live delivery event so Preview / Send / edits work. */
+  function ensureJobVariationDeliveryEvent(variation: JobVariation): JobDeliveryEvent | null {
+    if (!selectedJob) return null;
+    const existing = jobDeliveryEvents.find(
+      (event) => event.id === variation.id && event.jobId === selectedJob.id && event.kind === "variation",
+    );
+    if (existing) return existing;
+
+    const created: JobDeliveryEvent = {
+      id: variation.id,
+      jobId: selectedJob.id,
+      jobRef: selectedJob.ref,
+      kind: "variation",
+      actor: variation.engineerName || selectedJob.manager || activeEmployee?.name || "Office",
+      summary: variation.description || variation.title || "Variation",
+      createdAt: new Date().toISOString(),
+      hours: variation.labourHours,
+      materials: variation.materialsUsed,
+      costValue: variation.costValue,
+      sellValue: variation.sellValue,
+      reason: variation.reason || "Client request",
+      requiresClientApproval: variation.requiresClientApproval ?? true,
+      clientApprovalStatus: variation.clientApprovalStatus,
+      status: variation.status === "Quote drafted" ? "Quote drafted" : variation.status || "Office review",
+      portalToken: variation.portalToken,
+      source: "NeXa",
+    };
+    setJobDeliveryEvents((current) => {
+      if (current.some((event) => event.id === created.id && event.jobId === created.jobId && event.kind === "variation")) {
+        return current;
+      }
+      return [created, ...current];
+    });
+    return created;
+  }
+
+  function patchSelectedJobVariationContent(
+    variation: JobVariation,
+    patch: { summary?: string; materials?: string; hours?: number; costValue?: number; sellValue?: number },
+  ) {
+    if (!selectedJob) return;
+    const jobId = selectedJob.id;
+    setJobDeliveryEvents((current) => {
+      const existing = current.find(
+        (event) => event.id === variation.id && event.jobId === jobId && event.kind === "variation",
+      );
+      if (existing) {
+        return current.map((event) =>
+          event.id === existing.id && event.jobId === jobId
+            ? {
+                ...event,
+                summary: patch.summary ?? event.summary,
+                materials: patch.materials ?? event.materials,
+                hours: patch.hours ?? event.hours,
+                costValue: patch.costValue ?? event.costValue,
+                sellValue: patch.sellValue ?? event.sellValue,
+              }
+            : event,
+        );
+      }
+      const created: JobDeliveryEvent = {
+        id: variation.id,
+        jobId,
+        jobRef: selectedJob.ref,
+        kind: "variation",
+        actor: variation.engineerName || selectedJob.manager || activeEmployee?.name || "Office",
+        summary: patch.summary ?? variation.description ?? variation.title ?? "Variation",
+        createdAt: new Date().toISOString(),
+        hours: patch.hours ?? variation.labourHours,
+        materials: patch.materials ?? variation.materialsUsed,
+        costValue: patch.costValue ?? variation.costValue,
+        sellValue: patch.sellValue ?? variation.sellValue,
+        reason: variation.reason || "Client request",
+        requiresClientApproval: variation.requiresClientApproval ?? true,
+        clientApprovalStatus: variation.clientApprovalStatus,
+        status: variation.status === "Quote drafted" ? "Quote drafted" : variation.status || "Office review",
+        portalToken: variation.portalToken,
+        source: "NeXa",
+      };
+      return [created, ...current];
+    });
+  }
+
+  function previewSelectedJobVariation(variation: JobVariation) {
+    if (!selectedJob) return;
+    if (variation.id.startsWith("daywork-") || variation.reason === "Daywork account") {
+      openDayworkAccountRecord(selectedJob.id);
+      return;
+    }
+    if (variation.portalToken) {
+      window.open(`/client/variations/${variation.portalToken}`, "_blank", "noopener,noreferrer");
+      return;
+    }
+    const event = ensureJobVariationDeliveryEvent(variation);
+    if (!event) {
+      showNotice("Could not open a preview for this variation.");
+      return;
+    }
+    const description = (event.summary || variation.description || variation.title || "").trim();
+    if (!description || description.length < 12) {
+      showNotice("Add a clear description of the works before previewing for the client.");
+      return;
+    }
+    void fetch("/api/variation-portal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        variationEventId: event.id,
+        jobId: selectedJob.id,
+        jobRef: selectedJob.ref,
+        summary: variation.title || event.summary,
+        description,
+        costValue: event.costValue ?? variation.costValue ?? 0,
+        sellValue: event.sellValue ?? variation.sellValue ?? 0,
+        actor: activeEmployee?.name ?? selectedJob.manager,
+        // Preview only — do not email the client yet.
+        clientEmail: "",
+        requiresClientApproval: event.requiresClientApproval ?? true,
+      }),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const errorPayload = await response.json().catch(() => null);
+          throw new Error((errorPayload as { error?: string })?.error ?? "Unable to build variation preview.");
+        }
+        return response.json() as Promise<{ token: string }>;
+      })
+      .then((created) => {
+        updateSelectedJobVariationEvent(event.id, { portalToken: created.token });
+        window.open(`/client/variations/${created.token}`, "_blank", "noopener,noreferrer");
+        showNotice("Client preview opened — description and price only. Send for approval when ready.");
+      })
+      .catch((error: unknown) => {
+        showNotice(error instanceof Error ? error.message : "Unable to open variation preview.");
+      });
+  }
+
   function sendSelectedJobVariationForApproval(variationId: string) {
     if (!selectedJob) return;
-    const variationEvent = jobDeliveryEvents.find((event) => event.id === variationId && event.kind === "variation" && event.jobId === selectedJob.id);
+    let variationEvent = jobDeliveryEvents.find((event) => event.id === variationId && event.kind === "variation" && event.jobId === selectedJob.id);
+    if (!variationEvent) {
+      const seed = selectedJobVariations.find((row) => row.id === variationId);
+      if (seed) {
+        variationEvent = ensureJobVariationDeliveryEvent(seed) ?? undefined;
+      }
+    }
     if (!variationEvent) {
       showNotice("This variation is not yet linked to a live event.");
       return;
     }
-    if (!variationEvent.requiresClientApproval) {
-      const approved = updateSelectedJobVariationEvent(variationEvent.id, { status: "Approved", clientApprovalStatus: "Approved" });
+    const eventToSend = variationEvent;
+    const description = (eventToSend.summary || "").trim();
+    if (!description || description.length < 12) {
+      showNotice("Add a clear description of the works (what / where / why) before sending for approval.");
+      return;
+    }
+    if (!(eventToSend.sellValue && eventToSend.sellValue > 0)) {
+      showNotice("Set a charge amount before sending for approval.");
+      return;
+    }
+    if (!eventToSend.requiresClientApproval) {
+      const approved = updateSelectedJobVariationEvent(eventToSend.id, { status: "Approved", clientApprovalStatus: "Approved" });
       if (!approved) {
         showNotice("Could not update variation status.");
         return;
@@ -26544,38 +26762,47 @@ export default function CoreApp() {
         action: "approved",
         recordType: "job",
         recordId: selectedJob.id,
-        summary: `${variationEvent.summary} marked approved on ${selectedJob.ref}.`,
+        summary: `${eventToSend.summary} marked approved on ${selectedJob.ref}.`,
         source: "variation actions",
         importance: "high",
       });
-      showNotice(`${variationEvent.summary} marked as approved (no client approval required).`);
+      showNotice(`${eventToSend.summary} marked as approved (no client approval required).`);
       return;
     }
-    if (variationEvent.status === "Client approved") {
+    if (eventToSend.status === "Client approved") {
       showNotice("Variation already approved by client.");
       return;
     }
-    if (variationEvent.status === "Sent for approval") {
+    if (eventToSend.status === "Sent for approval") {
       showNotice("Variation already sent to client for approval.");
       return;
     }
     const clientEmail = selectedJobClient?.email ?? selectedJob.customer;
+    const jobId = selectedJob.id;
+    const jobRef = selectedJob.ref;
+    const manager = selectedJob.manager;
 
     const requestVariationApproval = async () => {
       const response = await fetch("/api/variation-portal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          variationEventId: variationEvent.id,
-          jobId: selectedJob.id,
-          jobRef: selectedJob.ref,
-          summary: variationEvent.summary,
-          description: variationEvent.summary,
-          costValue: variationEvent.costValue ?? 0,
-          sellValue: variationEvent.sellValue ?? 0,
-          actor: activeEmployee?.name ?? selectedJob.manager,
+          variationEventId: eventToSend.id,
+          jobId,
+          jobRef,
+          summary: eventToSend.summary,
+          description: [
+            eventToSend.summary,
+            eventToSend.materials ? `Materials: ${eventToSend.materials}` : "",
+            eventToSend.hours ? `Labour: ${eventToSend.hours} hrs` : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          costValue: eventToSend.costValue ?? 0,
+          sellValue: eventToSend.sellValue ?? 0,
+          actor: activeEmployee?.name ?? manager,
           clientEmail,
-          requiresClientApproval: variationEvent.requiresClientApproval ?? true,
+          requiresClientApproval: eventToSend.requiresClientApproval ?? true,
         }),
       });
       if (!response.ok) {
@@ -26587,7 +26814,7 @@ export default function CoreApp() {
 
     requestVariationApproval()
       .then((created) => {
-        const target = updateSelectedJobVariationEvent(variationEvent.id, {
+        const target = updateSelectedJobVariationEvent(eventToSend.id, {
           status: "Sent for approval",
           clientApprovalStatus: "Sent",
           portalToken: created.token,
@@ -26600,37 +26827,40 @@ export default function CoreApp() {
         const portalUrl = variationPortalLink(created.token);
         addCommunicationRecord({
           recordType: "job",
-          recordId: selectedJob.id,
-          relatedJobId: selectedJob.id,
+          recordId: jobId,
+          relatedJobId: jobId,
           direction: "outbound",
           channel: "Client portal",
-          subject: `${variationEvent.summary} - approval requested`,
-          body: `Please review and approve the additional variation for ${selectedJob.ref}. Amount: ${currency(target.sellValue ?? 0)}.\n\nApprove here: ${portalUrl}`,
+          subject: `${eventToSend.summary} - approval requested`,
+          body: `Please review and approve the additional variation for ${jobRef}. Amount: ${currency(target.sellValue ?? 0)}.\n\nApprove here: ${portalUrl}`,
           from: "office@errolwatsongroup.co.uk",
           to: clientEmail,
           status: "Sent",
         });
 
         logAuditEvent({
-          actor: activeEmployee?.name ?? selectedJob.manager,
+          actor: activeEmployee?.name ?? manager,
           action: "variation approval requested",
           recordType: "job",
-          recordId: selectedJob.id,
-          summary: `Variation ${target.summary} sent to client for approval from ${selectedJob.ref}.`,
+          recordId: jobId,
+          summary: `Variation ${target.summary} sent to client for approval from ${jobRef}.`,
           source: "variation actions",
           importance: "high",
         });
-        showNotice(`Variation sent to client via variation approval flow. ${formatVariationPortalCopyNotice(target)}`);
+        showNotice(`Variation sent for approval — portal link ready.`);
       })
-      .catch((error) => {
-        const message = error instanceof Error ? error.message : "Unable to send variation approval request.";
-        showNotice(message);
+      .catch((error: unknown) => {
+        showNotice(error instanceof Error ? error.message : "Unable to send variation for approval.");
       });
   }
 
   function approveSelectedJobVariation(variationId: string) {
     if (!selectedJob) return;
-    const variationEvent = jobDeliveryEvents.find((event) => event.id === variationId && event.kind === "variation" && event.jobId === selectedJob.id);
+    let variationEvent = jobDeliveryEvents.find((event) => event.id === variationId && event.kind === "variation" && event.jobId === selectedJob.id);
+    if (!variationEvent) {
+      const seed = selectedJobVariations.find((row) => row.id === variationId);
+      if (seed) variationEvent = ensureJobVariationDeliveryEvent(seed) ?? undefined;
+    }
     if (!variationEvent) {
       showNotice("This variation is not yet linked to a live event.");
       return;
@@ -33862,6 +34092,10 @@ export default function CoreApp() {
         openActionQueue(folderKey);
         return;
       }
+      if (folderKey === "timesheets") {
+        openTimesheetApproval();
+        return;
+      }
       setActiveJobFolderKey(folderKey);
       if (folderKey.startsWith("health-")) {
         setStatusFilter("All statuses");
@@ -36199,22 +36433,20 @@ export default function CoreApp() {
                       value: jobHealthDirectoryGroups.find((group) => group.key === "health-attention")?.items.length ?? 0,
                       tone: "amber",
                       onClick: () => {
-                        setActiveJobFolderKey("health-attention");
                         setActiveActionQueueKey("health-attention");
                         setHomeView("action-queue");
                       },
-                      active: activeJobFolderKey === "health-attention",
+                      active: false,
                     },
                     {
                       label: "Blocked",
                       value: jobHealthDirectoryGroups.find((group) => group.key === "health-blocked")?.items.length ?? 0,
                       tone: "red",
                       onClick: () => {
-                        setActiveJobFolderKey("health-blocked");
                         setActiveActionQueueKey("health-blocked");
                         setHomeView("action-queue");
                       },
-                      active: activeJobFolderKey === "health-blocked",
+                      active: false,
                     },
                   ])
                 : renderRegisterKpiCards([
@@ -36232,6 +36464,15 @@ export default function CoreApp() {
                       label: "Ready to invoice",
                       value: jobDirectoryGroups.find((group) => group.key === "uninvoiced")?.items.length ?? 0,
                       tone: "green",
+                    },
+                    {
+                      label: "Attention",
+                      value: jobHealthDirectoryGroups.find((group) => group.key === "health-attention")?.items.length ?? 0,
+                      tone: "amber",
+                      onClick: () => {
+                        setActiveActionQueueKey("health-attention");
+                        setHomeView("action-queue");
+                      },
                     },
                   ])}
               {renderRegisterStatusTabs(
@@ -41177,6 +41418,22 @@ export default function CoreApp() {
                     </div>
                   </div>
                 </div>
+                {jobAttentionContext?.jobId === selectedJob.id ? (
+                  <aside className="job-attention-banner" role="status">
+                    <div>
+                      <span className="permission-heading">Why this needs attention</span>
+                      <strong>{jobAttentionContext.label}</strong>
+                      <p>{jobAttentionContext.detail}</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => setJobAttentionContext(null)}
+                    >
+                      Dismiss
+                    </button>
+                  </aside>
+                ) : null}
                 {renderWorkflowTracker(
                   buildWorkflowTrackerStages({
                     lead: selectedJobSourceQuote?.sourceLeadId
@@ -42611,7 +42868,22 @@ export default function CoreApp() {
                                   </div>
                                   <span className="status-pill amber">{variation.status}</span>
                                 </header>
-                                <p className="variation-description">{variation.description}</p>
+                                <label className="variation-edit-field">
+                                  <span>Works description (client sees this)</span>
+                                  <textarea
+                                    rows={3}
+                                    value={variation.description || ""}
+                                    disabled={
+                                      variation.status === "Client approved" ||
+                                      variation.status === "Approved" ||
+                                      variation.status === "Sent for approval"
+                                    }
+                                    onChange={(event) =>
+                                      patchSelectedJobVariationContent(variation, { summary: event.target.value })
+                                    }
+                                    placeholder="Describe the extra works clearly — what, where, and why — before sending for approval."
+                                  />
+                                </label>
                                 <div className="variation-detail-grid">
                                   <div>
                                     <span>Raised by</span>
@@ -42621,19 +42893,46 @@ export default function CoreApp() {
                                     <span>Reason</span>
                                     <strong>{variation.reason ?? "Not recorded"}</strong>
                                   </div>
-                                  <div>
+                                  <label className="variation-edit-field">
                                     <span>Hours</span>
-                                    <strong>{variation.labourHours ? `${variation.labourHours} hrs` : "TBC"}</strong>
-                                  </div>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      step={0.5}
+                                      value={variation.labourHours ?? ""}
+                                      disabled={
+                                        variation.status === "Client approved" ||
+                                        variation.status === "Approved" ||
+                                        variation.status === "Sent for approval"
+                                      }
+                                      onChange={(event) =>
+                                        patchSelectedJobVariationContent(variation, {
+                                          hours: Number(event.target.value) || 0,
+                                        })
+                                      }
+                                    />
+                                  </label>
                                   <div>
                                     <span>Client approval</span>
                                     <strong>{variation.requiresClientApproval ? variation.clientApprovalStatus ?? "Not sent" : "Not required"}</strong>
                                   </div>
                                 </div>
-                                <div className="variation-materials">
+                                <label className="variation-edit-field">
                                   <span>Materials / engineer note</span>
-                                  <strong>{variation.materialsUsed ?? "No materials recorded yet."}</strong>
-                                </div>
+                                  <textarea
+                                    rows={2}
+                                    value={variation.materialsUsed || ""}
+                                    disabled={
+                                      variation.status === "Client approved" ||
+                                      variation.status === "Approved" ||
+                                      variation.status === "Sent for approval"
+                                    }
+                                    onChange={(event) =>
+                                      patchSelectedJobVariationContent(variation, { materials: event.target.value })
+                                    }
+                                    placeholder="List materials and any site notes the client should see."
+                                  />
+                                </label>
                                 <div className="variation-money">
                                   <div>
                                     <span>Cost</span>
@@ -42692,29 +42991,7 @@ export default function CoreApp() {
                                     <button
                                       className="simpro-grey-button"
                                       type="button"
-                                      onClick={() => {
-                                        if (variation.id.startsWith("daywork-") || variation.reason === "Daywork account") {
-                                          if (selectedJob) openDayworkAccountRecord(selectedJob.id);
-                                          return;
-                                        }
-                                        if (variation.portalToken) {
-                                          window.open(`/client/variations/${variation.portalToken}`, "_blank", "noopener,noreferrer");
-                                          return;
-                                        }
-                                        const linkedQuote = quotes.find(
-                                          (quote) =>
-                                            quote.ref === variation.reference ||
-                                            quote.title === variation.title ||
-                                            (selectedJob && quote.convertedJobId === selectedJob.id && /variation/i.test(quote.title)),
-                                        );
-                                        if (linkedQuote) {
-                                          openQuoteDrawer(linkedQuote.id);
-                                          return;
-                                        }
-                                        showNotice(
-                                          `${variation.reference} has no portal link yet — send for approval first, or open the Daywork form if this is a daywork account.`,
-                                        );
-                                      }}
+                                      onClick={() => previewSelectedJobVariation(variation)}
                                     >
                                       Preview
                                     </button>
@@ -42722,11 +42999,11 @@ export default function CoreApp() {
                                       className="simpro-blue-button"
                                       type="button"
                                       disabled={
-                                        variation.source === "seed" ||
                                         variation.requiresClientApproval === false ||
                                         variation.status === "Client approved" ||
                                         variation.status === "Approved" ||
-                                        variation.status === "Proceed"
+                                        variation.status === "Proceed" ||
+                                        variation.status === "Sent for approval"
                                       }
                                       onClick={() => sendSelectedJobVariationForApproval(variation.id)}
                                     >
@@ -42744,10 +43021,9 @@ export default function CoreApp() {
                                       className="simpro-save-button"
                                       type="button"
                                       disabled={
-                                        variation.source === "seed" ||
-                                        (variation.requiresClientApproval
+                                        variation.requiresClientApproval
                                           ? variation.status !== "Sent for approval"
-                                          : variation.status === "Approved" || variation.status === "Client approved" || variation.status === "Proceed")
+                                          : variation.status === "Approved" || variation.status === "Client approved" || variation.status === "Proceed"
                                       }
                                       onClick={() => approveSelectedJobVariation(variation.id)}
                                     >
@@ -46491,9 +46767,114 @@ export default function CoreApp() {
               {schedulePane === "timesheets" ? (
                 <section className="timesheet-week-board-wrap" aria-label="Timesheet week board">
                   <p className="timesheet-week-hint">
-                    {timesheetWeekLabel} · Same week layout as Schedule work — click a job card to edit hours or the job,
-                    then Confirm day to charge labour and push hours to Payroll.
+                    {timesheetWeekLabel} · Pending timesheet submissions are listed first for approve / reject.
+                    Use the week board below to confirm scheduled hours into payroll.
                   </p>
+
+                  <section className="timesheet-pending-approvals" aria-label="Timesheets awaiting approval">
+                    <header>
+                      <div>
+                        <span className="permission-heading">Pending approvals</span>
+                        <h3>
+                          {pendingTimesheetApprovals.length
+                            ? `${pendingTimesheetApprovals.length} timesheet${pendingTimesheetApprovals.length === 1 ? "" : "s"} to review`
+                            : "No timesheets waiting"}
+                        </h3>
+                      </div>
+                      {overdueTimesheetJobs.length ? (
+                        <span className="status-pill red">{overdueTimesheetJobs.length} overdue</span>
+                      ) : null}
+                    </header>
+                    {pendingTimesheetApprovals.length === 0 && overdueTimesheetJobs.length === 0 ? (
+                      <div className="record-folder-empty">Nothing to approve — Field submissions will appear here.</div>
+                    ) : (
+                      <div className="timesheet-pending-list">
+                        {pendingTimesheetApprovals.map((event) => {
+                          const job = jobs.find((item) => item.id === event.jobId);
+                          const focused = focusedActionRecordId === event.id;
+                          return (
+                            <article
+                              key={event.id}
+                              id={`timesheet-pending-${event.id}`}
+                              className={`timesheet-pending-row${focused ? " is-action-focused" : ""}`}
+                              data-action-focus={focused ? "true" : undefined}
+                            >
+                              <div>
+                                <strong>
+                                  {event.actor || "Engineer"} · {event.hours ?? 0}h
+                                </strong>
+                                <span>
+                                  {job?.ref || event.jobRef} · {job?.customer || "Job"}
+                                  {event.workDate ? ` · ${event.workDate}` : ""}
+                                </span>
+                                <small>{event.summary || "Hours submitted from Field"}</small>
+                              </div>
+                              <div className="timesheet-pending-actions">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.25}
+                                  aria-label="Adjusted hours"
+                                  value={timesheetAdjustHours[event.id] ?? event.hours ?? ""}
+                                  onChange={(changeEvent) =>
+                                    setTimesheetAdjustHours((current) => ({
+                                      ...current,
+                                      [event.id]: changeEvent.target.value,
+                                    }))
+                                  }
+                                />
+                                <button
+                                  type="button"
+                                  className="primary-button"
+                                  onClick={() => reviewJobTimesheet(event.id, "Approved")}
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  type="button"
+                                  className="secondary-button"
+                                  onClick={() => reviewJobTimesheet(event.id, "Rejected")}
+                                >
+                                  Reject
+                                </button>
+                                {job ? (
+                                  <button
+                                    type="button"
+                                    className="secondary-button"
+                                    onClick={() => openJobDrawer(job.id)}
+                                  >
+                                    Open job
+                                  </button>
+                                ) : null}
+                              </div>
+                            </article>
+                          );
+                        })}
+                        {overdueTimesheetJobs.map((job) => (
+                          <article
+                            key={`ts-overdue-${job.id}`}
+                            id={`action-focus-ts-overdue-${job.id}`}
+                            className={`timesheet-pending-row overdue${
+                              focusedActionRecordId === `ts-overdue-${job.id}` ? " is-action-focused" : ""
+                            }`}
+                          >
+                            <div>
+                              <strong>{job.ref} · timesheet overdue</strong>
+                              <span>
+                                {job.customer} · {job.description}
+                              </span>
+                              <small>{job.next || "Chase the engineer to submit hours in Field"}</small>
+                            </div>
+                            <div className="timesheet-pending-actions">
+                              <button type="button" className="secondary-button" onClick={() => openJobDrawer(job.id)}>
+                                Open job
+                              </button>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </section>
 
                   <div className="timesheet-week-board scheduler-week-board">
                     <div className="scheduler-week-row scheduler-week-head">

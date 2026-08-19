@@ -76,4 +76,13 @@ describe("jobAttentionReasons", () => {
     assert.equal(reasons[0]?.code, "waiting_parts");
     assert.equal(reasons[0]?.tone, "red");
   });
+
+  it("surfaces imported review instead of generic follow-up", () => {
+    const reasons = jobAttentionReasons(
+      { health: "blue", status: "In progress", next: "Review imported job" },
+      "2026-08-18",
+    );
+    assert.equal(reasons[0]?.code, "imported_review");
+    assert.equal(reasons[0]?.label, "Review imported job");
+  });
 });

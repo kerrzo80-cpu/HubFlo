@@ -9,6 +9,7 @@ export type JobAttentionReasonCode =
   | "overdue_schedule"
   | "overdue_due"
   | "marked_attention"
+  | "imported_review"
   | "uncategorised";
 
 export type JobAttentionReason = {
@@ -125,12 +126,28 @@ export function jobAttentionReasons(
   }
 
   if (!reasons.length && effectiveJobHealthTone(job, today) !== "green") {
-    reasons.push({
-      code: "uncategorised",
-      label: "Needs office follow-up",
-      detail: next || "Open the job and set the next action",
-      tone: effectiveJobHealthTone(job, today),
-    });
+    if (/review imported/i.test(next)) {
+      reasons.push({
+        code: "imported_review",
+        label: "Review imported job",
+        detail: "Imported from simPRO — confirm customer, site, schedule, and clear the next office action",
+        tone: effectiveJobHealthTone(job, today),
+      });
+    } else if (next) {
+      reasons.push({
+        code: "uncategorised",
+        label: next,
+        detail: "Open the job and complete this office action",
+        tone: effectiveJobHealthTone(job, today),
+      });
+    } else {
+      reasons.push({
+        code: "uncategorised",
+        label: "Needs office follow-up",
+        detail: "Open the job and set the next action",
+        tone: effectiveJobHealthTone(job, today),
+      });
+    }
   }
 
   return reasons;
