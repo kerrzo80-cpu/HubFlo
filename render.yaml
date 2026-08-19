@@ -15,8 +15,12 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 24.14.0
+      # RUNTIME heap cap only. Starter instances have 512 MB RAM, so the runtime
+      # process must stay under that or Render's OOM killer SIGKILLs it. The 3 GB
+      # heap the build needs is scoped inline in buildCommand, not here.
+      # If OOM persists under real load, move to Standard (2 GB) and raise to ~1536.
       - key: NODE_OPTIONS
-        value: --max-old-space-size=3072
+        value: --max-old-space-size=460
       - key: NEXA_STORE_PATH
         value: /var/data/nexa-pilot.sqlite
       - key: NEXA_STORE_DIR
