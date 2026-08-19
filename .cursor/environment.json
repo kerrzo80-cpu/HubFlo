@@ -1,0 +1,10 @@
+{
+  "name": "HubFlo / NeXa",
+  "install": "bash scripts/cloud-agent-install.sh",
+  "terminals": [
+    {
+      "name": "web-dev",
+      "command": "bash scripts/cloud-agent-dev.sh"
+    }
+  ]
+}
