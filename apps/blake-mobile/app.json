@@ -15,6 +15,12 @@
     },
     "plugins": [
       [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Blake to hear your questions and instructions."
+        }
+      ],
+      [
         "expo-secure-store",
         {
           "configureAndroidBackup": true,

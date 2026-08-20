@@ -8,7 +8,15 @@ export type BlakeResultCard = {
   metrics: Array<{ label: string; value: string; tone?: "default" | "positive" | "warning" | "danger" }>;
   rows?: Array<{ id: string; primary: string; secondary: string; value?: string; status?: string }>;
 };
-export type BlakeMessage = { role: "user" | "assistant"; text: string; card?: BlakeResultCard };
+export type BlakeMessage = { id?: string; role: "user" | "assistant"; text: string; createdAt?: string; aiUsed?: boolean; card?: BlakeResultCard; action?: BlakeAction };
+export type BlakeAction = { id: string; title: string; detail: string; confirmLabel: string; kind?: string };
+export type BlakeChat = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: BlakeMessage[];
+};
 
 const DEFAULT_API_URL = "https://nexa-live.onrender.com";
 
@@ -49,5 +57,54 @@ export async function confirmBlakeAction(token: string, actionId: string) {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, "x-nexa-client": "blake-mobile" },
     body: JSON.stringify({ confirmActionId: actionId, channel: "mobile_text" }),
+  });
+}
+
+function mobileHeaders(token: string) {
+  return { "Content-Type": "application/json", Authorization: `Bearer ${token}`, "x-nexa-client": "blake-mobile" };
+}
+
+export async function listBlakeChats(token: string) {
+  return json<{ chats: BlakeChat[] }>("/api/blake/chats", { headers: mobileHeaders(token) });
+}
+
+export async function createBlakeChat(token: string) {
+  return json<{ chat: BlakeChat }>("/api/blake/chats", {
+    method: "POST",
+    headers: mobileHeaders(token),
+    body: "{}",
+  });
+}
+
+export async function saveBlakeChat(token: string, chat: BlakeChat) {
+  return json<{ chat: BlakeChat }>("/api/blake/chats", {
+    method: "PATCH",
+    headers: mobileHeaders(token),
+    body: JSON.stringify({ id: chat.id, title: chat.title, messages: chat.messages }),
+  });
+}
+
+export async function renameBlakeChat(token: string, chatId: string, title: string) {
+  return json<{ chat: BlakeChat }>("/api/blake/chats", {
+    method: "PATCH",
+    headers: mobileHeaders(token),
+    body: JSON.stringify({ id: chatId, title }),
+  });
+}
+
+export async function deleteBlakeChat(token: string, chatId: string) {
+  return json<{ ok: true }>(`/api/blake/chats?id=${encodeURIComponent(chatId)}`, {
+    method: "DELETE",
+    headers: mobileHeaders(token),
+  });
+}
+
+export async function transcribeBlakeRecording(token: string, uri: string) {
+  const form = new FormData();
+  form.append("audio", { uri, name: "blake-voice.m4a", type: "audio/m4a" } as unknown as Blob);
+  return json<{ text: string }>("/api/field/ask-blake/transcribe", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "x-nexa-client": "blake-mobile" },
+    body: form,
   });
 }

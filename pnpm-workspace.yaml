@@ -10,3 +10,5 @@ allowBuilds:
   '@sentry/cli': true
   esbuild: true
   sharp: true
+minimumReleaseAgeExclude:
+  - expo-audio@57.0.4
