@@ -2548,6 +2548,7 @@ kbd {
   align-items: center;
   gap: 4px;
   justify-items: center;
+  text-decoration: none;
   width: 100%;
 }
 

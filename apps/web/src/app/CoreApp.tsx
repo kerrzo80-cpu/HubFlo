@@ -35223,42 +35223,27 @@ export default function CoreApp() {
           ) : null}
 
           <div className="context-sidebar-blake">
-            <button
+            <a
+              href="/blake"
               className={
-                nexaAssistantOpen
-                  ? `buddy-launcher context-blake-launcher active mood-${buddyMood}`
-                  : `buddy-launcher context-blake-launcher mood-${buddyMood}`
+                `buddy-launcher context-blake-launcher mood-${buddyMood}`
               }
-              type="button"
-              aria-label={nexaAssistantOpen ? "Close Blake" : "Open Blake"}
-              title="Chat with Blake — report problems here too"
+              aria-label="Open Blake chat"
+              title="Open your full Blake chat"
               data-tooltip="Blake"
-              onClick={() => {
-                setNexaAssistantOpen((current) => {
-                  const next = !current;
-                  if (next) closeContextSidebarOnMobile();
-                  return next;
-                });
-              }}
             >
-              {nexaAssistantOpen ? (
-                <span className="buddy-launcher-close">
-                  <X size={16} />
-                </span>
-              ) : (
-                <BuddyCharacter mood={buddyMood} size="md" className="buddy-launcher-mascot" />
-              )}
+              <BuddyCharacter mood={buddyMood} size="md" className="buddy-launcher-mascot" />
               <span className="buddy-launcher-label">Ask Blake</span>
-              {!nexaAssistantOpen && buddyAlertCount > 0 ? (
+              {buddyAlertCount > 0 ? (
                 <em className="buddy-launcher-badge" aria-hidden>
                   {buddyAlertCount > 9 ? "9+" : buddyAlertCount}
                 </em>
-              ) : !nexaAssistantOpen && buddyHasOpenChecks ? (
+              ) : buddyHasOpenChecks ? (
                 <em className="buddy-launcher-badge soft" aria-hidden>
                   ·
                 </em>
               ) : null}
-            </button>
+            </a>
           </div>
 
           <div className="support-panel">
