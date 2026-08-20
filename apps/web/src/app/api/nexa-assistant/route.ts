@@ -34,6 +34,7 @@ type AssistantRequest = {
   confirmActionId?: string;
   sourceRoute?: string;
   sourcePage?: string;
+  channel?: "web_text" | "web_voice" | "mobile_text" | "mobile_voice";
 };
 
 export async function POST(request: Request) {
@@ -53,6 +54,10 @@ export async function POST(request: Request) {
       name: request.headers.get("x-nexa-auth-user-name") || "NeXa user",
       tenantId: request.headers.get("x-hubflo-tenant-id") || "default",
       canCreateLead: access.canCreateLead,
+      access,
+      channel: ["web_text", "web_voice", "mobile_text", "mobile_voice"].includes(String(payload.channel))
+        ? payload.channel
+        : "web_text",
     };
 
     if (payload.confirmActionId) {

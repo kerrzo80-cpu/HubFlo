@@ -11,6 +11,10 @@ import { pushJobToSimpro } from "@/lib/simpro-bridge";
 import { getJobs, getQuotes, updateJob, type Job } from "@/lib/workflow-data";
 import { getTender } from "@/lib/tenders-data";
 import type { Employee, Weekday } from "@/lib/access";
+import type { AccessProfile } from "@/lib/access";
+import { getAccessProfile } from "@/lib/access";
+import { previousCalendarMonth } from "@hubflo/domain";
+import { blakeCore } from "@/lib/blake-core";
 import {
   formatBudgetPriceOffer,
   formatOpenRecordBrief,
@@ -983,7 +987,7 @@ function persistChatTurn(keys: string[], role: "user" | "assistant", text: strin
 
 export async function handleNexaAssistantMessage(
   message: string,
-  actor: { id: string; name: string; tenantId?: string; canCreateLead?: boolean },
+  actor: { id: string; name: string; tenantId?: string; canCreateLead?: boolean; access?: AccessProfile; channel?: "web_text" | "web_voice" | "mobile_text" | "mobile_voice" },
   options: {
     history?: BlakeHistoryMessage[];
     buddyContext?: BuddyClientContext;
@@ -1014,6 +1018,48 @@ export async function handleNexaAssistantMessage(
     }
     const workflow = await handleCreateLeadWorkflow(message, leadContext, true);
     if (workflow) return { ...workflow, intent: { action: "create_lead" } } as NexaAssistantResponse;
+  }
+  const coreAccess = actor.access ?? getAccessProfile("Read-only", { canCreateLead: actor.canCreateLead === true });
+  const coreContext = {
+    actor: { id: actor.id, name: actor.name, tenantId: actor.tenantId ?? "default", channel: actor.channel ?? "web_text" },
+    access: coreAccess,
+  };
+  if (/\b(profit\s*(?:and|&)?\s*loss|p\s*&\s*l|management report|sales|turnover)\b/i.test(message) && /\blast month\b/i.test(message)) {
+    const period = previousCalendarMonth(now);
+    const result = await blakeCore.execute<{
+      revenue: number; directCost: number; grossProfit: number; grossMarginPercent: number;
+      acceptedQuoteValue: number; invoicesIssued: number; jobsCompleted: number; basis: string;
+    }>("build_management_report", period, coreContext);
+    if (!result.ok || !result.data) return { reply: result.error?.message || "Blake could not build that report.", intent: { action: "chat" }, aiUsed: false };
+    const report = result.data;
+    return {
+      reply: [
+        `Management report · ${formatUkDate(period.from)} to ${formatUkDate(period.to)}`,
+        `• Revenue: ${currency(report.revenue)}`,
+        `• Direct cost: ${currency(report.directCost)}`,
+        `• Gross profit: ${currency(report.grossProfit)} (${report.grossMarginPercent}%)`,
+        `• Accepted quote value: ${currency(report.acceptedQuoteValue)}`,
+        `• ${report.invoicesIssued} invoices issued · ${report.jobsCompleted} jobs completed`,
+        report.basis,
+      ].join("\n"),
+      intent: { action: "chat" }, aiUsed: false,
+    };
+  }
+  if (/\b(booked in|on the system|find|search|look up|do we have)\b/i.test(message) && actor.access?.showCore) {
+    const query = message
+      .replace(/\b(is|are|do we have|booked in|on the system|find|search|look up|please|can you|for me)\b/gi, " ")
+      .replace(/[?.,]/g, " ").replace(/\s+/g, " ").trim();
+    if (query.length >= 3) {
+      const result = await blakeCore.execute<{ matches: Array<{ type: string; ref?: string; title: string; detail: string; status?: string }> }>("search_nexa_records", { query, limit: 10 }, coreContext);
+      if (result.ok && result.data) {
+        return {
+          reply: result.data.matches.length
+            ? `I found ${result.data.matches.length} matching NeXa record(s):\n${result.data.matches.map((item) => `• ${item.type}${item.ref ? ` ${item.ref}` : ""} · ${item.title} · ${item.detail}${item.status ? ` · ${item.status}` : ""}`).join("\n")}`
+            : `I could not find a NeXa client, site, lead, quote, job or invoice matching “${query}”.`,
+          intent: { action: "chat" }, aiUsed: false,
+        };
+      }
+    }
   }
   const deterministic = deterministicIntent(message, employees, now);
   const openRecord = resolveOpenRecord(options.screenContext, message);

@@ -93,6 +93,10 @@ function parseBasicAuth(value: string | null) {
   }
 }
 
+function parseBearerAuth(value: string | null) {
+  return value?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || "";
+}
+
 function expectedPilotSessionValue() {
   if (!pilotPin) return "";
 
@@ -150,7 +154,8 @@ export function proxy(request: NextRequest) {
     ) {
       return NextResponse.next();
     }
-    const user = getAuthUserForSession(request.cookies.get(nexaSessionCookie)?.value);
+    const sessionToken = parseBearerAuth(request.headers.get("authorization")) || request.cookies.get(nexaSessionCookie)?.value;
+    const user = getAuthUserForSession(sessionToken);
     if (pathname === "/login") {
       if (!user) return NextResponse.next();
       // Force password-change accounts to stay on /login until they set a new password.

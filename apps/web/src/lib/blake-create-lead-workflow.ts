@@ -253,7 +253,7 @@ export async function confirmCreateLeadWorkflow(runId: string, context: BlakeAct
   if (missing(data).length) return { ok: false, status: 409, reply: "Required lead information is missing. Nothing was created." };
   const addressParts: LeadAddressParts = { line1: data.addressLine1!, line2: data.addressLine2 ?? "", town: data.town!, county: data.county ?? "", postcode: data.postcode!.toUpperCase() };
   try {
-    const created = blakeActionRegistry.create_lead.execute({
+    const created = await blakeActionRegistry.create_lead.execute({
       customerName: data.customerName!, phone: data.phone ?? "", email: data.email ?? "",
       address: [addressParts.line1, addressParts.line2, addressParts.town, addressParts.county, addressParts.postcode].filter(Boolean).join(", "),
       addressParts, description: data.description!, source: data.source!, clientId: data.clientId, siteId: data.siteId,

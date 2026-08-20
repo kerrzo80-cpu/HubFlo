@@ -10,7 +10,8 @@ function cookieValue(request: Request, name: string) {
 }
 
 export function getSessionTokenFromRequest(request: Request) {
-  return cookieValue(request, nexaSessionCookie);
+  const bearer = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  return bearer || cookieValue(request, nexaSessionCookie);
 }
 
 export function getAuthenticatedUser(request: Request) {

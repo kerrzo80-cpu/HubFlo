@@ -56,7 +56,8 @@ export async function POST(request: Request) {
 
   clearFailedLoginAttempts(loginIdentifier);
   const session = createUserSession(user.id);
-  const response = NextResponse.json({ user });
+  const mobileClient = request.headers.get("x-nexa-client") === "blake-mobile";
+  const response = NextResponse.json({ user, ...(mobileClient ? { sessionToken: session.token } : {}) });
   response.cookies.set(nexaSessionCookie, session.token, {
     httpOnly: true,
     maxAge: nexaSessionMaxAgeSeconds,
