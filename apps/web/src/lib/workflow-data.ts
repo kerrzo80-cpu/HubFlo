@@ -9,6 +9,7 @@ import { getHubDetailState } from "@/lib/hub-detail-store";
 import { compareReferenceDesc, numberedReference } from "@/lib/numbering";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { useDemoSeedData } from "@/lib/workspace-mode";
+import { jobInvoiceReviewComplete } from "@/lib/job-invoice-review";
 
 export type JobHealth = "red" | "amber" | "green" | "blue";
 
@@ -78,6 +79,19 @@ export interface Job {
   value: number;
   next: string;
   due: string;
+}
+
+/** Legacy Ready-to-invoice records without the mandatory three-person review belong in Complete. */
+function withEnforcedInvoiceReview(job: Job): Job {
+  if (job.status !== "Ready to invoice") return job;
+  const review = getHubDetailState().jobReviews?.[job.id];
+  if (jobInvoiceReviewComplete(review)) return job;
+  return {
+    ...job,
+    status: "Completed",
+    health: "green",
+    next: "Three-person review required before Ready to invoice.",
+  };
 }
 
 export interface Quote {
@@ -466,7 +480,9 @@ export function getJobs(): Job[] {
       // Trial bootstrap is best-effort.
     }
   }
-  return clone(getStore().jobs).sort((left, right) => compareReferenceDesc(left.ref, right.ref));
+  return clone(getStore().jobs)
+    .map(withEnforcedInvoiceReview)
+    .sort((left, right) => compareReferenceDesc(left.ref, right.ref));
 }
 
 export function resetWorkflowStore(): WorkflowStore {
@@ -481,7 +497,7 @@ export function resetWorkflowStore(): WorkflowStore {
 export function getJob(id: string): Job | undefined {
   const match = getStore().jobs.find((job) => job.id === id);
   if (!match) return undefined;
-  return clone(match);
+  return clone(withEnforcedInvoiceReview(match));
 }
 
 export function saveJob(job: Job): Job {

@@ -10,6 +10,7 @@ import {
   type BuddyClientContext,
 } from "@/lib/nexa-assistant";
 import { loadServerStore } from "@/lib/server-store";
+import { confirmCreateLeadWorkflow } from "@/lib/blake-create-lead-workflow";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
@@ -50,9 +51,21 @@ export async function POST(request: Request) {
         || request.headers.get("x-hubflo-employee-id")
         || "nexa-user",
       name: request.headers.get("x-nexa-auth-user-name") || "NeXa user",
+      tenantId: request.headers.get("x-hubflo-tenant-id") || "default",
+      canCreateLead: access.canCreateLead,
     };
 
     if (payload.confirmActionId) {
+      if (payload.confirmActionId.startsWith("blake-lead-")) {
+        const result = await confirmCreateLeadWorkflow(payload.confirmActionId, {
+          actorId: actor.id,
+          actorName: actor.name,
+          tenantId: actor.tenantId,
+          canCreateLead: actor.canCreateLead,
+          workflowRunId: payload.confirmActionId,
+        });
+        return NextResponse.json(result, { status: result.status });
+      }
       const pending = loadServerStore<{ actions: Array<{ id: string; kind?: string }> }>("nexa-assistant-actions", {
         actions: [],
       });

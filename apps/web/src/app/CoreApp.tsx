@@ -1350,19 +1350,19 @@ type InvoiceEmailDraft = {
   templateId: string;
 };
 
-type JobReviewKey = "site" | "commercial" | "finance";
+type JobReviewKey = "construction" | "commercial" | "office";
 type JobReviewState = Record<JobReviewKey, boolean>;
 
 const jobReviewChecks: Array<{ key: JobReviewKey; label: string; detail: string }> = [
-  { key: "site", label: "Site completion", detail: "Engineer photos, notes, gas forms and customer sign-off checked." },
-  { key: "commercial", label: "Commercial review", detail: "Timesheets, POs, variations and margin checked." },
-  { key: "finance", label: "Finance approval", detail: "Invoice values, VAT and supporting documents checked." },
+  { key: "construction", label: "Chris · Construction Manager", detail: "No variations, Dayworks or extras have been missed." },
+  { key: "commercial", label: "Commercial Manager", detail: "All extras, variations and Dayworks are priced and correct." },
+  { key: "office", label: "Carol · Office Administrator", detail: "No PO costs or labour hours are missing." },
 ];
 
 const emptyJobReviewState: JobReviewState = {
-  site: false,
+  construction: false,
   commercial: false,
-  finance: false,
+  office: false,
 };
 
 function invoiceTotalFromLines(lines: InvoiceLine[]) {
@@ -2565,7 +2565,7 @@ type LoginDraft = {
 
 type NexaAssistantAction = {
   id: string;
-  kind: "confirm_booking" | "confirm_fault_report" | "confirm_budget_prices";
+  kind: "confirm_booking" | "confirm_fault_report" | "confirm_budget_prices" | "confirm_create_lead";
   title: string;
   detail: string;
   confirmLabel: string;
@@ -2589,6 +2589,8 @@ type NexaAssistantApiResponse = {
   assignment?: JobScheduleAssignment;
   jobId?: string;
   tenderId?: string;
+  leadId?: string;
+  leadRef?: string;
 };
 
 type ServerAuthUser = {
@@ -16360,6 +16362,9 @@ export default function CoreApp() {
         } else if (action.kind === "confirm_budget_prices") {
           setBlakeTenderBoqRevision((current) => current + 1);
           showNotice(result.reply || "Blake wrote guide rates onto the open BoQ.");
+        } else if (action.kind === "confirm_create_lead" && result.leadId) {
+          await refreshCoreWorkflowRecords();
+          showNotice(`${result.leadRef || "Lead"} created by Blake.`);
         } else if (result.assignment) {
           setJobSchedulePlans((current) => ({
             ...current,
@@ -27495,6 +27500,23 @@ export default function CoreApp() {
       return;
     }
     try {
+      // Persist the authoritative three-person review before asking the jobs API
+      // to cross the server-enforced invoice boundary.
+      const reviewResponse = await fetch("/api/hub-state", {
+        method: "PUT",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          ...buildHubDetailStatePayload(),
+          jobReviews: {
+            ...jobReviewApprovals,
+            [selectedJob.id]: selectedJobReviewState,
+          },
+        }),
+      });
+      if (!reviewResponse.ok) {
+        throw new Error("The three approvals could not be saved. This job has not been moved.");
+      }
       const updated = await patchSelectedJob(
         {
           status: "Ready to invoice",
@@ -34821,6 +34843,15 @@ export default function CoreApp() {
                 type="button"
                 className="buddy-report-chip"
                 disabled={nexaAssistantBusy}
+                onClick={() => void sendNexaAssistantMessage("Create a new lead")}
+              >
+                <Plus size={14} />
+                Create Lead
+              </button>
+              <button
+                type="button"
+                className="buddy-report-chip"
+                disabled={nexaAssistantBusy}
                 onClick={() => {
                   setNexaAssistantDraft("Report a problem: ");
                   setNexaAssistantMessages((current) => [
@@ -36698,13 +36729,10 @@ export default function CoreApp() {
                               },
                               {
                                 label: "Move to Ready to invoice",
-                                onClick: () =>
-                                  updateJobFromDirectory(
-                                    job,
-                                    { status: "Ready to invoice", next: "Raise and email final invoice.", health: "green" },
-                                    `${job.ref} moved to Ready to invoice.`,
-                                  ),
-                                disabled: job.status === "Ready to invoice",
+                                onClick: () => openJobDrawer(job.id),
+                                disabled:
+                                  job.status === "Ready to invoice" ||
+                                  !jobReviewChecks.every((check) => (jobReviewApprovals[job.id] ?? emptyJobReviewState)[check.key]),
                               },
                               {
                                 label: "Archive closed",

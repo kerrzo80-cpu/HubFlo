@@ -35,6 +35,11 @@ import {
   patchBlakeRecordScope,
   recordBlakeRejectedCodes,
 } from "@/lib/blake-record-memory";
+import {
+  continueCreateLeadCustomerChoice,
+  handleCreateLeadWorkflow,
+  hasActiveCreateLeadWorkflow,
+} from "@/lib/blake-create-lead-workflow";
 
 type ScheduleAssignment = {
   id: string;
@@ -52,7 +57,7 @@ type ScheduleAssignment = {
 };
 
 type AssistantIntent = {
-  action: "availability" | "book" | "help" | "chat" | "report_fault" | "suggest_improvement";
+  action: "availability" | "book" | "help" | "chat" | "report_fault" | "suggest_improvement" | "create_lead";
   employeeName?: string;
   dateText?: string;
   dateIso?: string;
@@ -148,7 +153,7 @@ export type NexaAssistantResponse = {
   intent: AssistantIntent;
   action?: {
     id: string;
-    kind: "confirm_booking" | "confirm_fault_report" | "confirm_budget_prices";
+    kind: "confirm_booking" | "confirm_fault_report" | "confirm_budget_prices" | "confirm_create_lead";
     title: string;
     detail: string;
     confirmLabel: string;
@@ -978,7 +983,7 @@ function persistChatTurn(keys: string[], role: "user" | "assistant", text: strin
 
 export async function handleNexaAssistantMessage(
   message: string,
-  actor: { id: string; name: string },
+  actor: { id: string; name: string; tenantId?: string; canCreateLead?: boolean },
   options: {
     history?: BlakeHistoryMessage[];
     buddyContext?: BuddyClientContext;
@@ -991,6 +996,25 @@ export async function handleNexaAssistantMessage(
   const now = options.now ?? new Date();
   const hubState = getHubDetailState();
   const employees = (hubState.employees ?? []) as Employee[];
+  const leadContext = {
+    actorId: actor.id,
+    actorName: actor.name,
+    tenantId: actor.tenantId ?? "default",
+    canCreateLead: actor.canCreateLead === true,
+    workflowRunId: "pending",
+  };
+  if (hasActiveCreateLeadWorkflow(leadContext)) {
+    const choice = await continueCreateLeadCustomerChoice(message, leadContext);
+    const workflow = choice ?? await handleCreateLeadWorkflow(message, leadContext);
+    if (workflow) return { ...workflow, intent: { action: "create_lead" } } as NexaAssistantResponse;
+  }
+  if (/\b(create|start|add|new)\b.*\blead\b|\bnew lead\b/i.test(message)) {
+    if (!leadContext.canCreateLead) {
+      return { reply: "You don't have permission to create leads.", intent: { action: "create_lead" }, aiUsed: false };
+    }
+    const workflow = await handleCreateLeadWorkflow(message, leadContext, true);
+    if (workflow) return { ...workflow, intent: { action: "create_lead" } } as NexaAssistantResponse;
+  }
   const deterministic = deterministicIntent(message, employees, now);
   const openRecord = resolveOpenRecord(options.screenContext, message);
   const chatKeys = chatKeysForScreen(options.screenContext, openRecord);
