@@ -36,6 +36,7 @@ export default function App() {
   const [renameId, setRenameId] = useState("");
   const [renameDraft, setRenameDraft] = useState("");
   const [draft, setDraft] = useState("");
+  const [composerHeight, setComposerHeight] = useState(48);
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
   const [error, setError] = useState("");
@@ -107,7 +108,7 @@ export default function App() {
       const userMessage: BlakeMessage = { id: messageId(), role: "user", text, createdAt: new Date().toISOString() };
       const withUser = { ...chat, messages: [...chat.messages, userMessage] };
       setChats((current) => current.map((item) => item.id === chat.id ? withUser : item));
-      const result = await askBlake({ token: session.token, message: text, history: chat.messages.slice(-30), channel: "mobile_text" });
+      const result = await askBlake({ token: session.token, message: text, history: chat.messages.slice(-30), channel: "mobile_text", conversationId: chat.id });
       const assistant: BlakeMessage = {
         id: messageId(), role: "assistant", text: result.reply, createdAt: new Date().toISOString(),
         card: result.data?.resultCard, action: result.action,
@@ -229,7 +230,15 @@ export default function App() {
         {error ? <Text style={styles.errorBar}>{error}</Text> : null}
         <View style={styles.composer}>
           <Pressable style={[styles.voice, listening ? styles.voiceActive : null]} onPress={() => void toggleVoice()} disabled={busy}><Text style={listening ? styles.primaryText : styles.voiceText}>{listening ? "Stop" : "Talk"}</Text></Pressable>
-          <TextInput style={styles.composerInput} value={draft} onChangeText={setDraft} placeholder={listening ? "Listening… tap Stop when finished" : "Message Blake…"} multiline />
+          <TextInput
+            style={[styles.composerInput, { height: composerHeight }]}
+            value={draft}
+            onChangeText={setDraft}
+            onContentSizeChange={(event) => setComposerHeight(Math.min(132, Math.max(48, event.nativeEvent.contentSize.height + 20)))}
+            placeholder={listening ? "Listening… tap Stop when finished" : "Message Blake…"}
+            multiline
+            scrollEnabled={composerHeight >= 132}
+          />
           <Pressable style={styles.send} onPress={send} disabled={busy || listening}><Text style={styles.primaryText}>{busy ? "…" : "Send"}</Text></Pressable>
         </View>
       </KeyboardAvoidingView>

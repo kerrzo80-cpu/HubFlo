@@ -44,11 +44,12 @@ export async function askBlake(input: {
   message: string;
   history: BlakeMessage[];
   channel?: Extract<BlakeChannel, "mobile_text" | "mobile_voice">;
+  conversationId?: string;
 }) {
   return json<{ reply: string; data?: { resultCard?: BlakeResultCard }; action?: { id: string; title: string; detail: string; confirmLabel: string } }>("/api/nexa-assistant", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${input.token}`, "x-nexa-client": "blake-mobile" },
-    body: JSON.stringify({ message: input.message, history: input.history, channel: input.channel || "mobile_text" }),
+    body: JSON.stringify({ message: input.message, history: input.history, channel: input.channel || "mobile_text", conversationId: input.conversationId }),
   });
 }
 

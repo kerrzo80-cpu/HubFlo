@@ -35,6 +35,7 @@ type AssistantRequest = {
   sourceRoute?: string;
   sourcePage?: string;
   channel?: "web_text" | "web_voice" | "mobile_text" | "mobile_voice";
+  conversationId?: string;
 };
 
 export async function POST(request: Request) {
@@ -104,6 +105,7 @@ export async function POST(request: Request) {
         screenContext: readScreenContext(payload.screenContext),
         sourceRoute: payload.sourceRoute,
         sourcePage: payload.sourcePage,
+        conversationId: typeof payload.conversationId === "string" ? payload.conversationId.slice(0, 120) : undefined,
       }),
     );
   } catch (error) {

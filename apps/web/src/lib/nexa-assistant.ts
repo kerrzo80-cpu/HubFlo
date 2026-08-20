@@ -1023,6 +1023,7 @@ export async function handleNexaAssistantMessage(
     now?: Date;
     sourceRoute?: string;
     sourcePage?: string;
+    conversationId?: string;
   } = {},
 ): Promise<NexaAssistantResponse> {
   const now = options.now ?? new Date();
@@ -1034,6 +1035,7 @@ export async function handleNexaAssistantMessage(
     tenantId: actor.tenantId ?? "default",
     canCreateLead: actor.canCreateLead === true,
     workflowRunId: "pending",
+    conversationId: options.conversationId,
   };
   if (hasActiveCreateLeadWorkflow(leadContext) && shouldContinueCreateLeadWorkflow(message, leadContext)) {
     const choice = await continueCreateLeadCustomerChoice(message, leadContext);

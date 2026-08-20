@@ -27,6 +27,7 @@ export type CreateLeadWorkflowRun = {
   id: string;
   tenantId: string;
   actorId: string;
+  conversationId?: string;
   workflow: typeof CREATE_LEAD_WORKFLOW_ID;
   version: 1;
   status: WorkflowStatus;
@@ -68,7 +69,10 @@ function missing(data: CreateLeadCollectedData) {
 function activeRun(context: BlakeActionContext) {
   refreshStore();
   return [...store.runs].reverse().find((run) =>
-    run.tenantId === context.tenantId && run.actorId === context.actorId && !["completed", "failed"].includes(run.status));
+    run.tenantId === context.tenantId &&
+    run.actorId === context.actorId &&
+    run.conversationId === context.conversationId &&
+    !["completed", "failed"].includes(run.status));
 }
 
 function normalizeSource(value: unknown): LeadSource | undefined {
@@ -185,7 +189,7 @@ export async function handleCreateLeadWorkflow(message: string, context: BlakeAc
   if (!run && !start) return null;
   if (!run) {
     const now = new Date().toISOString();
-    run = { id: `blake-lead-${crypto.randomUUID()}`, tenantId: context.tenantId, actorId: context.actorId, workflow: CREATE_LEAD_WORKFLOW_ID, version: 1, status: "collecting_information", collectedData: {}, missingFields: [], customerCandidates: [], createdAt: now, updatedAt: now };
+    run = { id: `blake-lead-${crypto.randomUUID()}`, tenantId: context.tenantId, actorId: context.actorId, conversationId: context.conversationId, workflow: CREATE_LEAD_WORKFLOW_ID, version: 1, status: "collecting_information", collectedData: {}, missingFields: [], customerCandidates: [], createdAt: now, updatedAt: now };
     store.runs.push(run);
     persist();
   }
@@ -287,7 +291,15 @@ export function isLeadWorkflowReply(message: string, status: WorkflowStatus) {
   if (status === "awaiting_confirmation") return /^(?:yes|y|confirm|create|create lead|go ahead|do it|no|cancel|stop)$/i.test(text);
   const unrelatedBusinessQuestion = /\b(job|jobs|quote|quotes|invoice|invoices|report|reporting|sales|turnover|profit|margin|margins|schedule|diary|available|availability|customer|customers|supplier|suppliers|po|purchase order|timesheet|valuation|cash|owed|overdue)\b/i.test(text)
     && /\b(what|which|who|when|where|how|show|list|find|tell|give|are|is|do|does|have|has)\b/i.test(text);
-  return !unrelatedBusinessQuestion;
+  if (unrelatedBusinessQuestion) return false;
+  const explicitLeadFact = /(?:^|[\n,;])\s*(?:customer|client|contact|site address|address|town|city|county|postcode|enquiry|description|source)\s*[:=-]/i.test(text)
+    || /\b(?:phone call|checkatrade|website|referral)\b/i.test(text)
+    || /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(text)
+    || /\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i.test(text);
+  const conversationalCorrection = /\b(?:that(?:'s| is) wrong|you(?:'re| are) wrong|incorrect|i mean|should be|cost centre|cost center|section|workflow|explain)\b/i.test(text);
+  if (conversationalCorrection && !explicitLeadFact) return false;
+  if (text.length > 240 && !explicitLeadFact) return false;
+  return true;
 }
 
 /** Keep a saved lead draft from swallowing unrelated ChatGPT-style questions. */

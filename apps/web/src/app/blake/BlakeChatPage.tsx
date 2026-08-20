@@ -29,6 +29,7 @@ export default function BlakeChatPage() {
   const [menuId, setMenuId] = useState("");
   const [error, setError] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
 
   const active = useMemo(() => chats.find((chat) => chat.id === activeId) || chats[0] || null, [activeId, chats]);
 
@@ -39,6 +40,15 @@ export default function BlakeChatPage() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [active?.messages.length, busy]);
+
+  useEffect(() => {
+    const textarea = composerRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    const nextHeight = Math.min(Math.max(textarea.scrollHeight, 29), 180);
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > 180 ? "auto" : "hidden";
+  }, [draft]);
 
   async function loadChats() {
     setLoading(true);
@@ -142,6 +152,7 @@ export default function BlakeChatPage() {
           sourceRoute: "/blake",
           sourcePage: "Blake chat",
           channel: "web_text",
+          conversationId: chat.id,
         }),
       });
       const result = await response.json() as AssistantResponse;
@@ -262,6 +273,7 @@ export default function BlakeChatPage() {
           {error ? <div className={styles.error}>{error}<button onClick={() => setError("")}><X size={15} /></button></div> : null}
           <form className={styles.composer} onSubmit={(event) => { event.preventDefault(); void sendMessage(); }}>
             <textarea
+              ref={composerRef}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }}

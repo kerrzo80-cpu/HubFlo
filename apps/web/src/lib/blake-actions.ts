@@ -10,6 +10,7 @@ export type BlakeActionContext = {
   tenantId: string;
   canCreateLead: boolean;
   workflowRunId: string;
+  conversationId?: string;
 };
 
 export type BlakeActionRegistryEntry<Input, Output> = {

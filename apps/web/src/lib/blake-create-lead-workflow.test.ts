@@ -22,6 +22,7 @@ test("lead workflow retains labelled details when AI extraction is unavailable",
 test("an unfinished lead never hijacks an unrelated NeXa question", () => {
   assert.equal(isLeadWorkflowReply("what jobs have tight margins?", "collecting_information"), false);
   assert.equal(isLeadWorkflowReply("show me overdue invoices", "collecting_information"), false);
+  assert.equal(isLeadWorkflowReply("that's wrong, sections are areas of work and cost centres sit within sections", "collecting_information"), false);
   assert.equal(isLeadWorkflowReply("Customer: Murray Ltd", "collecting_information"), true);
   assert.equal(isLeadWorkflowReply("cancel that", "collecting_information"), true);
 });
