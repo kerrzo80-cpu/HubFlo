@@ -3,10 +3,10 @@ import { NextResponse } from "next/server";
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import {
   confirmNexaAssistantAction,
-  handleNexaAssistantMessage,
   type BuddyClientContext,
   type BlakeHistoryMessage,
 } from "@/lib/nexa-assistant";
+import { handleContextAwareNexaAssistantMessage } from "@/lib/nexa-assistant-context";
 import { parseJsonRequestBody } from "@/lib/http";
 
 type AssistantRequest = {
@@ -50,5 +50,5 @@ export async function POST(request: Request) {
     : [];
   const buddyContext =
     payload.buddyContext && typeof payload.buddyContext === "object" ? payload.buddyContext : undefined;
-  return NextResponse.json(await handleNexaAssistantMessage(message, actor, { history, buddyContext }));
+  return NextResponse.json(await handleContextAwareNexaAssistantMessage(message, actor, { history, buddyContext }));
 }
