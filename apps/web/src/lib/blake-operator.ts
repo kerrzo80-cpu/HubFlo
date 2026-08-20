@@ -1,10 +1,26 @@
 import type { AccessProfile } from "@/lib/access";
-import { createLead, getLead, getLeads, updateLead, type LeadDraftFromClient, type LeadPatchPayload, type LeadSource } from "@/lib/lead-store";
-import { appendAuditEvent } from "@/lib/people-data";
-import { resolveOpenAiApiKey } from "@/lib/openai-env";
-import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
-import { createJob, createQuote, getJobs, getQuotes, updateJob, updateQuote, type Job, type Quote } from "@/lib/workflow-data";
+import {
+  createLead,
+  getLeads,
+  updateLead,
+  type LeadDraftFromClient,
+  type LeadPatchPayload,
+  type LeadSource,
+} from "@/lib/lead-store";
 import type { BlakeHistoryMessage, NexaAssistantResponse } from "@/lib/nexa-assistant";
+import { resolveOpenAiApiKey } from "@/lib/openai-env";
+import { appendAuditEvent } from "@/lib/people-data";
+import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
+import {
+  createJob,
+  createQuote,
+  getJobs,
+  getQuotes,
+  updateJob,
+  updateQuote,
+  type Job,
+  type Quote,
+} from "@/lib/workflow-data";
 
 export type BlakeOperatorCapability =
   | "create_lead"
@@ -75,16 +91,16 @@ function normalise(value?: string) {
   return (value ?? "").trim().toLowerCase();
 }
 
-function cleanString(value?: string) {
-  const trimmed = value?.trim();
-  return trimmed || undefined;
+function text(value?: string) {
+  const cleaned = value?.trim();
+  return cleaned || undefined;
 }
 
-function cleanNumber(value?: number) {
+function number(value?: number) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function permitted(access: AccessProfile, capability: BlakeOperatorCapability) {
+function permissionAllows(access: AccessProfile, capability: BlakeOperatorCapability) {
   switch (capability) {
     case "create_lead":
     case "update_lead":
@@ -100,7 +116,7 @@ function permitted(access: AccessProfile, capability: BlakeOperatorCapability) {
 }
 
 export function listPermittedBlakeCapabilities(access: AccessProfile) {
-  const capabilities: BlakeOperatorCapability[] = [
+  const all: BlakeOperatorCapability[] = [
     "create_lead",
     "update_lead",
     "create_quote",
@@ -108,14 +124,7 @@ export function listPermittedBlakeCapabilities(access: AccessProfile) {
     "create_job",
     "update_job",
   ];
-  return capabilities.filter((capability) => permitted(access, capability));
-}
-
-function looksLikeOperatorRequest(message: string, history: BlakeHistoryMessage[]) {
-  if (/\b(create|make|new|change|update|edit|amend|rename|mark|set)\b/i.test(message)) return true;
-  return history.slice(-4).some((item) =>
-    item.role === "assistant" && /\b(to create|to update|ready to (create|update)|which .* (lead|quote|job)|what .* (lead|quote|job))\b/i.test(item.text),
-  );
+  return all.filter((capability) => permissionAllows(access, capability));
 }
 
 function isConfirmation(message: string) {
@@ -126,82 +135,102 @@ function isCancellation(message: string) {
   return /^(?:no|cancel|cancel it|stop|don't|dont|do not|leave it)[.!\s]*$/i.test(message.trim());
 }
 
+function looksLikeOperatorConversation(message: string, history: BlakeHistoryMessage[]) {
+  if (/\b(create|make|new|change|update|edit|amend|rename|mark|set)\b/i.test(message)) return true;
+  return history.slice(-5).some((item) =>
+    item.role === "assistant"
+      && /\b(to create|to update|ready to (?:create|update)|before i (?:create|update)|still need).*\b(lead|quote|job)\b/i.test(item.text),
+  );
+}
+
 function latestPendingForActor(actorId: string) {
   refreshPendingStore();
   return pendingStore.actions
     .filter((item) => item.actorId === actorId)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+}
+
+function removePending(id: string) {
+  pendingStore.actions = pendingStore.actions.filter((item) => item.id !== id);
+  persistPendingStore();
+}
+
+function sameRef(left?: string, right?: string) {
+  return normalise(left).replace(/\s+/g, "-") === normalise(right).replace(/\s+/g, "-");
 }
 
 function findLeadByRef(ref?: string) {
-  const target = normalise(ref).replace(/\s+/g, "-");
-  return getLeads().find((lead) => normalise(lead.ref).replace(/\s+/g, "-") === target);
+  return getLeads().find((lead) => sameRef(lead.ref, ref));
 }
 
 function findQuoteByRef(ref?: string) {
-  const target = normalise(ref).replace(/\s+/g, "-");
-  return getQuotes().find((quote) => normalise(quote.ref).replace(/\s+/g, "-") === target);
+  return getQuotes().find((quote) => sameRef(quote.ref, ref));
 }
 
 function findJobByRef(ref?: string) {
-  const target = normalise(ref).replace(/\s+/g, "-");
-  return getJobs().find((job) => normalise(job.ref).replace(/\s+/g, "-") === target);
+  return getJobs().find((job) => sameRef(job.ref, ref));
 }
 
-function missingFields(plan: OperatorPlan) {
-  const fields = plan.fields;
+function requiredMissing(plan: OperatorPlan) {
+  const f = plan.fields;
   switch (plan.action) {
     case "create_lead": {
       const missing: string[] = [];
-      if (!cleanString(fields.customerName ?? fields.customer)) missing.push("customer name");
-      if (!cleanString(fields.address ?? fields.site)) missing.push("site address");
-      if (!cleanString(fields.description)) missing.push("enquiry / work description");
-      if (!leadSources.some((item) => normalise(item) === normalise(fields.source))) missing.push("lead source (Phone call, Checkatrade, Email, Website or Referral)");
+      if (!text(f.customerName ?? f.customer)) missing.push("customer name");
+      if (!text(f.address ?? f.site)) missing.push("site address");
+      if (!text(f.description)) missing.push("enquiry / work description");
+      if (!leadSources.some((source) => normalise(source) === normalise(f.source))) {
+        missing.push("lead source (Phone call, Checkatrade, Email, Website or Referral)");
+      }
+      return missing;
+    }
+    case "create_quote": {
+      const missing: string[] = [];
+      if (!text(f.customer ?? f.customerName)) missing.push("customer name");
+      if (!text(f.description)) missing.push("quote description");
+      return missing;
+    }
+    case "create_job": {
+      const missing: string[] = [];
+      if (!text(f.customer ?? f.customerName)) missing.push("customer name");
+      if (!text(f.description)) missing.push("job description");
       return missing;
     }
     case "update_lead":
-      return cleanString(plan.targetRef) ? [] : ["lead reference"];
-    case "create_quote": {
-      const missing: string[] = [];
-      if (!cleanString(fields.customer ?? fields.customerName)) missing.push("customer name");
-      if (!cleanString(fields.description)) missing.push("quote description");
-      return missing;
-    }
+      return text(plan.targetRef) ? [] : ["lead reference"];
     case "update_quote":
-      return cleanString(plan.targetRef) ? [] : ["quote reference"];
-    case "create_job": {
-      const missing: string[] = [];
-      if (!cleanString(fields.customer ?? fields.customerName)) missing.push("customer name");
-      if (!cleanString(fields.description)) missing.push("job description");
-      return missing;
-    }
+      return text(plan.targetRef) ? [] : ["quote reference"];
     case "update_job":
-      return cleanString(plan.targetRef) ? [] : ["job reference"];
+      return text(plan.targetRef) ? [] : ["job reference"];
     default:
       return [];
   }
 }
 
-function hasEditableFields(plan: OperatorPlan) {
-  const populated = Object.entries(plan.fields).some(([, value]) =>
-    typeof value === "number" ? Number.isFinite(value) : Boolean(cleanString(typeof value === "string" ? value : undefined)),
+function hasAnyChange(fields: OperatorFields) {
+  return Object.values(fields).some((value) =>
+    typeof value === "number" ? Number.isFinite(value) : Boolean(text(typeof value === "string" ? value : undefined)),
   );
-  return !plan.action.startsWith("update_") || populated;
 }
 
-function summaryForPlan(plan: OperatorPlan) {
+function describeFields(fields: OperatorFields) {
+  return Object.entries(fields)
+    .filter(([, value]) => typeof value === "number" ? Number.isFinite(value) : Boolean(text(typeof value === "string" ? value : undefined)))
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join(", ");
+}
+
+function summaryFor(plan: OperatorPlan) {
   const f = plan.fields;
   switch (plan.action) {
     case "create_lead":
-      return `Create a lead for ${cleanString(f.customerName ?? f.customer)} at ${cleanString(f.address ?? f.site)} · ${cleanString(f.description)}.`;
-    case "update_lead":
-      return `Update ${plan.targetRef} with: ${describeFields(f)}.`;
+      return `Create a lead for ${text(f.customerName ?? f.customer)} at ${text(f.address ?? f.site)} · ${text(f.description)}.`;
     case "create_quote":
-      return `Create a Draft quote for ${cleanString(f.customer ?? f.customerName)} · ${cleanString(f.description)}${cleanNumber(f.value) !== undefined ? ` · £${cleanNumber(f.value)!.toLocaleString("en-GB")}` : ""}.`;
-    case "update_quote":
-      return `Update ${plan.targetRef} with: ${describeFields(f)}.`;
+      return `Create a Draft quote for ${text(f.customer ?? f.customerName)} · ${text(f.description)}${number(f.value) !== undefined ? ` · £${number(f.value)!.toLocaleString("en-GB")}` : ""}.`;
     case "create_job":
-      return `Create a job for ${cleanString(f.customer ?? f.customerName)}${cleanString(f.site) ? ` at ${cleanString(f.site)}` : ""} · ${cleanString(f.description)}.`;
+      return `Create a job for ${text(f.customer ?? f.customerName)}${text(f.site ?? f.address) ? ` at ${text(f.site ?? f.address)}` : ""} · ${text(f.description)}.`;
+    case "update_lead":
+    case "update_quote":
     case "update_job":
       return `Update ${plan.targetRef} with: ${describeFields(f)}.`;
     default:
@@ -209,14 +238,15 @@ function summaryForPlan(plan: OperatorPlan) {
   }
 }
 
-function describeFields(fields: OperatorFields) {
-  return Object.entries(fields)
-    .filter(([, value]) => typeof value === "number" ? Number.isFinite(value) : Boolean(cleanString(typeof value === "string" ? value : undefined)))
-    .map(([key, value]) => `${key}=${String(value)}`)
-    .join(", ") || "no changes supplied";
+function humanCapability(capability: BlakeOperatorCapability) {
+  return capability.replaceAll("_", " ");
 }
 
-async function planOperatorAction(message: string, history: BlakeHistoryMessage[], access: AccessProfile): Promise<OperatorPlan | null> {
+async function planOperatorAction(
+  message: string,
+  history: BlakeHistoryMessage[],
+  access: AccessProfile,
+): Promise<OperatorPlan | null> {
   const apiKey = resolveOpenAiApiKey();
   if (!apiKey) return null;
   const allowed = listPermittedBlakeCapabilities(access);
@@ -238,13 +268,13 @@ async function planOperatorAction(message: string, history: BlakeHistoryMessage[
             content: [{
               type: "input_text",
               text: [
-                "You are the intent planner for Blake inside NeXa.",
-                `Only select one of these authorised write capabilities: ${allowed.join(", ")}. Otherwise select none.`,
-                "Extract only values explicitly supplied by the user or clearly established in the supplied conversation. Never invent customer names, addresses, references, dates, prices or descriptions.",
-                "For create_quote, status may be omitted because NeXa will create a Draft by default.",
-                "For create_job, due/status/health/value may be omitted because NeXa has safe defaults.",
-                "For updates, targetRef must identify the lead/quote/job being changed. Prefer an explicit reference from the conversation.",
-                "Do not treat diary booking/scheduling requests as these capabilities; return none for those.",
+                "You are Blake's NeXa write-action planner.",
+                `The logged-in user is authorised for only these write capabilities: ${allowed.join(", ")}.`,
+                "Select one authorised capability only when the user wants NeXa changed. Otherwise return none.",
+                "Extract only facts explicitly supplied by the user or clearly established in the recent conversation. Never invent record references, names, addresses, descriptions, dates or money values.",
+                "Do not treat staff diary booking/scheduling as these capabilities; return none because the existing scheduler handler owns that workflow.",
+                "create_quote defaults to Draft. create_job safely defaults status, health, value, next and due when omitted.",
+                "Updates require the relevant L-/Q-/J- reference. Use a reference already established in the recent conversation when unambiguous.",
                 recentHistory ? `Recent conversation:\n${recentHistory}` : "",
               ].filter(Boolean).join("\n"),
             }],
@@ -285,7 +315,11 @@ async function planOperatorAction(message: string, history: BlakeHistoryMessage[
                     manager: { type: ["string", "null"] },
                     health: { type: ["string", "null"] },
                   },
-                  required: ["customerName", "customer", "address", "phone", "email", "description", "source", "status", "surveyor", "surveyDate", "surveyTime", "owner", "value", "next", "due", "site", "manager", "health"],
+                  required: [
+                    "customerName", "customer", "address", "phone", "email", "description", "source",
+                    "status", "surveyor", "surveyDate", "surveyTime", "owner", "value", "next", "due",
+                    "site", "manager", "health",
+                  ],
                 },
               },
               required: ["action", "targetRef", "fields"],
@@ -296,18 +330,22 @@ async function planOperatorAction(message: string, history: BlakeHistoryMessage[
     });
     if (!response.ok) return null;
     const body = await response.json() as { output?: Array<{ content?: Array<{ type?: string; text?: string }> }> };
-    const text = body.output?.flatMap((item) => item.content ?? []).find((item) => item.type === "output_text")?.text;
-    if (!text) return null;
-    const parsed = JSON.parse(text) as { action?: string; targetRef?: string | null; fields?: Record<string, string | number | null> };
-    if (!parsed.action || parsed.action === "none" || !allowed.includes(parsed.action as BlakeOperatorCapability)) return { action: "none", fields: {} };
+    const output = body.output?.flatMap((item) => item.content ?? []).find((item) => item.type === "output_text")?.text;
+    if (!output) return null;
+    const parsed = JSON.parse(output) as {
+      action?: string;
+      targetRef?: string | null;
+      fields?: Record<string, string | number | null>;
+    };
+    if (!parsed.action || parsed.action === "none") return { action: "none", fields: {} };
+    if (!allowed.includes(parsed.action as BlakeOperatorCapability)) return { action: "none", fields: {} };
     const fields: OperatorFields = {};
     Object.entries(parsed.fields ?? {}).forEach(([key, value]) => {
-      if (value === null) return;
-      (fields as Record<string, string | number>)[key] = value;
+      if (value !== null) (fields as Record<string, string | number>)[key] = value;
     });
     return {
       action: parsed.action as BlakeOperatorCapability,
-      targetRef: cleanString(parsed.targetRef ?? undefined),
+      targetRef: text(parsed.targetRef ?? undefined),
       fields,
     };
   } catch {
@@ -325,7 +363,7 @@ function createPending(plan: OperatorPlan, actor: { id: string; name: string }) 
     capability: plan.action as BlakeOperatorCapability,
     targetRef: plan.targetRef,
     fields: plan.fields,
-    summary: summaryForPlan(plan),
+    summary: summaryFor(plan),
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + pendingLifetimeMs).toISOString(),
   };
@@ -340,7 +378,9 @@ function confirmationResponse(pending: PendingOperatorAction): NexaAssistantResp
     intent: { action: "chat" },
     action: {
       id: pending.id,
-      kind: "confirm_action",
+      // Reuse the existing confirmation-card transport. The backend now resolves the ID
+      // against generic Blake actions before trying the legacy diary-booking action.
+      kind: "confirm_booking",
       title: "Review Blake action",
       detail: pending.summary,
       confirmLabel: "Confirm",
@@ -349,9 +389,9 @@ function confirmationResponse(pending: PendingOperatorAction): NexaAssistantResp
   };
 }
 
-function audit(actorName: string, action: string, recordType: string, recordId: string, summary: string) {
+function audit(actor: string, action: string, recordType: string, recordId: string, summary: string) {
   appendAuditEvent({
-    actor: actorName,
+    actor,
     action,
     recordType,
     recordId,
@@ -362,8 +402,12 @@ function audit(actorName: string, action: string, recordType: string, recordId: 
 }
 
 function executePending(pending: PendingOperatorAction, access: AccessProfile) {
-  if (!permitted(access, pending.capability)) {
-    return { ok: false as const, status: 403, reply: `Your current NeXa role is not allowed to ${pending.capability.replaceAll("_", " ")}. Nothing was changed.` };
+  if (!permissionAllows(access, pending.capability)) {
+    return {
+      ok: false as const,
+      status: 403,
+      reply: `Your current NeXa role is not allowed to ${humanCapability(pending.capability)}. Nothing was changed.`,
+    };
   }
   const f = pending.fields;
 
@@ -373,114 +417,121 @@ function executePending(pending: PendingOperatorAction, access: AccessProfile) {
       if (!source) return { ok: false as const, status: 400, reply: "The lead source is missing or invalid. Nothing was created." };
       const payload: LeadDraftFromClient = {
         source,
-        customerName: cleanString(f.customerName ?? f.customer)!,
-        phone: cleanString(f.phone) ?? "",
-        email: cleanString(f.email) ?? "",
-        address: cleanString(f.address ?? f.site)!,
-        description: cleanString(f.description)!,
+        customerName: text(f.customerName ?? f.customer)!,
+        phone: text(f.phone) ?? "",
+        email: text(f.email) ?? "",
+        address: text(f.address ?? f.site)!,
+        description: text(f.description)!,
         status: "Needs scheduling",
-        surveyor: cleanString(f.surveyor) ?? "",
-        surveyDate: cleanString(f.surveyDate) ?? "",
-        surveyTime: cleanString(f.surveyTime) ?? "",
+        surveyor: text(f.surveyor) ?? "",
+        surveyDate: text(f.surveyDate) ?? "",
+        surveyTime: text(f.surveyTime) ?? "",
         createdBy: pending.actorName,
-        next: cleanString(f.next) ?? "Check diary and book survey appointment.",
+        next: text(f.next) ?? "Check diary and book survey appointment.",
       };
       const result = createLead(payload, pending.actorName);
-      return { ok: true as const, status: 200, reply: `Done — ${result.lead.ref} was created for ${result.lead.customerName} at ${result.lead.address}.`, entityType: "lead", entityId: result.lead.id, entityRef: result.lead.ref };
+      return {
+        ok: true as const,
+        status: 200,
+        reply: `Done — ${result.lead.ref} was created for ${result.lead.customerName} at ${result.lead.address}.`,
+      };
     }
     case "update_lead": {
       const lead = findLeadByRef(pending.targetRef);
-      if (!lead) return { ok: false as const, status: 404, reply: `I cannot find ${pending.targetRef} in the current NeXa leads. Nothing was changed.` };
+      if (!lead) return { ok: false as const, status: 404, reply: `I cannot find ${pending.targetRef}. Nothing was changed.` };
       const patch: LeadPatchPayload = {};
-      if (cleanString(f.status)) patch.status = cleanString(f.status) as LeadPatchPayload["status"];
-      if (cleanString(f.surveyor)) patch.surveyor = cleanString(f.surveyor);
-      if (cleanString(f.surveyDate)) patch.surveyDate = cleanString(f.surveyDate);
-      if (cleanString(f.surveyTime)) patch.surveyTime = cleanString(f.surveyTime);
-      if (cleanString(f.next)) patch.next = cleanString(f.next);
+      if (text(f.status)) patch.status = text(f.status) as LeadPatchPayload["status"];
+      if (text(f.surveyor)) patch.surveyor = text(f.surveyor);
+      if (text(f.surveyDate)) patch.surveyDate = text(f.surveyDate);
+      if (text(f.surveyTime)) patch.surveyTime = text(f.surveyTime);
+      if (text(f.next)) patch.next = text(f.next);
       const updated = updateLead(lead.id, patch, pending.actorName);
       if (!updated) return { ok: false as const, status: 409, reply: `${lead.ref} could not be updated. Nothing was changed.` };
       audit(pending.actorName, "updated by Blake", "lead", updated.id, `${updated.ref} updated through Blake.`);
-      return { ok: true as const, status: 200, reply: `Done — ${updated.ref} was updated.`, entityType: "lead", entityId: updated.id, entityRef: updated.ref };
+      return { ok: true as const, status: 200, reply: `Done — ${updated.ref} was updated.` };
     }
     case "create_quote": {
       const status = quoteStatuses.find((item) => normalise(item) === normalise(f.status)) ?? "Draft";
       const quote = createQuote({
-        customer: cleanString(f.customer ?? f.customerName)!,
-        description: cleanString(f.description)!,
-        owner: cleanString(f.owner) ?? pending.actorName,
+        customer: text(f.customer ?? f.customerName)!,
+        description: text(f.description)!,
+        owner: text(f.owner) ?? pending.actorName,
         status,
-        value: cleanNumber(f.value) ?? 0,
-        next: cleanString(f.next) ?? "Build scope and pricing.",
-        due: cleanString(f.due) ?? "Unscheduled",
+        value: number(f.value) ?? 0,
+        next: text(f.next) ?? "Build scope and pricing.",
+        due: text(f.due) ?? "Unscheduled",
       });
       audit(pending.actorName, "created by Blake", "quote", quote.id, `${quote.ref} created for ${quote.customer} through Blake.`);
-      return { ok: true as const, status: 200, reply: `Done — ${quote.ref} was created for ${quote.customer}${quote.value ? ` at £${quote.value.toLocaleString("en-GB")}` : ""}.`, entityType: "quote", entityId: quote.id, entityRef: quote.ref };
+      return {
+        ok: true as const,
+        status: 200,
+        reply: `Done — ${quote.ref} was created for ${quote.customer}${quote.value ? ` at £${quote.value.toLocaleString("en-GB")}` : ""}.`,
+      };
     }
     case "update_quote": {
       const quote = findQuoteByRef(pending.targetRef);
-      if (!quote) return { ok: false as const, status: 404, reply: `I cannot find ${pending.targetRef} in the current NeXa quotes. Nothing was changed.` };
+      if (!quote) return { ok: false as const, status: 404, reply: `I cannot find ${pending.targetRef}. Nothing was changed.` };
       const updates: Partial<Quote> = {};
-      if (cleanString(f.customer ?? f.customerName)) updates.customer = cleanString(f.customer ?? f.customerName)!;
-      if (cleanString(f.description)) updates.description = cleanString(f.description)!;
-      if (cleanString(f.owner)) updates.owner = cleanString(f.owner)!;
-      if (cleanString(f.status)) {
+      if (text(f.customer ?? f.customerName)) updates.customer = text(f.customer ?? f.customerName)!;
+      if (text(f.description)) updates.description = text(f.description)!;
+      if (text(f.owner)) updates.owner = text(f.owner)!;
+      if (text(f.status)) {
         const status = quoteStatuses.find((item) => normalise(item) === normalise(f.status));
         if (status) updates.status = status;
       }
-      if (cleanNumber(f.value) !== undefined) updates.value = cleanNumber(f.value)!;
-      if (cleanString(f.next)) updates.next = cleanString(f.next)!;
-      if (cleanString(f.due)) updates.due = cleanString(f.due)!;
+      if (number(f.value) !== undefined) updates.value = number(f.value)!;
+      if (text(f.next)) updates.next = text(f.next)!;
+      if (text(f.due)) updates.due = text(f.due)!;
       const updated = updateQuote(quote.id, updates);
       if (!updated) return { ok: false as const, status: 409, reply: `${quote.ref} could not be updated. Nothing was changed.` };
       audit(pending.actorName, "updated by Blake", "quote", updated.id, `${updated.ref} updated through Blake.`);
-      return { ok: true as const, status: 200, reply: `Done — ${updated.ref} was updated.`, entityType: "quote", entityId: updated.id, entityRef: updated.ref };
+      return { ok: true as const, status: 200, reply: `Done — ${updated.ref} was updated.` };
     }
     case "create_job": {
       const health = jobHealth.find((item) => normalise(item) === normalise(f.health)) ?? "blue";
       const job = createJob({
-        customer: cleanString(f.customer ?? f.customerName)!,
-        site: cleanString(f.site ?? f.address) ?? "",
-        description: cleanString(f.description)!,
-        manager: cleanString(f.manager) ?? "",
-        status: cleanString(f.status) ?? "Pending",
+        customer: text(f.customer ?? f.customerName)!,
+        site: text(f.site ?? f.address) ?? "",
+        description: text(f.description)!,
+        manager: text(f.manager) ?? "",
+        status: text(f.status) ?? "Pending",
         health,
-        value: cleanNumber(f.value) ?? 0,
-        next: cleanString(f.next) ?? "Review and schedule work.",
-        due: cleanString(f.due) ?? "Unscheduled",
+        value: number(f.value) ?? 0,
+        next: text(f.next) ?? "Review and schedule work.",
+        due: text(f.due) ?? "Unscheduled",
       });
       audit(pending.actorName, "created by Blake", "job", job.id, `${job.ref} created for ${job.customer} through Blake.`);
-      return { ok: true as const, status: 200, reply: `Done — ${job.ref} was created for ${job.customer}${job.site ? ` at ${job.site}` : ""}.`, entityType: "job", entityId: job.id, entityRef: job.ref };
+      return { ok: true as const, status: 200, reply: `Done — ${job.ref} was created for ${job.customer}${job.site ? ` at ${job.site}` : ""}.` };
     }
     case "update_job": {
       const job = findJobByRef(pending.targetRef);
-      if (!job) return { ok: false as const, status: 404, reply: `I cannot find ${pending.targetRef} in the current NeXa jobs. Nothing was changed.` };
+      if (!job) return { ok: false as const, status: 404, reply: `I cannot find ${pending.targetRef}. Nothing was changed.` };
       const updates: Partial<Job> = {};
-      if (cleanString(f.customer ?? f.customerName)) updates.customer = cleanString(f.customer ?? f.customerName)!;
-      if (cleanString(f.site ?? f.address)) updates.site = cleanString(f.site ?? f.address)!;
-      if (cleanString(f.description)) updates.description = cleanString(f.description)!;
-      if (cleanString(f.manager)) updates.manager = cleanString(f.manager)!;
-      if (cleanString(f.status)) updates.status = cleanString(f.status)!;
-      if (cleanString(f.health)) {
+      if (text(f.customer ?? f.customerName)) updates.customer = text(f.customer ?? f.customerName)!;
+      if (text(f.site ?? f.address)) updates.site = text(f.site ?? f.address)!;
+      if (text(f.description)) updates.description = text(f.description)!;
+      if (text(f.manager)) updates.manager = text(f.manager)!;
+      if (text(f.status)) updates.status = text(f.status)!;
+      if (text(f.health)) {
         const health = jobHealth.find((item) => normalise(item) === normalise(f.health));
         if (health) updates.health = health;
       }
-      if (cleanNumber(f.value) !== undefined) updates.value = cleanNumber(f.value)!;
-      if (cleanString(f.next)) updates.next = cleanString(f.next)!;
-      if (cleanString(f.due)) updates.due = cleanString(f.due)!;
+      if (number(f.value) !== undefined) updates.value = number(f.value)!;
+      if (text(f.next)) updates.next = text(f.next)!;
+      if (text(f.due)) updates.due = text(f.due)!;
       const updated = updateJob(job.id, updates);
       if (!updated) return { ok: false as const, status: 409, reply: `${job.ref} could not be updated. Nothing was changed.` };
       audit(pending.actorName, "updated by Blake", "job", updated.id, `${updated.ref} updated through Blake.`);
-      return { ok: true as const, status: 200, reply: `Done — ${updated.ref} was updated.`, entityType: "job", entityId: updated.id, entityRef: updated.ref };
+      return { ok: true as const, status: 200, reply: `Done — ${updated.ref} was updated.` };
     }
   }
 }
 
-function removePending(id: string) {
-  pendingStore.actions = pendingStore.actions.filter((item) => item.id !== id);
-  persistPendingStore();
-}
-
-export async function confirmBlakeOperatorAction(actionId: string, actor: { id: string; name: string }, access: AccessProfile) {
+export async function confirmBlakeOperatorAction(
+  actionId: string,
+  actor: { id: string; name: string },
+  access: AccessProfile,
+) {
   refreshPendingStore();
   const pending = pendingStore.actions.find((item) => item.id === actionId && item.actorId === actor.id);
   if (!pending) return { matched: false as const };
@@ -506,21 +557,22 @@ export async function handleBlakeOperatorMessage(
     return { reply: "Cancelled — I have not changed anything in NeXa.", intent: { action: "chat" }, aiUsed: false };
   }
 
-  if (!looksLikeOperatorRequest(message, history)) return null;
+  if (!looksLikeOperatorConversation(message, history)) return null;
   const plan = await planOperatorAction(message, history, access);
   if (!plan || plan.action === "none") return null;
-  if (!permitted(access, plan.action)) {
-    return { reply: `Your current NeXa role does not allow me to ${plan.action.replaceAll("_", " ")}.`, intent: { action: "chat" }, aiUsed: true };
+  if (!permissionAllows(access, plan.action)) {
+    return { reply: `Your current NeXa role does not allow me to ${humanCapability(plan.action)}.`, intent: { action: "chat" }, aiUsed: true };
   }
-  const missing = missingFields(plan);
+
+  const missing = requiredMissing(plan);
   if (missing.length) {
     return {
-      reply: `I can do that. Before I make the change, I still need: ${missing.join(", ")}.`,
+      reply: `To ${humanCapability(plan.action)}, I still need: ${missing.join(", ")}.`,
       intent: { action: "chat" },
       aiUsed: true,
     };
   }
-  if (!hasEditableFields(plan)) {
+  if (plan.action.startsWith("update_") && !hasAnyChange(plan.fields)) {
     return { reply: `What would you like me to change on ${plan.targetRef}?`, intent: { action: "chat" }, aiUsed: true };
   }
   if (plan.action === "update_lead" && !findLeadByRef(plan.targetRef)) {
