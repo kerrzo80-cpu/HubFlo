@@ -174,6 +174,84 @@ export const managementReportCapability: BlakeCapability<
   },
 };
 
+type InvoiceRow = {
+  id?: string; ref?: string; status?: string; paymentStatus?: string; customer?: string; title?: string;
+  sourceRef?: string; issuedDate?: string; dueDate?: string; chargeTotal?: number; vatRate?: number;
+  paidAmount?: number; claimType?: string;
+};
+
+function invoiceTotal(invoice: InvoiceRow) {
+  const net = Number(invoice.chargeTotal) || 0;
+  return net + net * ((Number(invoice.vatRate) || 0) / 100);
+}
+
+function invoiceOwed(invoice: InvoiceRow) {
+  if (invoice.status === "Cancelled" || invoice.claimType === "valuation" || invoice.claimType === "credit-note") return 0;
+  if (invoice.status === "Paid" || invoice.paymentStatus === "Paid") return 0;
+  return Math.max(0, invoiceTotal(invoice) - (Number(invoice.paidAmount) || 0));
+}
+
+export const listInvoicesCapability: BlakeCapability<
+  { status: "all" | "unpaid" | "overdue" | "paid"; customer?: string; from?: string; to?: string; asAt: string; limit: number },
+  { filters: Record<string, string | undefined>; count: number; total: number; owed: number; rows: Array<{ id: string; ref: string; customer: string; title: string; status: string; issuedDate: string; dueDate: string; total: number; owed: number }> }
+> = {
+  definition: definition({
+    name: "list_invoices",
+    description: "List and total authorised NeXa invoices, including unpaid, overdue or paid invoices and optional customer/date filters.",
+    mode: "read", risk: "low", requiredPermissions: ["showFinance"], requiresConfirmation: false,
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      properties: {
+        status: { enum: ["all", "unpaid", "overdue", "paid"] }, customer: { type: "string" },
+        from: { type: "string", format: "date" }, to: { type: "string", format: "date" },
+        asAt: { type: "string", format: "date" }, limit: { type: "integer", minimum: 1, maximum: 50 },
+      },
+      required: ["status"],
+    },
+  }),
+  parse(input) {
+    const raw = objectInput(input);
+    const statuses = ["all", "unpaid", "overdue", "paid"] as const;
+    const status = statuses.includes(raw.status as typeof statuses[number]) ? raw.status as typeof statuses[number] : "all";
+    const from = raw.from ? isoDate(raw.from, "From date") : undefined;
+    const to = raw.to ? isoDate(raw.to, "To date") : undefined;
+    if (from && to && from > to) throw new TypeError("From date must be before or equal to the to date.");
+    return {
+      status,
+      customer: typeof raw.customer === "string" && raw.customer.trim() ? raw.customer.trim() : undefined,
+      from, to,
+      asAt: raw.asAt ? isoDate(raw.asAt, "As-at date") : new Date().toISOString().slice(0, 10),
+      limit: Math.max(1, Math.min(50, Number(raw.limit) || 20)),
+    };
+  },
+  execute(input) {
+    let rows = (getHubDetailState().invoices ?? []) as InvoiceRow[];
+    rows = rows.filter((item) => item.status !== "Cancelled" && item.claimType !== "valuation" && item.claimType !== "credit-note");
+    if (input.customer) {
+      const customer = input.customer.toLowerCase();
+      rows = rows.filter((item) => searchable(item.customer, item.title, item.sourceRef).includes(customer));
+    }
+    if (input.from) rows = rows.filter((item) => String(item.issuedDate || "").slice(0, 10) >= input.from!);
+    if (input.to) rows = rows.filter((item) => String(item.issuedDate || "").slice(0, 10) <= input.to!);
+    if (input.status === "paid") rows = rows.filter((item) => item.status === "Paid" || item.paymentStatus === "Paid");
+    if (input.status === "unpaid") rows = rows.filter((item) => invoiceOwed(item) > 0);
+    if (input.status === "overdue") rows = rows.filter((item) => invoiceOwed(item) > 0 && Boolean(item.dueDate && item.dueDate < input.asAt));
+    rows.sort((a, b) => String(b.issuedDate || "").localeCompare(String(a.issuedDate || "")));
+    const allMatching = rows;
+    return {
+      filters: { status: input.status, customer: input.customer, from: input.from, to: input.to, asAt: input.asAt },
+      count: allMatching.length,
+      total: allMatching.reduce((sum, item) => sum + invoiceTotal(item), 0),
+      owed: allMatching.reduce((sum, item) => sum + invoiceOwed(item), 0),
+      rows: allMatching.slice(0, input.limit).map((item) => ({
+        id: String(item.id || ""), ref: String(item.ref || "Invoice"), customer: String(item.customer || "Customer not set"),
+        title: String(item.title || item.sourceRef || "Invoice"), status: String(item.paymentStatus || item.status || "Draft"),
+        issuedDate: String(item.issuedDate || ""), dueDate: String(item.dueDate || ""), total: invoiceTotal(item), owed: invoiceOwed(item),
+      })),
+    };
+  },
+};
+
 export const createLeadCapability: BlakeCapability<LeadDraftFromClient, ReturnType<typeof createLead>> = {
   definition: definition({
     name: "create_lead",
@@ -195,5 +273,6 @@ export const coreCapabilities: BlakeCapability[] = [
   searchNexaRecordsCapability,
   checkAvailabilityCapability,
   managementReportCapability,
+  listInvoicesCapability,
   createLeadCapability,
 ];

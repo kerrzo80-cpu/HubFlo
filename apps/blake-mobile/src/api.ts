@@ -1,7 +1,14 @@
 import type { BlakeChannel } from "@hubflo/domain";
 
 export type MobileUser = { id: string; name: string; role: string; mustChangePassword?: boolean };
-export type BlakeMessage = { role: "user" | "assistant"; text: string };
+export type BlakeResultCard = {
+  kind: "management_report" | "invoice_summary";
+  title: string;
+  subtitle?: string;
+  metrics: Array<{ label: string; value: string; tone?: "default" | "positive" | "warning" | "danger" }>;
+  rows?: Array<{ id: string; primary: string; secondary: string; value?: string; status?: string }>;
+};
+export type BlakeMessage = { role: "user" | "assistant"; text: string; card?: BlakeResultCard };
 
 const DEFAULT_API_URL = "https://nexa-live.onrender.com";
 
@@ -30,7 +37,7 @@ export async function askBlake(input: {
   history: BlakeMessage[];
   channel?: Extract<BlakeChannel, "mobile_text" | "mobile_voice">;
 }) {
-  return json<{ reply: string; action?: { id: string; title: string; detail: string; confirmLabel: string } }>("/api/nexa-assistant", {
+  return json<{ reply: string; data?: { resultCard?: BlakeResultCard }; action?: { id: string; title: string; detail: string; confirmLabel: string } }>("/api/nexa-assistant", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${input.token}`, "x-nexa-client": "blake-mobile" },
     body: JSON.stringify({ message: input.message, history: input.history, channel: input.channel || "mobile_text" }),

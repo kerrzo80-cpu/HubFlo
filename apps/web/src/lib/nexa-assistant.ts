@@ -169,9 +169,28 @@ export type NexaAssistantResponse = {
     workingHours?: string;
     bookings?: Array<{ startTime: string; endTime: string; label: string }>;
     faultReference?: string;
+    resultCard?: BlakeResultCard;
   };
   aiUsed: boolean;
   storedMessages?: Array<{ role: "assistant" | "user"; text: string }>;
+};
+
+export type BlakeResultCard = {
+  kind: "management_report" | "invoice_summary";
+  title: string;
+  subtitle?: string;
+  metrics: Array<{
+    label: string;
+    value: string;
+    tone?: "default" | "positive" | "warning" | "danger";
+  }>;
+  rows?: Array<{
+    id: string;
+    primary: string;
+    secondary: string;
+    value?: string;
+    status?: string;
+  }>;
 };
 
 const pendingStore = loadServerStore<PendingStore>("nexa-assistant-actions", { actions: [] });
@@ -1042,7 +1061,72 @@ export async function handleNexaAssistantMessage(
         `• ${report.invoicesIssued} invoices issued · ${report.jobsCompleted} jobs completed`,
         report.basis,
       ].join("\n"),
-      intent: { action: "chat" }, aiUsed: false,
+      intent: { action: "chat" },
+      data: {
+        resultCard: {
+          kind: "management_report",
+          title: "Management report",
+          subtitle: `${formatUkDate(period.from)} to ${formatUkDate(period.to)}`,
+          metrics: [
+            { label: "Revenue", value: currency(report.revenue) },
+            { label: "Gross profit", value: currency(report.grossProfit), tone: report.grossProfit >= 0 ? "positive" : "danger" },
+            { label: "Gross margin", value: `${report.grossMarginPercent}%`, tone: report.grossMarginPercent >= 0 ? "positive" : "danger" },
+            { label: "Accepted quotes", value: currency(report.acceptedQuoteValue) },
+          ],
+        },
+      },
+      aiUsed: false,
+    };
+  }
+  const invoiceReadRequest = /\b(show|list|find|which|what|how much|total|owed|owing|outstanding|overdue|unpaid|paid)\b/i.test(message)
+    && /\b(invoice|invoices|owed|owing|outstanding|overdue|debtors)\b/i.test(message);
+  if (invoiceReadRequest) {
+    const lower = message.toLowerCase();
+    const status: "all" | "unpaid" | "overdue" | "paid" = /\boverdue\b/.test(lower)
+      ? "overdue"
+      : /\b(unpaid|owed|owing|outstanding|debtors)\b/.test(lower)
+        ? "unpaid"
+        : /\bpaid\b/.test(lower)
+          ? "paid"
+          : "all";
+    const customerMatch = message.match(/\b(?:for|customer)\s+(.+?)(?:[?.]|$)/i);
+    const customer = customerMatch?.[1]?.trim();
+    const result = await blakeCore.execute<{
+      count: number;
+      total: number;
+      owed: number;
+      rows: Array<{ id: string; ref: string; customer: string; title: string; status: string; issuedDate: string; dueDate: string; total: number; owed: number }>;
+    }>("list_invoices", { status, customer, asAt: now.toISOString().slice(0, 10), limit: 20 }, coreContext);
+    if (!result.ok || !result.data) {
+      return { reply: result.error?.message || "Blake could not read the invoices.", intent: { action: "chat" }, aiUsed: false };
+    }
+    const invoices = result.data;
+    const statusLabel = status === "all" ? "invoices" : `${status} invoices`;
+    return {
+      reply: invoices.count
+        ? `I found ${invoices.count} ${statusLabel}${customer ? ` for ${customer}` : ""}. Their total value is ${currency(invoices.total)}${status === "paid" ? "." : ` and ${currency(invoices.owed)} remains owed.`}`
+        : `I could not find any ${statusLabel}${customer ? ` for ${customer}` : ""}.`,
+      intent: { action: "chat" },
+      data: {
+        resultCard: {
+          kind: "invoice_summary",
+          title: status === "all" ? "Invoices" : `${status[0].toUpperCase()}${status.slice(1)} invoices`,
+          subtitle: customer || `${invoices.count} record${invoices.count === 1 ? "" : "s"}`,
+          metrics: [
+            { label: "Invoices", value: String(invoices.count) },
+            { label: "Total value", value: currency(invoices.total) },
+            { label: "Amount owed", value: currency(invoices.owed), tone: invoices.owed > 0 ? "warning" : "positive" },
+          ],
+          rows: invoices.rows.map((invoice) => ({
+            id: invoice.id || invoice.ref,
+            primary: `${invoice.ref} · ${invoice.customer}`,
+            secondary: [invoice.title, invoice.dueDate ? `Due ${formatUkDate(invoice.dueDate)}` : ""].filter(Boolean).join(" · "),
+            value: currency(status === "paid" ? invoice.total : invoice.owed || invoice.total),
+            status: invoice.status,
+          })),
+        },
+      },
+      aiUsed: false,
     };
   }
   if (/\b(booked in|on the system|find|search|look up|do we have)\b/i.test(message) && actor.access?.showCore) {
