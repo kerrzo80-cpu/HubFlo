@@ -1,3 +1,5 @@
+import type { AccessProfile } from "@/lib/access";
+import { handleBlakeOperatorMessage } from "@/lib/blake-operator";
 import {
   handleNexaAssistantMessage,
   type BlakeHistoryMessage,
@@ -109,12 +111,16 @@ function humaniseSchedulingResponse(response: NexaAssistantResponse, jobs: JobId
 export async function handleContextAwareNexaAssistantMessage(
   message: string,
   actor: { id: string; name: string },
+  access: AccessProfile,
   options: AssistantOptions = {},
 ): Promise<NexaAssistantResponse> {
   const history = options.history ?? [];
+
+  const operator = await handleBlakeOperatorMessage(message, actor, access, history);
+  if (operator) return operator;
+
   const jobs = getJobs();
   const jobIdentityReply = resolveJobIdentityFollowUp(message, history, jobs);
-
   if (jobIdentityReply) {
     return {
       reply: jobIdentityReply,
