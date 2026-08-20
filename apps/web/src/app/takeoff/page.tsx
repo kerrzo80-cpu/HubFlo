@@ -103,7 +103,7 @@ import {
   priceAndExpandTakeoffMaterials,
   summarisePricedMaterials,
 } from "@/lib/takeoff-studio-rates";
-import type { TakeoffAssemblyKit, TakeoffRateEntry, TakeoffRateLibrary } from "@/lib/takeoff-rate-core";
+import type { MaterialLine, TakeoffAssemblyKit, TakeoffRateEntry, TakeoffRateLibrary } from "@/lib/takeoff-rate-core";
 import type { AuditEvent } from "@/lib/people-seed-data";
 
 import TakeoffOverlayReview from "./TakeoffOverlayReview";
@@ -318,7 +318,7 @@ export default function TakeoffStudioPage() {
   const masterBoq = summariseStudioBoq(studio, "all");
   const boqForPanel = activeLayerId === "all" ? masterBoq : layerBoq;
   const pricedBoqForPanel = applyTakeoffRatesToMaterials(
-    boqForPanel.map((row) => ({
+    boqForPanel.map((row): MaterialLine => ({
       id: row.id,
       section: row.section,
       description: row.description,
@@ -327,6 +327,7 @@ export default function TakeoffStudioPage() {
       unitCost: 0,
       markupPercent: 0,
       supplierRequired: false,
+      pricingState: undefined,
     })),
     rateLibrary,
   );
@@ -746,7 +747,11 @@ export default function TakeoffStudioPage() {
 
             // If the user kept marking while this request flew, protect those drawings and
             // pull teammates' other sheets from the merged server copy.
-            const pendingNewer = pendingSaveRef.current;
+            const pendingNewer = pendingSaveRef.current as {
+              projectId: string;
+              studio: StudioState;
+              extras: Partial<TakeoffProject>;
+            } | null;
             const protectIds = [
               ...touchedDocumentIds,
               ...(job.studio.activeDocumentId ? [job.studio.activeDocumentId] : []),
@@ -1823,6 +1828,7 @@ export default function TakeoffStudioPage() {
       unitCost: 0,
       markupPercent: 0,
       supplierRequired: false,
+      pricingState: undefined,
     }));
     const materials = priceAndExpandTakeoffMaterials([...pipeMaterials, ...baseMaterials]);
     const priced = summarisePricedMaterials(materials);

@@ -2680,7 +2680,7 @@ export function copyTenderDrawingsToTakeoff(tender: Tender, takeoffId: string): 
     skippedBudget: 0,
     labeled: 0,
     tenderDrawingCount: 0,
-    takeoff: null as ReturnType<typeof getTakeoffProject>,
+    takeoff: undefined as ReturnType<typeof getTakeoffProject>,
   };
   if (!project) return empty;
 

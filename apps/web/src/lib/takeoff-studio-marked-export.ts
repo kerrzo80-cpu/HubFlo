@@ -38,7 +38,12 @@ export function studioLayerLabel(layerId: StudioExportLayerId, studio?: StudioSt
     const match = listStudioLayers(studio).find((row) => row.id === layerId);
     if (match) return match.label;
   }
-  return String(layerId);
+  const labels: Partial<Record<StudioExportLayerId, string>> = {
+    heating: "Heating",
+    "hot-cold": "Hot & cold",
+    waste: "Waste",
+  };
+  return labels[layerId] || String(layerId);
 }
 
 export function geometriesForStudioLayer(

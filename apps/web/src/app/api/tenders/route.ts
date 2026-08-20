@@ -131,6 +131,8 @@ export async function POST(request: NextRequest) {
     sheetKey?: string;
     sheetName?: string;
     sourceSheet?: string;
+    targetSectionId?: string;
+    newSectionName?: string;
     mergeWholeSource?: boolean;
     line?: Partial<TenderBoqLine>;
     tenderSum?: number;

@@ -11,7 +11,7 @@ services:
     autoDeploy: false
     healthCheckPath: /api/health
     # Build heap is set only here (not as a runtime env var).
-    buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile --filter @hubflo/web... && NODE_OPTIONS=--max-old-space-size=3072 pnpm --filter @hubflo/web build && echo "nexa-runtime-mem=standard-1536-v1"
+    buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test && NODE_OPTIONS=--max-old-space-size=3072 pnpm build && echo "nexa-runtime-mem=standard-1536-v1"
     # Start Next directly — never run Corepack/pnpm here. Every `corepack enable` was
     # re-downloading pnpm from npm (Cloudflare) and unhandled UND_ERR_SOCKET killed the
     # instance on restart → random 502s.
@@ -87,6 +87,29 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: NEXT_PUBLIC_SENTRY_DSN
+        sync: false
+      - key: SENTRY_AUTH_TOKEN
+        sync: false
+      - key: SENTRY_ORG
+        sync: false
+      - key: SENTRY_PROJECT
+        sync: false
+      - key: NEXA_ENVIRONMENT
+        value: live
+      - key: NEXT_PUBLIC_NEXA_ENVIRONMENT
+        value: live
+      # Enable only after pilot mirror reconciliation is completely green.
+      - key: NEXA_POSTGRES_MIRROR
+        value: "0"
+      - key: NEXA_TENANT_KEY
+        value: ewg-live
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nexa-live-postgres
+          property: connectionString
       - key: NEXA_OPENAI_API_KEY
         sync: false
       - key: NEXA_ASSISTANT_OPENAI_MODEL
@@ -209,6 +232,7 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 24.14.0
+
       - key: NEXA_IMPORT_TICK_SECRET
         sync: false
 
@@ -264,3 +288,10 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 24.14.0
+
+databases:
+  - name: nexa-live-postgres
+    region: frankfurt
+    plan: basic-256mb
+    databaseName: nexa_live
+    user: nexa_live

@@ -38,7 +38,6 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({
-    ok: true,
     ...result,
     restarting: process.env.NODE_ENV === "production",
     message: "Trial company data cleared. Refresh after a few seconds.",

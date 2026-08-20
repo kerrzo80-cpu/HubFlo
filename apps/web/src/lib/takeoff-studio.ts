@@ -122,6 +122,7 @@ export type StudioGeometry =
       reviewStatus?: StudioAiReviewStatus;
       sourceTagId?: string;
       sourceText?: string;
+      notes?: string;
       /** Service layer the user was drawing on — BoQ section source of truth. */
       layerId?: StudioServiceLayerId;
       /** Auto fitting from a pipe run (elbow / coupling). */

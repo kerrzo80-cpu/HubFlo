@@ -6,7 +6,7 @@ services:
     plan: standard
     autoDeploy: true
     healthCheckPath: /api/health
-    buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile --filter @hubflo/web... && NODE_OPTIONS=--max-old-space-size=3072 pnpm --filter @hubflo/web build
+    buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test && NODE_OPTIONS=--max-old-space-size=3072 pnpm build
     # Was starter/512MB — OOM on heavy tender jobs (J-1103). Standard ≈ 2GB; still keep runtime lean.
     startCommand: NODE_OPTIONS=--max-old-space-size=1536 node apps/web/node_modules/next/dist/bin/next start apps/web --hostname 0.0.0.0 --port $PORT
     disk:
@@ -65,9 +65,32 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: NEXT_PUBLIC_SENTRY_DSN
+        sync: false
+      - key: SENTRY_AUTH_TOKEN
+        sync: false
+      - key: SENTRY_ORG
+        sync: false
+      - key: SENTRY_PROJECT
+        sync: false
+      - key: NEXA_ENVIRONMENT
+        value: pilot
+      - key: NEXT_PUBLIC_NEXA_ENVIRONMENT
+        value: pilot
+      - key: NEXA_POSTGRES_MIRROR
+        value: "1"
+      - key: NEXA_TENANT_KEY
+        value: ewg-pilot
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nexa-pilot-postgres
+          property: connectionString
       # Optional nightly backup trigger (same value on the cron job below)
       - key: NEXA_BACKUP_CRON_SECRET
         sync: false
+
       # Optional off-site copies (Render disk is not enough on its own)
       - key: BACKUP_S3_BUCKET
         sync: false
@@ -116,3 +139,10 @@ services:
         value: 24.14.0
       - key: NEXA_BACKUP_CRON_SECRET
         sync: false
+
+databases:
+  - name: nexa-pilot-postgres
+    region: frankfurt
+    plan: basic-256mb
+    databaseName: nexa_pilot
+    user: nexa_pilot

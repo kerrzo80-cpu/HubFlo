@@ -214,6 +214,14 @@ test("day path: Field complete → passaround → invoice → Xero-ready", async
     "saved hub must still contain Field draft after stale Core write",
   );
 
+  saveHubDetailState({
+    ...hubAfterStaleCore,
+    jobReviews: {
+      ...(hubAfterStaleCore.jobReviews || {}),
+      "job-day-1": { construction: true, commercial: true, office: true },
+    },
+  });
+
   updateJob("job-day-1", {
     status: "Ready to invoice",
     next: "Passaround approved — raise invoice.",

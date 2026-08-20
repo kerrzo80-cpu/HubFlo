@@ -115,9 +115,10 @@ export function SetupPersonalisingPanel({
         signal: controller.signal,
       });
       const raw = await response.text();
-      let result: { error?: string; url?: string; businessSettings?: BusinessBrandingSettings } | null = null;
+      type UploadResult = { error?: string; url?: string; businessSettings?: BusinessBrandingSettings };
+      let result: UploadResult | null = null;
       try {
-        result = raw ? (JSON.parse(raw) as typeof result) : null;
+        result = raw ? (JSON.parse(raw) as UploadResult) : null;
       } catch {
         result = null;
       }

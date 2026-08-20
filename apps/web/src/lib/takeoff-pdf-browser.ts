@@ -179,7 +179,7 @@ export async function extractTakeoffPdfStrokesInBrowser(
         let rgb: { r: number; g: number; b: number } | null = null;
         if (fn === OPS.setStrokeCMYKColor || fn === OPS.setFillCMYKColor) {
           const nums = ArrayBuffer.isView(raw)
-            ? Array.from(raw as ArrayLike<number>)
+            ? Array.from(raw as unknown as ArrayLike<number>)
             : Array.isArray(raw)
               ? raw.map(Number)
               : [];
@@ -200,7 +200,7 @@ export async function extractTakeoffPdfStrokesInBrowser(
           rgb = { r: ((n >> 16) & 255) / 255, g: ((n >> 8) & 255) / 255, b: (n & 255) / 255 };
         } else {
           const nums = ArrayBuffer.isView(raw)
-            ? Array.from(raw as ArrayLike<number>)
+            ? Array.from(raw as unknown as ArrayLike<number>)
             : Array.isArray(raw)
               ? raw.map(Number)
               : [];

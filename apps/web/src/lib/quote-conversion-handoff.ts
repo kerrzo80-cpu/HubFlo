@@ -427,6 +427,8 @@ function createDepositInvoiceForJob(
     valuationLines = [
       {
         id: `valuation-${job.id}-${Date.now()}`,
+        costCentreId: "contract",
+        category: "contractual",
         description: job.description || job.ref,
         contractValue: job.value || 0,
         previousApplications: 0,

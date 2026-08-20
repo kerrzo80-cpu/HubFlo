@@ -37,7 +37,7 @@ function asNumericArray(value: unknown): number[] {
   if (!value && value !== 0) return [];
   if (typeof value === "number" && Number.isFinite(value)) return [value];
   if (ArrayBuffer.isView(value)) {
-    return Array.from(value as ArrayLike<number>).map(Number).filter(Number.isFinite);
+    return Array.from(value as unknown as ArrayLike<number>).map(Number).filter(Number.isFinite);
   }
   if (Array.isArray(value)) {
     return value.flatMap((item) => asNumericArray(item));
@@ -208,8 +208,8 @@ export function pathArgsFromConstructPath(args: unknown): unknown {
   }
   // Alternate: [opsBuffer, coordsBuffer, bbox]
   if (list.length >= 2 && ArrayBuffer.isView(list[0]) && ArrayBuffer.isView(list[1])) {
-    const ops = Array.from(list[0] as ArrayLike<number>);
-    const coords = Array.from(list[1] as ArrayLike<number>);
+    const ops = Array.from(list[0] as unknown as ArrayLike<number>);
+    const coords = Array.from(list[1] as unknown as ArrayLike<number>);
     const merged: number[] = [];
     let ci = 0;
     for (const op of ops) {

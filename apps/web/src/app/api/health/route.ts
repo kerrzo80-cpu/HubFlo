@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { openAiKeySource, resolveOpenAiApiKey } from "@/lib/openai-env";
-import { getServerStoreBackend } from "@/lib/server-store";
+import { getPostgresMirrorStatus, getServerStoreBackend } from "@/lib/server-store";
 import { getOfficeBackupStatus } from "@/lib/office-backup";
 import { getXeroAuthStatus } from "@/lib/xero-auth";
 import { readDayworkSheetsStore } from "@/lib/daywork-sheets-store";
@@ -26,11 +26,14 @@ export async function GET() {
   const openaiSource = openAiKeySource();
   const xero = getXeroAuthStatus();
   const officeBackup = getOfficeBackupStatus();
+  const postgresMirror = getPostgresMirrorStatus();
 
   return NextResponse.json({
     ok: true,
     app: "nexa",
     store: getServerStoreBackend(),
+    postgresMirror,
+    sentry: { configured: Boolean(process.env.SENTRY_DSN || process.env.NEXT_PUBLIC_SENTRY_DSN) },
     officeBackup: {
       lastOkAt: officeBackup.lastOkAt || null,
       lastFilename: officeBackup.lastFilename || null,

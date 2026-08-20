@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { writeServerStore } from "@/lib/server-store";
+import { deleteServerStore, writeServerStore } from "@/lib/server-store";
 import {
   getTender,
   listTenders,
@@ -13,6 +13,7 @@ import { computeBoqTotal } from "@/lib/tenders-types";
 
 describe("Tender sum (FoT) syncs to priced BoQ", () => {
   it("overwrites stale manual FoT on load and when BoQ rates change", () => {
+    deleteServerStore("nexa-tender-boq-v1:tender-fot-sync");
     writeServerStore("nexa-tenders-v1", {
       tenders: [
         {

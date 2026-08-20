@@ -475,7 +475,7 @@ export const SIMPRO_QUOTE_IMPORT_LIMIT = 30;
 export const SIMPRO_JOB_IMPORT_LIMIT = 80;
 /** Latest open leads (including scheduled surveys) for the diary. */
 /** Nightly / EOD working set — keep high enough to catch new open leads without a full dump. */
-export const SIMPRO_LEAD_IMPORT_LIMIT = 40;
+export const SIMPRO_LEAD_IMPORT_LIMIT = 10;
 /** Bulk client/site directory imports must stay small — uncapped 40×250 was crashing Apply. */
 export const SIMPRO_CLIENT_IMPORT_LIMIT = 80;
 export const SIMPRO_SITE_IMPORT_LIMIT = 80;
@@ -1744,9 +1744,8 @@ async function withQuoteHierarchy(
         nexaQuoteId,
         mergeSimproTotalHints(deep.record, listRecord ?? prefetch),
       );
-      const ccCount = Array.isArray(getHubDetailState().quoteCostCentres?.[nexaQuoteId])
-        ? getHubDetailState().quoteCostCentres?.[nexaQuoteId]?.length ?? 0
-        : 0;
+      const quoteCentres = getHubDetailState().quoteCostCentres?.[nexaQuoteId];
+      const ccCount = Array.isArray(quoteCentres) ? quoteCentres.length : 0;
       headerNote = ` Header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)} · ${ccCount} cost centres).`;
       if (isBlankImportedCustomerName(mapped.customer)) {
         return {

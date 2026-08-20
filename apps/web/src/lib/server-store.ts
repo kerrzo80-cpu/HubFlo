@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, readFileSync, writeFileSync, existsSync, unlinkSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
+import { mirrorServerStore, postgresMirrorStatus } from "@/lib/postgres-store-mirror";
 
 // Treat empty/whitespace-only env values as unset. Nullish coalescing (??) keeps
 // an empty string, so `NEXA_STORE_DIR=` in a .env file would otherwise resolve the
@@ -140,6 +141,7 @@ export function writeServerStore<T>(name: string, value: T): boolean {
             updated_at = excluded.updated_at
         `)
         .run(name, payload, new Date().toISOString());
+      mirrorServerStore(name, value);
       return true;
     } catch {
       // Fall through to JSON when the configured SQLite store is unavailable.
@@ -150,6 +152,7 @@ export function writeServerStore<T>(name: string, value: T): boolean {
     ensureStoreDirectory();
     const file = getStoreFilePath(name);
     writeFileSync(file, payload, "utf8");
+    mirrorServerStore(name, value);
     return true;
   } catch {
     return false;
@@ -186,6 +189,10 @@ export function deleteServerStore(name: string): boolean {
 
 export function getServerStoreBackend() {
   return getSqliteStore() ? "sqlite" : "json";
+}
+
+export function getPostgresMirrorStatus() {
+  return postgresMirrorStatus();
 }
 
 export function getSqliteStorePath() {

@@ -31,7 +31,7 @@ describe("takeoff drawing folders", () => {
     assert.equal(folders.length, 2);
     assert.equal(folders[0]!.label, "House Type 1");
     assert.equal(folders[0]!.disciplines.length, 2);
-    assert.equal(folders[1]!.label, "House type 2");
+    assert.equal(folders[1]!.label, "House Type 2");
   });
 
   it("parses HT-12 and shared filename prefixes", () => {

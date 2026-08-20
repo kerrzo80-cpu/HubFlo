@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import {
   changeOwnPassword,
@@ -11,7 +11,7 @@ import {
 import { appendAuditEvent } from "@/lib/people-data";
 
 /** Change the signed-in user's password (clears mustChangePassword). */
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   if (!isUserAuthenticationEnabled()) {
     return NextResponse.json({ error: "Individual user authentication is not enabled." }, { status: 409 });
   }

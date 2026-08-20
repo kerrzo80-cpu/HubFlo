@@ -6,6 +6,7 @@ import {
   mergeHeatDesignBoqLines,
   type KitLine,
 } from "@/lib/heat-design";
+import { previousHeatDesignBoqSell } from "@/lib/heat-design/quote-export";
 import { parseJsonRequestBody } from "@/lib/http";
 import { appendAuditEvent } from "@/lib/people-data";
 import { surveyRequestContext } from "@/lib/survey-api";

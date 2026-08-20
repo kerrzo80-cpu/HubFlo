@@ -28,6 +28,9 @@ export async function POST(
   }
 
   const body = await parseJsonRequestBody<PushPayload>(request);
+  if (!body) {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const createNew = Boolean(body?.createNew) || !body?.quoteId;
   if (!body?.quoteId && !createNew) {
     return NextResponse.json(

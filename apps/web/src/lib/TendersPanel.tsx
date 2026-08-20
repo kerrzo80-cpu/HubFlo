@@ -396,6 +396,8 @@ export function TendersPanel({
         jobCostCentres?: Array<Record<string, unknown>>;
         notice?: string;
         documentsCopied?: number;
+        copied?: number;
+        skipped?: number;
       };
       if (!response.ok) throw new Error(payload.error || "Request failed");
       const editor = payload.tender;

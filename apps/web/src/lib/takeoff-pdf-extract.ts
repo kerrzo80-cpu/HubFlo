@@ -39,7 +39,6 @@ export async function extractPdfDocument(buffer: Buffer, fileName: string): Prom
     data: new Uint8Array(buffer),
     useSystemFonts: true,
     disableFontFace: true,
-    isEvalSupported: false,
     verbosity: 0,
   });
   const pdf = await loadingTask.promise;

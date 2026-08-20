@@ -1,13 +1,8 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1", "localhost", "192.168.1.233"],
-  // Core UI is still a very large page.tsx; full `tsc` on Render starter
-  // regularly exceeds the 15-minute build limit. Keep shippable deploys and
-  // run `pnpm typecheck` separately when changing types.
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   // Keep pdfjs out of the server bundle — bundling breaks its internal worker/chunk
   // imports (Render: Cannot find module …/depth_pdf_*/chunk-…).
   serverExternalPackages: ["pdfjs-dist"],
@@ -37,4 +32,16 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+const sentryBuildConfigured = Boolean(
+  process.env.SENTRY_ORG && process.env.SENTRY_PROJECT && process.env.SENTRY_AUTH_TOKEN,
+);
+
+export default sentryBuildConfigured
+  ? withSentryConfig(nextConfig, {
+      org: process.env.SENTRY_ORG,
+      project: process.env.SENTRY_PROJECT,
+      authToken: process.env.SENTRY_AUTH_TOKEN,
+      silent: !process.env.CI,
+      widenClientFileUpload: true,
+    })
+  : nextConfig;

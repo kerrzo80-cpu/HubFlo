@@ -550,7 +550,7 @@ export async function proposeHeatDesignWithBlake(
     }
 
     const parsed = JSON.parse(text) as Record<string, unknown>;
-    let kitLines = normaliseKitLines(parsed.kitLines ?? parsed.kit).map((line) => ({
+    let kitLines: KitLine[] = normaliseKitLines(parsed.kitLines ?? parsed.kit).map((line) => ({
       ...line,
       pricingSource: line.unitCost > 0 ? ("blake-budget" as const) : undefined,
       pricingNote:

@@ -947,7 +947,7 @@ export default function StudioCanvas({
     : null;
   const pageLinears = document
     ? studio.geometries.filter(
-      (geo) =>
+      (geo): geo is Extract<StudioGeometry, { kind: "linear" }> =>
         geo.kind === "linear"
         && geo.documentId === document.id
         && geo.page === page,

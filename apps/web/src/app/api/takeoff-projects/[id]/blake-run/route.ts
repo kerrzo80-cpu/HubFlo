@@ -761,7 +761,9 @@ export async function POST(
       pipeExtract = await serverExtractPipeRuns(getTakeoffProject(id) || project);
       pipeExtract = {
         ...pipeExtract,
-        runs: pipeExtract.runs.filter((run) => allowedRoles.has(run.role)),
+        runs: pipeExtract.runs.filter(
+          (run) => run.role !== "other" && allowedRoles.has(run.role),
+        ),
       };
     } else if (!allowedRoles.size) {
       pipeExtract = { runs: [], colouredStrokeCount: 0, docsTried: 0, summary: summariseStrokeRunsByRole([]) };

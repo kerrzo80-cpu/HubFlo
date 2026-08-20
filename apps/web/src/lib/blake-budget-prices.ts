@@ -292,7 +292,6 @@ export async function budgetPriceKitWithBlake(
       !(line.unitCost > 0)
       || (options.forceRefreshBudget
         && (line.pricingSource === "blake-budget" || !line.pricingSource)
-        && line.pricingSource !== "catalogue"
         && line.pricingState !== "firm"),
   );
 

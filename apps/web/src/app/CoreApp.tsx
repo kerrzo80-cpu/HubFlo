@@ -12108,7 +12108,7 @@ export default function CoreApp() {
         void loadIntegrationStatuses().catch(() => {});
       }, { timeout: 4000 });
     } else {
-      idleHandle = window.setTimeout(() => {
+      idleHandle = setTimeout(() => {
         void loadIntegrationStatuses().catch(() => {});
       }, 1200) as unknown as number;
     }
@@ -12119,7 +12119,7 @@ export default function CoreApp() {
         if (typeof window !== "undefined" && "cancelIdleCallback" in window) {
           window.cancelIdleCallback(idleHandle);
         } else {
-          window.clearTimeout(idleHandle);
+          clearTimeout(idleHandle);
         }
       }
     };
@@ -12608,13 +12608,13 @@ export default function CoreApp() {
     const idle =
       typeof window !== "undefined" && "requestIdleCallback" in window
         ? window.requestIdleCallback(run, { timeout: 1800 })
-        : window.setTimeout(run, 400);
+        : setTimeout(run, 400);
     return () => {
       cancelled = true;
       if (typeof window !== "undefined" && "cancelIdleCallback" in window && typeof idle === "number") {
         window.cancelIdleCallback(idle);
       } else {
-        window.clearTimeout(idle as number);
+        clearTimeout(idle as number);
       }
     };
   }, [hasHydratedLocalData, requestHeaders, homeView]);
@@ -15523,7 +15523,7 @@ export default function CoreApp() {
       });
       downloadBlob(
         `ewg-reports-${currentOperatingDate}.pdf`,
-        new Blob([bytes], { type: "application/pdf" }),
+        new Blob([new Uint8Array(bytes).buffer], { type: "application/pdf" }),
       );
       showNotice("Reports PDF board pack downloaded.");
     } catch {
@@ -33354,7 +33354,6 @@ export default function CoreApp() {
                 String(event.costCentreId || "").includes("daywork")),
           );
           const record: DayworkAccountRecord = {
-            populatedFrom: "core",
             ...(eventFallback
               ? {
                   description: eventFallback.description || eventFallback.summary,
@@ -33376,6 +33375,7 @@ export default function CoreApp() {
                 }
               : {}),
             ...(sheet || {}),
+            populatedFrom: "core",
           };
           let any = Boolean(sheet || eventFallback);
           const fieldMap: Record<string, keyof DayworkAccountRecord> = {
@@ -45908,7 +45908,7 @@ export default function CoreApp() {
                                 !access.canEditInvoice ||
                                 selectedInvoice.status === "Draft" ||
                                 selectedInvoice.status === "Cancelled" ||
-                                selectedInvoice.claimType === "valuation"
+                                selectedInvoice.claimType === "progress-claim"
                               }
                               onClick={() => void pullSelectedInvoicePaymentsFromXero()}
                             >
