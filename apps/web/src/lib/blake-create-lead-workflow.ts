@@ -190,6 +190,13 @@ export async function handleCreateLeadWorkflow(message: string, context: BlakeAc
     persist();
   }
 
+  if (/^(cancel|cancel that|stop|forget it|leave it|exit)$/i.test(message.trim())) {
+    run.status = "failed";
+    run.updatedAt = new Date().toISOString();
+    persist();
+    return { reply: "Lead creation cancelled. Nothing was created. What else can I help with?", aiUsed: false };
+  }
+
   if (run.status === "awaiting_confirmation" && /^(yes|y|confirm|create|create lead|go ahead|do it)$/i.test(message.trim())) {
     return confirmCreateLeadWorkflow(run.id, context);
   }
@@ -271,4 +278,21 @@ export async function confirmCreateLeadWorkflow(runId: string, context: BlakeAct
 
 export function hasActiveCreateLeadWorkflow(context: BlakeActionContext) {
   return Boolean(activeRun(context));
+}
+
+export function isLeadWorkflowReply(message: string, status: WorkflowStatus) {
+  const text = message.trim();
+  if (/^(cancel|cancel that|stop|forget it|leave it|exit)$/i.test(text)) return true;
+  if (status === "awaiting_customer_choice") return /^(?:\d+|new customer|cancel)$/i.test(text);
+  if (status === "awaiting_confirmation") return /^(?:yes|y|confirm|create|create lead|go ahead|do it|no|cancel|stop)$/i.test(text);
+  const unrelatedBusinessQuestion = /\b(job|jobs|quote|quotes|invoice|invoices|report|reporting|sales|turnover|profit|margin|margins|schedule|diary|available|availability|customer|customers|supplier|suppliers|po|purchase order|timesheet|valuation|cash|owed|overdue)\b/i.test(text)
+    && /\b(what|which|who|when|where|how|show|list|find|tell|give|are|is|do|does|have|has)\b/i.test(text);
+  return !unrelatedBusinessQuestion;
+}
+
+/** Keep a saved lead draft from swallowing unrelated ChatGPT-style questions. */
+export function shouldContinueCreateLeadWorkflow(message: string, context: BlakeActionContext) {
+  const run = activeRun(context);
+  if (!run) return false;
+  return isLeadWorkflowReply(message, run.status);
 }

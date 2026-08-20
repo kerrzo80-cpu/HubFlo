@@ -252,6 +252,88 @@ export const listInvoicesCapability: BlakeCapability<
   },
 };
 
+type CostLine = Record<string, unknown>;
+type JobCostCentre = { materials?: CostLine[]; labour?: CostLine[] };
+
+function numberFrom(record: CostLine, keys: string[], fallback = 0) {
+  for (const key of keys) {
+    const value = Number(record[key]);
+    if (Number.isFinite(value)) return value;
+  }
+  return fallback;
+}
+
+function lineFinancials(line: CostLine, labour = false) {
+  const quantity = numberFrom(line, labour ? ["hours", "quantity", "qty"] : ["quantity", "qty"], 0);
+  const unitCost = numberFrom(line, labour ? ["costRate", "unitCost", "costPrice"] : ["unitCost", "costPrice"], 0);
+  const explicitSell = numberFrom(line, labour ? ["sellRate", "chargeRate", "unitSell", "sellPrice"] : ["unitSell", "sellPrice", "chargePrice"], Number.NaN);
+  const markup = numberFrom(line, ["markupPercent", "markup", "markupPercentage"], 0);
+  const unitSell = Number.isFinite(explicitSell) ? explicitSell : unitCost * (1 + markup / 100);
+  return { cost: quantity * unitCost, sell: quantity * unitSell };
+}
+
+export const jobProfitabilityCapability: BlakeCapability<
+  { maximumMarginPercent: number; includeCompleted: boolean; limit: number },
+  { count: number; rows: Array<{ id: string; ref: string; customer: string; description: string; status: string; sell: number; cost: number; profit: number; marginPercent: number; costDataComplete: boolean }> }
+> = {
+  definition: definition({
+    name: "list_job_profitability",
+    description: "List NeXa jobs with calculated cost, sell, profit and margin. Use this for tight margins, loss-making jobs, job profitability and estimated-versus-actual commercial questions.",
+    mode: "read", risk: "low", requiredPermissions: ["showFinance", "showJobs"], requiresConfirmation: false,
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      properties: {
+        maximumMarginPercent: { type: "number", description: "Return jobs at or below this margin percentage. Use 20 for tight margins and 0 for loss-making jobs." },
+        includeCompleted: { type: "boolean" },
+        limit: { type: "integer", minimum: 1, maximum: 50 },
+      },
+      required: [],
+    },
+  }),
+  parse(input) {
+    const raw = objectInput(input);
+    const maximum = Number(raw.maximumMarginPercent);
+    return {
+      maximumMarginPercent: Number.isFinite(maximum) ? maximum : 20,
+      includeCompleted: raw.includeCompleted === true,
+      limit: Math.max(1, Math.min(50, Number(raw.limit) || 20)),
+    };
+  },
+  execute(input) {
+    const hub = getHubDetailState();
+    const centresByJob = (hub.jobCostCentres ?? {}) as Record<string, JobCostCentre[]>;
+    const closed = new Set(["Complete", "Completed", "Cancelled", "Invoiced", "Closed"]);
+    const rows = getJobs().flatMap((job) => {
+      if (!input.includeCompleted && closed.has(job.status)) return [];
+      const centres = Array.isArray(centresByJob[job.id]) ? centresByJob[job.id] : [];
+      let cost = 0;
+      let centreSell = 0;
+      let pricedLines = 0;
+      for (const centre of centres) {
+        for (const line of Array.isArray(centre.materials) ? centre.materials : []) {
+          const totals = lineFinancials(line);
+          cost += totals.cost; centreSell += totals.sell; pricedLines += totals.cost || totals.sell ? 1 : 0;
+        }
+        for (const line of Array.isArray(centre.labour) ? centre.labour : []) {
+          const totals = lineFinancials(line, true);
+          cost += totals.cost; centreSell += totals.sell; pricedLines += totals.cost || totals.sell ? 1 : 0;
+        }
+      }
+      const sell = centreSell > 0 ? centreSell : Number(job.value) || 0;
+      const profit = sell - cost;
+      const marginPercent = sell > 0 ? Math.round((profit / sell) * 1000) / 10 : 0;
+      if (marginPercent > input.maximumMarginPercent) return [];
+      return [{
+        id: job.id, ref: job.ref, customer: job.customer, description: job.description, status: job.status,
+        sell: Math.round(sell * 100) / 100, cost: Math.round(cost * 100) / 100,
+        profit: Math.round(profit * 100) / 100, marginPercent, costDataComplete: pricedLines > 0,
+      }];
+    });
+    rows.sort((a, b) => a.marginPercent - b.marginPercent || a.profit - b.profit);
+    return { count: rows.length, rows: rows.slice(0, input.limit) };
+  },
+};
+
 export const createLeadCapability: BlakeCapability<LeadDraftFromClient, ReturnType<typeof createLead>> = {
   definition: definition({
     name: "create_lead",
@@ -274,5 +356,6 @@ export const coreCapabilities: BlakeCapability[] = [
   checkAvailabilityCapability,
   managementReportCapability,
   listInvoicesCapability,
+  jobProfitabilityCapability,
   createLeadCapability,
 ];

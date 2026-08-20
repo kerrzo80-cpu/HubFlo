@@ -8706,7 +8706,7 @@ export default function CoreApp() {
     {
       id: "buddy-welcome",
       role: "assistant",
-      text: "Hi — I'm Blake. This is a back-and-forth on the live record, not a ChatGPT dump. Open a tender, job or takeoff, talk through the files, then ask me to price. Guide rates only after you confirm.",
+      text: "Hi, I’m Blake. Ask me anything, just as you would in ChatGPT. I can reason with you and use your authorised live NeXa data for jobs, quotes, customers, invoices, reports and schedules. I’ll ask before making operational changes.",
     },
   ]);
   const nexaAssistantMessagesRef = useRef<HTMLDivElement | null>(null);
@@ -34687,7 +34687,7 @@ export default function CoreApp() {
                           ? "Checking the job over"
                           : buddyMood === "good"
                             ? "All good — Blake’s on it"
-                            : buddyMemory.habits[0] || "Your AI backbone · ask anytime"}
+                            : "Chat naturally · connected to your authorised NeXa workspace"}
                   </small>
                 </div>
               </div>

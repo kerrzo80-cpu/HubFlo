@@ -15,6 +15,7 @@ import type { AccessProfile } from "@/lib/access";
 import { getAccessProfile } from "@/lib/access";
 import { previousCalendarMonth } from "@hubflo/domain";
 import { blakeCore } from "@/lib/blake-core";
+import type { BlakeExecutionContext } from "@/lib/blake-core/types";
 import {
   formatBudgetPriceOffer,
   formatOpenRecordBrief,
@@ -43,6 +44,7 @@ import {
   continueCreateLeadCustomerChoice,
   handleCreateLeadWorkflow,
   hasActiveCreateLeadWorkflow,
+  shouldContinueCreateLeadWorkflow,
 } from "@/lib/blake-create-lead-workflow";
 
 type ScheduleAssignment = {
@@ -636,6 +638,7 @@ async function conversationalReply(
   buddyContext?: BuddyClientContext,
   openRecord?: BlakeOpenRecord,
   extras?: { scope?: BlakeTradeScope; lastScanSummary?: string },
+  coreContext?: BlakeExecutionContext,
 ): Promise<{ reply: string; aiUsed: boolean }> {
   const deterministic = deterministicBusinessReply(message);
   const apiKey = resolveOpenAiApiKey();
@@ -651,63 +654,69 @@ async function conversationalReply(
     || process.env.NEXA_TAKEOFF_OPENAI_MODEL?.trim()
     || "gpt-4.1-mini";
   const context = buildWorkspaceContext();
-  const recentHistory = history.slice(-12).map((item) => ({
+  const recentHistory = history.slice(-16).map((item) => ({
     role: item.role === "assistant" ? "assistant" : "user",
     content: item.text,
   }));
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        temperature: 0.2,
-        messages: [
-          {
-            role: "system",
-            content: [
-              `You are Blake, the NeXa business assistant for ${displayCompanyName(getHubDetailState().businessSettings)} field-service operations.`,
-              "Answer using only the supplied NeXa workspace JSON, the open Tender/Job snapshot, Blake learning notes, and the conversation.",
-              "If the user is looking at a tender, job or takeoff, talk through THAT record first — attached files by name, BoQ progress, blanks, FoT, last drawing scan.",
-              "You can have a back-and-forth. Honour scope notes: ignore electrical / ventilation / price plumbing only.",
-              "Guide rates from the rate library / Blake budget prices are internal budgets, not firm tenders. Unsure lines stay blank, never NIL / £0.",
-              "Never claim you ingested a ChatGPT file dump of multiple PDFs. You see live HubFlo BoQ + document names + the last takeoff scan.",
-              BLAKE_FILE_DUMP_LIMIT,
-              "If the data does not contain the answer, say what is missing. Never invent bookings, values, customers or availability.",
-              "Do not change schedules, quote values, BoQ rates, variations or invoices yourself. Suggest and ask the user to confirm operational changes.",
-              "When the user asks how to do something in NeXa, give a short numbered click-path (Tenders → open record → Bill → Blake budget prices).",
-              "Use Blake learning notes (habits, repeated misses, quote watch) to personalise advice — evolve with how this team works.",
-              "Keep answers concise, plain English, and useful for a commercial manager.",
-              `The current user is ${actorName}.`,
-              buddyContext ? `Blake learning notes JSON:\n${JSON.stringify(buddyContext)}` : "",
-              openRecord && (openRecord.tender || openRecord.job || openRecord.takeoff)
-                ? `Open record JSON (priority over the workspace summary):\n${JSON.stringify(openRecord)}`
-                : "",
-              extras?.scope ? `Scope the office already told you:\n${JSON.stringify(extras.scope)}` : "",
-              extras?.lastScanSummary ? `Last drawing scan:\n${extras.lastScanSummary}` : "",
-              `Live NeXa workspace JSON:\n${JSON.stringify(context)}`,
-            ].filter(Boolean).join("\n"),
-          },
-          ...recentHistory,
-          { role: "user", content: message },
-        ],
-      }),
-    });
-    if (!response.ok) {
-      return {
-        reply: deterministic ?? "Blake could not reach the AI service just now. Try a more specific NeXa question about quotes, jobs or the diary.",
-        aiUsed: false,
+    const system = [
+      `You are Blake, the universal AI operating layer inside NeXa for ${displayCompanyName(getHubDetailState().businessSettings)}.`,
+      "Talk naturally like a capable ChatGPT colleague. Understand follow-up questions from conversation; do not force users into forms or repeat questions they have answered.",
+      "Use the available NeXa tools whenever live records, figures, reports, invoices, profitability, customers or schedules are needed. Do not guess live facts from general knowledge.",
+      "Explain tool results in clear business English and answer the actual question. If records lack reliable cost data, say so explicitly rather than presenting a false margin.",
+      "Read actions may run immediately. Never claim a write happened unless a confirmed NeXa capability reports success; explain that operational writes require confirmation.",
+      "If the user is looking at a tender, job or takeoff, discuss that record first. Honour scope instructions and preserve conversational context.",
+      "Be useful beyond database lookups too: reason, draft, compare, explain and advise as ChatGPT would, while keeping NeXa facts grounded.",
+      BLAKE_FILE_DUMP_LIMIT,
+      `Today is ${new Date().toISOString().slice(0, 10)} and UK date order applies. The current user is ${actorName}.`,
+      buddyContext ? `Working preferences:\n${JSON.stringify(buddyContext)}` : "",
+      openRecord && (openRecord.tender || openRecord.job || openRecord.takeoff) ? `Open record:\n${JSON.stringify(openRecord)}` : "",
+      extras?.scope ? `Confirmed scope:\n${JSON.stringify(extras.scope)}` : "",
+      extras?.lastScanSummary ? `Last drawing scan:\n${extras.lastScanSummary}` : "",
+      `Compact workspace orientation (use tools for detailed facts):\n${JSON.stringify(context.summary)}`,
+    ].filter(Boolean).join("\n");
+    const messages: Array<Record<string, unknown>> = [
+      { role: "system", content: system },
+      ...recentHistory,
+      { role: "user", content: message },
+    ];
+    const definitions = coreContext
+      ? blakeCore.definitions().filter((item) => item.mode === "read" && item.requiredPermissions.every((permission) => coreContext.access[permission as keyof AccessProfile] === true))
+      : [];
+    const tools = definitions.map((item) => ({
+      type: "function",
+      function: { name: item.name, description: item.description, parameters: item.inputSchema },
+    }));
+
+    for (let turn = 0; turn < 5; turn += 1) {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model, temperature: 0.2, messages, tools: tools.length ? tools : undefined, tool_choice: tools.length ? "auto" : undefined }),
+      });
+      if (!response.ok) return { reply: deterministic ?? "Blake could not reach the AI service just now. No NeXa data was changed.", aiUsed: false };
+      const body = await response.json() as {
+        choices?: Array<{ message?: { role?: string; content?: string | null; tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }> } }>;
       };
+      const assistant = body.choices?.[0]?.message;
+      if (!assistant) return { reply: deterministic ?? "I could not form a reply from the live workspace.", aiUsed: false };
+      const calls = assistant.tool_calls ?? [];
+      if (!calls.length) {
+        const reply = assistant.content?.trim();
+        return { reply: reply || deterministic || "I could not form a reply from the live workspace.", aiUsed: Boolean(reply) };
+      }
+      messages.push({ role: "assistant", content: assistant.content ?? null, tool_calls: calls });
+      for (const call of calls) {
+        let input: unknown = {};
+        try { input = JSON.parse(call.function.arguments || "{}"); } catch { input = {}; }
+        const result = coreContext
+          ? await blakeCore.execute(call.function.name, input, coreContext)
+          : { ok: false, error: { message: "No trusted NeXa context is available." } };
+        messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
+      }
     }
-    const body = await response.json() as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const reply = body.choices?.[0]?.message?.content?.trim();
-    if (!reply) {
-      return { reply: deterministic ?? "I could not form a reply from the live workspace.", aiUsed: false };
-    }
-    return { reply, aiUsed: true };
+    return { reply: "I reached the tool-call limit for that request. Nothing was changed; please narrow the question slightly.", aiUsed: true };
   } catch {
     return {
       reply: deterministic ?? "Blake hit a temporary error talking to the AI service. Your NeXa data was not changed.",
@@ -1026,7 +1035,7 @@ export async function handleNexaAssistantMessage(
     canCreateLead: actor.canCreateLead === true,
     workflowRunId: "pending",
   };
-  if (hasActiveCreateLeadWorkflow(leadContext)) {
+  if (hasActiveCreateLeadWorkflow(leadContext) && shouldContinueCreateLeadWorkflow(message, leadContext)) {
     const choice = await continueCreateLeadCustomerChoice(message, leadContext);
     const workflow = choice ?? await handleCreateLeadWorkflow(message, leadContext);
     if (workflow) return { ...workflow, intent: { action: "create_lead" } } as NexaAssistantResponse;
@@ -1212,6 +1221,7 @@ export async function handleNexaAssistantMessage(
       options.buddyContext,
       openRecord,
       { scope: parsed.scope, lastScanSummary: memory.lastScanSummary },
+      coreContext,
     );
     return finish({
       reply: chat.aiUsed ? chat.reply : `${formatOpenRecordBrief(openRecord)}\n\nYou can keep chatting: “ignore electrical”, “we don’t do ventilation”, “price the plumbing bill only”. Confirm before I write guide rates.`,
@@ -1239,6 +1249,7 @@ export async function handleNexaAssistantMessage(
         options.buddyContext,
         openRecord.tender || openRecord.job || openRecord.takeoff ? openRecord : undefined,
         { scope: parsed.scope, lastScanSummary: memory.lastScanSummary },
+        coreContext,
       );
       return finish({
         reply: chat.reply,

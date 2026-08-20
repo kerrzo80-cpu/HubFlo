@@ -2629,10 +2629,10 @@ kbd {
   box-shadow: 0 18px 40px rgba(17, 52, 68, 0.2);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
-  height: min(640px, calc(100vh - 110px));
+  height: min(780px, calc(100vh - 92px));
   max-width: calc(100vw - 32px);
   overflow: hidden;
-  width: 400px;
+  width: min(720px, calc(100vw - 264px));
 }
 
 .buddy-panel > header {
@@ -2964,8 +2964,8 @@ kbd {
 }
 
 .buddy-message p {
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 14px;
+  line-height: 1.55;
   margin: 0;
 }
 

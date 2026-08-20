@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { locallyExtractLeadData } from "./blake-create-lead-workflow";
+import { isLeadWorkflowReply, locallyExtractLeadData } from "./blake-create-lead-workflow";
 
 test("lead workflow retains labelled details when AI extraction is unavailable", () => {
   const result = locallyExtractLeadData(
@@ -17,6 +17,13 @@ test("lead workflow retains labelled details when AI extraction is unavailable",
     description: "Boiler repair",
     source: "Phone call",
   });
+});
+
+test("an unfinished lead never hijacks an unrelated NeXa question", () => {
+  assert.equal(isLeadWorkflowReply("what jobs have tight margins?", "collecting_information"), false);
+  assert.equal(isLeadWorkflowReply("show me overdue invoices", "collecting_information"), false);
+  assert.equal(isLeadWorkflowReply("Customer: Murray Ltd", "collecting_information"), true);
+  assert.equal(isLeadWorkflowReply("cancel that", "collecting_information"), true);
 });
 
 test("lead workflow preserves existing values and extracts contact details", () => {

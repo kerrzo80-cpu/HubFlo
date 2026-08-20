@@ -3,10 +3,11 @@ import test from "node:test";
 
 import { getAccessProfile } from "../access";
 import { getHubDetailState, saveHubDetailState } from "../hub-detail-store";
+import { createJob } from "../workflow-data";
 import { createBlakeCapabilityRegistry } from "./registry";
-import { listInvoicesCapability } from "./capabilities";
+import { jobProfitabilityCapability, listInvoicesCapability } from "./capabilities";
 
-const registry = createBlakeCapabilityRegistry([listInvoicesCapability]);
+const registry = createBlakeCapabilityRegistry([listInvoicesCapability, jobProfitabilityCapability]);
 const context = {
   actor: { id: "finance-1", name: "Finance user", tenantId: "tenant-1", channel: "mobile_text" as const },
   access: getAccessProfile("Finance"),
@@ -44,4 +45,34 @@ test("invoice capability identifies invoices overdue as at a supplied date", asy
   assert.equal(result.ok, true);
   assert.equal(result.data?.count, 1);
   assert.equal(result.data?.rows[0]?.ref, "INV-1001");
+});
+
+test("job profitability capability finds genuinely tight margins from cost-centre lines", async () => {
+  const job = createJob({
+    ref: `J-MARGIN-${Date.now()}`, customer: "Margin Test Ltd", site: "Test site", description: "Tight margin test",
+    manager: "Brian Kerr", status: "In progress", health: "blue", value: 100, next: "Review", due: "Today",
+  });
+  const hub = getHubDetailState();
+  saveHubDetailState({
+    ...hub,
+    jobCostCentres: {
+      ...((hub.jobCostCentres ?? {}) as Record<string, unknown>),
+      [job.id]: [{
+        id: `${job.id}-centre`, name: "Plant", templateName: "Plant",
+        materials: [{ id: `${job.id}-line`, catalogItemId: "catalog-plant", description: "Plant", quantity: 1, unitCost: 90, unitSell: 100, markupPercent: 0 }],
+        labour: [],
+      }],
+    },
+  });
+
+  const result = await registry.execute<{ rows: Array<{ ref: string; marginPercent: number; costDataComplete: boolean }> }>(
+    "list_job_profitability",
+    { maximumMarginPercent: 15, includeCompleted: false },
+    context,
+  );
+
+  assert.equal(result.ok, true);
+  const row = result.data?.rows.find((item) => item.ref === job.ref);
+  assert.equal(row?.marginPercent, 10);
+  assert.equal(row?.costDataComplete, true);
 });
