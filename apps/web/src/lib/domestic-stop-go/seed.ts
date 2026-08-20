@@ -163,6 +163,7 @@ function ensureChrisEmployeeCard() {
 }
 
 function ensureJob(): Job {
+  const scheduledDate = new Date().toISOString().slice(0, 10);
   const existing = getJob(GAS_SERVICE_TRIAL.jobId);
   if (existing) {
     return (
@@ -172,6 +173,8 @@ function ensureJob(): Job {
         customer: GAS_SERVICE_TRIAL.customer,
         site: GAS_SERVICE_TRIAL.siteAddress,
         description: "Domestic Gas Boiler Service — complete the Field stop/go gates. NeXa populates the branded record.",
+        scheduledDate,
+        scheduledTime: "13:00",
         manager: GAS_SERVICE_TRIAL.engineerName,
         status: existing.status === "Completed" || existing.status === "Invoiced" ? existing.status : "In progress",
         next: "Open Field as Chris Lawson → Gas Boiler Service checklist",
@@ -187,6 +190,8 @@ function ensureJob(): Job {
     customer: GAS_SERVICE_TRIAL.customer,
     site: GAS_SERVICE_TRIAL.siteAddress,
     description: "Domestic Gas Boiler Service — complete the Field stop/go gates. NeXa populates the branded record.",
+    scheduledDate,
+    scheduledTime: "13:00",
     manager: GAS_SERVICE_TRIAL.engineerName,
     status: "In progress",
     health: "blue",
@@ -250,9 +255,9 @@ function ensureHubJob() {
 
 let ensured = false;
 
-export function ensureDomesticStopGoSeed() {
+export function ensureDomesticStopGoSeed(options: { testFixtures?: boolean } = {}) {
   seedDomesticStopGoHubTypes();
-  if (!useDemoSeedData()) return getJob(GAS_SERVICE_TRIAL.jobId) ?? null;
+  if (!useDemoSeedData() && !options.testFixtures) return getJob(GAS_SERVICE_TRIAL.jobId) ?? null;
   ensureChrisEmployeeCard();
   if (ensured) return getJob(GAS_SERVICE_TRIAL.jobId) ?? null;
   ensureClientAndSite();

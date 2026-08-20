@@ -66,7 +66,7 @@ describe("domestic stop/go run engine", () => {
   });
 
   it("prefills attendance from the diary, client and employee card, and keeps actual time editable", () => {
-    ensureDomesticStopGoSeed();
+    ensureDomesticStopGoSeed({ testFixtures: true });
     const dateField = getPublishedTemplate("DOM_GAS_BOILER_SERVICE")?.fields.find((item) => item.fieldKey === "attendance.attendance_date");
     const timeField = getPublishedTemplate("DOM_GAS_BOILER_SERVICE")?.fields.find((item) => item.fieldKey === "attendance.arrival_time");
     assert.equal(dateField?.systemPopulated, undefined);
@@ -104,7 +104,7 @@ describe("domestic stop/go run engine", () => {
   });
 
   it("backfills empty customer fields on an existing run without overwriting actual attendance", () => {
-    ensureDomesticStopGoSeed();
+    ensureDomesticStopGoSeed({ testFixtures: true });
     const started = startWorkflowRun({
       jobId: GAS_SERVICE_TRIAL.jobId,
       jobCostCentreId: `${GAS_SERVICE_TRIAL.costCentreId}-hydrate-${Date.now()}`,
