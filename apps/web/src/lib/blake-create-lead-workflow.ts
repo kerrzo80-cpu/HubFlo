@@ -78,6 +78,27 @@ function normalizeSource(value: unknown): LeadSource | undefined {
   return match as LeadSource | undefined;
 }
 
+export function locallyExtractLeadData(message: string, current: CreateLeadCollectedData) {
+  const next = { ...current };
+  const labelled = (label: string) => message.match(new RegExp(`(?:^|[\\n,;])\\s*(?:${label})\\s*[:=-]\\s*([^\\n,;]+)`, "i"))?.[1]?.trim();
+  const set = (key: keyof CreateLeadCollectedData, value: string | undefined) => {
+    if (value) (next as Record<string, unknown>)[key] = value;
+  };
+  set("customerName", labelled("(?:customer|client)(?: name)?"));
+  set("contactName", labelled("contact(?: name)?"));
+  set("addressLine1", labelled("(?:site )?address(?: line 1)?"));
+  set("town", labelled("town|city"));
+  set("county", labelled("county"));
+  set("description", labelled("enquiry|description|work|job"));
+  set("email", message.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i)?.[0]);
+  set("phone", message.match(/(?:\+44\s?\d{4}|0\d{3,4})[\s-]?\d{3,4}[\s-]?\d{3,4}/)?.[0]);
+  set("postcode", message.match(/\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i)?.[0].toUpperCase());
+  next.source = normalizeSource(labelled("source"))
+    || normalizeSource(message.match(/\b(phone call|checkatrade|email|website|referral)\b/i)?.[1])
+    || next.source;
+  return next;
+}
+
 async function extractLeadData(message: string, current: CreateLeadCollectedData) {
   const apiKey = resolveOpenAiApiKey();
   if (!apiKey) throw new Error("OpenAI is not connected on pilot. Your lead workflow is saved; connect Blake AI and continue.");
@@ -177,12 +198,24 @@ export async function handleCreateLeadWorkflow(message: string, context: BlakeAc
     return { reply: "Cancelled. Nothing was created.", aiUsed: false };
   }
 
-  run.collectedData = await extractLeadData(message, run.collectedData);
+  const locallyExtracted = locallyExtractLeadData(message, run.collectedData);
+  let extractionWarning = "";
+  try {
+    run.collectedData = await extractLeadData(message, locallyExtracted);
+  } catch (error) {
+    run.collectedData = locallyExtracted;
+    extractionWarning = error instanceof Error ? error.message : "Blake could not interpret all of those details.";
+    console.error("Blake create-lead extraction failed", { workflowRunId: run.id, error: extractionWarning });
+  }
   run.missingFields = missing(run.collectedData);
   run.updatedAt = new Date().toISOString();
   if (run.missingFields.length) {
     run.status = "collecting_information"; persist();
-    return { reply: `I’ve saved what you gave me. I still need: ${run.missingFields.join(", ")}.`, aiUsed: true, workflowRunId: run.id };
+    return {
+      reply: `${extractionWarning ? "I couldn't interpret every detail automatically, but the lead draft is safe. " : "I’ve saved what you gave me. "}I still need: ${run.missingFields.join(", ")}.\n\nYou can reply using labels, for example: Customer: …, Address: …, Town: …, Postcode: …, Enquiry: …, Source: Phone call.`,
+      aiUsed: !extractionWarning,
+      workflowRunId: run.id,
+    };
   }
   run.customerCandidates = candidatesFor(run.collectedData);
   if (run.customerCandidates.length && !run.collectedData.clientId) {
