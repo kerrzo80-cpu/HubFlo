@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
+import { confirmBlakeOperatorAction } from "@/lib/blake-operator";
 import {
   confirmNexaAssistantAction,
   type BuddyClientContext,
@@ -33,6 +34,10 @@ export async function POST(request: Request) {
   };
 
   if (payload.confirmActionId) {
+    const operatorResult = await confirmBlakeOperatorAction(payload.confirmActionId, actor, access);
+    if (operatorResult.matched) {
+      return NextResponse.json(operatorResult, { status: operatorResult.status });
+    }
     if (!access.canEditJobs) {
       return NextResponse.json({ error: "Your role can chat with Blake but cannot create bookings." }, { status: 403 });
     }
@@ -50,5 +55,5 @@ export async function POST(request: Request) {
     : [];
   const buddyContext =
     payload.buddyContext && typeof payload.buddyContext === "object" ? payload.buddyContext : undefined;
-  return NextResponse.json(await handleContextAwareNexaAssistantMessage(message, actor, { history, buddyContext }));
+  return NextResponse.json(await handleContextAwareNexaAssistantMessage(message, actor, access, { history, buddyContext }));
 }
