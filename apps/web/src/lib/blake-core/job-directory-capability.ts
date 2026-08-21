@@ -54,6 +54,8 @@ export const listJobsCapability: BlakeCapability<
     bucket: JobDirectoryBucket;
     label: string;
     count: number;
+    scheduledCount: number;
+    unscheduledCount: number;
     statuses: string[];
     rows: Array<{
       id: string;
@@ -99,10 +101,13 @@ export const listJobsCapability: BlakeCapability<
     const statuses = input.bucket === "active" || input.bucket === "all"
       ? Array.from(new Set(jobs.map((job) => job.status))).sort()
       : [...JOB_DIRECTORY_STATUSES[input.bucket]];
+    const scheduledCount = jobs.filter((job) => Boolean(job.scheduledDate)).length;
     return {
       bucket: input.bucket,
       label: JOB_DIRECTORY_LABELS[input.bucket],
       count: jobs.length,
+      scheduledCount,
+      unscheduledCount: jobs.length - scheduledCount,
       statuses,
       rows: jobs.slice(0, input.limit).map((job) => ({
         id: job.id,
