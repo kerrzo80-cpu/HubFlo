@@ -1,0 +1,31 @@
+.launcher {
+  position: fixed;
+  right: 22px;
+  bottom: 88px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 15px;
+  border-radius: 999px;
+  background: #087ca7;
+  color: #fff;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: 0 12px 32px rgba(8, 124, 167, 0.24);
+}
+
+.launcher::before {
+  content: "●";
+  font-size: 10px;
+  color: #8ff0c4;
+}
+
+@media (max-width: 700px) {
+  .launcher {
+    right: 14px;
+    bottom: 84px;
+    padding: 10px 13px;
+  }
+}

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import BlakeChatPage from "./BlakeChatPage";
+import launcherStyles from "./drive-launcher.module.css";
 
 export const metadata: Metadata = {
   title: "Blake | NeXa",
@@ -8,5 +9,10 @@ export const metadata: Metadata = {
 };
 
 export default function BlakePage() {
-  return <BlakeChatPage />;
+  return (
+    <>
+      <BlakeChatPage />
+      <a href="/blake/drive" className={launcherStyles.launcher}>Driving Mode</a>
+    </>
+  );
 }
