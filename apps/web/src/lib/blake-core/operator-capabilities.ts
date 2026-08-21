@@ -9,7 +9,6 @@ import {
   updateJob,
   updateQuote,
   type Job,
-  type JobHealth,
   type Quote,
   type QuoteStatus,
 } from "@/lib/workflow-data";
@@ -52,7 +51,6 @@ function normaliseRef(value: string) {
 }
 
 const quoteStatuses: QuoteStatus[] = ["Draft", "Sent", "Accepted", "Declined", "Converted", "Lost"];
-const jobHealthValues: JobHealth[] = ["red", "amber", "green", "blue"];
 
 type CreateQuoteInput = {
   customer: string;
@@ -197,7 +195,6 @@ type CreateJobInput = {
   description: string;
   manager?: string;
   status?: string;
-  health?: JobHealth;
   value?: number;
   next?: string;
   due?: string;
@@ -220,7 +217,6 @@ export const createJobCapability: BlakeCapability<CreateJobInput, Job> = {
         description: { type: "string" },
         manager: { type: "string" },
         status: { type: "string" },
-        health: { enum: jobHealthValues },
         value: { type: "number", minimum: 0 },
         next: { type: "string" },
         due: { type: "string" },
@@ -230,16 +226,12 @@ export const createJobCapability: BlakeCapability<CreateJobInput, Job> = {
   }),
   parse(input) {
     const raw = objectInput(input);
-    const healthText = optionalString(raw.health)?.toLowerCase();
-    const health = healthText ? jobHealthValues.find((item) => item === healthText) : undefined;
-    if (healthText && !health) throw new TypeError(`Job health must be one of: ${jobHealthValues.join(", ")}.`);
     return {
       customer: requiredString(raw.customer, "Customer"),
       site: requiredString(raw.site, "Site"),
       description: requiredString(raw.description, "Job description"),
       manager: optionalString(raw.manager),
       status: optionalString(raw.status),
-      health,
       value: optionalNumber(raw.value, "Job value"),
       next: optionalString(raw.next),
       due: optionalString(raw.due),
@@ -252,7 +244,6 @@ export const createJobCapability: BlakeCapability<CreateJobInput, Job> = {
       description: input.description,
       manager: input.manager ?? context.actor.name,
       status: input.status ?? "Pending",
-      health: input.health,
       value: input.value ?? 0,
       next: input.next ?? "Review and schedule work.",
       due: input.due ?? "Unscheduled",
@@ -266,7 +257,6 @@ type UpdateJobInput = {
   description?: string;
   manager?: string;
   status?: string;
-  health?: JobHealth;
   value?: number;
   next?: string;
   due?: string;
@@ -275,7 +265,7 @@ type UpdateJobInput = {
 export const updateJobCapability: BlakeCapability<UpdateJobInput, Job> = {
   definition: definition({
     name: "update_job",
-    description: "Update an existing NeXa job by J-reference. Supports site, description, manager, status, health, value, next action and due date.",
+    description: "Update an existing NeXa job by J-reference. Supports site, description, manager, status, value, next action and due date. Job health remains derived by NeXa.",
     mode: "write",
     risk: "medium",
     requiredPermissions: ["canEditJobs"],
@@ -289,7 +279,6 @@ export const updateJobCapability: BlakeCapability<UpdateJobInput, Job> = {
         description: { type: "string" },
         manager: { type: "string" },
         status: { type: "string" },
-        health: { enum: jobHealthValues },
         value: { type: "number", minimum: 0 },
         next: { type: "string" },
         due: { type: "string" },
@@ -299,21 +288,17 @@ export const updateJobCapability: BlakeCapability<UpdateJobInput, Job> = {
   }),
   parse(input) {
     const raw = objectInput(input);
-    const healthText = optionalString(raw.health)?.toLowerCase();
-    const health = healthText ? jobHealthValues.find((item) => item === healthText) : undefined;
-    if (healthText && !health) throw new TypeError(`Job health must be one of: ${jobHealthValues.join(", ")}.`);
     const parsed: UpdateJobInput = {
       ref: normaliseRef(requiredString(raw.ref, "Job reference")),
       site: optionalString(raw.site),
       description: optionalString(raw.description),
       manager: optionalString(raw.manager),
       status: optionalString(raw.status),
-      health,
       value: optionalNumber(raw.value, "Job value"),
       next: optionalString(raw.next),
       due: optionalString(raw.due),
     };
-    if ([parsed.site, parsed.description, parsed.manager, parsed.status, parsed.health, parsed.value, parsed.next, parsed.due].every((value) => value === undefined)) {
+    if ([parsed.site, parsed.description, parsed.manager, parsed.status, parsed.value, parsed.next, parsed.due].every((value) => value === undefined)) {
       throw new TypeError("At least one job field must be changed.");
     }
     return parsed;
@@ -326,7 +311,6 @@ export const updateJobCapability: BlakeCapability<UpdateJobInput, Job> = {
     if (input.description !== undefined) patch.description = input.description;
     if (input.manager !== undefined) patch.manager = input.manager;
     if (input.status !== undefined) patch.status = input.status;
-    if (input.health !== undefined) patch.health = input.health;
     if (input.value !== undefined) patch.value = input.value;
     if (input.next !== undefined) patch.next = input.next;
     if (input.due !== undefined) patch.due = input.due;
