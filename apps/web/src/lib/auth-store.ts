@@ -224,6 +224,27 @@ export function createUserSession(userId: string) {
   return { token, expiresAt };
 }
 
+/**
+ * Create a second session for a trusted device handoff without invalidating the
+ * user's current mobile/browser session. Password changes and account disable
+ * still revoke every session for that user.
+ */
+export function createAdditionalUserSession(userId: string) {
+  refresh();
+  pruneExpiredSessions();
+  const user = authStore.users.find((candidate) => candidate.id === userId && candidate.enabled);
+  if (!user) throw new Error("User not found or disabled.");
+  const token = randomBytes(32).toString("base64url");
+  const createdAt = nowIso();
+  const expiresAt = new Date(Date.now() + nexaSessionMaxAgeSeconds * 1000).toISOString();
+  authStore.sessions = [
+    { tokenHash: hashSessionToken(token), userId, createdAt, expiresAt },
+    ...authStore.sessions,
+  ];
+  persist();
+  return { token, expiresAt };
+}
+
 export function getAuthUserForSession(token: string | undefined): AuthUser | null {
   if (!token) return null;
   refresh();

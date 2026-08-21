@@ -65,6 +65,14 @@ function mobileHeaders(token: string) {
   return { "Content-Type": "application/json", Authorization: `Bearer ${token}`, "x-nexa-client": "blake-mobile" };
 }
 
+export async function createDrivingModeHandoff(token: string) {
+  return json<{ url: string; expiresAt: string }>("/api/blake/drive-handoff", {
+    method: "POST",
+    headers: mobileHeaders(token),
+    body: "{}",
+  });
+}
+
 export async function listBlakeChats(token: string) {
   return json<{ chats: BlakeChat[] }>("/api/blake/chats", { headers: mobileHeaders(token) });
 }
