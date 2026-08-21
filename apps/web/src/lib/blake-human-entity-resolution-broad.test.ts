@@ -11,6 +11,7 @@ import {
   requireClientFromHumanReference,
   requireEmployeeFromHumanReference,
   requireInvoiceFromHumanReference,
+  requireJobFromHumanReference,
   requireLeadFromHumanReference,
   requireQuoteFromHumanReference,
   requireSiteFromHumanReference,
@@ -170,6 +171,13 @@ test("shared resolver handles reversed customer, site, lead, quote, invoice and 
   assert.equal(requireInvoiceFromHumanReference("Sarah McDonald").ref, "INV-8801");
   assert.equal(requireEmployeeFromHumanReference("Louise Fraser").id, "emp-human-louise");
   assert.equal(requireEmployeeFromHumanReference("Louise").id, "emp-human-louise");
+});
+
+test("shared resolver accepts conversational wrappers rather than requiring a bare reference", () => {
+  seedBroadHumanEntities();
+  assert.equal(requireJobFromHumanReference("can you show me Sarah McDonald's job at Dee View Road").ref, "J-8801");
+  assert.equal(requireEmployeeFromHumanReference("is Louise Fraser free today").id, "emp-human-louise");
+  assert.equal(requireInvoiceFromHumanReference("show me Sarah McDonald's heating upgrade invoice").ref, "INV-8801");
 });
 
 test("get_nexa_record uses the same human resolver for every supported entity class", async () => {
