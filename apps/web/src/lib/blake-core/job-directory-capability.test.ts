@@ -20,6 +20,12 @@ test("ongoing and In Progress folder questions route to the In Progress director
   assert.equal(looksLikeJobDirectoryQuestion("Give me a list of jobs ongoing at the moment"), true);
 });
 
+test("job status change commands are not intercepted as directory questions", () => {
+  assert.equal(requestedJobDirectoryBucket("Mark job J-1001 in progress"), "in_progress");
+  assert.equal(looksLikeJobDirectoryQuestion("Mark job J-1001 in progress"), false);
+  assert.equal(looksLikeJobDirectoryQuestion("Change job J-1001 to completed"), false);
+});
+
 test("active jobs stay distinct from the In Progress folder", () => {
   assert.equal(requestedJobDirectoryBucket("Show all active jobs"), "active");
   assert.equal(jobMatchesDirectoryBucket({ status: "Pending" }, "active"), true);
