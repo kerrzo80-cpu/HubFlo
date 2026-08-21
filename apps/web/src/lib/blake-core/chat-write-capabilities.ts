@@ -7,14 +7,19 @@ import {
   type LeadStatus,
 } from "@/lib/lead-store";
 
-import { requireLeadFromHumanReference } from "./entity-resolution";
+import {
+  requireClientFromHumanReference,
+  requireEmployeeFromHumanReference,
+  requireLeadFromHumanReference,
+  requireSiteFromHumanReference,
+} from "./entity-resolution";
 import type { BlakeCapability } from "./types";
 
 const leadSources: LeadSource[] = ["Phone call", "Checkatrade", "Email", "Website", "Referral"];
 const leadStatuses: LeadStatus[] = ["New enquiry", "Needs scheduling", "Survey booked", "Quoted", "Lost"];
 
 function definition(input: Omit<BlakeCapabilityDefinition, "version">): BlakeCapabilityDefinition {
-  return { ...input, version: 3 };
+  return { ...input, version: 4 };
 }
 
 function objectInput(value: unknown) {
@@ -49,7 +54,7 @@ function leadStatus(value: unknown) {
 export const createLeadChatCapability: BlakeCapability = {
   definition: definition({
     name: "create_lead",
-    description: "Create a real NeXa lead. Use the customer/site details already established in normal conversation. Only customer name, address, description and source are mandatory; unknown contact or scheduling fields can remain blank. Do not ask for internal customer/site ids unless a specific existing record genuinely needs disambiguated.",
+    description: "Create a real NeXa lead. Use the customer/site details already established in normal conversation. Only customer name, address, description and source are mandatory; unknown contact or scheduling fields can remain blank. Existing customer/site references and surveyor names may be natural names, reversed names, partial unique names or addresses; Blake resolves them without asking for internal ids.",
     mode: "write",
     risk: "medium",
     requiredPermissions: ["canCreateLead"],
@@ -65,11 +70,11 @@ export const createLeadChatCapability: BlakeCapability = {
         phone: { type: "string" },
         email: { type: "string" },
         status: { enum: leadStatuses },
-        surveyor: { type: "string" },
+        surveyor: { type: "string", description: "Natural employee reference such as name, reversed name or unique partial name." },
         surveyDate: { type: "string" },
         surveyTime: { type: "string" },
-        clientId: { type: "string" },
-        siteId: { type: "string" },
+        clientId: { type: "string", description: "Optional existing customer reference. Natural customer name/address/account reference or id is accepted." },
+        siteId: { type: "string", description: "Optional existing site reference. Natural site name/address or id is accepted." },
         siteName: { type: "string" },
         next: { type: "string" },
       },
@@ -96,8 +101,14 @@ export const createLeadChatCapability: BlakeCapability = {
     };
   },
   execute(input, context) {
+    const clientId = input.clientId ? requireClientFromHumanReference(input.clientId).id : undefined;
+    const siteId = input.siteId ? requireSiteFromHumanReference(input.siteId).id : undefined;
+    const surveyor = input.surveyor ? requireEmployeeFromHumanReference(input.surveyor).name : "";
     const result = createLead({
       ...input,
+      clientId,
+      siteId,
+      surveyor,
       createdBy: context.actor.name,
     }, `${context.actor.name} via Blake`);
     return result.lead;
@@ -107,7 +118,7 @@ export const createLeadChatCapability: BlakeCapability = {
 export const updateLeadChatCapability: BlakeCapability = {
   definition: definition({
     name: "update_lead",
-    description: "Update an existing NeXa lead. The `ref` input may be a natural customer/person name, reversed imported name, address, description, id or L-reference. Resolve it yourself and only ask the user which one when several real leads genuinely match.",
+    description: "Update an existing NeXa lead. The `ref` input may be a natural customer/person name, reversed imported name, address, description, id or L-reference. Surveyor and site changes also accept natural human references. Resolve them yourself and only ask which one when several real records genuinely match.",
     mode: "write",
     risk: "medium",
     requiredPermissions: ["canCreateLead"],
@@ -119,10 +130,10 @@ export const updateLeadChatCapability: BlakeCapability = {
         ref: { type: "string", description: "Natural lead reference: customer/person name, address, description, id or L-reference." },
         status: { enum: leadStatuses },
         lostReason: { type: "string" },
-        surveyor: { type: "string" },
+        surveyor: { type: "string", description: "Natural employee reference; internal employee id is not required." },
         surveyDate: { type: "string" },
         surveyTime: { type: "string" },
-        siteId: { type: "string" },
+        siteId: { type: "string", description: "Natural site name/address or id." },
         next: { type: "string" },
       },
       required: ["ref"],
@@ -147,13 +158,15 @@ export const updateLeadChatCapability: BlakeCapability = {
   },
   execute(input, context) {
     const lead = requireLeadFromHumanReference(input.ref);
+    const surveyor = input.surveyor ? requireEmployeeFromHumanReference(input.surveyor).name : undefined;
+    const siteId = input.siteId ? requireSiteFromHumanReference(input.siteId).id : undefined;
     const updated = updateLead(lead.id, {
       status: input.status,
       lostReason: input.lostReason,
-      surveyor: input.surveyor,
+      surveyor,
       surveyDate: input.surveyDate,
       surveyTime: input.surveyTime,
-      siteId: input.siteId,
+      siteId,
       next: input.next,
     }, `${context.actor.name} via Blake`);
     if (!updated) throw new Error(`${lead.ref} could not be updated.`);
