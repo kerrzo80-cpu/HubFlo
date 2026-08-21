@@ -109,6 +109,8 @@ export const humanSearchNexaRecordsCapability: BlakeCapability = {
     };
     const clients = getClients();
     const clientNames = new Map(clients.map((client) => [client.id, client.name]));
+    const clientSites = getClientSites();
+    const sitesById = new Map(clientSites.map((site) => [site.id, site]));
 
     if (context.access.showCustomers) {
       add("client", clients.map((item) => ({
@@ -120,7 +122,7 @@ export const humanSearchNexaRecordsCapability: BlakeCapability = {
         status: item.status,
         score: scoreRow(input.query, [item.id, item.accountReference, item.name, item.primaryContact, item.billingAddress, item.email, item.phone, `${item.name} ${item.primaryContact}`]),
       })));
-      add("site", getClientSites().map((item) => ({
+      add("site", clientSites.map((item) => ({
         type: "site" as const,
         id: item.id,
         title: item.name || item.address,
@@ -153,6 +155,7 @@ export const humanSearchNexaRecordsCapability: BlakeCapability = {
         score: Math.max(
           entityMatchScore(input.query, item.ref) + 20,
           entityMatchScore(input.query, item.customer) + 8,
+          entityMatchScore(input.query, item.clientId ? clientNames.get(item.clientId) : undefined) + 10,
           entityMatchScore(input.query, item.description),
           entityMatchScore(input.query, `${item.customer} ${item.description}`),
         ),
@@ -170,7 +173,10 @@ export const humanSearchNexaRecordsCapability: BlakeCapability = {
         score: Math.max(
           entityMatchScore(input.query, item.ref) + 20,
           entityMatchScore(input.query, item.customer) + 8,
+          entityMatchScore(input.query, item.clientId ? clientNames.get(item.clientId) : undefined) + 10,
           entityMatchScore(input.query, item.site) + 4,
+          entityMatchScore(input.query, item.siteId ? sitesById.get(item.siteId)?.name : undefined) + 6,
+          entityMatchScore(input.query, item.siteId ? sitesById.get(item.siteId)?.address : undefined) + 8,
           entityMatchScore(input.query, item.description),
           entityMatchScore(input.query, `${item.customer} ${item.site}`),
           entityMatchScore(input.query, `${item.customer} ${item.description}`),

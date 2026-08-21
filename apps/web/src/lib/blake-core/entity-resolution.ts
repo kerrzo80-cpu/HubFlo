@@ -138,13 +138,18 @@ function resolveRecord<T>(options: ResolverOptions<T>): HumanEntityResolution<T>
 }
 
 export function resolveJobFromHumanReference(identifier: string): HumanEntityResolution<Job> {
+  const clients = new Map(getClients().map((client) => [client.id, client.name]));
+  const sites = new Map(getClientSites().map((site) => [site.id, site]));
   return resolveRecord({
     records: getJobs(),
     identifier,
     exactValues: (job) => [job.id, job.ref],
     rankedValues: (job) => [
       { value: job.customer, bonus: 8 },
+      { value: job.clientId ? clients.get(job.clientId) : undefined, bonus: 10 },
       { value: job.site, bonus: 4 },
+      { value: job.siteId ? sites.get(job.siteId)?.name : undefined, bonus: 6 },
+      { value: job.siteId ? sites.get(job.siteId)?.address : undefined, bonus: 8 },
       { value: job.description },
       { value: `${job.customer} ${job.site}` },
       { value: `${job.customer} ${job.description}` },
@@ -155,12 +160,14 @@ export function resolveJobFromHumanReference(identifier: string): HumanEntityRes
 }
 
 export function resolveQuoteFromHumanReference(identifier: string): HumanEntityResolution<Quote> {
+  const clients = new Map(getClients().map((client) => [client.id, client.name]));
   return resolveRecord({
     records: getQuotes(),
     identifier,
     exactValues: (quote) => [quote.id, quote.ref],
     rankedValues: (quote) => [
       { value: quote.customer, bonus: 8 },
+      { value: quote.clientId ? clients.get(quote.clientId) : undefined, bonus: 10 },
       { value: quote.description },
       { value: `${quote.customer} ${quote.description}` },
     ],
@@ -169,13 +176,18 @@ export function resolveQuoteFromHumanReference(identifier: string): HumanEntityR
 }
 
 export function resolveLeadFromHumanReference(identifier: string): HumanEntityResolution<LeadRecord> {
+  const clients = new Map(getClients().map((client) => [client.id, client.name]));
+  const sites = new Map(getClientSites().map((site) => [site.id, site]));
   return resolveRecord({
     records: getLeads(),
     identifier,
     exactValues: (lead) => [lead.id, lead.ref],
     rankedValues: (lead) => [
       { value: lead.customerName, bonus: 8 },
+      { value: lead.clientId ? clients.get(lead.clientId) : undefined, bonus: 10 },
       { value: lead.address, bonus: 4 },
+      { value: lead.siteId ? sites.get(lead.siteId)?.name : undefined, bonus: 6 },
+      { value: lead.siteId ? sites.get(lead.siteId)?.address : undefined, bonus: 8 },
       { value: lead.description },
       { value: lead.phone },
       { value: lead.email },

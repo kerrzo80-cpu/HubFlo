@@ -4,6 +4,8 @@ import test from "node:test";
 import { roleAccess } from "@/lib/access";
 import { getJobOfficeUpdates, resetJobOfficeUpdatesForTests } from "@/lib/job-office-updates";
 import { createJob, createQuote, getJobs, getQuotes, resetWorkflowStore, saveJob } from "@/lib/workflow-data";
+import { writeServerStore } from "@/lib/server-store";
+import { writeServerStore } from "@/lib/server-store";
 
 import { requireJobFromHumanReference } from "./blake-core/entity-resolution";
 import { humanEntityCapabilities } from "./blake-core/human-entity-capabilities";
@@ -146,4 +148,30 @@ test("ambiguous human references return real choices instead of making the user 
       return true;
     },
   );
+});
+
+
+test("live Blake rehydrates a newer persisted workflow store before human lookup", () => {
+  resetWorkflowStore();
+  assert.equal(getJobs().length, 0);
+  writeServerStore("workflow-store", {
+    jobs: [{
+      id: "job-live-helen-ball",
+      ref: "J-1141",
+      customer: "Ball, Helen",
+      site: "79 Keithleigh Gardens Pitmedden Ellon AB41 7GF",
+      description: "System flush",
+      manager: "Office",
+      status: "Completed",
+      health: "green",
+      value: 850,
+      next: "Review",
+      due: "Imported",
+    }],
+    quotes: [],
+    purchaseRequests: [],
+  });
+  const job = requireJobFromHumanReference("Open job Helen Ball");
+  assert.equal(job.ref, "J-1141");
+  assert.equal(job.customer, "Ball, Helen");
 });
