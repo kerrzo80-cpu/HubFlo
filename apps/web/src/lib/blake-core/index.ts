@@ -20,12 +20,23 @@ export { jobUpdateCapabilities } from "./job-update-capabilities";
 export { knowledgeCapabilities } from "./knowledge-capabilities";
 export { operatorCapabilities } from "./operator-capabilities";
 
+const humanResolutionCapabilityNames = new Set([
+  "search_nexa_records",
+  "check_schedule_availability",
+  "list_invoices",
+]);
+
+const nonHumanCoreCapabilities = coreCapabilities.filter(
+  (capability) => !humanResolutionCapabilityNames.has(capability.definition.name),
+);
+
 export const blakeCore = createBlakeCapabilityRegistry([
-  ...coreCapabilities,
+  ...nonHumanCoreCapabilities,
   ...jobDirectoryCapabilities,
   ...assistantReadCapabilities,
-  // These deliberately come after the older generic read capabilities so the
-  // registry exposes the human-friendly v2 search/get implementations.
+  // Human-facing entity operations have one authoritative registration path.
+  // This prevents an older exact-string implementation reappearing if registry
+  // ordering changes later.
   ...humanEntityCapabilities,
   ...knowledgeCapabilities,
   ...chatWriteCapabilities,
