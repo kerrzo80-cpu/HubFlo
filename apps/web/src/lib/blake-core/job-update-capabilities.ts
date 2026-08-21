@@ -9,10 +9,11 @@ import {
   resolveJobAttention,
 } from "@/lib/job-office-updates";
 
+import { requireJobFromHumanReference } from "./entity-resolution";
 import type { BlakeCapability } from "./types";
 
 function definition(input: Omit<BlakeCapabilityDefinition, "version">): BlakeCapabilityDefinition {
-  return { ...input, version: 1 };
+  return { ...input, version: 2 };
 }
 
 function objectInput(value: unknown) {
@@ -44,10 +45,14 @@ function optionalBoolean(value: unknown, fallback: boolean) {
   return typeof value === "boolean" ? value : fallback;
 }
 
+function resolvedJobRef(input: string) {
+  return requireJobFromHumanReference(input).ref;
+}
+
 export const listJobUpdatesCapability: BlakeCapability = {
   definition: definition({
     name: "list_job_updates",
-    description: "Read the office notes and draft variations currently linked to a specific NeXa job. Use this for questions such as 'what notes are on that job?', 'what did I say about it?', or 'are there any variations on that job?'. The job may be supplied from recent conversation/tool context.",
+    description: "Read the office notes and draft variations linked to a specific NeXa job. The job can be identified naturally by customer name, reversed imported name, partial name, site, description, job id or J-reference. Resolve it yourself; never ask the user to look up an internal reference unless several real jobs genuinely match.",
     mode: "read",
     risk: "low",
     requiredPermissions: ["showJobs"],
@@ -56,7 +61,7 @@ export const listJobUpdatesCapability: BlakeCapability = {
       type: "object",
       additionalProperties: false,
       properties: {
-        job: { type: "string", description: "NeXa job id or J-reference already known from the conversation/search results." },
+        job: { type: "string", description: "Natural job reference: customer/person name, site/address, description, job id or J-reference." },
       },
       required: ["job"],
     },
@@ -66,14 +71,14 @@ export const listJobUpdatesCapability: BlakeCapability = {
     return { job: requiredString(raw.job, "Job") };
   },
   execute(input, context) {
-    return getJobOfficeUpdates(context.actor.tenantId, input.job);
+    return getJobOfficeUpdates(context.actor.tenantId, resolvedJobRef(input.job));
   },
 };
 
 export const addJobNoteCapability: BlakeCapability = {
   definition: definition({
     name: "add_job_note",
-    description: "Add a durable note to a real NeXa job. This is the normal tool for spoken in-car/site notes such as 'add a note to that job...'. Unless the user explicitly says no follow-up is needed, create an Attention item so the office cannot forget the note. Use the job already established in conversation rather than asking for a reference again.",
+    description: "Add a durable note to a real NeXa job. This is the normal tool for spoken in-car/site notes. The user may identify the job naturally by customer/person name, site, address, description or prior conversation context. Resolve that human reference yourself — including 'Helen Ball' when NeXa stores 'Ball, Helen' — and do NOT ask the user for a J-reference unless more than one real job matches. Unless the user explicitly says no follow-up is needed, create an Attention item so the office cannot forget the note.",
     mode: "write",
     risk: "low",
     requiredPermissions: ["canEditJobs"],
@@ -82,7 +87,7 @@ export const addJobNoteCapability: BlakeCapability = {
       type: "object",
       additionalProperties: false,
       properties: {
-        job: { type: "string", description: "NeXa job id or J-reference from conversation context." },
+        job: { type: "string", description: "Natural job reference: customer/person name, site/address, description, job id or J-reference." },
         text: { type: "string" },
         noteType: { enum: jobNoteTypes },
         priority: { enum: jobUpdatePriorities },
@@ -102,9 +107,10 @@ export const addJobNoteCapability: BlakeCapability = {
     };
   },
   execute(input, context) {
+    const jobRef = resolvedJobRef(input.job);
     const note = addJobOfficeNote({
       tenantId: context.actor.tenantId,
-      jobIdentifier: input.job,
+      jobIdentifier: jobRef,
       text: input.text,
       noteType: input.noteType,
       priority: input.priority,
@@ -124,7 +130,7 @@ export const addJobNoteCapability: BlakeCapability = {
 export const createJobVariationCapability: BlakeCapability = {
   definition: definition({
     name: "create_job_variation",
-    description: "Create a draft variation linked to an existing NeXa job from a natural spoken or typed instruction. Capture the user's short description and any known estimate, but do not invent scope, cost or sell price. The draft always raises a Variations Attention item for office review before commercial approval/sending.",
+    description: "Create a draft variation linked to an existing NeXa job from natural spoken or typed wording. Resolve customer/person names, reversed imported names, partial names, site/address, descriptions and conversation context yourself. Never ask for a J-reference unless several real jobs genuinely match. Capture the user's short description and any known estimate, but do not invent scope, cost or sell price. The draft always raises a Variations Attention item for office review before commercial approval/sending.",
     mode: "write",
     risk: "medium",
     requiredPermissions: ["canEditJobs"],
@@ -133,7 +139,7 @@ export const createJobVariationCapability: BlakeCapability = {
       type: "object",
       additionalProperties: false,
       properties: {
-        job: { type: "string", description: "NeXa job id or J-reference from conversation context." },
+        job: { type: "string", description: "Natural job reference: customer/person name, site/address, description, job id or J-reference." },
         description: { type: "string" },
         priority: { enum: jobUpdatePriorities },
         estimatedValue: { type: "number", minimum: 0, description: "Only include when the user supplied an amount or an authoritative NeXa figure is already known." },
@@ -153,9 +159,10 @@ export const createJobVariationCapability: BlakeCapability = {
     };
   },
   execute(input, context) {
+    const jobRef = resolvedJobRef(input.job);
     const variation = createJobVariationDraft({
       tenantId: context.actor.tenantId,
-      jobIdentifier: input.job,
+      jobIdentifier: jobRef,
       description: input.description,
       priority: input.priority,
       estimatedValue: input.estimatedValue,

@@ -17,7 +17,7 @@ const context = {
 test("capability registry exposes only the latest implementation for duplicate business capability names", () => {
   const definitions = registry.definitions().filter((item) => item.name === "create_lead");
   assert.equal(definitions.length, 1);
-  assert.equal(definitions[0]?.version, 2);
+  assert.equal(definitions[0]?.version, 4);
 });
 
 test("chat lead creation is confirmation gated and safely defaults optional contact/scheduling fields", async () => {
