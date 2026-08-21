@@ -27,6 +27,8 @@ function appKeyForKind(kind: string): BrandAppKey | undefined {
       return "takeoffs";
     case "logo-heat-design":
       return "heat-design";
+    case "logo-trainer":
+      return "trainer";
     default:
       return undefined;
   }
