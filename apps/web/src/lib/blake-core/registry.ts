@@ -25,9 +25,11 @@ function hasPermission(context: BlakeExecutionContext, permission: string) {
 }
 
 export function createBlakeCapabilityRegistry(capabilities: BlakeCapability[]): BlakeRegistry {
+  // Later registrations intentionally override earlier implementations of the same
+  // business capability. This lets Blake Core evolve without exposing duplicate tool names.
   const byName = new Map(capabilities.map((capability) => [capability.definition.name, capability]));
   return {
-    definitions: () => capabilities.map((capability) => structuredClone(capability.definition)),
+    definitions: () => [...byName.values()].map((capability) => structuredClone(capability.definition)),
     async execute<Output>(name: string, input: unknown, context: BlakeExecutionContext) {
       const executionId = `blake-execution-${crypto.randomUUID()}`;
       const capability = byName.get(name);
