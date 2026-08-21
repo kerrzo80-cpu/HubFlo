@@ -19,7 +19,20 @@ function trustedActor(request: Request, channel: "web_text" | "web_voice" | "mob
 export async function GET(request: Request) {
   const access = getAccessProfileFromHeaders(request.headers);
   const visible = blakeCore.definitions().filter((item) => item.requiredPermissions.every((permission) => access[permission as keyof typeof access] === true));
-  return NextResponse.json({ coreVersion: 1, capabilities: visible });
+  return NextResponse.json({
+    coreVersion: 2,
+    capabilities: visible,
+    writeCapabilities: visible.filter((item) => item.mode === "write").map((item) => item.name),
+    writeAccess: {
+      canCreateLead: access.canCreateLead,
+      canCreateQuote: access.canCreateQuote,
+      canCreateJob: access.canCreateJob,
+      canEditJobs: access.canEditJobs,
+      canEditInvoice: access.canEditInvoice,
+      canRequestPurchase: access.canRequestPurchase,
+      canApprovePurchase: access.canApprovePurchase,
+    },
+  });
 }
 
 export async function POST(request: Request) {
