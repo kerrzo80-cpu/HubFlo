@@ -94,8 +94,8 @@ export function entityMatchScore(query: unknown, value: unknown) {
   return 0;
 }
 
-export function bestEntityFieldScore(query: unknown, values: unknown[]) {
-  return values.reduce((best, value) => Math.max(best, entityMatchScore(query, value)), 0);
+export function bestEntityFieldScore(query: unknown, values: unknown[]): number {
+  return values.reduce<number>((best, value) => Math.max(best, entityMatchScore(query, value)), 0);
 }
 
 type ResolverOptions<T> = {
