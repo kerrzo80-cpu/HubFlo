@@ -111,6 +111,8 @@ export const humanSearchNexaRecordsCapability: BlakeCapability = {
     const clientNames = new Map(clients.map((client) => [client.id, client.name]));
     const clientSites = getClientSites();
     const sitesById = new Map(clientSites.map((site) => [site.id, site]));
+    const clientSites = getClientSites();
+    const sitesById = new Map(clientSites.map((site) => [site.id, site]));
 
     if (context.access.showCustomers) {
       add("client", clients.map((item) => ({
