@@ -30,6 +30,7 @@ const publicApiPrefixes = [
 const userAuthPublicPaths = new Set([
   "/api/auth/login",
   "/api/auth/me",
+  "/api/blake/drive-handoff/redeem",
   "/api/health",
   "/api/health/smoke",
   "/api/branding",
