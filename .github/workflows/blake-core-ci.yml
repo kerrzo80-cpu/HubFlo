@@ -1,0 +1,29 @@
+name: Blake Core CI
+
+on:
+  pull_request:
+    paths:
+      - "apps/web/src/lib/blake-**"
+      - "apps/web/src/lib/blake-core/**"
+      - "apps/web/src/app/api/nexa-assistant/**"
+      - "apps/web/src/app/blake/**"
+      - "packages/domain/src/blake-**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/blake-core-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: corepack enable
+      - run: corepack prepare pnpm@11.5.3 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
