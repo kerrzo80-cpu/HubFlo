@@ -13,7 +13,7 @@ import {
 } from "@/lib/branding";
 import { useBrand } from "@/components/BrandProvider";
 
-const iconVersion = "20260805b";
+const iconVersion = "20260805c";
 
 type Profile = {
   app: BrandAppKey;
@@ -51,6 +51,7 @@ function chooseApp(pathname: string): BrandAppKey {
   if (pathname.startsWith("/takeoff")) return "takeoffs";
   if (pathname.startsWith("/field")) return "field";
   if (pathname.startsWith("/heat-design")) return "heat-design";
+  if (pathname.startsWith("/train")) return "trainer";
   if (pathname.startsWith("/estimator") || pathname.startsWith("/survey")) return "survey";
   return "core";
 }
