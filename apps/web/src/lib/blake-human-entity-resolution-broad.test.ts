@@ -177,10 +177,10 @@ test("get_nexa_record uses the same human resolver for every supported entity cl
   const cases: Array<[string, string, string]> = [
     ["client", "Sarah McDonald", "client-human-sarah"],
     ["site", "Dee View Road", "site-human-riverside"],
-    ["lead", "Patrick O'Neil", "lead-human-patrick"],
+    ["lead", "Patrick O'Neil", "L-8801"],
     ["quote", "heat pump option", "Q-8801"],
     ["job", "ground source heating controls", "J-8801"],
-    ["invoice", "heating upgrade stage", "invoice-human-8801"],
+    ["invoice", "heating upgrade stage", "INV-8801"],
     ["employee", "Louise Fraser", "emp-human-louise"],
   ];
 
