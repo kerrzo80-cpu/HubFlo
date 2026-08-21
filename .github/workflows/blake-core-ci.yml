@@ -17,6 +17,12 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      NEXA_WORKSPACE_MODE: live
+      NEXA_ENVIRONMENT: live
+      NEXT_PUBLIC_NEXA_ENVIRONMENT: live
+      NEXA_POSTGRES_MIRROR: "0"
+      NEXA_TENANT_KEY: ewg-live
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

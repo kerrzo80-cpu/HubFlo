@@ -10,13 +10,32 @@ import {
   resolveJobAttention,
 } from "./job-office-updates";
 import { jobUpdateCapabilities } from "./blake-core/job-update-capabilities";
+import { resetWorkflowStore, saveJob } from "./workflow-data";
 
 const tenant = "job-updates-test-tenant";
 const otherTenant = "job-updates-other-tenant";
 const jobRef = "J-1052";
 
-test("actionable job note stays on the job and in Attention until dealt with", () => {
+function resetJobOfficeFixture() {
+  resetWorkflowStore();
+  saveJob({
+    id: "job-1052",
+    ref: jobRef,
+    customer: "Morrison & Co.",
+    site: "42 Queen's Road, Aberdeen",
+    description: "Office heating upgrade",
+    manager: "Blake Test Manager",
+    status: "In progress",
+    health: "green",
+    value: 18_900,
+    next: "Engineer visit",
+    due: "Tomorrow",
+  });
   resetJobOfficeUpdatesForTests();
+}
+
+test("actionable job note stays on the job and in Attention until dealt with", () => {
+  resetJobOfficeFixture();
 
   const note = addJobOfficeNote({
     tenantId: tenant,
@@ -51,7 +70,7 @@ test("actionable job note stays on the job and in Attention until dealt with", (
 });
 
 test("informational job note can be saved without creating an Attention item", () => {
-  resetJobOfficeUpdatesForTests();
+  resetJobOfficeFixture();
 
   const note = addJobOfficeNote({
     tenantId: tenant,
@@ -68,7 +87,7 @@ test("informational job note can be saved without creating an Attention item", (
 });
 
 test("spoken variation becomes a draft and remains in Variations Attention until reviewed", () => {
-  resetJobOfficeUpdatesForTests();
+  resetJobOfficeFixture();
 
   const variation = createJobVariationDraft({
     tenantId: tenant,
@@ -98,7 +117,7 @@ test("spoken variation becomes a draft and remains in Variations Attention until
 });
 
 test("job notes and variation alerts are isolated by tenant", () => {
-  resetJobOfficeUpdatesForTests();
+  resetJobOfficeFixture();
 
   addJobOfficeNote({
     tenantId: tenant,
