@@ -11,11 +11,20 @@ import {
   type QuoteStatus,
 } from "@/lib/workflow-data";
 
-import { requireJobFromHumanReference, requireQuoteFromHumanReference } from "./entity-resolution";
+import {
+  requireEmployeeFromHumanReference,
+  requireJobFromHumanReference,
+  requireQuoteFromHumanReference,
+  resolveClientFromHumanReference,
+  resolveEmployeeFromHumanReference,
+  resolveSiteFromHumanReference,
+  requireClientFromHumanReference,
+  requireSiteFromHumanReference,
+} from "./entity-resolution";
 import type { BlakeCapability } from "./types";
 
 function definition(input: Omit<BlakeCapabilityDefinition, "version">): BlakeCapabilityDefinition {
-  return { ...input, version: 2 };
+  return { ...input, version: 3 };
 }
 
 function objectInput(value: unknown) {
@@ -45,6 +54,31 @@ function optionalNumber(value: unknown, label: string) {
   return parsed;
 }
 
+function canonicalCustomer(value: string) {
+  const result = resolveClientFromHumanReference(value);
+  if (result.kind === "resolved") return result.record.name;
+  if (result.kind === "ambiguous") return requireClientFromHumanReference(value).name;
+  return value;
+}
+
+function canonicalSite(value: string) {
+  const result = resolveSiteFromHumanReference(value);
+  if (result.kind === "resolved") return result.record.address || result.record.name;
+  if (result.kind === "ambiguous") {
+    const site = requireSiteFromHumanReference(value);
+    return site.address || site.name;
+  }
+  return value;
+}
+
+function canonicalEmployee(value: string | undefined) {
+  if (!value) return undefined;
+  const result = resolveEmployeeFromHumanReference(value);
+  if (result.kind === "resolved") return result.record.name;
+  if (result.kind === "ambiguous") return requireEmployeeFromHumanReference(value).name;
+  return value;
+}
+
 const quoteStatuses: QuoteStatus[] = ["Draft", "Sent", "Accepted", "Declined", "Converted", "Lost"];
 
 type CreateQuoteInput = {
@@ -60,7 +94,7 @@ type CreateQuoteInput = {
 export const createQuoteCapability: BlakeCapability<CreateQuoteInput, Quote> = {
   definition: definition({
     name: "create_quote",
-    description: "Create a real NeXa quote after the user has reviewed the customer, description and any supplied value. The user can speak naturally; do not require internal customer ids.",
+    description: "Create a real NeXa quote after the user has reviewed the customer, description and any supplied value. Customer and owner may be normal names, reversed names or unique partial names; Blake canonicalises existing records without requiring internal ids.",
     mode: "write",
     risk: "medium",
     requiredPermissions: ["canCreateQuote"],
@@ -99,9 +133,9 @@ export const createQuoteCapability: BlakeCapability<CreateQuoteInput, Quote> = {
   },
   execute(input, context) {
     return createQuote({
-      customer: input.customer,
+      customer: canonicalCustomer(input.customer),
       description: input.description,
-      owner: input.owner ?? context.actor.name,
+      owner: canonicalEmployee(input.owner) ?? context.actor.name,
       status: input.status ?? "Draft",
       value: input.value ?? 0,
       next: input.next ?? "Build scope and pricing.",
@@ -123,7 +157,7 @@ type UpdateQuoteInput = {
 export const updateQuoteCapability: BlakeCapability<UpdateQuoteInput, Quote> = {
   definition: definition({
     name: "update_quote",
-    description: "Update an existing NeXa quote. The `ref` input is a human reference, not necessarily a Q-number: it may be the customer name, description, prior conversational reference, id or Q-reference. Resolve it yourself and only ask the user to choose when several real quotes genuinely match.",
+    description: "Update an existing NeXa quote. The `ref` input is a human reference, not necessarily a Q-number: it may be the customer name, description, prior conversational reference, id or Q-reference. Owner changes accept normal employee names too. Resolve it yourself and only ask the user to choose when several real records genuinely match.",
     mode: "write",
     risk: "medium",
     requiredPermissions: ["canCreateQuote"],
@@ -134,7 +168,7 @@ export const updateQuoteCapability: BlakeCapability<UpdateQuoteInput, Quote> = {
       properties: {
         ref: { type: "string", description: "Natural quote reference: customer, description, id or Q-reference." },
         description: { type: "string" },
-        owner: { type: "string" },
+        owner: { type: "string", description: "Natural employee reference; internal employee id is not required." },
         status: { enum: quoteStatuses },
         value: { type: "number", minimum: 0 },
         next: { type: "string" },
@@ -172,7 +206,7 @@ export const updateQuoteCapability: BlakeCapability<UpdateQuoteInput, Quote> = {
     }
     const patch: Partial<Quote> = {};
     if (input.description !== undefined) patch.description = input.description;
-    if (input.owner !== undefined) patch.owner = input.owner;
+    if (input.owner !== undefined) patch.owner = canonicalEmployee(input.owner);
     if (input.status !== undefined) patch.status = input.status;
     if (input.value !== undefined) patch.value = input.value;
     if (input.next !== undefined) patch.next = input.next;
@@ -197,7 +231,7 @@ type CreateJobInput = {
 export const createJobCapability: BlakeCapability<CreateJobInput, Job> = {
   definition: definition({
     name: "create_job",
-    description: "Create a real NeXa job for a customer and site after the user has reviewed the details. Use the natural customer/site wording already established in conversation.",
+    description: "Create a real NeXa job for a customer and site after the user has reviewed the details. Use natural customer/site wording and normal employee names; existing records are resolved to their canonical NeXa values without internal ids.",
     mode: "write",
     risk: "medium",
     requiredPermissions: ["canCreateJob"],
@@ -233,10 +267,10 @@ export const createJobCapability: BlakeCapability<CreateJobInput, Job> = {
   },
   execute(input, context) {
     return createJob({
-      customer: input.customer,
-      site: input.site,
+      customer: canonicalCustomer(input.customer),
+      site: canonicalSite(input.site),
       description: input.description,
-      manager: input.manager ?? context.actor.name,
+      manager: canonicalEmployee(input.manager) ?? context.actor.name,
       status: input.status ?? "Pending",
       value: input.value ?? 0,
       next: input.next ?? "Review and schedule work.",
@@ -259,7 +293,7 @@ type UpdateJobInput = {
 export const updateJobCapability: BlakeCapability<UpdateJobInput, Job> = {
   definition: definition({
     name: "update_job",
-    description: "Update an existing NeXa job. The `ref` input is a human reference and may be a customer/person name, reversed imported name, site/address, description, prior conversational reference, id or J-reference. Resolve it yourself; only ask the user to choose if several real jobs genuinely match. Job health remains derived by NeXa.",
+    description: "Update an existing NeXa job. The `ref` input is a human reference and may be a customer/person name, reversed imported name, site/address, description, prior conversational reference, id or J-reference. Site and manager changes also accept normal human references. Resolve it yourself; only ask the user to choose if several real records genuinely match. Job health remains derived by NeXa.",
     mode: "write",
     risk: "medium",
     requiredPermissions: ["canEditJobs"],
@@ -269,9 +303,9 @@ export const updateJobCapability: BlakeCapability<UpdateJobInput, Job> = {
       additionalProperties: false,
       properties: {
         ref: { type: "string", description: "Natural job reference: customer/person name, site/address, description, id or J-reference." },
-        site: { type: "string" },
+        site: { type: "string", description: "Natural site name/address or free-text site for a genuinely new location." },
         description: { type: "string" },
-        manager: { type: "string" },
+        manager: { type: "string", description: "Natural employee reference; internal employee id is not required." },
         status: { type: "string" },
         value: { type: "number", minimum: 0 },
         next: { type: "string" },
@@ -300,9 +334,9 @@ export const updateJobCapability: BlakeCapability<UpdateJobInput, Job> = {
   execute(input) {
     const job = requireJobFromHumanReference(input.ref);
     const patch: Partial<Job> = {};
-    if (input.site !== undefined) patch.site = input.site;
+    if (input.site !== undefined) patch.site = canonicalSite(input.site);
     if (input.description !== undefined) patch.description = input.description;
-    if (input.manager !== undefined) patch.manager = input.manager;
+    if (input.manager !== undefined) patch.manager = canonicalEmployee(input.manager);
     if (input.status !== undefined) patch.status = input.status;
     if (input.value !== undefined) patch.value = input.value;
     if (input.next !== undefined) patch.next = input.next;
