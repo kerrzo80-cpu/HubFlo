@@ -11,6 +11,7 @@ import {
 } from "@/lib/nexa-assistant";
 import { loadServerStore } from "@/lib/server-store";
 import { confirmCreateLeadWorkflow } from "@/lib/blake-create-lead-workflow";
+import { confirmBlakeWriteAction, handleBlakeWriteMessage } from "@/lib/blake-write-operator";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
@@ -38,6 +39,14 @@ type AssistantRequest = {
   conversationId?: string;
 };
 
+function normaliseLeadCreationRequest(message: string) {
+  if (!/\blead\b/i.test(message) || /\bL[-\s]?\d{3,6}\b/i.test(message)) return message;
+  if (/^\s*(?:how|where|why|what do i need|show me how)\b/i.test(message)) return message;
+  if (/\b(?:create|start|add|new)\b.*\blead\b|\bnew lead\b/i.test(message)) return message;
+  if (/\b(?:make|set up|open|raise|log)\b.*\blead\b/i.test(message)) return `Create lead. ${message}`;
+  return message;
+}
+
 export async function POST(request: Request) {
   try {
     const access = getAccessProfileFromHeaders(request.headers);
@@ -48,6 +57,10 @@ export async function POST(request: Request) {
     const payload = await parseJsonRequestBody<AssistantRequest>(request);
     if (!payload) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
 
+    const channel: "web_text" | "web_voice" | "mobile_text" | "mobile_voice" =
+      ["web_text", "web_voice", "mobile_text", "mobile_voice"].includes(String(payload.channel))
+        ? payload.channel as "web_text" | "web_voice" | "mobile_text" | "mobile_voice"
+        : "web_text";
     const actor = {
       id: request.headers.get("x-nexa-auth-user-id")
         || request.headers.get("x-hubflo-employee-id")
@@ -56,12 +69,19 @@ export async function POST(request: Request) {
       tenantId: request.headers.get("x-hubflo-tenant-id") || "default",
       canCreateLead: access.canCreateLead,
       access,
-      channel: ["web_text", "web_voice", "mobile_text", "mobile_voice"].includes(String(payload.channel))
-        ? payload.channel
-        : "web_text",
+      channel,
     };
 
     if (payload.confirmActionId) {
+      if (payload.confirmActionId.startsWith("blake-write-")) {
+        const result = await confirmBlakeWriteAction(payload.confirmActionId, {
+          id: actor.id,
+          name: actor.name,
+          tenantId: actor.tenantId,
+          channel,
+        }, access);
+        return NextResponse.json(result, { status: result.status });
+      }
       if (payload.confirmActionId.startsWith("blake-lead-")) {
         const result = await confirmCreateLeadWorkflow(payload.confirmActionId, {
           actorId: actor.id,
@@ -88,8 +108,8 @@ export async function POST(request: Request) {
       return NextResponse.json(result, { status: result.status });
     }
 
-    const message = payload.message?.trim();
-    if (!message) return NextResponse.json({ error: "Ask Blake a question first." }, { status: 400 });
+    const rawMessage = payload.message?.trim();
+    if (!rawMessage) return NextResponse.json({ error: "Ask Blake a question first." }, { status: 400 });
     const history = Array.isArray(payload.history)
       ? payload.history
         .filter((item): item is BlakeHistoryMessage => Boolean(item && (item.role === "user" || item.role === "assistant") && typeof item.text === "string"))
@@ -98,6 +118,20 @@ export async function POST(request: Request) {
       : [];
     const buddyContext =
       payload.buddyContext && typeof payload.buddyContext === "object" ? payload.buddyContext : undefined;
+    const conversationId = typeof payload.conversationId === "string" ? payload.conversationId.slice(0, 120) : undefined;
+
+    const writeResponse = await handleBlakeWriteMessage(
+      rawMessage,
+      { id: actor.id, name: actor.name, tenantId: actor.tenantId, channel },
+      access,
+      history,
+      conversationId,
+    );
+    if (writeResponse) {
+      return NextResponse.json(writeResponse, { status: writeResponse.status ?? 200 });
+    }
+
+    const message = normaliseLeadCreationRequest(rawMessage);
     return NextResponse.json(
       await handleNexaAssistantMessage(message, actor, {
         history,
@@ -105,7 +139,7 @@ export async function POST(request: Request) {
         screenContext: readScreenContext(payload.screenContext),
         sourceRoute: payload.sourceRoute,
         sourcePage: payload.sourcePage,
-        conversationId: typeof payload.conversationId === "string" ? payload.conversationId.slice(0, 120) : undefined,
+        conversationId,
       }),
     );
   } catch (error) {
