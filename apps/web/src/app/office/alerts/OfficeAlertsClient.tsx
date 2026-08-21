@@ -15,20 +15,22 @@ import {
   ShoppingCart,
   Wrench,
 } from "lucide-react";
-import type { EngineerPoRequest, OfficeAlert, OfficeAlertType } from "@/lib/engineer-data";
+import type { EngineerPoRequest } from "@/lib/engineer-data";
+import type { OfficeAttentionItem } from "@/lib/job-office-updates";
 
 type AlertFilter = {
   label: string;
-  types: OfficeAlertType[];
+  types: OfficeAttentionItem["type"][];
 };
 
 type OfficeAlertsClientProps = {
-  alerts: OfficeAlert[];
+  alerts: OfficeAttentionItem[];
   poRequests: EngineerPoRequest[];
 };
 
 const alertFilters: AlertFilter[] = [
   { label: "All", types: [] },
+  { label: "Job notes", types: ["Job note"] },
   { label: "Variations", types: ["Variation detected"] },
   { label: "Parts / PO", types: ["Parts needed", "PO requested"] },
   { label: "Rebook / access", types: ["Rebook required", "Could not access"] },
@@ -38,7 +40,35 @@ const alertFilters: AlertFilter[] = [
 
 const defaultAlertFilter = alertFilters[0]!;
 
-function reviewCopy(alert: OfficeAlert) {
+function reviewCopy(alert: OfficeAttentionItem) {
+  if (alert.type === "Job note") {
+    return {
+      title: "Job note needs review",
+      body: alert.detail,
+      rows: [
+        ["Job", alert.jobRef ?? "Job"],
+        ["Raised by", alert.engineerName],
+        ["Priority", alert.priority],
+        ["Follow-up", "Open until the office marks it dealt with"],
+      ],
+      actions: ["Open job updates", "Mark dealt with"],
+    };
+  }
+
+  if (alert.type === "Variation detected" && alert.attentionKind === "variation") {
+    return {
+      title: "Draft variation needs review",
+      body: alert.detail,
+      rows: [
+        ["Job", alert.jobRef ?? "Job"],
+        ["Raised by", alert.engineerName],
+        ["Priority", alert.priority],
+        ["Commercial status", "Draft — no price or approval has been invented"],
+      ],
+      actions: ["Open job updates", "Mark reviewed"],
+    };
+  }
+
   if (alert.type === "Variation detected") {
     return {
       title: "Draft variation quote",
@@ -108,9 +138,10 @@ function reviewCopy(alert: OfficeAlert) {
   };
 }
 
-export default function OfficeAlertsClient({ alerts, poRequests }: OfficeAlertsClientProps) {
+export default function OfficeAlertsClient({ alerts: initialAlerts, poRequests }: OfficeAlertsClientProps) {
+  const [alerts, setAlerts] = useState(initialAlerts);
   const [activeFilter, setActiveFilter] = useState("All");
-  const [selectedAlertId, setSelectedAlertId] = useState(alerts[0]?.id ?? "");
+  const [selectedAlertId, setSelectedAlertId] = useState(initialAlerts[0]?.id ?? "");
   const [actionMessage, setActionMessage] = useState("");
   const highPriority = alerts.filter((alert) => alert.priority === "High").length;
   const newAlerts = alerts.filter((alert) => alert.status === "New").length;
@@ -132,8 +163,44 @@ export default function OfficeAlertsClient({ alerts, poRequests }: OfficeAlertsC
     setActionMessage("");
   }
 
+  async function resolveAttention(alert: OfficeAttentionItem) {
+    if (!alert.jobId || !alert.entityId || !alert.attentionKind) return;
+    setActionMessage("Updating NeXa…");
+    try {
+      const response = await fetch(`/api/jobs/${encodeURIComponent(alert.jobId)}/updates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          action: "resolve_attention",
+          kind: alert.attentionKind,
+          id: alert.entityId,
+        }),
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "The Attention item could not be updated.");
+      const remaining = alerts.filter((item) => item.id !== alert.id);
+      setAlerts(remaining);
+      const nextFiltered = currentFilter.types.length
+        ? remaining.filter((item) => currentFilter.types.includes(item.type))
+        : remaining;
+      setSelectedAlertId(nextFiltered[0]?.id ?? remaining[0]?.id ?? "");
+      setActionMessage(`${alert.jobRef ?? "Job"} is marked dealt with. The note/variation remains on the job record.`);
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : "The Attention item could not be updated.");
+    }
+  }
+
   function runAction(action: string) {
     if (!selectedAlert) return;
+    if (selectedAlert.href && action === selectedReview?.actions[0]) {
+      window.location.assign(selectedAlert.href);
+      return;
+    }
+    if (selectedAlert.attentionKind && action === selectedReview?.actions[1]) {
+      void resolveAttention(selectedAlert);
+      return;
+    }
     setActionMessage(`${action} noted for ${selectedAlert.jobRef ?? selectedAlert.engineerName}. This would write to the job log and notify the right people.`);
   }
 
@@ -143,8 +210,8 @@ export default function OfficeAlertsClient({ alerts, poRequests }: OfficeAlertsC
 
       <section className="office-hero">
         <p className="eyebrow">Office exceptions</p>
-        <h1>Alerts queue</h1>
-        <p>Engineer exceptions, missing stop/go evidence and time-check issues land here before the office needs to chase.</p>
+        <h1>Attention</h1>
+        <p>Job notes, variations, engineer exceptions and missing evidence stay here until the office deals with them.</p>
         <div className="office-summary-grid">
           <div><strong>{alerts.length}</strong><span>Total alerts</span></div>
           <div><strong>{highPriority}</strong><span>High priority</span></div>
@@ -225,7 +292,7 @@ export default function OfficeAlertsClient({ alerts, poRequests }: OfficeAlertsC
               </div>
 
               <div className="office-review-context">
-                <div><span>Engineer</span><strong>{selectedAlert.engineerName}</strong></div>
+                <div><span>Raised by</span><strong>{selectedAlert.engineerName}</strong></div>
                 <div><span>Status</span><strong>{selectedAlert.status}</strong></div>
                 <div><span>Raised</span><strong>{selectedAlert.createdAt}</strong></div>
                 <div><span>Priority</span><strong>{selectedAlert.priority}</strong></div>
@@ -240,7 +307,7 @@ export default function OfficeAlertsClient({ alerts, poRequests }: OfficeAlertsC
 
               <div className="office-review-box">
                 <div className="office-review-box-heading">
-                  {selectedAlert.type === "Variation detected" ? <FileText size={18} /> : selectedAlert.type.includes("Parts") ? <ShoppingCart size={18} /> : <Wrench size={18} />}
+                  {selectedAlert.type === "Job note" || selectedAlert.type === "Variation detected" ? <FileText size={18} /> : selectedAlert.type.includes("Parts") ? <ShoppingCart size={18} /> : <Wrench size={18} />}
                   <h4>{selectedReview.title}</h4>
                 </div>
                 <p>{selectedReview.body}</p>
@@ -274,7 +341,7 @@ export default function OfficeAlertsClient({ alerts, poRequests }: OfficeAlertsC
             <aside className="office-alert-review empty">
               <AlertTriangle size={24} />
               <h3>No alerts in this filter</h3>
-              <p>When an engineer raises one, it will appear here for office review.</p>
+              <p>When Blake, an engineer or the office raises one, it will appear here for review.</p>
             </aside>
           )}
         </div>
