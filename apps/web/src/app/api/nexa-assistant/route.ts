@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { canEditTenders, getAccessProfileFromHeaders } from "@/lib/access";
 import type { BlakeScreenContext } from "@/lib/blake-open-record";
-import { handleBlakeJobDirectoryMessage } from "@/lib/blake-job-directory";
+import { contextualiseJobDirectoryFollowUp, handleBlakeJobDirectoryMessage } from "@/lib/blake-job-directory";
 import { parseJsonRequestBody } from "@/lib/http";
 import {
   confirmNexaAssistantAction,
@@ -125,6 +125,7 @@ export async function POST(request: Request) {
       rawMessage,
       { id: actor.id, name: actor.name, tenantId: actor.tenantId, channel },
       access,
+      history,
     );
     if (jobDirectoryResponse) {
       return NextResponse.json(jobDirectoryResponse);
@@ -141,7 +142,7 @@ export async function POST(request: Request) {
       return NextResponse.json(writeResponse, { status: writeResponse.status ?? 200 });
     }
 
-    const message = normaliseLeadCreationRequest(rawMessage);
+    const message = normaliseLeadCreationRequest(contextualiseJobDirectoryFollowUp(rawMessage, history));
     return NextResponse.json(
       await handleNexaAssistantMessage(message, actor, {
         history,
