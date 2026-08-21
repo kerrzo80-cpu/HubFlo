@@ -1,10 +1,28 @@
+import type { Employee } from "@/lib/access";
+import { getHubDetailState } from "@/lib/hub-detail-store";
 import { getLeads, type LeadRecord } from "@/lib/lead-store";
+import { getClientSites, getClients, type ClientRecord, type ClientSite } from "@/lib/people-data";
 import { getJobs, getQuotes, type Job, type Quote } from "@/lib/workflow-data";
 
 const genericQueryWords = new Set([
-  "a", "an", "the", "job", "jobs", "quote", "quotes", "lead", "leads", "customer", "client", "site", "address",
-  "record", "records", "invoice", "invoices", "please", "for", "to", "on", "at", "of", "with", "this", "that",
+  "a", "an", "the", "job", "jobs", "quote", "quotes", "lead", "leads", "customer", "customers", "client", "clients",
+  "site", "sites", "address", "record", "records", "invoice", "invoices", "employee", "employees", "engineer", "engineers",
+  "staff", "person", "people", "please", "for", "to", "on", "at", "of", "with", "this", "that",
 ]);
+
+export type HumanEntityResolution<T> =
+  | { kind: "resolved"; record: T; score: number }
+  | { kind: "ambiguous"; records: T[]; score: number }
+  | { kind: "none" };
+
+export type BlakeInvoiceRecord = Record<string, unknown> & {
+  id?: string;
+  ref?: string;
+  customer?: string;
+  title?: string;
+  sourceRef?: string;
+  status?: string;
+};
 
 export function normaliseEntityText(value: unknown) {
   return String(value ?? "")
@@ -59,11 +77,6 @@ export function bestEntityFieldScore(query: unknown, values: unknown[]) {
   return values.reduce((best, value) => Math.max(best, entityMatchScore(query, value)), 0);
 }
 
-type Resolution<T> =
-  | { kind: "resolved"; record: T; score: number }
-  | { kind: "ambiguous"; records: T[]; score: number }
-  | { kind: "none" };
-
 type ResolverOptions<T> = {
   records: T[];
   identifier: string;
@@ -72,12 +85,21 @@ type ResolverOptions<T> = {
   sortLabel: (record: T) => string;
 };
 
-function resolveRecord<T>(options: ResolverOptions<T>): Resolution<T> {
+function resolveRecord<T>(options: ResolverOptions<T>): HumanEntityResolution<T> {
   const target = normaliseEntityText(options.identifier);
-  const exact = options.records.find((record) =>
+  if (!target) return { kind: "none" };
+
+  const exactMatches = options.records.filter((record) =>
     options.exactValues(record).some((value) => normaliseEntityText(value) === target),
   );
-  if (exact) return { kind: "resolved", record: exact, score: 120 };
+  if (exactMatches.length === 1) return { kind: "resolved", record: exactMatches[0]!, score: 120 };
+  if (exactMatches.length > 1) {
+    return {
+      kind: "ambiguous",
+      records: exactMatches.sort((a, b) => options.sortLabel(a).localeCompare(options.sortLabel(b))),
+      score: 120,
+    };
+  }
 
   const ranked = options.records
     .map((record) => ({
@@ -94,7 +116,7 @@ function resolveRecord<T>(options: ResolverOptions<T>): Resolution<T> {
   return { kind: "ambiguous", records: tied, score: best.score };
 }
 
-export function resolveJobFromHumanReference(identifier: string): Resolution<Job> {
+export function resolveJobFromHumanReference(identifier: string): HumanEntityResolution<Job> {
   return resolveRecord({
     records: getJobs(),
     identifier,
@@ -105,12 +127,13 @@ export function resolveJobFromHumanReference(identifier: string): Resolution<Job
       { value: job.description },
       { value: `${job.customer} ${job.site}` },
       { value: `${job.customer} ${job.description}` },
+      { value: `${job.site} ${job.description}` },
     ],
     sortLabel: (job) => job.ref,
   });
 }
 
-export function resolveQuoteFromHumanReference(identifier: string): Resolution<Quote> {
+export function resolveQuoteFromHumanReference(identifier: string): HumanEntityResolution<Quote> {
   return resolveRecord({
     records: getQuotes(),
     identifier,
@@ -124,7 +147,7 @@ export function resolveQuoteFromHumanReference(identifier: string): Resolution<Q
   });
 }
 
-export function resolveLeadFromHumanReference(identifier: string): Resolution<LeadRecord> {
+export function resolveLeadFromHumanReference(identifier: string): HumanEntityResolution<LeadRecord> {
   return resolveRecord({
     records: getLeads(),
     identifier,
@@ -136,13 +159,87 @@ export function resolveLeadFromHumanReference(identifier: string): Resolution<Le
       { value: lead.phone },
       { value: lead.email },
       { value: `${lead.customerName} ${lead.address}` },
+      { value: `${lead.customerName} ${lead.description}` },
     ],
     sortLabel: (lead) => lead.ref,
   });
 }
 
+export function resolveClientFromHumanReference(identifier: string): HumanEntityResolution<ClientRecord> {
+  return resolveRecord({
+    records: getClients(),
+    identifier,
+    exactValues: (client) => [client.id, client.accountReference],
+    rankedValues: (client) => [
+      { value: client.name, bonus: 8 },
+      { value: client.primaryContact, bonus: 6 },
+      { value: client.billingAddress, bonus: 4 },
+      { value: client.email },
+      { value: client.phone },
+      { value: client.notes },
+      { value: `${client.name} ${client.primaryContact}` },
+      { value: `${client.name} ${client.billingAddress}` },
+    ],
+    sortLabel: (client) => client.name,
+  });
+}
+
+export function resolveSiteFromHumanReference(identifier: string): HumanEntityResolution<ClientSite> {
+  const clients = new Map(getClients().map((client) => [client.id, client.name]));
+  return resolveRecord({
+    records: getClientSites(),
+    identifier,
+    exactValues: (site) => [site.id],
+    rankedValues: (site) => [
+      { value: site.name, bonus: 8 },
+      { value: site.address, bonus: 8 },
+      { value: site.primaryContact, bonus: 4 },
+      { value: site.serviceLine },
+      { value: clients.get(site.clientId), bonus: 4 },
+      { value: `${clients.get(site.clientId) || ""} ${site.name}` },
+      { value: `${clients.get(site.clientId) || ""} ${site.address}` },
+    ],
+    sortLabel: (site) => `${site.address} ${site.name}`,
+  });
+}
+
+export function resolveInvoiceFromHumanReference(identifier: string): HumanEntityResolution<BlakeInvoiceRecord> {
+  const invoices = (getHubDetailState().invoices ?? []) as BlakeInvoiceRecord[];
+  return resolveRecord({
+    records: invoices,
+    identifier,
+    exactValues: (invoice) => [invoice.id, invoice.ref],
+    rankedValues: (invoice) => [
+      { value: invoice.customer, bonus: 8 },
+      { value: invoice.title, bonus: 4 },
+      { value: invoice.sourceRef, bonus: 4 },
+      { value: `${invoice.customer || ""} ${invoice.title || ""}` },
+      { value: `${invoice.customer || ""} ${invoice.sourceRef || ""}` },
+    ],
+    sortLabel: (invoice) => String(invoice.ref || invoice.id || invoice.title || "invoice"),
+  });
+}
+
+export function resolveEmployeeFromHumanReference(identifier: string): HumanEntityResolution<Employee> {
+  const employees = ((getHubDetailState().employees ?? []) as Employee[]).filter((employee) => !employee.archived);
+  return resolveRecord({
+    records: employees,
+    identifier,
+    exactValues: (employee) => [employee.id],
+    rankedValues: (employee) => [
+      { value: employee.name, bonus: 10 },
+      { value: employee.profile?.email, bonus: 4 },
+      { value: employee.profile?.phone, bonus: 4 },
+      { value: employee.profile?.roleLabel },
+      { value: employee.role },
+      { value: `${employee.name} ${employee.profile?.roleLabel || employee.role}` },
+    ],
+    sortLabel: (employee) => employee.name,
+  });
+}
+
 function requireResolved<T>(
-  result: Resolution<T>,
+  result: HumanEntityResolution<T>,
   identifier: string,
   entityLabel: string,
   display: (record: T) => string,
@@ -165,4 +262,20 @@ export function requireQuoteFromHumanReference(identifier: string) {
 
 export function requireLeadFromHumanReference(identifier: string) {
   return requireResolved(resolveLeadFromHumanReference(identifier), identifier, "lead", (lead) => `${lead.ref} · ${lead.customerName} · ${lead.address}`);
+}
+
+export function requireClientFromHumanReference(identifier: string) {
+  return requireResolved(resolveClientFromHumanReference(identifier), identifier, "customer", (client) => `${client.name} · ${client.billingAddress || client.email}`);
+}
+
+export function requireSiteFromHumanReference(identifier: string) {
+  return requireResolved(resolveSiteFromHumanReference(identifier), identifier, "site", (site) => `${site.name} · ${site.address}`);
+}
+
+export function requireInvoiceFromHumanReference(identifier: string) {
+  return requireResolved(resolveInvoiceFromHumanReference(identifier), identifier, "invoice", (invoice) => `${String(invoice.ref || invoice.id || "Invoice")} · ${String(invoice.customer || invoice.title || "")}`);
+}
+
+export function requireEmployeeFromHumanReference(identifier: string) {
+  return requireResolved(resolveEmployeeFromHumanReference(identifier), identifier, "employee", (employee) => `${employee.name} · ${employee.profile?.roleLabel || employee.role}`);
 }
