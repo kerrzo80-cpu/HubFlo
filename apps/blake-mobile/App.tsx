@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { RecordingPresets, requestRecordingPermissionsAsync, useAudioRecorder } from "expo-audio";
 
@@ -7,6 +7,7 @@ import {
   askBlake,
   confirmBlakeAction,
   createBlakeChat,
+  createDrivingModeHandoff,
   deleteBlakeChat,
   listBlakeChats,
   renameBlakeChat,
@@ -146,6 +147,25 @@ export default function App() {
     }
   }
 
+  async function startDrivingMode() {
+    if (!session || busy) return;
+    setBusy(true); setError("");
+    try {
+      if (listening) {
+        await recorder.stop().catch(() => undefined);
+        setListening(false);
+      }
+      const handoff = await createDrivingModeHandoff(session.token);
+      const canOpen = await Linking.canOpenURL(handoff.url);
+      if (!canOpen) throw new Error("This phone could not open Blake Driving Mode.");
+      await Linking.openURL(handoff.url);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Driving Mode could not start.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function confirm(action: BlakeAction) {
     if (!session || !active || busy) return;
     setBusy(true); setError("");
@@ -207,6 +227,15 @@ export default function App() {
           <Pressable style={styles.headerButton} onPress={() => void addChat()}><Text style={styles.headerIcon}>＋</Text></Pressable>
         </View>
 
+        <Pressable style={styles.driveBanner} onPress={() => void startDrivingMode()} disabled={busy}>
+          <View style={styles.driveIcon}><Text style={styles.driveIconText}>◉</Text></View>
+          <View style={styles.driveCopy}>
+            <Text style={styles.driveTitle}>Start Driving Mode</Text>
+            <Text style={styles.driveSub}>Hands-free live conversation · interrupt Blake naturally</Text>
+          </View>
+          <Text style={styles.driveArrow}>›</Text>
+        </Pressable>
+
         <FlatList
           ref={list}
           data={messages.length ? messages : [{ id: "welcome", role: "assistant", text: WELCOME }]}
@@ -247,6 +276,7 @@ export default function App() {
         <SafeAreaView style={styles.drawer}>
           <View style={styles.drawerHeader}><View><Text style={styles.brandSmall}>Your chats</Text><Text style={styles.subtle}>{session.user.name} · private to this profile</Text></View><Pressable onPress={() => setDrawerOpen(false)}><Text style={styles.link}>Done</Text></Pressable></View>
           <Pressable style={styles.newChat} onPress={() => void addChat()}><Text style={styles.primaryText}>＋ New chat</Text></Pressable>
+          <Pressable style={styles.drawerDrive} onPress={() => { setDrawerOpen(false); void startDrivingMode(); }}><Text style={styles.driveTitle}>◉ Start Driving Mode</Text><Text style={styles.driveSub}>Continuous hands-free Blake</Text></Pressable>
           <FlatList data={chats} keyExtractor={(chat) => chat.id} contentContainerStyle={styles.chatList} renderItem={({ item }) => (
             <View style={[styles.chatRow, item.id === active?.id ? styles.chatRowActive : null]}>
               <Pressable style={styles.chatSelect} onPress={() => { setActiveId(item.id); setDrawerOpen(false); }}><Text style={styles.chatName} numberOfLines={1}>{item.title}</Text><Text style={styles.chatDate}>{new Date(item.updatedAt).toLocaleDateString("en-GB")}</Text></Pressable>
@@ -270,6 +300,7 @@ const styles = StyleSheet.create({
   login: { flex: 1, justifyContent: "center", padding: 28, gap: 12 }, brand: { color: "#087ca7", fontSize: 46, fontWeight: "800" }, brandSmall: { color: "#087ca7", fontSize: 22, fontWeight: "800" }, heading: { color: "#173747", fontSize: 28, fontWeight: "700" }, subtle: { color: "#617985", fontSize: 13 },
   input: { minHeight: 50, borderWidth: 1, borderColor: "#bed5df", borderRadius: 8, backgroundColor: "white", paddingHorizontal: 14, fontSize: 16 }, primary: { minHeight: 46, borderRadius: 8, backgroundColor: "#087ca7", alignItems: "center", justifyContent: "center", paddingHorizontal: 18 }, smallPrimary: { minHeight: 40, borderRadius: 7, backgroundColor: "#087ca7", justifyContent: "center", paddingHorizontal: 18 }, primaryText: { color: "white", fontWeight: "700" }, error: { color: "#b42318" },
   header: { minHeight: 64, paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: "#d7e7ed", backgroundColor: "white", flexDirection: "row", alignItems: "center", gap: 8 }, headerButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center" }, headerIcon: { color: "#173747", fontSize: 23 }, headerTitle: { flex: 1, alignItems: "center" }, chatTitle: { maxWidth: "90%", color: "#617985", fontSize: 12 }, link: { color: "#087ca7", fontWeight: "700", fontSize: 16 },
+  driveBanner: { marginHorizontal: 12, marginTop: 10, padding: 12, minHeight: 66, borderRadius: 12, flexDirection: "row", alignItems: "center", gap: 11, backgroundColor: "#e5f6fb", borderWidth: 1, borderColor: "#9ed5e7" }, driveIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "#087ca7" }, driveIconText: { color: "white", fontSize: 20, fontWeight: "800" }, driveCopy: { flex: 1 }, driveTitle: { color: "#075d7c", fontSize: 15, fontWeight: "800" }, driveSub: { color: "#53717e", fontSize: 12, marginTop: 2 }, driveArrow: { color: "#087ca7", fontSize: 30, lineHeight: 32 }, drawerDrive: { marginHorizontal: 14, marginBottom: 12, minHeight: 62, borderRadius: 9, paddingHorizontal: 14, justifyContent: "center", backgroundColor: "#e5f6fb", borderWidth: 1, borderColor: "#9ed5e7" },
   thread: { padding: 16, gap: 10 }, bubble: { maxWidth: "88%", borderRadius: 8, padding: 13 }, blakeBubble: { alignSelf: "flex-start", backgroundColor: "white", borderWidth: 1, borderColor: "#d7e7ed" }, userBubble: { alignSelf: "flex-end", backgroundColor: "#dff3fa" }, message: { color: "#173747", fontSize: 16, lineHeight: 23 },
   cardBubble: { maxWidth: "96%", width: "96%" }, resultCard: { marginTop: 12, borderTopWidth: 1, borderTopColor: "#d7e7ed", paddingTop: 12, gap: 8 }, cardTitle: { color: "#173747", fontSize: 18, fontWeight: "800" }, metrics: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, metric: { minWidth: 100, flexGrow: 1, backgroundColor: "#f3f8fa", borderRadius: 6, padding: 10 }, metricLabel: { color: "#617985", fontSize: 12 }, metricValue: { color: "#173747", fontSize: 17, fontWeight: "800", marginTop: 3 }, resultRow: { flexDirection: "row", alignItems: "center", gap: 10, borderTopWidth: 1, borderTopColor: "#e6eef1", paddingTop: 9 }, rowCopy: { flex: 1 }, rowPrimary: { color: "#173747", fontWeight: "700" }, rowSecondary: { color: "#617985", fontSize: 12, marginTop: 2 }, rowValue: { color: "#173747", fontWeight: "800" },
   action: { marginHorizontal: 16, marginBottom: 8, padding: 14, gap: 8, backgroundColor: "#fff8e8", borderWidth: 1, borderColor: "#dec48b", borderRadius: 8 }, actionTitle: { color: "#173747", fontWeight: "800", fontSize: 17 }, errorBar: { color: "#b42318", paddingHorizontal: 16, paddingBottom: 8 },
