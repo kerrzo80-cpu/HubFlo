@@ -20,7 +20,6 @@ type WriteInput = {
   next?: string;
   due?: string;
   manager?: string;
-  health?: string;
 };
 
 type PendingWriteAction = {
@@ -168,6 +167,17 @@ function localExtract(message: string, current: WriteInput = {}) {
   if (ref) next.ref = `${ref[1]!.toUpperCase()}-${ref[2]}`;
   const money = message.match(/£\s*([\d,]+(?:\.\d{1,2})?)/);
   if (money) next.value = Number(money[1]!.replace(/,/g, ""));
+
+  const labelled = (label: string) => message.match(new RegExp(`(?:^|[\\n,;])\\s*(?:${label})\\s*[:=-]\\s*([^\\n,;]+)`, "i"))?.[1]?.trim();
+  next.customer = labelled("customer|client") || next.customer;
+  next.site = labelled("site|address|site address") || next.site;
+  next.description = labelled("description|title|scope|work|job description|quote description") || next.description;
+
+  const named = message.match(/\b(?:called|named|titled)\s+["“]?(.+?)["”]?(?=\s+(?:for\s+£|at\s+£|worth\b|value\b)|[,.]|$)/i)?.[1]?.trim();
+  if (named) next.description = named;
+  const quoteCustomer = message.match(/\b(?:quote|quotation)\s+(?:for|to)\s+(.+?)(?=\s+(?:called|named|titled|for\s+£|at\s+£|worth\b|value\b)|[,.]|$)/i)?.[1]?.trim();
+  if (quoteCustomer) next.customer = quoteCustomer;
+
   const status = message.match(/\bstatus\s+(?:to|as|is)\s+([^,.;]+)/i)?.[1]?.trim();
   if (status) next.status = status;
   const manager = message.match(/\bmanager\s+(?:to|as|is)\s+([^,.;]+)/i)?.[1]?.trim();
@@ -176,13 +186,15 @@ function localExtract(message: string, current: WriteInput = {}) {
   if (owner) next.owner = owner;
   const due = message.match(/\bdue\s+(?:on|by|is)?\s*([^,.;]+)/i)?.[1]?.trim();
   if (due) next.due = due;
+  const nextAction = message.match(/\bnext\s+(?:action\s+)?(?:to|as|is)?\s*([^,.;]+)/i)?.[1]?.trim();
+  if (nextAction) next.next = nextAction;
   return next;
 }
 
 function mergeInput(current: WriteInput, incoming: Record<string, unknown> | undefined) {
   const merged: WriteInput = { ...current };
   if (!incoming) return merged;
-  const stringKeys: Array<keyof WriteInput> = ["ref", "customer", "site", "description", "owner", "status", "next", "due", "manager", "health"];
+  const stringKeys: Array<keyof WriteInput> = ["ref", "customer", "site", "description", "owner", "status", "next", "due", "manager"];
   for (const key of stringKeys) {
     const value = cleanString(incoming[key]);
     if (value !== undefined) (merged as Record<string, unknown>)[key] = key === "ref" ? normaliseRef(value) : value;
@@ -224,6 +236,7 @@ async function planWithOpenAi(
                 "For create_quote: customer means the customer/client; description is the quote title/scope (for example text after called/named).",
                 "For create_job: customer, site and description must be known before confirmation.",
                 "For update_quote/update_job: preserve the Q-/J- reference and only include fields the user actually wants changed.",
+                "Job health is derived by NeXa from operational state and is not directly editable through this workflow.",
                 `Existing write draft: ${current}`,
                 recentHistory ? `Recent conversation:\n${recentHistory}` : "",
               ].filter(Boolean).join("\n"),
@@ -255,9 +268,8 @@ async function planWithOpenAi(
                     next: { type: ["string", "null"] },
                     due: { type: ["string", "null"] },
                     manager: { type: ["string", "null"] },
-                    health: { type: ["string", "null"] },
                   },
-                  required: ["ref", "customer", "site", "description", "owner", "status", "value", "next", "due", "manager", "health"],
+                  required: ["ref", "customer", "site", "description", "owner", "status", "value", "next", "due", "manager"],
                 },
               },
               required: ["action", "fields"],
@@ -281,7 +293,7 @@ async function planWithOpenAi(
 }
 
 function changeCount(input: WriteInput) {
-  return [input.site, input.description, input.owner, input.status, input.value, input.next, input.due, input.manager, input.health]
+  return [input.site, input.description, input.owner, input.status, input.value, input.next, input.due, input.manager]
     .filter((value) => value !== undefined).length;
 }
 
@@ -318,7 +330,6 @@ function summaryFor(capability: SupportedWriteCapability, input: WriteInput) {
     input.owner ? `owner: ${input.owner}` : null,
     input.manager ? `manager: ${input.manager}` : null,
     input.status ? `status: ${input.status}` : null,
-    input.health ? `health: ${input.health}` : null,
     input.value !== undefined ? `value: ${money(input.value)}` : null,
     input.next ? `next: ${input.next}` : null,
     input.due ? `due: ${input.due}` : null,
