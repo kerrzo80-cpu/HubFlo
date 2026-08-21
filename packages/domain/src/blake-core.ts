@@ -1,4 +1,4 @@
-export const BLAKE_CORE_VERSION = 1 as const;
+export const BLAKE_CORE_VERSION = 3 as const;
 
 export type BlakeChannel = "web_text" | "web_voice" | "mobile_text" | "mobile_voice";
 export type BlakeCapabilityMode = "read" | "write";

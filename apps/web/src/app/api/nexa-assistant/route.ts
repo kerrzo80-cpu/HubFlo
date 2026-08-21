@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { canEditTenders, getAccessProfileFromHeaders } from "@/lib/access";
 import type { BlakeScreenContext } from "@/lib/blake-open-record";
 import { contextualiseJobDirectoryFollowUp, handleBlakeJobDirectoryMessage } from "@/lib/blake-job-directory";
+import {
+  confirmBlakeOrchestratorAction,
+  handleBlakeOrchestratedMessage,
+} from "@/lib/blake-orchestrator";
 import { parseJsonRequestBody } from "@/lib/http";
 import {
   confirmNexaAssistantAction,
@@ -38,6 +42,7 @@ type AssistantRequest = {
   sourcePage?: string;
   channel?: "web_text" | "web_voice" | "mobile_text" | "mobile_voice";
   conversationId?: string;
+  timeZone?: string;
 };
 
 function normaliseLeadCreationRequest(message: string) {
@@ -74,6 +79,16 @@ export async function POST(request: Request) {
     };
 
     if (payload.confirmActionId) {
+      if (payload.confirmActionId.startsWith("blake-orchestrator-")) {
+        const result = await confirmBlakeOrchestratorAction(payload.confirmActionId, {
+          id: actor.id,
+          name: actor.name,
+          tenantId: actor.tenantId,
+          channel,
+        }, access);
+        return NextResponse.json(result, { status: result.status });
+      }
+      // Legacy action formats remain valid while existing conversations/cards age out.
       if (payload.confirmActionId.startsWith("blake-write-")) {
         const result = await confirmBlakeWriteAction(payload.confirmActionId, {
           id: actor.id,
@@ -114,13 +129,28 @@ export async function POST(request: Request) {
     const history = Array.isArray(payload.history)
       ? payload.history
         .filter((item): item is BlakeHistoryMessage => Boolean(item && (item.role === "user" || item.role === "assistant") && typeof item.text === "string"))
-        .slice(-16)
-        .map((item) => ({ role: item.role, text: item.text.slice(0, 4000) }))
+        .slice(-40)
+        .map((item) => ({ role: item.role, text: item.text.slice(0, 6000) }))
       : [];
     const buddyContext =
       payload.buddyContext && typeof payload.buddyContext === "object" ? payload.buddyContext : undefined;
     const conversationId = typeof payload.conversationId === "string" ? payload.conversationId.slice(0, 120) : undefined;
 
+    // Primary path: one ChatGPT-style orchestrator reasons over the full authorised NeXa capability registry.
+    // The older deterministic handlers below are compatibility fallbacks only when no OpenAI key is configured.
+    const orchestrated = await handleBlakeOrchestratedMessage({
+      message: rawMessage,
+      actor: { id: actor.id, name: actor.name, tenantId: actor.tenantId, channel },
+      access,
+      history,
+      conversationId,
+      timeZone: typeof payload.timeZone === "string" ? payload.timeZone.slice(0, 80) : undefined,
+    });
+    if (orchestrated) {
+      return NextResponse.json(orchestrated, { status: orchestrated.status ?? 200 });
+    }
+
+    // Compatibility fallback for environments where OpenAI is intentionally not configured.
     const jobDirectoryResponse = await handleBlakeJobDirectoryMessage(
       rawMessage,
       { id: actor.id, name: actor.name, tenantId: actor.tenantId, channel },
@@ -157,7 +187,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "Blake could not finish that request.",
-        reply: "Blake hit a server snag logging that. Try again in a moment — nothing was saved yet.",
+        reply: "Blake hit a server snag. Try again in a moment — nothing unconfirmed was changed.",
       },
       { status: 500 },
     );

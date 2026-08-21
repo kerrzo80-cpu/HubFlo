@@ -20,7 +20,10 @@ export async function GET(request: Request) {
   const access = getAccessProfileFromHeaders(request.headers);
   const visible = blakeCore.definitions().filter((item) => item.requiredPermissions.every((permission) => access[permission as keyof typeof access] === true));
   return NextResponse.json({
-    coreVersion: 2,
+    coreVersion: 3,
+    orchestrator: "chatgpt-tool-loop",
+    persistentConversationToolState: true,
+    persistentKnowledge: true,
     capabilities: visible,
     writeCapabilities: visible.filter((item) => item.mode === "write").map((item) => item.name),
     writeAccess: {
