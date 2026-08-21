@@ -11,7 +11,7 @@ import {
 
 export const runtime = "nodejs";
 
-type Params = { params: Promise<{ jobId: string }> };
+type Params = { params: Promise<{ id: string }> };
 
 type JobUpdateRequest =
   | {
@@ -44,10 +44,10 @@ function identity(request: Request) {
 export async function GET(request: Request, { params }: Params) {
   const access = getAccessProfileFromHeaders(request.headers);
   if (!access.showJobs) return NextResponse.json({ error: "Your role cannot view jobs." }, { status: 403 });
-  const { jobId } = await params;
+  const { id } = await params;
   const actor = identity(request);
   try {
-    return NextResponse.json(getJobOfficeUpdates(actor.tenantId, decodeURIComponent(jobId)));
+    return NextResponse.json(getJobOfficeUpdates(actor.tenantId, decodeURIComponent(id)));
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Job updates could not be loaded." },
@@ -64,9 +64,9 @@ export async function POST(request: Request, { params }: Params) {
   const body = await parseJsonRequestBody<JobUpdateRequest>(request);
   if (!body?.action) return NextResponse.json({ error: "Choose a job update action." }, { status: 400 });
 
-  const { jobId } = await params;
+  const { id } = await params;
   const actor = identity(request);
-  const jobIdentifier = decodeURIComponent(jobId);
+  const jobIdentifier = decodeURIComponent(id);
 
   try {
     if (body.action === "add_note") {
