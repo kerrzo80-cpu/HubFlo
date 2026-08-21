@@ -3,6 +3,11 @@ import { readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
+type RouteRecord = {
+  file: string;
+  segments: string[];
+};
+
 function dynamicShape(segment: string) {
   if (/^\[\[\.\.\.[^\]]+\]\]$/.test(segment)) return "optional-catch-all";
   if (/^\[\.\.\.[^\]]+\]$/.test(segment)) return "catch-all";
@@ -10,31 +15,66 @@ function dynamicShape(segment: string) {
   return null;
 }
 
-function findConflicts(directory: string, relative = "src/app"): string[] {
-  const entries = readdirSync(directory, { withFileTypes: true }).filter((entry) => entry.isDirectory());
-  const byShape = new Map<string, string[]>();
-
-  for (const entry of entries) {
-    const shape = dynamicShape(entry.name);
-    if (!shape) continue;
-    const siblings = byShape.get(shape) ?? [];
-    siblings.push(entry.name);
-    byShape.set(shape, siblings);
-  }
-
-  const conflicts = [...byShape.entries()]
-    .filter(([, siblings]) => new Set(siblings).size > 1)
-    .map(([shape, siblings]) => `${relative}: ${shape} siblings ${siblings.join(", ")}`);
-
-  for (const entry of entries) {
-    conflicts.push(...findConflicts(path.join(directory, entry.name), path.join(relative, entry.name)));
-  }
-  return conflicts;
+function isRouteGroup(segment: string) {
+  return /^\([^()]+\)$/.test(segment);
 }
 
-test("Next app routes do not use different slug names for the same dynamic sibling path", () => {
+function isParallelRoute(segment: string) {
+  return segment.startsWith("@");
+}
+
+function collectRoutes(directory: string, physicalSegments: string[] = []): RouteRecord[] {
+  const entries = readdirSync(directory, { withFileTypes: true });
+  const routes: RouteRecord[] = [];
+
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      routes.push(...collectRoutes(path.join(directory, entry.name), [...physicalSegments, entry.name]));
+      continue;
+    }
+    if (!entry.isFile() || (entry.name !== "page.tsx" && entry.name !== "route.ts")) continue;
+    routes.push({
+      file: path.join(...physicalSegments, entry.name),
+      segments: physicalSegments.filter((segment) => !isRouteGroup(segment) && !isParallelRoute(segment)),
+    });
+  }
+
+  return routes;
+}
+
+function findDynamicSlugConflicts(routes: RouteRecord[]) {
+  const namesByPublicPrefix = new Map<string, Map<string, Set<string>>>();
+
+  for (const route of routes) {
+    const normalized: string[] = [];
+    for (const segment of route.segments) {
+      const shape = dynamicShape(segment);
+      normalized.push(shape ? `<${shape}>` : segment);
+      if (!shape) continue;
+
+      const prefix = `/${normalized.join("/")}`;
+      const namesByFile = namesByPublicPrefix.get(prefix) ?? new Map<string, Set<string>>();
+      const files = namesByFile.get(segment) ?? new Set<string>();
+      files.add(route.file);
+      namesByFile.set(segment, files);
+      namesByPublicPrefix.set(prefix, namesByFile);
+    }
+  }
+
+  return [...namesByPublicPrefix.entries()]
+    .filter(([, names]) => names.size > 1)
+    .map(([prefix, names]) => {
+      const details = [...names.entries()]
+        .map(([name, files]) => `${name} in ${[...files].join(", ")}`)
+        .join(" | ");
+      return `${prefix}: ${details}`;
+    });
+}
+
+test("Next app routes use one slug name for each public dynamic path", () => {
   const appDirectory = path.join(process.cwd(), "src", "app");
-  const conflicts = findConflicts(appDirectory);
+  const routes = collectRoutes(appDirectory);
+  const conflicts = findDynamicSlugConflicts(routes);
   assert.deepEqual(
     conflicts,
     [],
