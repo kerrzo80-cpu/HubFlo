@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { jobMatchesDirectoryBucket } from "./job-directory-capability";
-import { looksLikeJobDirectoryQuestion, requestedJobDirectoryBucket } from "../blake-job-directory";
+import {
+  contextualiseJobDirectoryFollowUp,
+  looksLikeJobDirectoryFollowUp,
+  looksLikeJobDirectoryQuestion,
+  recentJobDirectoryBucket,
+  requestedJobDirectoryBucket,
+} from "../blake-job-directory";
 
 test("In Progress directory matches the same five statuses as the NeXa Jobs screen", () => {
   for (const status of ["Scheduled", "In progress", "Waiting on parts", "Waiting on customer", "Approval required"]) {
@@ -32,4 +38,25 @@ test("active jobs stay distinct from the In Progress folder", () => {
   assert.equal(jobMatchesDirectoryBucket({ status: "Ready to invoice" }, "active"), true);
   assert.equal(jobMatchesDirectoryBucket({ status: "Invoiced" }, "active"), false);
   assert.equal(jobMatchesDirectoryBucket({ status: "Closed" }, "active"), false);
+});
+
+test("short follow-ups retain the previously listed job folder instead of becoming a fresh search", () => {
+  const history = [
+    { role: "user" as const, text: "What jobs are in pending?" },
+    { role: "assistant" as const, text: "There are 29 jobs in NeXa's Pending area (Accepted, Pending, Enquiry, Quoted):\n\n• J-1001 · Test customer · Pending" },
+  ];
+
+  assert.equal(recentJobDirectoryBucket(history), "pending");
+  assert.equal(looksLikeJobDirectoryFollowUp("So there are waiting to be booked in?", history), true);
+  assert.match(
+    contextualiseJobDirectoryFollowUp("So there are waiting to be booked in?", history),
+    /refers to the jobs Blake just listed from NeXa's Pending area/i,
+  );
+});
+
+test("job write requests do not get swallowed by previous folder context", () => {
+  const history = [
+    { role: "assistant" as const, text: "There are 29 jobs in NeXa's Pending area (Accepted, Pending, Enquiry, Quoted)." },
+  ];
+  assert.equal(looksLikeJobDirectoryFollowUp("Book job J-1001 for tomorrow", history), false);
 });
