@@ -28,6 +28,7 @@ export function normaliseEntityText(value: unknown) {
   return String(value ?? "")
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[’']s\b/gi, " ")
     .replace(/&/g, " and ")
     .replace(/[^a-zA-Z0-9]+/g, " ")
     .trim()
@@ -40,18 +41,27 @@ function tokens(value: unknown, dropGeneric = false) {
   return dropGeneric ? list.filter((token) => !genericQueryWords.has(token)) : list;
 }
 
-function allTokensMatch(queryTokens: string[], valueTokens: string[]) {
-  return queryTokens.every((queryToken) => valueTokens.some((valueToken) =>
-    valueToken === queryToken
-    || (queryToken.length >= 4 && valueToken.startsWith(queryToken))
-    || (valueToken.length >= 4 && queryToken.startsWith(valueToken)),
-  ));
+function tokenMatches(left: string, right: string) {
+  return left === right
+    || (left.length >= 4 && right.startsWith(left))
+    || (right.length >= 4 && left.startsWith(right));
+}
+
+function allTokensMatch(sourceTokens: string[], targetTokens: string[]) {
+  return sourceTokens.every((sourceToken) => targetTokens.some((targetToken) => tokenMatches(sourceToken, targetToken)));
+}
+
+function matchedTokenCount(sourceTokens: string[], targetTokens: string[]) {
+  return sourceTokens.filter((sourceToken) => targetTokens.some((targetToken) => tokenMatches(sourceToken, targetToken))).length;
 }
 
 /**
- * Human-name/entity match independent of punctuation and word order.
+ * Human-name/entity matching independent of punctuation, word order and conversational wrapper text.
+ * This is intentionally entity-level matching rather than phrase routing.
  * Examples:
  *   Helen Ball -> Ball, Helen
+ *   Helen Ball's job -> Ball, Helen
+ *   can you open J-1141 -> J-1141
  *   Morrison Co -> Morrison & Co.
  *   Keithleigh Gardens -> 79 Keithleigh Gardens Pitmedden...
  */
@@ -69,7 +79,18 @@ export function entityMatchScore(query: unknown, value: unknown) {
   const qSet = new Set(queryTokens);
   const vSet = new Set(valueTokens);
   if (queryTokens.length >= 2 && qSet.size === vSet.size && [...qSet].every((token) => vSet.has(token))) return 98;
+
+  // The identifier can be a clean fragment ("Dee View Road") contained in a longer stored value.
   if (allTokensMatch(queryTokens, valueTokens)) return queryTokens.length >= 2 ? 86 : 58;
+
+  // Or it can be a conversational wrapper around the complete meaningful entity value
+  // ("can you open Helen Ball's job" or "show me J-1141").
+  if (valueTokens.length >= 2 && allTokensMatch(valueTokens, queryTokens)) return 82;
+
+  // Finally tolerate extra conversational words around a multi-token fragment without
+  // making a single common token enough to resolve a real record.
+  const matchedQueryTokens = matchedTokenCount(queryTokens, valueTokens);
+  if (matchedQueryTokens >= 2 && matchedQueryTokens / queryTokens.length >= 0.5) return 72;
   return 0;
 }
 
