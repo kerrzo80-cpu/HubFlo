@@ -138,8 +138,8 @@ function parseArguments(value: string) {
 
 function outputText(response: OpenAiResponse) {
   for (const item of response.output ?? []) {
-    if (item.type === "function_call") continue;
-    for (const content of item.content ?? []) {
+    if (!("content" in item) || !Array.isArray(item.content)) continue;
+    for (const content of item.content) {
       if (content.type === "output_text" && content.text?.trim()) return content.text.trim();
     }
   }
@@ -203,8 +203,8 @@ function successReply(capability: string, data: unknown) {
   const customer = typeof record.customer === "string"
     ? record.customer
     : typeof record.customerName === "string" ? record.customerName : "";
-  if (ref && customer) return `Done — ${ref} was updated in NeXa for ${customer}.`;
-  if (ref) return `Done — ${ref} was updated in NeXa.`;
+  if (ref && customer) return `Done — ${ref} is now saved in NeXa for ${customer}.`;
+  if (ref) return `Done — ${ref} is now saved in NeXa.`;
   return `Done — ${humanise(capability).toLowerCase()} completed in NeXa.`;
 }
 
