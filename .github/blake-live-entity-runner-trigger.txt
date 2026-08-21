@@ -1,2 +1,0 @@
-Trigger the clean live-entity validation runner after its workflow file exists on the branch.
-Trigger source commit workflow.
