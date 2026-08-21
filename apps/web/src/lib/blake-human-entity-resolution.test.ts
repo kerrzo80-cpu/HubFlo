@@ -121,7 +121,7 @@ test("partial site wording resolves a unique job without demanding an internal r
   assert.equal(requireJobFromHumanReference("system flush").ref, "J-1141");
 });
 
-test("ambiguous human references return real choices instead of telling the user to find a reference", () => {
+test("ambiguous human references return real choices instead of making the user find a reference", () => {
   seedHelenBallJob();
   createJob({
     ref: "J-1142",
@@ -142,7 +142,7 @@ test("ambiguous human references return real choices instead of telling the user
       assert.match(message, /more than one nexa job/i);
       assert.match(message, /J-1141/i);
       assert.match(message, /J-1142/i);
-      assert.doesNotMatch(message, /look up an internal reference/i);
+      assert.match(message, /do not ask them to look up an internal reference/i);
       return true;
     },
   );
