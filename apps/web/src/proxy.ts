@@ -21,25 +21,27 @@ const userAuthPublicPaths = new Set([
 ]);
 const publicAssetPaths = new Set([
   "/ewg-logo.png",
+  "/ewg-mark.png",
   "/apple-icon.png",
+  "/apple-icon",
   "/icon.png",
+  "/icon",
+  "/favicon.ico",
   "/nexa-ai-first.html",
   "/manifest-core.json",
   "/manifest-estimator.json",
   "/manifest-field.json",
   "/manifest-takeoffs.json",
-  "/estimator/apple-icon.png",
-  "/estimator/icon.png",
-  "/survey/apple-icon.png",
-  "/survey/icon.png",
-  "/takeoff/apple-icon.png",
-  "/takeoff/icon.png",
 ]);
 
 function isPublicBrandingGet(request: NextRequest) {
   if (request.method !== "GET" && request.method !== "HEAD") return false;
   const { pathname } = request.nextUrl;
-  return pathname === "/api/branding" || pathname.startsWith("/api/branding/assets/");
+  return (
+    pathname === "/api/branding" ||
+    pathname === "/api/branding/favicon" ||
+    pathname.startsWith("/api/branding/assets/")
+  );
 }
 
 function parseBasicAuth(value: string | null) {
