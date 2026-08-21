@@ -167,15 +167,6 @@ function rehydrateHubDetailStateFromDisk() {
   Object.assign(hubDetailState, diskHub);
 }
 
-function rehydrateHubDetailStateFromDisk() {
-  const diskHub = readServerStoreSnapshot("hub-detail-store") as HubDetailState | null;
-  if (!diskHub || typeof diskHub !== "object") return;
-  Object.keys(hubDetailState).forEach((key) => {
-    delete hubDetailState[key as keyof HubDetailState];
-  });
-  Object.assign(hubDetailState, diskHub);
-}
-
 /**
  * Pull Field daywork sheets / evidence / events from SQLite before mutating memory.
  * Prevents a Core worker with a stale module cache from wiping another worker’s Field save.
