@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { canEditTenders, getAccessProfileFromHeaders } from "@/lib/access";
 import type { BlakeScreenContext } from "@/lib/blake-open-record";
+import { handleBlakeJobDirectoryMessage } from "@/lib/blake-job-directory";
 import { parseJsonRequestBody } from "@/lib/http";
 import {
   confirmNexaAssistantAction,
@@ -119,6 +120,15 @@ export async function POST(request: Request) {
     const buddyContext =
       payload.buddyContext && typeof payload.buddyContext === "object" ? payload.buddyContext : undefined;
     const conversationId = typeof payload.conversationId === "string" ? payload.conversationId.slice(0, 120) : undefined;
+
+    const jobDirectoryResponse = await handleBlakeJobDirectoryMessage(
+      rawMessage,
+      { id: actor.id, name: actor.name, tenantId: actor.tenantId, channel },
+      access,
+    );
+    if (jobDirectoryResponse) {
+      return NextResponse.json(jobDirectoryResponse);
+    }
 
     const writeResponse = await handleBlakeWriteMessage(
       rawMessage,
