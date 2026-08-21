@@ -7,7 +7,7 @@ import {
 import { checkQuoteConversion } from "@hubflo/domain";
 import { getHubDetailState } from "@/lib/hub-detail-store";
 import { compareReferenceDesc, numberedReference } from "@/lib/numbering";
-import { loadServerStore, writeServerStore } from "@/lib/server-store";
+import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
 import { useDemoSeedData } from "@/lib/workspace-mode";
 import { jobInvoiceReviewComplete } from "@/lib/job-invoice-review";
 
@@ -369,6 +369,12 @@ function clone<T>(value: T): T {
 }
 
 function getStore(): WorkflowStore {
+  const persisted = readServerStoreSnapshot("workflow-store") as WorkflowStore | null;
+  if (persisted && Array.isArray(persisted.jobs) && Array.isArray(persisted.quotes) && Array.isArray(persisted.purchaseRequests)) {
+    workflowStore.jobs = clone(persisted.jobs);
+    workflowStore.quotes = clone(persisted.quotes);
+    workflowStore.purchaseRequests = clone(persisted.purchaseRequests);
+  }
   return workflowStore;
 }
 

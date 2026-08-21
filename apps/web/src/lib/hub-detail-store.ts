@@ -158,6 +158,15 @@ function mergeCentresPreserveDaywork(currentValue: unknown, nextValue: unknown) 
   return merged;
 }
 
+function rehydrateHubDetailStateFromDisk() {
+  const diskHub = readServerStoreSnapshot("hub-detail-store") as HubDetailState | null;
+  if (!diskHub || typeof diskHub !== "object") return;
+  Object.keys(hubDetailState).forEach((key) => {
+    delete hubDetailState[key as keyof HubDetailState];
+  });
+  Object.assign(hubDetailState, diskHub);
+}
+
 /**
  * Pull Field daywork sheets / evidence / events from SQLite before mutating memory.
  * Prevents a Core worker with a stale module cache from wiping another worker’s Field save.
@@ -320,6 +329,9 @@ export function saveHubDetailState(nextState: HubDetailState): HubDetailState {
 }
 
 export function getHubDetailState(): HubDetailState {
+  // Read the authoritative persisted hub first so Blake and other route bundles never
+  // operate on an old module-level employee/invoice/config snapshot.
+  rehydrateHubDetailStateFromDisk();
   // Always surface dedicated daywork sheets, even if a prior hub write dropped them.
   rehydrateDayworkFieldsFromDisk();
   // Prefer per-job side stores when a prior hub write failed after rebuild.
