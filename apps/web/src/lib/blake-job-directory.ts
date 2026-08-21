@@ -25,7 +25,8 @@ export function requestedJobDirectoryBucket(message: string): JobDirectoryBucket
 export function looksLikeJobDirectoryQuestion(message: string) {
   const bucket = requestedJobDirectoryBucket(message);
   if (!bucket) return false;
-  return /\b(list|show|give|which|what|how many|are there|there are|currently|at the moment|sitting|folder|area|jobs?)\b/i.test(message);
+  if (/\b(?:mark|change|update|edit|amend|set|move)\b/i.test(message)) return false;
+  return /\b(list|show|give|which|what|how many|are there|there are|currently|at the moment|sitting|folder|area)\b/i.test(message);
 }
 
 function money(value: number) {
