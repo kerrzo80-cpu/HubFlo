@@ -7,7 +7,9 @@ import {
   brandingAssetSettingsField,
   readBrandingAsset,
   saveBrandingAsset,
+  type BrandingAssetKind,
 } from "@/lib/branding-assets";
+import { ensureSquareAppIcon, isAppIconAssetKind } from "@/lib/branding-icon-square";
 import { normalizeBusinessBranding, resolveBrandIconUrl, resolveBrandLogoUrl, type BrandAppKey } from "@/lib/branding";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 
@@ -27,9 +29,36 @@ function appKeyForKind(kind: string): BrandAppKey | undefined {
       return "takeoffs";
     case "logo-heat-design":
       return "heat-design";
+    case "logo-trainer":
+      return "trainer";
     default:
       return undefined;
   }
+}
+
+async function squareAndPersistIfNeeded(kind: BrandingAssetKind, asset: { buffer: Buffer; mimeType: string }) {
+  if (!isAppIconAssetKind(kind)) return asset;
+  const squared = await ensureSquareAppIcon(asset.buffer);
+  if (!squared.changed) {
+    return { buffer: squared.buffer, mimeType: squared.mimeType };
+  }
+
+  const saved = saveBrandingAsset(kind, {
+    name: `${kind}.png`,
+    type: "image/png",
+    buffer: squared.buffer,
+  });
+
+  // Bust caches on home-screen icons after auto-repair.
+  const hub = getHubDetailState();
+  const current = normalizeBusinessBranding(hub.businessSettings);
+  const field = brandingAssetSettingsField(kind);
+  saveHubDetailState({
+    ...hub,
+    businessSettings: { ...current, [field]: saved.url },
+  });
+
+  return { buffer: squared.buffer, mimeType: squared.mimeType };
 }
 
 /** Serve uploaded owner logo / home-screen icon (public for PWA install). */
@@ -46,9 +75,10 @@ export async function GET(request: Request, { params }: Params) {
     if (kind === "icon") {
       const sharedLogo = readBrandingAsset("logo");
       if (sharedLogo) {
-        return new NextResponse(new Uint8Array(sharedLogo.buffer), {
+        const squared = await squareAndPersistIfNeeded("icon", sharedLogo).catch(() => sharedLogo);
+        return new NextResponse(new Uint8Array(squared.buffer), {
           headers: {
-            "Content-Type": sharedLogo.mimeType,
+            "Content-Type": squared.mimeType,
             "Cache-Control": "public, max-age=3600",
           },
         });
@@ -62,9 +92,10 @@ export async function GET(request: Request, { params }: Params) {
     return NextResponse.redirect(new URL(safeFallback, request.url), 302);
   }
 
-  return new NextResponse(new Uint8Array(asset.buffer), {
+  const served = await squareAndPersistIfNeeded(kind, asset).catch(() => asset);
+  return new NextResponse(new Uint8Array(served.buffer), {
     headers: {
-      "Content-Type": asset.mimeType,
+      "Content-Type": served.mimeType,
       "Cache-Control": "public, max-age=3600",
     },
   });
@@ -91,15 +122,25 @@ export async function POST(request: Request, { params }: Params) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Choose an image file to upload." }, { status: 400 });
   }
-  if (file.size > 4 * 1024 * 1024) {
-    return NextResponse.json({ error: "Image must be under 4MB." }, { status: 413 });
+  if (file.size > 8 * 1024 * 1024) {
+    return NextResponse.json({ error: "Image must be under 8MB before prepare." }, { status: 413 });
   }
-  if (file.type && !file.type.startsWith("image/")) {
+  if (file.type && !file.type.startsWith("image/") && file.type !== "application/octet-stream") {
     return NextResponse.json({ error: "Upload a PNG, JPG, WEBP or SVG image." }, { status: 400 });
   }
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const saved = saveBrandingAsset(kind, { name: file.name || `${kind}.png`, type: file.type || "image/png", buffer });
+  let buffer = Buffer.from(await file.arrayBuffer());
+  let mimeType = file.type || "image/png";
+  let fileName = file.name || `${kind}.png`;
+
+  if (isAppIconAssetKind(kind)) {
+    const squared = await ensureSquareAppIcon(buffer);
+    buffer = Buffer.from(squared.buffer);
+    mimeType = squared.mimeType;
+    fileName = `${kind}.png`;
+  }
+
+  const saved = saveBrandingAsset(kind, { name: fileName, type: mimeType, buffer });
 
   const hub = getHubDetailState();
   const current = normalizeBusinessBranding(hub.businessSettings);
