@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { useBrand } from "@/components/BrandProvider";
+import { resolveBrandLogoUrl } from "@/lib/branding";
+
 export function TrainChrome({
   children,
   subtitle = "Voice-first staff trainer",
@@ -11,6 +14,7 @@ export function TrainChrome({
   subtitle?: string;
 }) {
   const pathname = usePathname();
+  const brand = useBrand();
   const links = [
     { href: "/train", label: "Train", exact: true },
     { href: "/train/admin", label: "Admin" },
@@ -23,9 +27,9 @@ export function TrainChrome({
       <header className="blake-train-top">
         <div className="blake-train-brand">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/nexa-command-mark.svg" alt="" aria-hidden="true" />
+          <img src={resolveBrandLogoUrl(brand, "trainer")} alt={brand.companyName} />
           <div>
-            <strong>Blake · NeXa Trainer</strong>
+            <strong>{brand.trainerAppName}</strong>
             <span>{subtitle}</span>
           </div>
         </div>

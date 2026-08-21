@@ -56,6 +56,14 @@ const APP_LOGO_ROWS: AppLogoRow[] = [
     label: "Heat Design",
     href: "/heat-design",
   },
+  {
+    key: "trainer",
+    kind: "logo-trainer",
+    field: "trainerLogoUrl",
+    nameField: "trainerAppName",
+    label: "Trainer",
+    href: "/train",
+  },
 ];
 
 export function SetupPersonalisingPanel({
@@ -125,8 +133,8 @@ export function SetupPersonalisingPanel({
           </h2>
           {showPersonalising ? (
             <p className="setup-panel-lead">
-              Make Core, Field, Survey, Takeoffs and Heat Design feel like your company — logos per app, colours, app
-              names and home-screen icons. NeXa stays hidden when white-label is on.
+              Make Core, Field, Survey, Takeoffs, Heat Design and Trainer feel like your company — logos per app,
+              colours, app names and home-screen icons. NeXa stays hidden when white-label is on.
             </p>
           ) : null}
         </div>
