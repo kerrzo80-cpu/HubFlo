@@ -1,0 +1,254 @@
+name: Blake Live Entity Data Fix
+
+on:
+  push:
+    branches:
+      - fix/blake-live-entity-data-path
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  NEXA_WORKSPACE_MODE: live
+  NEXA_ENVIRONMENT: live
+  NEXT_PUBLIC_NEXA_ENVIRONMENT: live
+  NEXA_POSTGRES_MIRROR: "0"
+  NEXA_TENANT_KEY: ewg-live
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch authoritative entity data path
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old in text:
+                  text = text.replace(old, new, 1)
+                  p.write_text(text)
+                  return
+              if new in text:
+                  return
+              raise SystemExit(f"Expected patch anchor not found in {path}: {old[:100]!r}")
+
+          # Workflow jobs/quotes: rehydrate persisted state on every access so route-bundle
+          # module caches cannot make Blake search an old copy of NeXa.
+          replace_once(
+              "apps/web/src/lib/workflow-data.ts",
+              'import { loadServerStore, writeServerStore } from "@/lib/server-store";',
+              'import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";',
+          )
+          replace_once(
+              "apps/web/src/lib/workflow-data.ts",
+              '''function getStore(): WorkflowStore {\n  return workflowStore;\n}''',
+              '''function getStore(): WorkflowStore {\n  const persisted = readServerStoreSnapshot("workflow-store") as WorkflowStore | null;\n  if (persisted && Array.isArray(persisted.jobs) && Array.isArray(persisted.quotes) && Array.isArray(persisted.purchaseRequests)) {\n    workflowStore.jobs = clone(persisted.jobs);\n    workflowStore.quotes = clone(persisted.quotes);\n    workflowStore.purchaseRequests = clone(persisted.purchaseRequests);\n  }\n  return workflowStore;\n}''',
+          )
+
+          # Leads: same production freshness guarantee before read/write.
+          replace_once(
+              "apps/web/src/lib/lead-store.ts",
+              'import { loadServerStore, writeServerStore } from "@/lib/server-store";',
+              'import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";',
+          )
+          replace_once(
+              "apps/web/src/lib/lead-store.ts",
+              '''function getStore(): LeadStoreState {\n  return leadStore;\n}''',
+              '''function getStore(): LeadStoreState {\n  const persisted = readServerStoreSnapshot("lead-store") as LeadStoreState | null;\n  if (persisted && Array.isArray(persisted.leads)) {\n    leadStore.leads = clone(persisted.leads);\n  }\n  return leadStore;\n}''',
+          )
+
+          # Customers/sites: refresh the persisted people store before reads and mutations.
+          replace_once(
+              "apps/web/src/lib/people-data.ts",
+              'import { loadServerStore, writeServerStore } from "@/lib/server-store";',
+              'import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";',
+          )
+          replace_once(
+              "apps/web/src/lib/people-data.ts",
+              '''const peopleStore: PeopleStore = loadServerStore("people-store", seedPeopleStore);\n\nfunction persistPeopleStore() {''',
+              '''const peopleStore: PeopleStore = loadServerStore("people-store", seedPeopleStore);\n\nfunction rehydratePeopleStoreFromDisk() {\n  const persisted = readServerStoreSnapshot("people-store") as PeopleStore | null;\n  if (!persisted || !Array.isArray(persisted.clients) || !Array.isArray(persisted.clientSites) || !Array.isArray(persisted.auditEvents)) return;\n  peopleStore.clients = clone(persisted.clients);\n  peopleStore.clientSites = clone(persisted.clientSites);\n  peopleStore.auditEvents = clone(persisted.auditEvents);\n}\n\nfunction persistPeopleStore() {''',
+          )
+          for anchor in [
+              'export function getClients() {\n',
+              'export function getClientSites() {\n',
+              'export function updateClientRecord(clientId: string, patch: Partial<ClientRecord>) {\n',
+              'export function updateClientSiteRecord(\n  siteId: string,\n  patch: Partial<ClientSite>,\n  options?: { clearKeys?: Array<keyof ClientSite> },\n) {\n',
+              'export function removeClientRecord(clientId: string) {\n',
+              'export function removeClientSiteRecord(siteId: string) {\n',
+              'export function addClientRecord(client: ClientRecord) {\n',
+              'export function addClientSiteRecord(site: ClientSite) {\n',
+              'export function getAuditEvents(): AuditEvent[] {\n',
+              'export function appendAuditEvent(input: AuditEventInput): AuditEvent {\n',
+              'export function resetWorkflowAuditEvents(): AuditEvent[] {\n',
+          ]:
+              p = Path("apps/web/src/lib/people-data.ts")
+              text = p.read_text()
+              marker = anchor + '  rehydratePeopleStoreFromDisk();\n'
+              if marker in text:
+                  continue
+              if anchor not in text:
+                  raise SystemExit(f"People-store anchor missing: {anchor!r}")
+              p.write_text(text.replace(anchor, marker, 1))
+
+          # Hub invoices/employees: getHubDetailState previously refreshed only selected Field
+          # fields, leaving employee/invoice data stale in another route bundle.
+          replace_once(
+              "apps/web/src/lib/hub-detail-store.ts",
+              '''/**\n * Pull Field daywork sheets / evidence / events from SQLite before mutating memory.\n * Prevents a Core worker with a stale module cache from wiping another worker’s Field save.\n */\nfunction rehydrateDayworkFieldsFromDisk() {''',
+              '''function rehydrateHubDetailStateFromDisk() {\n  const diskHub = readServerStoreSnapshot("hub-detail-store") as HubDetailState | null;\n  if (!diskHub || typeof diskHub !== "object") return;\n  Object.keys(hubDetailState).forEach((key) => {\n    delete hubDetailState[key as keyof HubDetailState];\n  });\n  Object.assign(hubDetailState, diskHub);\n}\n\n/**\n * Pull Field daywork sheets / evidence / events from SQLite before mutating memory.\n * Prevents a Core worker with a stale module cache from wiping another worker’s Field save.\n */\nfunction rehydrateDayworkFieldsFromDisk() {''',
+          )
+          replace_once(
+              "apps/web/src/lib/hub-detail-store.ts",
+              '''export function getHubDetailState(): HubDetailState {\n  // Always surface dedicated daywork sheets, even if a prior hub write dropped them.''',
+              '''export function getHubDetailState(): HubDetailState {\n  // Read the authoritative persisted hub first so Blake and other route bundles never\n  // operate on an old module-level employee/invoice/config snapshot.\n  rehydrateHubDetailStateFromDisk();\n  // Always surface dedicated daywork sheets, even if a prior hub write dropped them.''',
+          )
+
+          # Human job/quote/lead resolution must also consider linked customer/site records,
+          # not only denormalised imported header text.
+          replace_once(
+              "apps/web/src/lib/blake-core/entity-resolution.ts",
+              '''export function resolveJobFromHumanReference(identifier: string): HumanEntityResolution<Job> {\n  return resolveRecord({\n    records: getJobs(),''',
+              '''export function resolveJobFromHumanReference(identifier: string): HumanEntityResolution<Job> {\n  const clients = new Map(getClients().map((client) => [client.id, client.name]));\n  const sites = new Map(getClientSites().map((site) => [site.id, site]));\n  return resolveRecord({\n    records: getJobs(),''',
+          )
+          replace_once(
+              "apps/web/src/lib/blake-core/entity-resolution.ts",
+              '''      { value: job.customer, bonus: 8 },\n      { value: job.site, bonus: 4 },\n      { value: job.description },''',
+              '''      { value: job.customer, bonus: 8 },\n      { value: job.clientId ? clients.get(job.clientId) : undefined, bonus: 10 },\n      { value: job.site, bonus: 4 },\n      { value: job.siteId ? sites.get(job.siteId)?.name : undefined, bonus: 6 },\n      { value: job.siteId ? sites.get(job.siteId)?.address : undefined, bonus: 8 },\n      { value: job.description },''',
+          )
+          replace_once(
+              "apps/web/src/lib/blake-core/entity-resolution.ts",
+              '''export function resolveQuoteFromHumanReference(identifier: string): HumanEntityResolution<Quote> {\n  return resolveRecord({''',
+              '''export function resolveQuoteFromHumanReference(identifier: string): HumanEntityResolution<Quote> {\n  const clients = new Map(getClients().map((client) => [client.id, client.name]));\n  return resolveRecord({''',
+          )
+          replace_once(
+              "apps/web/src/lib/blake-core/entity-resolution.ts",
+              '''      { value: quote.customer, bonus: 8 },\n      { value: quote.description },''',
+              '''      { value: quote.customer, bonus: 8 },\n      { value: quote.clientId ? clients.get(quote.clientId) : undefined, bonus: 10 },\n      { value: quote.description },''',
+          )
+          replace_once(
+              "apps/web/src/lib/blake-core/entity-resolution.ts",
+              '''export function resolveLeadFromHumanReference(identifier: string): HumanEntityResolution<LeadRecord> {\n  return resolveRecord({''',
+              '''export function resolveLeadFromHumanReference(identifier: string): HumanEntityResolution<LeadRecord> {\n  const clients = new Map(getClients().map((client) => [client.id, client.name]));\n  const sites = new Map(getClientSites().map((site) => [site.id, site]));\n  return resolveRecord({''',
+          )
+          replace_once(
+              "apps/web/src/lib/blake-core/entity-resolution.ts",
+              '''      { value: lead.customerName, bonus: 8 },\n      { value: lead.address, bonus: 4 },''',
+              '''      { value: lead.customerName, bonus: 8 },\n      { value: lead.clientId ? clients.get(lead.clientId) : undefined, bonus: 10 },\n      { value: lead.address, bonus: 4 },\n      { value: lead.siteId ? sites.get(lead.siteId)?.name : undefined, bonus: 6 },\n      { value: lead.siteId ? sites.get(lead.siteId)?.address : undefined, bonus: 8 },''',
+          )
+
+          # Search tool uses the same linked records so OpenAI search and direct get agree.
+          replace_once(
+              "apps/web/src/lib/blake-core/human-entity-capabilities.ts",
+              '''    const clients = getClients();\n    const clientNames = new Map(clients.map((client) => [client.id, client.name]));''',
+              '''    const clients = getClients();\n    const clientNames = new Map(clients.map((client) => [client.id, client.name]));\n    const clientSites = getClientSites();\n    const sitesById = new Map(clientSites.map((site) => [site.id, site]));''',
+          )
+          replace_once(
+              "apps/web/src/lib/blake-core/human-entity-capabilities.ts",
+              '''      add("site", getClientSites().map((item) => ({''',
+              '''      add("site", clientSites.map((item) => ({''',
+          )
+          replace_once(
+              "apps/web/src/lib/blake-core/human-entity-capabilities.ts",
+              '''          entityMatchScore(input.query, item.customer) + 8,\n          entityMatchScore(input.query, item.description),''',
+              '''          entityMatchScore(input.query, item.customer) + 8,\n          entityMatchScore(input.query, item.clientId ? clientNames.get(item.clientId) : undefined) + 10,\n          entityMatchScore(input.query, item.description),''',
+          )
+          replace_once(
+              "apps/web/src/lib/blake-core/human-entity-capabilities.ts",
+              '''          entityMatchScore(input.query, item.customer) + 8,\n          entityMatchScore(input.query, item.site) + 4,\n          entityMatchScore(input.query, item.description),''',
+              '''          entityMatchScore(input.query, item.customer) + 8,\n          entityMatchScore(input.query, item.clientId ? clientNames.get(item.clientId) : undefined) + 10,\n          entityMatchScore(input.query, item.site) + 4,\n          entityMatchScore(input.query, item.siteId ? sitesById.get(item.siteId)?.name : undefined) + 6,\n          entityMatchScore(input.query, item.siteId ? sitesById.get(item.siteId)?.address : undefined) + 8,\n          entityMatchScore(input.query, item.description),''',
+          )
+
+          # Regression: prime an empty module cache, update persisted workflow store behind it,
+          # then prove Blake still resolves the real disk job by natural reversed name.
+          replace_once(
+              "apps/web/src/lib/blake-human-entity-resolution.test.ts",
+              'import { createJob, createQuote, getJobs, getQuotes, resetWorkflowStore, saveJob } from "@/lib/workflow-data";',
+              'import { createJob, createQuote, getJobs, getQuotes, resetWorkflowStore, saveJob } from "@/lib/workflow-data";\nimport { writeServerStore } from "@/lib/server-store";',
+          )
+          test_file = Path("apps/web/src/lib/blake-human-entity-resolution.test.ts")
+          test_text = test_file.read_text()
+          marker = 'test("live Blake rehydrates a newer persisted workflow store before human lookup"'
+          if marker not in test_text:
+              test_text += '''\n\ntest("live Blake rehydrates a newer persisted workflow store before human lookup", () => {\n  resetWorkflowStore();\n  assert.equal(getJobs().length, 0);\n  writeServerStore("workflow-store", {\n    jobs: [{\n      id: "job-live-helen-ball",\n      ref: "J-1141",\n      customer: "Ball, Helen",\n      site: "79 Keithleigh Gardens Pitmedden Ellon AB41 7GF",\n      description: "System flush",\n      manager: "Office",\n      status: "Completed",\n      health: "green",\n      value: 850,\n      next: "Review",\n      due: "Imported",\n    }],\n    quotes: [],\n    purchaseRequests: [],\n  });\n  const job = requireJobFromHumanReference("Open job Helen Ball");\n  assert.equal(job.ref, "J-1141");\n  assert.equal(job.customer, "Ball, Helen");\n});\n'''
+              test_file.write_text(test_text)
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Prepare pnpm
+        run: corepack prepare pnpm@11.5.3 --activate
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Full tests
+        run: pnpm test
+
+      - name: Production build
+        run: NODE_OPTIONS=--max-old-space-size=3072 pnpm build
+
+      - name: Production server smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter web exec next start -p 3100 > /tmp/blake-live-fix-next.log 2>&1 &
+          pid=$!
+          trap 'kill $pid 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3100/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/blake-live-fix-next.log
+          exit 1
+
+      - name: Commit verified patch
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- \
+            apps/web/src/lib/workflow-data.ts \
+            apps/web/src/lib/lead-store.ts \
+            apps/web/src/lib/people-data.ts \
+            apps/web/src/lib/hub-detail-store.ts \
+            apps/web/src/lib/blake-core/entity-resolution.ts \
+            apps/web/src/lib/blake-core/human-entity-capabilities.ts \
+            apps/web/src/lib/blake-human-entity-resolution.test.ts
+          if git diff --cached --quiet; then
+            echo "Verified patch already committed."
+          else
+            git commit -m "Fix Blake live entity data freshness"
+            git push origin HEAD:fix/blake-live-entity-data-path
+          fi
+
+      - name: Publish validation result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then result=success; else result=failure; fi
+          head_sha=$(git rev-parse HEAD)
+          gh issue comment 225 --repo "$GITHUB_REPOSITORY" --body "LIVE_ENTITY_RESULT status=${result} sha=${head_sha} run=https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
