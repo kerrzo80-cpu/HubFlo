@@ -1,0 +1,36 @@
+name: Fix Blake Validator Bootstrap
+
+on:
+  push:
+    branches:
+      - fix/blake-live-entity-data-path
+
+permissions:
+  contents: write
+
+jobs:
+  fix-validator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Remove pnpm cache bootstrap dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/blake-live-entity-data-fix.yml')
+          text = p.read_text()
+          text = text.replace('          cache: pnpm\n', '')
+          p.write_text(text)
+          PY
+          if git diff --quiet -- .github/workflows/blake-live-entity-data-fix.yml; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- .github/workflows/blake-live-entity-data-fix.yml
+          git commit -m "Fix Blake validator pnpm setup"
+          git push origin HEAD:fix/blake-live-entity-data-path
