@@ -66,6 +66,8 @@ export const listJobsCapability: BlakeCapability<
       value: number;
       due: string;
       next: string;
+      scheduledDate?: string;
+      scheduledTime?: string;
     }>;
   }
 > = {
@@ -113,6 +115,8 @@ export const listJobsCapability: BlakeCapability<
         value: Number(job.value) || 0,
         due: job.due,
         next: job.next,
+        scheduledDate: job.scheduledDate,
+        scheduledTime: job.scheduledTime,
       })),
     };
   },
