@@ -3,12 +3,10 @@ import type { BlakeCapabilityDefinition } from "@hubflo/domain";
 import type { Employee, Weekday } from "@/lib/access";
 import { getHubDetailState } from "@/lib/hub-detail-store";
 import { getLeads } from "@/lib/lead-store";
-import { getClientSites, getClients } from "@/lib/people-data";
-import { getJobs, getQuotes } from "@/lib/workflow-data";
+import { getJobs } from "@/lib/workflow-data";
 
 import type { BlakeCapability } from "./types";
 
-type RecordType = "client" | "site" | "lead" | "quote" | "job" | "invoice";
 type ScheduleAssignment = {
   employeeId?: string;
   employeeName?: string;
@@ -20,7 +18,7 @@ type ScheduleAssignment = {
 };
 
 function definition(input: Omit<BlakeCapabilityDefinition, "version">): BlakeCapabilityDefinition {
-  return { ...input, version: 1 };
+  return { ...input, version: 2 };
 }
 
 function objectInput(value: unknown) {
@@ -34,16 +32,6 @@ function requiredString(value: unknown, label: string) {
   return text;
 }
 
-function normal(value: unknown) {
-  return String(value ?? "").trim().toLowerCase();
-}
-
-function matchesIdentifier(item: Record<string, unknown>, identifier: string) {
-  const target = normal(identifier);
-  return [item.id, item.ref, item.name, item.address, item.customer, item.customerName]
-    .some((value) => normal(value) === target);
-}
-
 function isoDate(value: unknown) {
   const text = requiredString(value, "Date");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || Number.isNaN(Date.parse(`${text}T12:00:00Z`))) {
@@ -51,57 +39,6 @@ function isoDate(value: unknown) {
   }
   return text;
 }
-
-export const getNexaRecordCapability: BlakeCapability = {
-  definition: definition({
-    name: "get_nexa_record",
-    description: "Read one authorised NeXa client, site, lead, quote, job or invoice by exact internal id/reference/name/address. Use this after search results or when the conversation refers to a specific record.",
-    mode: "read",
-    risk: "low",
-    requiredPermissions: ["showCore"],
-    requiresConfirmation: false,
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        type: { enum: ["client", "site", "lead", "quote", "job", "invoice"] },
-        identifier: { type: "string" },
-      },
-      required: ["type", "identifier"],
-    },
-  }),
-  parse(input) {
-    const raw = objectInput(input);
-    const types: RecordType[] = ["client", "site", "lead", "quote", "job", "invoice"];
-    if (!types.includes(raw.type as RecordType)) throw new TypeError("Record type is not supported.");
-    return { type: raw.type as RecordType, identifier: requiredString(raw.identifier, "Record identifier") };
-  },
-  execute(input, context) {
-    let record: Record<string, unknown> | undefined;
-    if (input.type === "client") {
-      if (!context.access.showCustomers) throw new Error("Your NeXa role cannot read customers.");
-      record = getClients().find((item) => matchesIdentifier(item as unknown as Record<string, unknown>, input.identifier)) as unknown as Record<string, unknown> | undefined;
-    } else if (input.type === "site") {
-      if (!context.access.showCustomers) throw new Error("Your NeXa role cannot read sites.");
-      record = getClientSites().find((item) => matchesIdentifier(item as unknown as Record<string, unknown>, input.identifier)) as unknown as Record<string, unknown> | undefined;
-    } else if (input.type === "lead") {
-      if (!(context.access.canCreateLead || context.access.showJobs || context.access.showQuotes)) throw new Error("Your NeXa role cannot read leads.");
-      record = getLeads().find((item) => matchesIdentifier(item as unknown as Record<string, unknown>, input.identifier)) as unknown as Record<string, unknown> | undefined;
-    } else if (input.type === "quote") {
-      if (!context.access.showQuotes) throw new Error("Your NeXa role cannot read quotes.");
-      record = getQuotes().find((item) => matchesIdentifier(item as unknown as Record<string, unknown>, input.identifier)) as unknown as Record<string, unknown> | undefined;
-    } else if (input.type === "job") {
-      if (!context.access.showJobs) throw new Error("Your NeXa role cannot read jobs.");
-      record = getJobs().find((item) => matchesIdentifier(item as unknown as Record<string, unknown>, input.identifier)) as unknown as Record<string, unknown> | undefined;
-    } else {
-      if (!context.access.showFinance) throw new Error("Your NeXa role cannot read invoices.");
-      const invoices = (getHubDetailState().invoices ?? []) as Array<Record<string, unknown>>;
-      record = invoices.find((item) => matchesIdentifier(item, input.identifier));
-    }
-    if (!record) throw new Error(`No ${input.type} matching ${input.identifier} was found in NeXa.`);
-    return { type: input.type, record };
-  },
-};
 
 function employeeBookings(employee: Employee, date: string) {
   const hub = getHubDetailState();
@@ -192,7 +129,8 @@ export const listTeamAvailabilityCapability: BlakeCapability = {
   },
 };
 
+// Human record lookup/search lives in human-entity-capabilities.ts and is registered later.
+// Keeping this module focused on team-wide reads removes the old exact-string lookup path.
 export const assistantReadCapabilities: BlakeCapability[] = [
-  getNexaRecordCapability,
   listTeamAvailabilityCapability,
 ];
