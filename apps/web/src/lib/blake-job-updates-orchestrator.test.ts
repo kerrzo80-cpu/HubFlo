@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { roleAccess } from "@/lib/access";
 import { getJobAttentionAlerts, getJobOfficeUpdates, resetJobOfficeUpdatesForTests } from "@/lib/job-office-updates";
+import { resetWorkflowStore, saveJob } from "@/lib/workflow-data";
 
 import { handleBlakeOrchestratedMessage } from "./blake-orchestrator";
 
@@ -19,6 +20,24 @@ const actor = {
   tenantId: "blake-job-update-test-tenant",
   channel: "mobile_voice" as const,
 };
+
+function resetJobUpdateFixture() {
+  resetWorkflowStore();
+  saveJob({
+    id: "job-1052",
+    ref: "J-1052",
+    customer: "Morrison & Co.",
+    site: "42 Queen's Road, Aberdeen",
+    description: "Office heating upgrade",
+    manager: "Blake Test Manager",
+    status: "In progress",
+    health: "green",
+    value: 18_900,
+    next: "Engineer visit",
+    due: "Tomorrow",
+  });
+  resetJobOfficeUpdatesForTests();
+}
 
 async function withMockOpenAi(
   responder: (body: Record<string, unknown>, call: number) => Response | Promise<Response>,
@@ -43,7 +62,7 @@ async function withMockOpenAi(
 }
 
 test("Blake can capture an actionable job note immediately from a voice-style turn", async () => {
-  resetJobOfficeUpdatesForTests();
+  resetJobUpdateFixture();
 
   await withMockOpenAi((_body, call) => {
     if (call === 1) {
@@ -93,7 +112,7 @@ test("Blake can capture an actionable job note immediately from a voice-style tu
 });
 
 test("Blake prepares a draft variation but does not create it before confirmation", async () => {
-  resetJobOfficeUpdatesForTests();
+  resetJobUpdateFixture();
 
   await withMockOpenAi(() => jsonResponse({
     id: "resp-job-var-1",
