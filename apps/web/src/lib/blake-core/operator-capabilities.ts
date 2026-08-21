@@ -4,8 +4,6 @@ import {
   assertQuoteStatusTransition,
   createJob,
   createQuote,
-  getJobs,
-  getQuotes,
   updateJob,
   updateQuote,
   type Job,
@@ -13,10 +11,11 @@ import {
   type QuoteStatus,
 } from "@/lib/workflow-data";
 
+import { requireJobFromHumanReference, requireQuoteFromHumanReference } from "./entity-resolution";
 import type { BlakeCapability } from "./types";
 
 function definition(input: Omit<BlakeCapabilityDefinition, "version">): BlakeCapabilityDefinition {
-  return { ...input, version: 1 };
+  return { ...input, version: 2 };
 }
 
 function objectInput(value: unknown) {
@@ -46,10 +45,6 @@ function optionalNumber(value: unknown, label: string) {
   return parsed;
 }
 
-function normaliseRef(value: string) {
-  return value.trim().toUpperCase().replace(/\s+/g, "-");
-}
-
 const quoteStatuses: QuoteStatus[] = ["Draft", "Sent", "Accepted", "Declined", "Converted", "Lost"];
 
 type CreateQuoteInput = {
@@ -65,7 +60,7 @@ type CreateQuoteInput = {
 export const createQuoteCapability: BlakeCapability<CreateQuoteInput, Quote> = {
   definition: definition({
     name: "create_quote",
-    description: "Create a real NeXa quote after the user has reviewed the customer, description and any supplied value.",
+    description: "Create a real NeXa quote after the user has reviewed the customer, description and any supplied value. The user can speak naturally; do not require internal customer ids.",
     mode: "write",
     risk: "medium",
     requiredPermissions: ["canCreateQuote"],
@@ -128,7 +123,7 @@ type UpdateQuoteInput = {
 export const updateQuoteCapability: BlakeCapability<UpdateQuoteInput, Quote> = {
   definition: definition({
     name: "update_quote",
-    description: "Update an existing NeXa quote by Q-reference. Supports description, owner, status, value, next action and due date.",
+    description: "Update an existing NeXa quote. The `ref` input is a human reference, not necessarily a Q-number: it may be the customer name, description, prior conversational reference, id or Q-reference. Resolve it yourself and only ask the user to choose when several real quotes genuinely match.",
     mode: "write",
     risk: "medium",
     requiredPermissions: ["canCreateQuote"],
@@ -137,7 +132,7 @@ export const updateQuoteCapability: BlakeCapability<UpdateQuoteInput, Quote> = {
       type: "object",
       additionalProperties: false,
       properties: {
-        ref: { type: "string" },
+        ref: { type: "string", description: "Natural quote reference: customer, description, id or Q-reference." },
         description: { type: "string" },
         owner: { type: "string" },
         status: { enum: quoteStatuses },
@@ -156,7 +151,7 @@ export const updateQuoteCapability: BlakeCapability<UpdateQuoteInput, Quote> = {
       : undefined;
     if (statusText && !status) throw new TypeError(`Quote status must be one of: ${quoteStatuses.join(", ")}.`);
     const parsed: UpdateQuoteInput = {
-      ref: normaliseRef(requiredString(raw.ref, "Quote reference")),
+      ref: requiredString(raw.ref, "Quote"),
       description: optionalString(raw.description),
       owner: optionalString(raw.owner),
       status,
@@ -170,8 +165,7 @@ export const updateQuoteCapability: BlakeCapability<UpdateQuoteInput, Quote> = {
     return parsed;
   },
   execute(input) {
-    const quote = getQuotes().find((item) => normaliseRef(item.ref) === input.ref);
-    if (!quote) throw new Error(`I cannot find ${input.ref} in NeXa quotes.`);
+    const quote = requireQuoteFromHumanReference(input.ref);
     if (input.status) {
       const transitionError = assertQuoteStatusTransition(quote.status, input.status);
       if (transitionError) throw new Error(transitionError);
@@ -184,7 +178,7 @@ export const updateQuoteCapability: BlakeCapability<UpdateQuoteInput, Quote> = {
     if (input.next !== undefined) patch.next = input.next;
     if (input.due !== undefined) patch.due = input.due;
     const updated = updateQuote(quote.id, patch);
-    if (!updated) throw new Error(`${input.ref} could not be updated.`);
+    if (!updated) throw new Error(`${quote.ref} could not be updated.`);
     return updated;
   },
 };
@@ -203,7 +197,7 @@ type CreateJobInput = {
 export const createJobCapability: BlakeCapability<CreateJobInput, Job> = {
   definition: definition({
     name: "create_job",
-    description: "Create a real NeXa job for a customer and site after the user has reviewed the details.",
+    description: "Create a real NeXa job for a customer and site after the user has reviewed the details. Use the natural customer/site wording already established in conversation.",
     mode: "write",
     risk: "medium",
     requiredPermissions: ["canCreateJob"],
@@ -265,7 +259,7 @@ type UpdateJobInput = {
 export const updateJobCapability: BlakeCapability<UpdateJobInput, Job> = {
   definition: definition({
     name: "update_job",
-    description: "Update an existing NeXa job by J-reference. Supports site, description, manager, status, value, next action and due date. Job health remains derived by NeXa.",
+    description: "Update an existing NeXa job. The `ref` input is a human reference and may be a customer/person name, reversed imported name, site/address, description, prior conversational reference, id or J-reference. Resolve it yourself; only ask the user to choose if several real jobs genuinely match. Job health remains derived by NeXa.",
     mode: "write",
     risk: "medium",
     requiredPermissions: ["canEditJobs"],
@@ -274,7 +268,7 @@ export const updateJobCapability: BlakeCapability<UpdateJobInput, Job> = {
       type: "object",
       additionalProperties: false,
       properties: {
-        ref: { type: "string" },
+        ref: { type: "string", description: "Natural job reference: customer/person name, site/address, description, id or J-reference." },
         site: { type: "string" },
         description: { type: "string" },
         manager: { type: "string" },
@@ -289,7 +283,7 @@ export const updateJobCapability: BlakeCapability<UpdateJobInput, Job> = {
   parse(input) {
     const raw = objectInput(input);
     const parsed: UpdateJobInput = {
-      ref: normaliseRef(requiredString(raw.ref, "Job reference")),
+      ref: requiredString(raw.ref, "Job"),
       site: optionalString(raw.site),
       description: optionalString(raw.description),
       manager: optionalString(raw.manager),
@@ -304,8 +298,7 @@ export const updateJobCapability: BlakeCapability<UpdateJobInput, Job> = {
     return parsed;
   },
   execute(input) {
-    const job = getJobs().find((item) => normaliseRef(item.ref) === input.ref);
-    if (!job) throw new Error(`I cannot find ${input.ref} in NeXa jobs.`);
+    const job = requireJobFromHumanReference(input.ref);
     const patch: Partial<Job> = {};
     if (input.site !== undefined) patch.site = input.site;
     if (input.description !== undefined) patch.description = input.description;
@@ -315,7 +308,7 @@ export const updateJobCapability: BlakeCapability<UpdateJobInput, Job> = {
     if (input.next !== undefined) patch.next = input.next;
     if (input.due !== undefined) patch.due = input.due;
     const updated = updateJob(job.id, patch);
-    if (!updated) throw new Error(`${input.ref} could not be updated.`);
+    if (!updated) throw new Error(`${job.ref} could not be updated.`);
     return updated;
   },
 };
