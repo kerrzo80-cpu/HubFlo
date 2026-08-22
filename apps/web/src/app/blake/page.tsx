@@ -12,6 +12,7 @@ export default function BlakePage() {
   return (
     <>
       <BlakeChatPage />
+      <a href="/blake/knowledge" className={launcherStyles.knowledge}>Blake Knowledge</a>
       <a href="/blake/drive" className={launcherStyles.launcher}>Driving Mode</a>
     </>
   );
