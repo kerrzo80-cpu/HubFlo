@@ -3,7 +3,7 @@ services:
     name: nexa-live
     runtime: node
     region: frankfurt
-    plan: starter
+    plan: standard
     autoDeploy: true
     healthCheckPath: /api/health
     # Bump to force Render to pick up postcode street-list fix (AB12 4TG).
@@ -16,8 +16,13 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 24.14.0
+      # RUNTIME heap cap for the Standard 2 GB instance. This leaves headroom
+      # for native Node memory, buffers and the OS while preventing the runtime
+      # process from treating the container as effectively unbounded memory.
+      # The 3 GB heap needed for the large production build stays scoped inline
+      # in buildCommand and does not apply to the running web service.
       - key: NODE_OPTIONS
-        value: --max-old-space-size=3072
+        value: --max-old-space-size=1536
       - key: NEXA_STORE_PATH
         value: /var/data/nexa-live.sqlite
       - key: NEXA_STORE_DIR
