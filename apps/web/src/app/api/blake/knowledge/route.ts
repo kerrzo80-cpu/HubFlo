@@ -22,7 +22,7 @@ function identity(headers: Headers) {
 
 function canUseBlake(headers: Headers) {
   const access = getAccessProfileFromHeaders(headers);
-  return access.showCore && (access.showJobs || access.showQuotes || access.showCustomers || access.showFinance || access.canCustomize);
+  return access.showCore && (access.showJobs || access.showQuotes || access.showCustomers || access.showFinance || access.showSchedule || access.canCustomize);
 }
 
 function mayManage(item: BlakeKnowledgeItem, headers: Headers) {
