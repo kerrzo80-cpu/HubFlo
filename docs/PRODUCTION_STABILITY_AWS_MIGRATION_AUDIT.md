@@ -417,11 +417,33 @@ Do not delete Render until AWS has run successfully for an agreed period, backup
 
 ## Immediate Next Steps
 
-1. Add a store inventory script/report so we know every production JSON store and approximate size before designing tables.
-2. Add a file inventory script/report for `/var/data` backup manifests.
+1. Run the store/file inventory script so we know every production JSON store and approximate size before designing tables.
+2. Run the file inventory script for `/var/data` backup manifests.
 3. Add S3 storage abstraction while keeping local disk as the default.
 4. Add AWS staging env docs and secrets checklist.
 5. Expand PostgreSQL schema/RLS for missing runtime entities.
 6. Build SQLite-to-PostgreSQL migration rehearsal tooling.
 7. Run the full workflow test pack on AWS staging only.
 
+## Inventory Command
+
+The first migration tool is read-only:
+
+```bash
+pnpm ops:inventory -- --sqlite /var/data/nexa-live.sqlite --data-dir /var/data --out /var/data/nexa-live-inventory.json
+```
+
+Local/example run:
+
+```bash
+pnpm ops:inventory -- --sqlite .hubflo-runtime/nexa-live.sqlite --data-dir .hubflo-runtime --out tmp/nexa-inventory.json
+```
+
+The report includes:
+
+- SQLite backend presence and `pilot_store` store names.
+- Per-store byte size, updated timestamp, short content hash, JSON type, and top-level array counts.
+- File counts and total bytes under the known persistent directories.
+- Extension counts and largest files per directory.
+
+The report deliberately avoids printing store contents or secrets. It is safe to attach to migration planning, but still treat it as operational data because filenames and record references may reveal customer context.
