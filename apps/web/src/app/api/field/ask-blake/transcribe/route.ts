@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export const runtime = "nodejs";
 
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
       "prompt",
       "UK plumbing and heating engineer talking on a job site about boilers, radiators, leaks, valves, pumps, and pipework.",
     );
-    return fetch("https://api.openai.com/v1/audio/transcriptions", {
+    return openAiFetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
       headers: { Authorization: `Bearer ${config.apiKey}` },
       body,

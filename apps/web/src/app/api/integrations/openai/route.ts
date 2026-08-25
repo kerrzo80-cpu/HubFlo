@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
+import { listAiModelConfig } from "@/lib/ai-model-config";
 import { parseJsonRequestBody } from "@/lib/http";
 import { openAiApiKeyEnvName, openAiKeySource, resolveOpenAiApiKey } from "@/lib/openai-env";
 import {
@@ -8,7 +9,9 @@ import {
   clearStoredOpenAiConfig,
   getStoredOpenAiConfig,
   saveStoredOpenAiConfig,
+  saveStoredOpenAiModel,
 } from "@/lib/openai-key-store";
+import { requireEnvSecretsOnly } from "@/lib/runtime-security";
 
 export const runtime = "nodejs";
 
@@ -30,8 +33,9 @@ function status() {
     model: stored.model?.trim() || DEFAULT_OPENAI_MODEL,
     updatedAt: stored.updatedAt,
     envKeyName: openAiApiKeyEnvName(),
-    // True when an in-app key is saved — even if env currently wins.
-    hasInAppKey: Boolean(stored.apiKey?.trim()),
+    hasInAppKey: source === "in-app",
+    requireEnvSecrets: requireEnvSecretsOnly(),
+    workloads: listAiModelConfig(),
   };
 }
 
@@ -48,6 +52,20 @@ export async function POST(request: Request) {
   const payload = await parseJsonRequestBody<SaveOpenAiPayload>(request);
   const apiKey = payload?.apiKey?.trim() ?? "";
   const model = payload?.model?.trim() || DEFAULT_OPENAI_MODEL;
+
+  if (requireEnvSecretsOnly()) {
+    if (apiKey) {
+      return NextResponse.json(
+        {
+          error:
+            "OpenAI keys cannot be stored in NeXa on live/production. Set OPENAI_API_KEY or NEXA_OPENAI_API_KEY in host secrets.",
+        },
+        { status: 400 },
+      );
+    }
+    saveStoredOpenAiModel(model);
+    return NextResponse.json(status());
+  }
 
   if (!looksLikeOpenAiKey(apiKey)) {
     return NextResponse.json({ error: "Paste a valid OpenAI API key (starts with sk-)." }, { status: 400 });

@@ -13,6 +13,7 @@ import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
 import { getTenderLean } from "@/lib/tenders-data";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export const maxDuration = 120;
 
@@ -203,7 +204,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     let previousResponseId: string | undefined;
 
     for (let round = 0; round < 6; round += 1) {
-      const response = await fetch("https://api.openai.com/v1/responses", {
+      const response = await openAiFetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${ai.apiKey}`,

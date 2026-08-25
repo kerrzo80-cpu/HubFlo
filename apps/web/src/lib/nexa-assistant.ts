@@ -46,6 +46,7 @@ import {
   hasActiveCreateLeadWorkflow,
   shouldContinueCreateLeadWorkflow,
 } from "@/lib/blake-create-lead-workflow";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 type ScheduleAssignment = {
   id: string;
@@ -382,7 +383,7 @@ async function aiIntent(message: string, employees: Employee[], now: Date): Prom
     || process.env.NEXA_TAKEOFF_OPENAI_MODEL?.trim()
     || "gpt-4.1-mini";
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await openAiFetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -690,7 +691,7 @@ async function conversationalReply(
     }));
 
     for (let turn = 0; turn < 5; turn += 1) {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      const response = await openAiFetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ model, temperature: 0.2, messages, tools: tools.length ? tools : undefined, tool_choice: tools.length ? "auto" : undefined }),

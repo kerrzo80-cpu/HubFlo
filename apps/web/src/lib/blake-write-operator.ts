@@ -2,6 +2,7 @@ import type { AccessProfile } from "@/lib/access";
 import { blakeCore } from "@/lib/blake-core";
 import { resolveOpenAiApiKey } from "@/lib/openai-env";
 import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 type Channel = "web_text" | "web_voice" | "mobile_text" | "mobile_voice";
 type HistoryMessage = { role: "user" | "assistant"; text: string };
@@ -218,7 +219,7 @@ async function planWithOpenAi(
   const recentHistory = history.slice(-10).map((item) => `${item.role}: ${item.text}`).join("\n");
   const current = existing ? JSON.stringify({ capability: existing.capability, input: existing.input }) : "none";
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await openAiFetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({

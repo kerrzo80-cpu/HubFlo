@@ -12,6 +12,7 @@ import {
   stampRfqPrice,
 } from "@/lib/price-ledger";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 const BUDGET_NOTE =
   "Blake budget (UK trade ballpark) — amend to supplier quote when uploaded";
@@ -171,7 +172,7 @@ async function askBlakeBudgetChunk(
 
   try {
     throwIfAborted(options.signal);
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await openAiFetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${openAi.apiKey}`,

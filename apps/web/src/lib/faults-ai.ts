@@ -12,6 +12,7 @@ import {
   type FaultPriority,
   type FaultType,
 } from "@/lib/faults-types";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export type FaultAiClassifyResult = {
   title: string;
@@ -83,7 +84,7 @@ async function callStructuredJson(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await openAiFetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       signal: controller.signal,

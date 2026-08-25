@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { appendJobCommunication, matchInboundToJob } from "@/lib/job-comms-match";
+import { integrationBearerAuthorized } from "@/lib/runtime-security";
 
 function hasIntegrationAccess(request: Request) {
-  const expectedToken = process.env.HUBFLO_INTEGRATION_TOKEN;
-  if (!expectedToken) return true;
-  return request.headers.get("authorization") === `Bearer ${expectedToken}`;
+  return integrationBearerAuthorized(request);
 }
 
 type InboundEmailBody = {

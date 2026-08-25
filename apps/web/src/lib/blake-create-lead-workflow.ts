@@ -3,6 +3,7 @@ import { getClientSites, type LeadAddressParts, type LeadSource } from "@/lib/le
 import { resolveOpenAiApiKey } from "@/lib/openai-env";
 import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
 import { blakeActionRegistry, type BlakeActionContext } from "@/lib/blake-actions";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export const CREATE_LEAD_WORKFLOW_ID = "CREATE_LEAD_V1" as const;
 type WorkflowStatus = "collecting_information" | "awaiting_customer_choice" | "awaiting_confirmation" | "completed" | "failed";
@@ -107,7 +108,7 @@ async function extractLeadData(message: string, current: CreateLeadCollectedData
   const apiKey = resolveOpenAiApiKey();
   if (!apiKey) throw new Error("OpenAI is not connected on pilot. Your lead workflow is saved; connect Blake AI and continue.");
   const model = process.env.BLAKE_MODEL?.trim() || process.env.NEXA_ASSISTANT_OPENAI_MODEL?.trim() || "gpt-4.1-mini";
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await openAiFetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({

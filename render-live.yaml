@@ -76,6 +76,8 @@ services:
       # Shared with the EOD cron job — required for unattended simPRO refresh
       - key: NEXA_IMPORT_TICK_SECRET
         sync: false
+      - key: HUBFLO_INTEGRATION_TOKEN
+        sync: false
       # Optional temporary scheduler bridge fallback
       - key: SIMPRO_SCHEDULER_BASE_URL
         value: https://ewg-hub-scheduler.onrender.com

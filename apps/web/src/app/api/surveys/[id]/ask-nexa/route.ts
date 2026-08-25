@@ -12,6 +12,7 @@ import { parseJsonRequestBody } from "@/lib/http";
 import { canManageSurveys, surveyRequestContext } from "@/lib/survey-api";
 import { getSurvey, updateSurvey } from "@/lib/survey-estimator-store";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export const runtime = "nodejs";
 
@@ -138,7 +139,7 @@ async function runOpenAi(
   apiKey: string,
   model: string,
 ) {
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await openAiFetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({

@@ -6,6 +6,7 @@
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
 import type { TakeoffConfidence, TakeoffMeasureMethod } from "@/lib/takeoff-skill";
 import { isElectricalFixtureClass } from "@/lib/blake-trade-scope";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export type BlakePageImage = {
   documentId: string;
@@ -253,7 +254,7 @@ ${electricalRule}
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 32_000);
     try {
-      const response = await fetch("https://api.openai.com/v1/responses", {
+      const response = await openAiFetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,

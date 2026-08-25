@@ -18,6 +18,7 @@ import type {
   TrainerTurnResponse,
 } from "@/lib/blake-trainer/types";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 function normalise(text: string) {
   return text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
@@ -177,7 +178,7 @@ async function openAiGroundedAnswer(input: {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 22_000);
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await openAiFetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${config.apiKey}`,

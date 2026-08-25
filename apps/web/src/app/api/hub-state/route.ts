@@ -9,6 +9,7 @@ import { mergeHubDetailState } from "@/lib/hub-state-merge";
 import { leanJobCostCentresMap } from "@/lib/job-cost-centres-lean";
 import { parseJsonRequestBody } from "@/lib/http";
 import { stripDayworkBlobsForPoll } from "@/lib/daywork-poll-strip";
+import { sanitizeHubStateForClient } from "@/lib/hub-state-sanitize";
 import { getLeads } from "@/lib/lead-store";
 import {
   assertNoHubScheduleClashes,
@@ -33,7 +34,7 @@ export async function GET(request: Request) {
     // Best-effort backfill of Daywork variation cards from Field evidence.
   }
   // Poll responses omit base64 signatures and lean job cost centres — never echo BoQ dumps.
-  const state = stripDayworkBlobsForPoll(getHubDetailState());
+  const state = sanitizeHubStateForClient(stripDayworkBlobsForPoll(getHubDetailState()));
   if (state.jobCostCentres && typeof state.jobCostCentres === "object") {
     leanJobCostCentresMap(state.jobCostCentres);
   }

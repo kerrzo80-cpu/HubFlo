@@ -9,6 +9,7 @@ import type { HeatingEmitterMode, HeatDesignProject } from "@/lib/heat-design/ty
 import { createHeatDesignProject, saveHeatDesignProject } from "@/lib/heat-design-store";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
 import { createTakeoffProject } from "@/lib/takeoff-data";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export type AiSpineBrief = {
   customerName?: string;
@@ -98,7 +99,7 @@ async function planSpineWithAi(brief: AiSpineBrief): Promise<SpinePlan> {
   }
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await openAiFetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${openAi.apiKey}`,

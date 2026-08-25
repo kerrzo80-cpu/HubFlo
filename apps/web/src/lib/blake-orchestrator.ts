@@ -12,6 +12,7 @@ import {
   saveBlakePendingAction,
   type BlakePendingCapabilityAction,
 } from "./blake-orchestrator-state";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 type Channel = "web_text" | "web_voice" | "mobile_text" | "mobile_voice";
 type HistoryMessage = { role: "user" | "assistant"; text: string };
@@ -349,7 +350,7 @@ async function callOpenAi(input: {
   if (input.previousResponseId) body.previous_response_id = input.previousResponseId;
   if (input.toolOutputs) body.input = input.toolOutputs;
   else body.input = input.messages ?? [];
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await openAiFetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${input.apiKey}`,

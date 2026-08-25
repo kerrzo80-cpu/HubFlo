@@ -24,6 +24,7 @@ import type {
   HeatingSystemLayout,
   KitLine,
 } from "./types";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export type BlakeClarifyQuestion = {
   key: string;
@@ -496,7 +497,7 @@ export async function proposeHeatDesignWithBlake(
   ].join("\n");
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await openAiFetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${openAi.apiKey}`,

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { openAiKeySource, resolveOpenAiApiKey } from "@/lib/openai-env";
 import { DEFAULT_OPENAI_MODEL, getStoredOpenAiConfig } from "@/lib/openai-key-store";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 12_000);
-    const response = await fetch("https://api.openai.com/v1/models", {
+    const response = await openAiFetch("https://api.openai.com/v1/models", {
       method: "GET",
       headers: {
         Authorization: `Bearer ${apiKey}`,

@@ -4,6 +4,7 @@ import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { parseJsonRequestBody } from "@/lib/http";
 import { createLead, type LeadDraftFromClient } from "@/lib/lead-store";
 import { appendAuditEvent, type AuditEventInput } from "@/lib/people-data";
+import { integrationBearerAuthorized } from "@/lib/runtime-security";
 import {
   createJob,
   createPurchaseRequest,
@@ -37,9 +38,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function hasIntegrationAccess(request: Request) {
-  const expectedToken = process.env.HUBFLO_INTEGRATION_TOKEN;
-  if (!expectedToken) return true;
-  return request.headers.get("authorization") === `Bearer ${expectedToken}`;
+  return integrationBearerAuthorized(request);
 }
 
 function badRequest(message: string) {

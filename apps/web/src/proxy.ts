@@ -50,6 +50,10 @@ export const secretAuthCronPaths = new Set([
   "/api/office-backup/cron",
   "/api/integrations/simpro/sync/cron",
   "/api/integrations/simpro/import/tick",
+  "/api/integrations/simpro/webhook",
+  "/api/integrations/email/inbound",
+  "/api/integrations/intake",
+  "/api/whatsapp/webhook",
   "/api/reports/board-pack/cron",
 ]);
 const publicAssetPaths = new Set([

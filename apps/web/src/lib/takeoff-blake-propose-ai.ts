@@ -7,6 +7,7 @@ import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
 import type { StudioPoint } from "@/lib/takeoff-studio";
 
 import type { BlakeEmitterMode, BlakePlantKind, BlakeProposeAnswers } from "./takeoff-blake-propose";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export type BlakeProposeAiPlacement = {
   plantKind: BlakePlantKind;
@@ -123,7 +124,7 @@ export async function proposeTakeoffPlacementWithAi(
     : promptText;
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await openAiFetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${openAi.apiKey}`,
