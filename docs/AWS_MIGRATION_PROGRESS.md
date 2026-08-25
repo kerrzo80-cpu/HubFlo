@@ -1,9 +1,10 @@
 # NeXa AWS migration progress
 
-**Last update:** 25 August 2026 (deployed)  
+**Last update:** 25 August 2026 (Render staging live)  
 **Production deploy branch (temporary):** `cursor/phase-a-on-prod-branch-d175`  
 **Canonical long-term branch:** `codex/ai-surveyor-estimator-takeoff`  
-**Live commit:** `98a33d90019763abff8e932480b5a4bb07f014af`
+**Live commit:** `98a33d90019763abff8e932480b5a4bb07f014af`  
+**Staging URL:** `https://nexa-trial.onrender.com` (Render — no AWS needed yet)
 
 ## Status
 
@@ -14,7 +15,8 @@
 | Phase A on prod branch | **Deployed live** | Health `ok: true`; OpenAI `source: env` |
 | Postgres mirror | **Enabled** | `NEXA_POSTGRES_MIRROR=1`; SQLite still primary |
 | Live Postgres tables | Pending first writes / reconcile | DB was empty; `nexa_store` created lazily on write |
-| AWS Lightsail/S3 staging | Blocked | Waiting on AWS credentials |
+| Render staging (`nexa-trial`) | **Live** | Phase A branch + Postgres mirror; separate from live |
+| AWS Lightsail/S3 staging | Deferred | Optional later; Render staging covers testing for now |
 | Cutover | Not started | Render stays live; no DNS change |
 
 ## Verified live
@@ -29,9 +31,22 @@ deployment.branch: cursor/phase-a-on-prod-branch-d175
 deployment.commit: 98a33d90...
 ```
 
+## Verified staging (Render)
+
+```text
+GET https://nexa-trial.onrender.com/api/health
+ok: true
+store: sqlite
+postgresMirror.enabled: true
+deployment.branch: cursor/phase-a-on-prod-branch-d175
+deployment.commit: b8c505f0...
+```
+
+Staging uses its own SQLite disk and `nexa-pilot-postgres` (resumed for mirror tests). It does **not** share live simPRO/Xero webhooks.
+
 ## Next
 
 1. Merge PR into `codex/ai-surveyor-estimator-takeoff` and point Render auto-deploy back at that branch
-2. Run authenticated `POST /api/ops/postgres-reconcile` once to backfill `nexa_store` hashes
-3. Provide AWS credentials for Lightsail + private S3 staging
+2. Run authenticated `POST /api/ops/postgres-reconcile` on live once to backfill `nexa_store` hashes
+3. AWS only when you want a second hosting provider — not required for current testing
 4. Keep pilot suspended/deleted only if unused; keep `nexa-live` + disk
