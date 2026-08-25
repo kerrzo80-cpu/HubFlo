@@ -102,10 +102,10 @@ export function JobFieldLivePanel({
   const timeCount = visits.reduce((sum, visit) => sum + visit.timeEntries.length, 0);
 
   return (
-    <section className="job-field-live-panel" aria-label="NeXa Field live evidence">
+    <section className="job-field-live-panel" aria-label="Blake Field live evidence">
       <header className="job-field-live-head">
         <div>
-          <span className="permission-heading">NeXa Field</span>
+          <span className="permission-heading">Blake Field</span>
           <h2>Live from the engineer app</h2>
           <small>
             {jobRef ? `${jobRef} · ` : ""}

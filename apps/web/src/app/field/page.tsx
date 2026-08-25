@@ -179,7 +179,7 @@ export default function MyDayPage() {
 
       <Link href="/train" className="field-next-job" style={{ marginTop: 10 }}>
         <span>Blake Trainer</span>
-        <strong>Voice training · approved NeXa materials only</strong>
+        <strong>Voice training · approved Blake materials only</strong>
       </Link>
 
       {error ? <div className="feedback error">{error}</div> : null}

@@ -51,7 +51,7 @@ export function createMockNexaClient(): NexaFieldClient {
 }
 
 /**
- * NeXa Core HTTP adapter — same-origin Field APIs backed by Core engineer data.
+ * Blake Core HTTP adapter — same-origin Field APIs backed by Core engineer data.
  */
 export function createHttpNexaClient(baseUrl = "", engineerId = ""): NexaFieldClient {
   const root = baseUrl.replace(/\/$/, "");
@@ -67,7 +67,7 @@ export function createHttpNexaClient(baseUrl = "", engineerId = ""): NexaFieldCl
     });
     const body = (await response.json().catch(() => ({}))) as T & { error?: string };
     if (!response.ok) {
-      throw new Error(body.error ?? `NeXa request failed (${response.status})`);
+      throw new Error(body.error ?? `Blake request failed (${response.status})`);
     }
     return body;
   }
@@ -83,7 +83,7 @@ export function createHttpNexaClient(baseUrl = "", engineerId = ""): NexaFieldCl
         mode: "nexa",
         baseUrl: root || (typeof window !== "undefined" ? window.location.origin : ""),
         engineerId: engineerId || "core",
-        label: "Connected to NeXa Core",
+        label: "Connected to Blake Core",
       };
     },
     async getEngineer() {

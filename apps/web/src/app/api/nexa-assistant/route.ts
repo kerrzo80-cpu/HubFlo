@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     id: request.headers.get("x-nexa-auth-user-id")
       || request.headers.get("x-hubflo-employee-id")
       || "nexa-user",
-    name: request.headers.get("x-nexa-auth-user-name") || "NeXa user",
+    name: request.headers.get("x-nexa-auth-user-name") || "Blake user",
   };
 
   if (payload.confirmActionId) {
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
   }
 
   const message = payload.message?.trim();
-  if (!message) return NextResponse.json({ error: "Ask Blake a question first." }, { status: 400 });
+  if (!message) return NextResponse.json({ error: "Ask Ayla a question first." }, { status: 400 });
   const history = Array.isArray(payload.history)
     ? payload.history
       .filter((item): item is BlakeHistoryMessage => Boolean(item && (item.role === "user" || item.role === "assistant") && typeof item.text === "string"))

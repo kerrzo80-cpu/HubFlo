@@ -1,5 +1,7 @@
 /** Owner white-label / personalising settings shared across Core, Field, Survey, Takeoffs and Heat Design. */
 
+import { PLATFORM_NAME } from "@/lib/product-brand";
+
 export type BusinessBrandingSettings = {
   companyName: string;
   tradingName: string;
@@ -24,7 +26,7 @@ export type BusinessBrandingSettings = {
   heatDesignLogoUrl: string;
   portalWelcomeText: string;
   portalAcceptanceText: string;
-  /** When true, NeXa product chrome is hidden — platform feels like the owner brand. */
+  /** When true, Blake product chrome is hidden — platform feels like the owner brand. */
   hidePlatformName: boolean;
   /** Short owner product label used when platform name is shown (e.g. EWG). */
   productName: string;
@@ -195,12 +197,12 @@ export function operationsLabel(brand: PublicBranding | BusinessBrandingSettings
   if (brand.hidePlatformName) {
     return `${brand.productName || brand.companyName} Operations`;
   }
-  return "NeXa Operations";
+  return `${PLATFORM_NAME} Operations`;
 }
 
 export function platformLabel(brand: PublicBranding | BusinessBrandingSettings): string {
   if (brand.hidePlatformName) return brand.productName || brand.companyName;
-  return "NeXa";
+  return PLATFORM_NAME;
 }
 
 function lightenHex(hex: string, amount: number): string {

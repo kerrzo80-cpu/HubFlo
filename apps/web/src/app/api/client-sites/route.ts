@@ -62,7 +62,7 @@ export async function POST(request: Request) {
   });
 
   const auditEvent = appendAuditEvent({
-    actor: payload.actor?.trim() || "NeXa user",
+    actor: payload.actor?.trim() || "Blake user",
     action: "created",
     recordType: "site",
     recordId: site.id,

@@ -1,4 +1,4 @@
-# NeXa go-live plan
+# Blake go-live plan
 
 ## Decisions
 
@@ -8,7 +8,7 @@
 - Do not reset the pilot database to create production.
 - Replace the shared pilot password and browser-only employee passwords with individual server-verified accounts before inviting users.
 - Introduce Simpro in controlled stages. Start with read-only import and reconciliation before enabling outbound writes.
-- Never use simple last-write-wins for two-way sync. Each record needs a durable NeXa-to-Simpro identity link, ownership rules and a visible conflict queue.
+- Never use simple last-write-wins for two-way sync. Each record needs a durable Blake-to-Simpro identity link, ownership rules and a visible conflict queue.
 
 ## Launch gates
 
@@ -32,19 +32,19 @@
 
 ### 3. Simpro transition bridge
 
-The Simpro API supports customers, sites, contacts, employees, contractors, suppliers, leads, quotes, quote cost centres, jobs, job cost centres, schedules, timesheets and invoices. Webhooks notify NeXa of Simpro changes; scheduled reconciliation catches missed events.
+The Simpro API supports customers, sites, contacts, employees, contractors, suppliers, leads, quotes, quote cost centres, jobs, job cost centres, schedules, timesheets and invoices. Webhooks notify Blake of Simpro changes; scheduled reconciliation catches missed events.
 
 Entity rollout order:
 
-1. Customers, contacts and sites: Simpro to NeXa read-only import.
-2. Employees, contractors and suppliers: Simpro to NeXa read-only import.
+1. Customers, contacts and sites: Simpro to Blake read-only import.
+2. Employees, contractors and suppliers: Simpro to Blake read-only import.
 3. Leads and quotes: two-way create/update after duplicate matching is approved.
 4. Jobs, sections, cost centres and schedules: two-way create/update.
 5. Purchase orders, timesheets and invoices: two-way only after financial ownership rules are signed off.
 
 Every linked record must store:
 
-- NeXa ID and Simpro ID.
+- Blake ID and Simpro ID.
 - Source system and creation time.
 - Last successful inbound and outbound sync.
 - Last source modification time and content fingerprint.
@@ -53,8 +53,8 @@ Every linked record must store:
 
 Loop prevention and safety:
 
-- Use idempotency keys for NeXa writes.
-- Ignore webhook echoes when the content fingerprint matches NeXa's last outbound write.
+- Use idempotency keys for Blake writes.
+- Ignore webhook echoes when the content fingerprint matches Blake's last outbound write.
 - Process webhook events through a durable queue and keep the raw event for audit.
 - Use `If-Modified-Since` reconciliation at least every 15 minutes.
 - Start each entity in preview mode before allowing writes.
@@ -63,7 +63,7 @@ Loop prevention and safety:
 ### 4. Accounts integration
 
 - [ ] Choose the financial system of record before enabling Xero.
-- [ ] Avoid sending the same invoice to Xero from both Simpro and NeXa.
+- [ ] Avoid sending the same invoice to Xero from both Simpro and Blake.
 - [ ] Map tax codes, nominal accounts, customers, invoice references and payment status.
 - [ ] Start with invoice export and payment-status import; add supplier bills only after PO matching is stable.
 
@@ -87,7 +87,7 @@ Loop prevention and safety:
 - Employees can be added and given individual access.
 - Xero integration follows financial ownership decisions.
 - Imports cover quotes, jobs, employees, suppliers, contractors, clients and customers.
-- Scheduler migration is handled as part of jobs/schedules sync, with NeXa branding applied after functional parity.
+- Scheduler migration is handled as part of jobs/schedules sync, with Blake branding applied after functional parity.
 - Typography uses a sharper system interface stack for improved readability.
 
 ## Recommended cutover
@@ -95,9 +95,9 @@ Loop prevention and safety:
 1. Finish the launch gates in the pilot.
 2. Create `nexa-live` with a blank database and real user accounts.
 3. Import Simpro reference data read-only and reconcile counts.
-4. Run NeXa and Simpro side by side with visible sync status.
-5. Enable NeXa-to-Simpro writes one entity at a time.
-6. Make NeXa the primary system only after two clean operating weeks and a signed reconciliation report.
+4. Run Blake and Simpro side by side with visible sync status.
+5. Enable Blake-to-Simpro writes one entity at a time.
+6. Make Blake the primary system only after two clean operating weeks and a signed reconciliation report.
 
 ## References
 

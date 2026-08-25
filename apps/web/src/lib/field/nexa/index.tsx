@@ -21,6 +21,6 @@ export function NexaClientProvider({ children }: { children: ReactNode }) {
 
 export function useNexaClient() {
   const client = useContext(NexaClientContext);
-  if (!client) throw new Error("NeXa field client is not available.");
+  if (!client) throw new Error("Blake field client is not available.");
   return client;
 }

@@ -72,13 +72,13 @@ export default function AskBlakePage() {
           connected: Boolean(body.connected),
           warning: body.connected
             ? undefined
-            : "OpenAI isn’t connected — Blake can still use the field fallback.",
+            : "OpenAI isn’t connected — Ayla can still use the field fallback.",
         });
       } catch {
         if (!cancelled) {
           setStatus({
             connected: false,
-            warning: "Couldn’t reach Ask Blake — check signal and refresh.",
+            warning: "Couldn’t reach Ask Ayla — check signal and refresh.",
           });
         }
       }
@@ -94,7 +94,7 @@ export default function AskBlakePage() {
       <header className="ask-blake-hero">
         <BlakeCharacter mood="idle" size="hero" />
         <div>
-          <p className="eyebrow">Ask Blake</p>
+          <p className="eyebrow">Ask Ayla</p>
           <h1>Type, photos or video</h1>
           <p className="field-page-sub">
             {job?.jobRef

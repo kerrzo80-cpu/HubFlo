@@ -129,7 +129,7 @@ export function AskBlakeVoice({
       });
     } catch {
       recordingRef.current = false;
-      setError("Allow the microphone for Ask Blake, then try again.");
+      setError("Allow the microphone for Ask Ayla, then try again.");
       setState("error");
       stopMicStream(micStreamRef.current);
       micStreamRef.current = null;
@@ -270,7 +270,7 @@ export function AskBlakeVoice({
     state === "listening" ? "Recording — talk to Blake"
       : state === "thinking" ? "Blake is thinking…"
         : state === "speaking" ? "Blake is talking"
-          : state === "unsupported" ? "This phone can’t record for Ask Blake"
+          : state === "unsupported" ? "This phone can’t record for Ask Ayla"
             : state === "error" ? "Try again, or use Type / photos"
               : "Push to talk";
 

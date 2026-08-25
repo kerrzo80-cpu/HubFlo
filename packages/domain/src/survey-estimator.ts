@@ -504,7 +504,7 @@ const questionSetIntros: Record<SurveyJobType, string> = {
   "Kitchen plumbing": "Kitchen plumbing surveys focus on hot, cold, waste, sink and appliance connections.",
   "Commercial or tender work": "Commercial and tender surveys focus on drawings, specifications, programme, access and commercial dependencies.",
   "General plumbing": "General plumbing surveys focus on the water supply, isolation, drainage, access and any job-specific scope items.",
-  "Custom survey": "Custom surveys keep the baseline site and safety checks, then rely on the scope, measurements and Ask NeXa prompts.",
+  "Custom survey": "Custom surveys keep the baseline site and safety checks, then rely on the scope, measurements and Ask Ayla prompts.",
 };
 
 function uniqueQuestions(questions: SurveyQuestionDefinition[]) {

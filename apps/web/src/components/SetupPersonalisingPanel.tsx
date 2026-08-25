@@ -126,7 +126,7 @@ export function SetupPersonalisingPanel({
           {showPersonalising ? (
             <p className="setup-panel-lead">
               Make Core, Field, Survey, Takeoffs and Heat Design feel like your company — logos per app, colours, app
-              names and home-screen icons. NeXa stays hidden when white-label is on.
+              names and home-screen icons. Blake stays hidden when white-label is on.
             </p>
           ) : null}
         </div>
@@ -218,7 +218,7 @@ export function SetupPersonalisingPanel({
               </span>
             </label>
             <label className="span-2">
-              Product name (replaces NeXa in chrome)
+              Product name (replaces Blake in chrome)
               <input
                 value={businessSettings.productName}
                 onChange={(event) => onChange({ productName: event.target.value })}
@@ -232,7 +232,7 @@ export function SetupPersonalisingPanel({
                 onChange={(event) => onChange({ hidePlatformName: event.target.checked })}
               />
               <span>
-                <strong>Hide NeXa branding</strong>
+                <strong>Hide Blake branding</strong>
                 <small>Platform feels like {businessSettings.productName || businessSettings.companyName} for staff and home-screen apps.</small>
               </span>
             </label>

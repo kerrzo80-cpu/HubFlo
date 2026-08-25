@@ -188,7 +188,7 @@ export type SimproBridgeStatus = {
   guidance: string;
   quotePushReady: boolean;
   jobPushReady: boolean;
-  /** NeXa Schedules → simPRO diary write (managers app). Requires direct API + schedule rate. */
+  /** Blake Schedules → simPRO diary write (managers app). Requires direct API + schedule rate. */
   schedulePushReady: boolean;
   detectedEnvKeys: string[];
   sourceNames?: {
@@ -389,7 +389,7 @@ export function getSimproBridgeStatus(): SimproBridgeStatus {
       endpoint: schedulerQuote.endpoint,
       guidance: schedulerJob.configured
         ? schedulePush.configured
-          ? "Quotes/jobs push through the HUB scheduler bridge; NeXa Schedules can also write visits directly into simPRO."
+          ? "Quotes/jobs push through the HUB scheduler bridge; Blake Schedules can also write visits directly into simPRO."
           : `Quotes and jobs push through the HUB scheduler bridge. ${schedulePush.guidance}`
         : `Quotes can push through the scheduler. Jobs still need ${schedulerJob.missing.join(", ")}.`,
       quotePushReady: true,
@@ -410,8 +410,8 @@ export function getSimproBridgeStatus(): SimproBridgeStatus {
       missing: schedulePush.configured ? [] : schedulePush.missing,
       endpoint: `${direct.baseUrl}/companies/${direct.companyId}/quotes/`,
       guidance: schedulePush.configured
-        ? "NeXa creates quotes/jobs in simPRO and managers diary visits write into simPRO schedules. Keep ewg-hub-scheduler only until schedule write is proven day-to-day."
-        : `NeXa creates quotes and jobs directly in simPRO. ${schedulePush.guidance}`,
+        ? "Ayla creates quotes/jobs in simPRO and managers diary visits write into simPRO schedules. Keep ewg-hub-scheduler only until schedule write is proven day-to-day."
+        : `Ayla creates quotes and jobs directly in simPRO. ${schedulePush.guidance}`,
       quotePushReady: true,
       jobPushReady: true,
       schedulePushReady: schedulePush.configured,
@@ -1391,7 +1391,7 @@ function pickSetupCostCenterId(
     if (partial) return partial.id;
   }
 
-  // Prefer a distinct setup cost centre per NeXa centre so Simpro labels are not all "Cost centre 2".
+  // Prefer a distinct setup cost centre per Blake centre so Simpro labels are not all "Cost centre 2".
   const byIndex = setupCentres[index % setupCentres.length];
   if (byIndex && !usedSetupIds.has(byIndex.id)) return byIndex.id;
 
@@ -1433,7 +1433,7 @@ function buildSimproSections(
     };
   };
 
-  // Service quotes are limited to one section; put each NeXa centre as its own cost centre under that section.
+  // Service quotes are limited to one section; put each Blake centre as its own cost centre under that section.
   if (quoteType === "Service" || quoteType === "Prepaid") {
     return [
       {
@@ -1451,7 +1451,7 @@ function buildSimproSections(
 }
 
 function buildSimproQuoteDescription(payload: SimproQuoteExportPayload) {
-  return (payload.quote.description || `NeXa quote ${payload.quote.ref}`).trim();
+  return (payload.quote.description || `Blake quote ${payload.quote.ref}`).trim();
 }
 
 function buildDirectQuoteBody(
@@ -1478,14 +1478,14 @@ function buildSimproJobDescription(payload: SimproJobExportPayload) {
           assignment.notes ? ` · ${assignment.notes}` : ""
         }`,
       )
-    : ["- No engineer allocations pushed from NeXa yet"];
+    : ["- No engineer allocations pushed from Blake yet"];
 
   return [
-    `Created from NeXa job ${payload.job.ref}`,
+    `Created from Blake job ${payload.job.ref}`,
     payload.job.description,
     payload.job.sourceQuoteRef ? `Source quote: ${payload.job.sourceQuoteRef}` : null,
     `Programme manager: ${payload.job.manager || "To confirm"}`,
-    "Schedule pushed from NeXa:",
+    "Schedule pushed from Blake:",
     ...scheduleLines,
   ].filter((line): line is string => Boolean(line)).join("\n");
 }
@@ -1806,7 +1806,7 @@ async function postToDirectSimpro(payload: SimproQuoteExportPayload) {
   const usableCentres = payload.costCentres.filter((centre) => centre.lines.length > 0);
   if (usableCentres.length > 1 && setupCentres.length < usableCentres.length) {
     throw new Error(
-      `NeXa has ${usableCentres.length} cost centres but only ${setupCentres.length} Simpro setup cost centre(s) were found (${setupCentres.map((item) => item.name || item.id).join(", ")}). In Render set SIMPRO_COST_CENTER_IDS to your Simpro setup IDs in order, e.g. 1,2,3, then redeploy.`,
+      `Blake has ${usableCentres.length} cost centres but only ${setupCentres.length} Simpro setup cost centre(s) were found (${setupCentres.map((item) => item.name || item.id).join(", ")}). In Render set SIMPRO_COST_CENTER_IDS to your Simpro setup IDs in order, e.g. 1,2,3, then redeploy.`,
     );
   }
   const quoteType = quoteTypeForPush(usableCentres.length);
@@ -1850,7 +1850,7 @@ async function postToDirectSimproJob(payload: SimproJobExportPayload) {
   const usableCentres = payload.costCentres.filter((centre) => centre.lines.length > 0);
   if (usableCentres.length > 1 && setupCentres.length < usableCentres.length) {
     throw new Error(
-      `NeXa has ${usableCentres.length} cost centres but only ${setupCentres.length} Simpro setup cost centre(s) were found (${setupCentres.map((item) => item.name || item.id).join(", ")}). In Render set SIMPRO_COST_CENTER_IDS to your Simpro setup IDs in order, e.g. 1,2,3, then redeploy.`,
+      `Blake has ${usableCentres.length} cost centres but only ${setupCentres.length} Simpro setup cost centre(s) were found (${setupCentres.map((item) => item.name || item.id).join(", ")}). In Render set SIMPRO_COST_CENTER_IDS to your Simpro setup IDs in order, e.g. 1,2,3, then redeploy.`,
     );
   }
   const jobType = jobTypeForPush(usableCentres.length);
@@ -1929,7 +1929,7 @@ export async function pushQuoteToSimpro(
   const quote = getQuotes().find((item) => item.id === quoteId || item.ref === quoteId);
   if (!quote) return null;
 
-  const actor = options.actor?.trim() || "NeXa user";
+  const actor = options.actor?.trim() || "Blake user";
   const payload = buildPayload(quote, options.costCentres);
   const exportRecord: SimproQuoteExportRecord = {
     id: `simpro-export-${crypto.randomUUID()}`,
@@ -1984,7 +1984,7 @@ export async function pushQuoteToSimpro(
       ? `Sent to Simpro${exportRecord.simproQuoteId ? ` as ${exportRecord.simproQuoteId}` : ""}`
       : exportRecord.status === "Failed"
         ? "Simpro handoff failed - review bridge settings"
-        : "Queued in NeXa - Simpro bridge not configured",
+        : "Queued in Blake - Simpro bridge not configured",
     simproQuoteId: exportRecord.simproQuoteId,
     simproStatus: exportRecord.status,
     simproSentAt: exportRecord.createdAt,
@@ -1999,7 +1999,7 @@ export async function pushQuoteToSimpro(
       ? `${quote.ref} sent to Simpro ${exportRecord.mode === "direct" ? "API" : "bridge"}${exportRecord.simproQuoteId ? ` as ${exportRecord.simproQuoteId}` : ""}.`
       : exportRecord.status === "Failed"
         ? `${quote.ref} could not be sent to Simpro bridge: ${exportRecord.error}.`
-        : `${quote.ref} saved in the NeXa Simpro queue. It has not been sent to Simpro yet because ${exportRecord.setupRequired ?? "Simpro connection settings"} are not configured.`,
+        : `${quote.ref} saved in the Blake Simpro queue. It has not been sent to Simpro yet because ${exportRecord.setupRequired ?? "Simpro connection settings"} are not configured.`,
     source: "simpro bridge",
     importance: exportRecord.status === "Failed" ? "high" : "normal",
   });
@@ -2022,7 +2022,7 @@ export async function pushJobToSimpro(
   const job = getJobs().find((item) => item.id === jobId || item.ref === jobId);
   if (!job) return null;
 
-  const actor = options.actor?.trim() || "NeXa user";
+  const actor = options.actor?.trim() || "Blake user";
   const payload = buildJobPayload(job, {
     costCentres: options.costCentres,
     schedule: options.schedule,
@@ -2082,7 +2082,7 @@ export async function pushJobToSimpro(
       ? `Sent to Simpro${exportRecord.simproJobId ? ` as ${exportRecord.simproJobId}` : ""}`
       : exportRecord.status === "Failed"
         ? "Simpro handoff failed - review bridge settings"
-        : "Queued in NeXa - Simpro bridge not configured",
+        : "Queued in Blake - Simpro bridge not configured",
     simproJobId: exportRecord.simproJobId ?? job.simproJobId,
     simproStatus: exportRecord.status,
     simproSentAt: exportRecord.createdAt,
@@ -2097,7 +2097,7 @@ export async function pushJobToSimpro(
       ? `${job.ref} sent to Simpro ${exportRecord.mode === "direct" ? "API" : "bridge"}${exportRecord.simproJobId ? ` as ${exportRecord.simproJobId}` : ""}.`
       : exportRecord.status === "Failed"
         ? `${job.ref} could not be sent to Simpro bridge: ${exportRecord.error}.`
-        : `${job.ref} saved in the NeXa Simpro queue. It has not been sent to Simpro yet because ${exportRecord.setupRequired ?? "Simpro connection settings"} are not configured.`,
+        : `${job.ref} saved in the Blake Simpro queue. It has not been sent to Simpro yet because ${exportRecord.setupRequired ?? "Simpro connection settings"} are not configured.`,
     source: "simpro bridge",
     importance: exportRecord.status === "Failed" ? "high" : "normal",
   });

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>NeXa · AI-First Prototype</title>
+  <title>Blake · AI-First Prototype</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -200,7 +200,7 @@
       <div class="brand">
         <div class="mark">X</div>
         <div>
-          <strong>NeXa</strong>
+          <strong>Ayla</strong>
           <span>AI-first operating system · clickable prototype</span>
         </div>
       </div>
@@ -548,8 +548,8 @@
           <p class="eyebrow">Screen 1 · AI Intake</p>
           <div class="row" style="justify-content:space-between">
             <div>
-              <h1>Tell NeXa what the customer needs…</h1>
-              <p class="lede">No forms. Speak, type, attach a photo, or drop in an email — NeXa creates the lead, loads the playbook, and asks only what is missing.</p>
+              <h1>Tell Blake what the customer needs…</h1>
+              <p class="lede">No forms. Speak, type, attach a photo, or drop in an email — Ayla creates the lead, loads the playbook, and asks only what is missing.</p>
             </div>
             <button class="ghost" id="reset">Reset demo</button>
           </div>
@@ -559,7 +559,7 @@
               <button class="chip" id="voice">Voice</button>
               <button class="chip" id="photo">Photo</button>
               <button class="chip" id="email">Email</button>
-              <button class="btn primary" id="run" ${state.lead==="thinking"?"disabled":""} style="margin-left:auto">Let NeXa handle it</button>
+              <button class="btn primary" id="run" ${state.lead==="thinking"?"disabled":""} style="margin-left:auto">Let Blake handle it</button>
             </div>
           </div>
           <div class="examples">
@@ -641,7 +641,7 @@
               <h3>Customer details</h3>
               <p><strong>${state.customer}</strong><br>${pb().jobType}<br>${pb().name}<br>${state.lead==="ready"?"Ready to quote":"Draft · gathering"}</p>
               <h3 style="margin-top:16px">AI summary</h3>
-              <p style="color:var(--steel);margin:0;line-height:1.5">${state.customer} requested a ${pb().jobType.toLowerCase()}. NeXa loaded the correct playbook and is collecting only mandatory commercial questions.</p>
+              <p style="color:var(--steel);margin:0;line-height:1.5">${state.customer} requested a ${pb().jobType.toLowerCase()}. Blake loaded the correct playbook and is collecting only mandatory commercial questions.</p>
               <h3 style="margin-top:16px">Mandatory playbook checklist</h3>
               ${fieldsHtml()}
             </div>
@@ -728,7 +728,7 @@
         stage.innerHTML = `<section class="panel">
           <p class="eyebrow">Screen 5 · Scheduler</p>
           <div class="row" style="justify-content:space-between">
-            <div><h1>AI schedule suggestion</h1><p class="lede">NeXa proposes the best engineer and slot. Nothing is booked until you approve.</p></div>
+            <div><h1>AI schedule suggestion</h1><p class="lede">Blake proposes the best engineer and slot. Nothing is booked until you approve.</p></div>
             <span class="badge ai">AI Draft</span>
           </div>
           <div class="schedule">

@@ -1,7 +1,7 @@
 import type { GasServiceRecord } from "@/lib/engineer-flow";
 import { toUkDateDisplay } from "@/lib/uk-date";
 
-/** Landlord Gas Safety Record (CP12-style) — NeXa form shaped from simPRO cost-centre gas cert practice. */
+/** Landlord Gas Safety Record (CP12-style) — Ayla form shaped from simPRO cost-centre gas cert practice. */
 export type GasSafeLgsrField = {
   key: string;
   label: string;

@@ -1467,7 +1467,7 @@ function invoiceOutstandingBalance(invoice: Pick<Invoice, "chargeTotal" | "vatRa
   return Math.max(0, invoiceGrossTotal(invoice) - (invoice.paidAmount ?? 0));
 }
 
-function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "NeXa"): InvoiceEmailDraft {
+function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "Blake"): InvoiceEmailDraft {
   const contactName = client?.primaryContact?.split(" ")[0] || "there";
   const totalDue = currency(invoiceGrossTotal(invoice));
   const outstanding = currency(invoiceOutstandingBalance(invoice));
@@ -1607,7 +1607,7 @@ type JobDeliveryEvent = {
   clientApprovalStatus?: "Not sent" | "Sent" | "Viewed" | "Approved" | "Declined";
   status?: string;
   portalToken?: string;
-  source: "NeXa" | "WhatsApp" | "Engineer app";
+  source: "Ayla" | "WhatsApp" | "Engineer app";
   costCentreId?: string;
   formType?: string;
   plumberSignature?: string;
@@ -3177,7 +3177,7 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "cost-centres", label: "Cost centre types", detail: "Default categories and assigned engineer checklists", subItems: ["Boiler", "Bathroom", "Reactive"] },
   { key: "engineer-checklists", label: "Engineer checklists", detail: "Stop/go flows used inside cost centres", subItems: ["Boiler service", "Boiler replacement", "General works"] },
   { key: "workflow-rules", label: "Workflow rules", detail: "Lead chases, quote follow-ups, approvals and default margins", subItems: ["Leads", "Quotes", "Approvals"] },
-  { key: "imports", label: "Data import", detail: "Bring existing business records into NeXa", subItems: ["Employees", "Customers", "Sites", "Suppliers", "Contacts", "Contractors", "Leads", "Quotes", "Jobs", "Invoices"] },
+  { key: "imports", label: "Data import", detail: "Bring existing business records into Blake", subItems: ["Employees", "Customers", "Sites", "Suppliers", "Contacts", "Contractors", "Leads", "Quotes", "Jobs", "Invoices"] },
   { key: "catalogue", label: "Catalogue import", detail: "Import and manage reusable priced items", subItems: ["Materials", "Labour", "Suppliers"] },
   { key: "prebuilds", label: "Pre-builds", detail: "Material + labour kits that expand onto cost centres" },
   { key: "rates", label: "Rates & markups", detail: "Default labour rates and markup percentages", subItems: ["Labour rates", "Default markups", "Supplier pricing"] },
@@ -3187,7 +3187,7 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "tax-codes", label: "Tax codes", detail: "VAT treatments mapped for Xero" },
   { key: "email-templates", label: "Email templates", detail: "Quote, invoice, PO and follow-up wording" },
   { key: "security", label: "Security groups", detail: "Role permission templates for employee cards" },
-  { key: "integrations", label: "Integrations", detail: "NeXa AI, simPRO, Xero and live system sync", subItems: ["NeXa AI", "simPRO", "Xero", "Import from simPRO"] },
+  { key: "integrations", label: "Integrations", detail: "Blake AI, simPRO, Xero and live system sync", subItems: ["Blake AI", "simPRO", "Xero", "Import from simPRO"] },
   { key: "communications", label: "Communications", detail: "Outlook, WhatsApp and supplier doorway settings", subItems: ["Outlook", "WhatsApp", "Supplier emails"] },
   { key: "finance", label: "Finance", detail: "Invoices, VAT, payment terms and approval gates", subItems: ["Invoices", "Valuations", "PO approvals"] },
 ];
@@ -3201,8 +3201,8 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Editable now",
     },
     Personalising: {
-      summary: "Upload logos, set colours, hide NeXa branding, and name Core / Field / Survey / Takeoffs / Heat Design for home screens.",
-      focus: ["Company logo and app icon", "Brand colours", "Hide NeXa / owner app names", "Home-screen titles"],
+      summary: "Upload logos, set colours, hide Blake branding, and name Core / Field / Survey / Takeoffs / Heat Design for home screens.",
+      focus: ["Company logo and app icon", "Brand colours", "Hide Blake / owner app names", "Home-screen titles"],
       status: "Editable now",
     },
     Portal: {
@@ -3353,7 +3353,7 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Working import",
     },
     Quotes: {
-      summary: "Import quote/job headers plus cost centres, materials, labour and schedules. Invoices import with lines and link to NeXa jobs where possible.",
+      summary: "Import quote/job headers plus cost centres, materials, labour and schedules. Invoices import with lines and link to Blake jobs where possible.",
       focus: ["Quote reference", "Customer and scope", "Status, value and next action"],
       status: "Working import",
     },
@@ -3410,13 +3410,13 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
   "email-templates": {},
   security: {},
   integrations: {
-    "NeXa AI": {
-      summary: "Connect OpenAI once here to power Blake across Takeoff, Survey, the Field app and the NeXa Assistant — no redeploy needed.",
+    "Blake AI": {
+      summary: "Connect OpenAI once here to power Ayla across Takeoff, Survey, Field Ask Ayla and Core — no redeploy needed.",
       focus: ["Paste your OpenAI API key", "Powers every AI feature", "Environment key still takes precedence"],
       status: "Set up in seconds",
     },
     simPRO: {
-      summary: "Check the live simPRO connection, keep the downstream bridge healthy and confirm NeXa can keep pushing records across.",
+      summary: "Check the live simPRO connection, keep the downstream bridge healthy and confirm Blake can keep pushing records across.",
       focus: ["Connection status", "One-way quote and job push", "Scheduler handoff readiness"],
       status: "Working bridge",
     },
@@ -3426,14 +3426,14 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Setup area ready",
     },
     "Import from simPRO": {
-      summary: "Optional inbound tools for controlled migration only. Leave this off during normal day-to-day use while NeXa stays the front end.",
+      summary: "Optional inbound tools for controlled migration only. Leave this off during normal day-to-day use while Blake stays the front end.",
       focus: ["Migration-only preview", "Controlled backfill", "Conflict review"],
       status: "Use only when needed",
     },
   },
   communications: {
     Outlook: {
-      summary: "Choose Outlook or Gmail for the signed-in employee. NeXa sends from the email on their employee card — no separate sender address to type.",
+      summary: "Choose Outlook or Gmail for the signed-in employee. Blake sends from the email on their employee card — no separate sender address to type.",
       focus: ["Pick Outlook or Gmail", "Uses employee card email", "App password only"],
       status: "Connect your mailbox",
     },
@@ -6833,7 +6833,7 @@ function quoteValueFromCostCentres(centres: QuoteCostCentre[] | undefined) {
 
 function quoteWithCostCentreValue(quote: Quote, centresByQuote: Record<string, QuoteCostCentre[]>) {
   // Imported simPRO quotes keep the API Total on the header. Recomputing from remapped
-  // line sells (e.g. cost × NeXa markup, or a partial CC pull) was wiping £4.5k quotes down to ~£1.5k.
+  // line sells (e.g. cost × Blake markup, or a partial CC pull) was wiping £4.5k quotes down to ~£1.5k.
   if (quote.simproQuoteId) return quote;
   const nextValue = quoteValueFromCostCentres(centresByQuote[quote.id]);
   if (nextValue === null || Math.abs((quote.value ?? 0) - nextValue) < 0.01) return quote;
@@ -7443,7 +7443,7 @@ function numericSetting(value: string | number, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "NeXa"): QuoteEmailDraft {
+function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "Blake"): QuoteEmailDraft {
   const contactName = client?.primaryContact?.split(" ")[0] || "there";
   const vars = {
     ref: quote.ref,
@@ -7779,7 +7779,7 @@ export default function Dashboard() {
     verifyTokenHint?: string;
   } | null>(null);
   const [whatsAppTestTo, setWhatsAppTestTo] = useState("");
-  const [whatsAppTestMessage, setWhatsAppTestMessage] = useState("NeXa WhatsApp connection test");
+  const [whatsAppTestMessage, setWhatsAppTestMessage] = useState("Blake WhatsApp connection test");
   const [isTestingWhatsApp, setIsTestingWhatsApp] = useState(false);
   const [documentFolderTemplates, setDocumentFolderTemplates] = useState<DocumentFolderTemplate[]>(defaultDocumentFolderTemplates);
   const [engineerFlowTemplate, setEngineerFlowTemplate] = useState<EngineerFlowTemplate>(defaultBoilerFlowTemplate);
@@ -7829,7 +7829,7 @@ export default function Dashboard() {
     {
       id: "buddy-welcome",
       role: "assistant",
-      text: "Hi — I'm Blake. I hold the quote checks and walkthroughs so the page stays clear. Ask me what’s missing, how to finish a quote, or to send anyway.",
+      text: "Hi — I'm Ayla. I hold the quote checks and walkthroughs so the page stays clear. Ask me what’s missing, how to finish a quote, or to send anyway.",
     },
   ]);
   const nexaAssistantMessagesRef = useRef<HTMLDivElement | null>(null);
@@ -9982,7 +9982,7 @@ export default function Dashboard() {
         stageRef: lead.ref,
         title: lead.surveyor ? `${lead.surveyor} survey booked` : "Survey booked",
         detail: `${lead.surveyDate}${lead.surveyTime ? ` · ${lead.surveyTime}` : ""}`,
-        actor: lead.surveyor || lead.createdBy || "NeXa",
+        actor: lead.surveyor || lead.createdBy || "Blake",
         at: `${lead.surveyDate} ${lead.surveyTime || "00:00"}`,
         sortKey: `${lead.surveyDate}T${(lead.surveyTime || "00:00")}:00`,
         tone: "blue",
@@ -10680,7 +10680,7 @@ export default function Dashboard() {
         if (stopped) return;
 
         if (hasOfflineFallback) {
-          setSectionError("Some NeXa workflows are currently using local workspace data.");
+          setSectionError("Some Blake workflows are currently using local workspace data.");
         } else {
           setSectionError(null);
         }
@@ -13470,7 +13470,7 @@ export default function Dashboard() {
       markCostCentreEdited();
       setJobSchedulePlans((current) => ({ ...current, [schedulerSelectedJob.id]: nextAssignments }));
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "planner allocation added",
         recordType: "job",
         recordId: updated.id,
@@ -13971,7 +13971,7 @@ export default function Dashboard() {
         {
           id: `buddy-${crypto.randomUUID()}`,
           role: "assistant",
-          text: "I could not reach the live NeXa workspace. Nothing was changed.",
+          text: "I could not reach the live Blake workspace. Nothing was changed.",
         },
       ]);
     } finally {
@@ -14224,7 +14224,7 @@ export default function Dashboard() {
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
           to,
-          message: whatsAppTestMessage.trim() || "NeXa WhatsApp connection test",
+          message: whatsAppTestMessage.trim() || "Blake WhatsApp connection test",
           actorName: activeEmployee?.name,
         }),
       });
@@ -14471,12 +14471,12 @@ export default function Dashboard() {
             channel: "WhatsApp",
             subject,
             body,
-            from: activeEmployee?.name ?? "NeXa WhatsApp",
+            from: activeEmployee?.name ?? "Blake WhatsApp",
             to,
             messageId: waBody?.providerMessageId,
             status: "Sent",
           });
-          showNotice(`WhatsApp sent via the company number (as ${activeEmployee?.name ?? "NeXa"}).`);
+          showNotice(`WhatsApp sent via the company number (as ${activeEmployee?.name ?? "Blake"}).`);
         }
       }
       resetCommunicationDraft("job", selectedJob.id);
@@ -14561,7 +14561,7 @@ export default function Dashboard() {
       if (result?.reconnect) setSimproReconnectStatus(result.reconnect);
       if (result?.sync) setSimproSyncStatus(result.sync);
       await refreshIntegrationConnectionStatus();
-      showNotice("simPRO reconnected. The live token has been refreshed in NeXa.");
+      showNotice("simPRO reconnected. The live token has been refreshed in Blake.");
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to reconnect simPRO.");
     } finally {
@@ -14606,7 +14606,7 @@ export default function Dashboard() {
         body: JSON.stringify({
           mode,
           entities: selectedSimproImportEntities,
-          actor: activeEmployee?.name ?? "NeXa user",
+          actor: activeEmployee?.name ?? "Blake user",
         }),
       });
       const rawText = await response.text();
@@ -14660,7 +14660,7 @@ export default function Dashboard() {
   async function cleanupImportedSimproRecords() {
     if (
       !window.confirm(
-        "Delete all NeXa jobs and quotes that were imported from simPRO (including their cost centres and schedules)? Customers and sites stay. You can Apply import again afterwards.",
+        "Delete all Blake jobs and quotes that were imported from simPRO (including their cost centres and schedules)? Customers and sites stay. You can Apply import again afterwards.",
       )
     ) {
       return;
@@ -14674,7 +14674,7 @@ export default function Dashboard() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          actor: activeEmployee?.name ?? "NeXa user",
+          actor: activeEmployee?.name ?? "Blake user",
           entities: ["jobs", "quotes"],
         }),
       });
@@ -14710,7 +14710,7 @@ export default function Dashboard() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          actor: activeEmployee?.name ?? "NeXa user",
+          actor: activeEmployee?.name ?? "Blake user",
           resolve: {
             operationId: operation.id,
             action,
@@ -15613,7 +15613,7 @@ export default function Dashboard() {
               siteVatTreatment: importValue(row, ["site_vat_treatment", "site_vat_type"]),
               siteVatRateOverride: importValue(row, ["site_vat_rate", "site_vat_rate_override"]),
               source: "customer import",
-              actor: activeEmployee?.name ?? "NeXa import",
+              actor: activeEmployee?.name ?? "Blake import",
             }),
           });
           const result = await response.json().catch(() => ({})) as { error?: string; clients?: ClientRecord[]; clientSites?: ClientSite[]; client?: ClientRecord; site?: ClientSite };
@@ -15660,7 +15660,7 @@ export default function Dashboard() {
               siteVatTreatment: importValue(row, ["site_vat_treatment", "site_vat_type"]),
               siteVatRateOverride: importValue(row, ["site_vat_rate", "site_vat_rate_override"]),
               source: "site import",
-              actor: activeEmployee?.name ?? "NeXa import",
+              actor: activeEmployee?.name ?? "Blake import",
             }),
           });
           const result = await response.json().catch(() => ({})) as { error?: string; clients?: ClientRecord[]; clientSites?: ClientSite[] };
@@ -15831,7 +15831,7 @@ export default function Dashboard() {
               surveyor: importValue(row, ["surveyor", "owner", "assigned_to"]),
               surveyDate: importValue(row, ["survey_date", "appointment_date"]),
               surveyTime: importValue(row, ["survey_time", "appointment_time"]),
-              createdBy: activeEmployee?.name ?? "NeXa import",
+              createdBy: activeEmployee?.name ?? "Blake import",
               mainContact: { id: `contact-${crypto.randomUUID()}`, name: customerName, role: "Main contact", phone, email, notes: "Imported contact" },
               additionalContacts: [],
             }),
@@ -15876,7 +15876,7 @@ export default function Dashboard() {
               ref,
               customer: importValue(row, ["customer", "client", "customer_name", "client_name"]),
               description: importValue(row, ["description", "scope", "work_description"]),
-              owner: importValue(row, ["owner", "estimator", "created_by"]) || activeEmployee?.name || "NeXa import",
+              owner: importValue(row, ["owner", "estimator", "created_by"]) || activeEmployee?.name || "Blake import",
               status,
               value: importNumber(row, ["value", "quote_value", "amount", "net"]),
               next: importValue(row, ["next_action", "next", "action"]),
@@ -16000,7 +16000,7 @@ export default function Dashboard() {
 
       setBusinessImportResult({ imported, skipped, errors });
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "imported",
         recordType: "setup",
         recordId: `import-${businessImportType}-${Date.now()}`,
@@ -16164,7 +16164,7 @@ export default function Dashboard() {
       action: "signed in",
       recordType: "employee",
       recordId: employee.id,
-      summary: `${employee.name} signed in to NeXa.`,
+      summary: `${employee.name} signed in to Blake.`,
       source: "login",
       importance: "normal",
     });
@@ -16184,7 +16184,7 @@ export default function Dashboard() {
         action: "signed out",
         recordType: "employee",
         recordId: activeEmployee.id,
-        summary: `${activeEmployee.name} signed out of NeXa.`,
+        summary: `${activeEmployee.name} signed out of Blake.`,
         source: "login",
         importance: "normal",
       });
@@ -16738,7 +16738,7 @@ export default function Dashboard() {
         setHomeView("purchase-orders");
       }
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "deleted",
         recordType: "purchase order",
         recordId: request.id,
@@ -16761,7 +16761,7 @@ export default function Dashboard() {
       current.map((item) => (item.id === invoice.id ? { ...item, status } : item)),
     );
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: status.toLowerCase(),
       recordType: "invoice",
       recordId: invoice.id,
@@ -16782,7 +16782,7 @@ export default function Dashboard() {
       setHomeView("invoices");
     }
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "deleted",
       recordType: "invoice",
       recordId: invoice.id,
@@ -16835,7 +16835,7 @@ export default function Dashboard() {
 
     setLeads((current) => current.map((item) => (item.id === result.lead.id ? result.lead : item)));
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: status.toLowerCase(),
       recordType: "lead",
       recordId: lead.id,
@@ -16864,7 +16864,7 @@ export default function Dashboard() {
       }
       forgetOpenWorkspaceTab("lead", lead.id);
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "deleted",
         recordType: "lead",
         recordId: lead.id,
@@ -16895,7 +16895,7 @@ export default function Dashboard() {
       const updated = (await response.json()) as Quote;
       setQuotes((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: patch.status ? String(patch.status).toLowerCase() : "updated",
         recordType: "quote",
         recordId: quote.id,
@@ -16937,7 +16937,7 @@ export default function Dashboard() {
       }
       forgetOpenWorkspaceTab("quote", quote.id);
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "deleted",
         recordType: "quote",
         recordId: quote.id,
@@ -16968,7 +16968,7 @@ export default function Dashboard() {
       const updated = (await response.json()) as Job;
       setJobs((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: patch.status ? String(patch.status).toLowerCase() : "updated",
         recordType: "job",
         recordId: job.id,
@@ -17013,7 +17013,7 @@ export default function Dashboard() {
       }
       forgetOpenWorkspaceTab("job", job.id);
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "deleted",
         recordType: "job",
         recordId: job.id,
@@ -17055,7 +17055,7 @@ export default function Dashboard() {
     }
 
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: archived ? "archived" : "restored",
       recordType: "employee",
       recordId: employee.id,
@@ -17098,7 +17098,7 @@ export default function Dashboard() {
     }
 
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "deleted",
       recordType: "employee",
       recordId: employee.id,
@@ -17116,8 +17116,8 @@ export default function Dashboard() {
     try {
       const response = await fetch(`/api/clients/${client.id}`, {
         method: "PATCH",
-        headers: { ...requestHeaders, "Content-Type": "application/json", "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
-        body: JSON.stringify({ archived, actor: activeEmployee?.name ?? "NeXa user" }),
+        headers: { ...requestHeaders, "Content-Type": "application/json", "x-hub-actor": activeEmployee?.name ?? "Blake user" },
+        body: JSON.stringify({ archived, actor: activeEmployee?.name ?? "Blake user" }),
       });
       if (!response.ok) throw new Error("Unable to update the client record.");
       showNotice(`${client.name} ${archived ? "archived" : "restored"}.`);
@@ -17137,7 +17137,7 @@ export default function Dashboard() {
     try {
       const response = await fetch(`/api/clients/${client.id}`, {
         method: "DELETE",
-        headers: { ...requestHeaders, "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
+        headers: { ...requestHeaders, "x-hub-actor": activeEmployee?.name ?? "Blake user" },
       });
       if (!response.ok) throw new Error("Unable to delete the client record.");
       showNotice(`${client.name} deleted.`);
@@ -17155,8 +17155,8 @@ export default function Dashboard() {
     try {
       const response = await fetch(`/api/client-sites/${site.id}`, {
         method: "PATCH",
-        headers: { ...requestHeaders, "Content-Type": "application/json", "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
-        body: JSON.stringify({ archived, actor: activeEmployee?.name ?? "NeXa user" }),
+        headers: { ...requestHeaders, "Content-Type": "application/json", "x-hub-actor": activeEmployee?.name ?? "Blake user" },
+        body: JSON.stringify({ archived, actor: activeEmployee?.name ?? "Blake user" }),
       });
       if (!response.ok) throw new Error("Unable to update the site record.");
       showNotice(`${site.name} ${archived ? "archived" : "restored"}.`);
@@ -17174,7 +17174,7 @@ export default function Dashboard() {
     try {
       const response = await fetch(`/api/client-sites/${site.id}`, {
         method: "DELETE",
-        headers: { ...requestHeaders, "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
+        headers: { ...requestHeaders, "x-hub-actor": activeEmployee?.name ?? "Blake user" },
       });
       if (!response.ok) throw new Error("Unable to delete the site record.");
       showNotice(`${site.name} deleted.`);
@@ -18081,12 +18081,12 @@ export default function Dashboard() {
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify(buildHubDetailStatePayload()),
       });
-      if (!response.ok) throw new Error("The shared NeXa record details could not be saved.");
+      if (!response.ok) throw new Error("The shared Blake record details could not be saved.");
 
       savedRecordFingerprintRef.current = activeRecordFingerprint;
       setRecordSaveStatus("saved");
       setSectionError(null);
-      showNotice("Saved to NeXa.");
+      showNotice("Saved to Blake.");
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to save this record right now.";
@@ -18217,7 +18217,7 @@ export default function Dashboard() {
     };
     return (
       <div className="record-save-controls">
-        <span className="record-autosave-pill" title="NeXa keeps saving while you work">
+        <span className="record-autosave-pill" title="Blake keeps saving while you work">
           Auto-save on
         </span>
         <span className={`record-save-status ${recordSaveStatus}`} aria-live="polite">
@@ -18918,7 +18918,7 @@ export default function Dashboard() {
     markInvoiceEdited();
     setInvoices((current) => [created, ...current]);
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "created",
       recordType: "invoice",
       recordId: created.id,
@@ -18961,7 +18961,7 @@ export default function Dashboard() {
     markInvoiceEdited();
     setInvoices((current) => [created, ...current]);
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "created",
       recordType: "invoice",
       recordId: created.id,
@@ -19172,7 +19172,7 @@ export default function Dashboard() {
       "Could not save deposit invoice to the shared workspace, so local fallback is being used.",
     );
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "invoice created",
       recordType: "invoice",
       recordId: created.id,
@@ -19301,7 +19301,7 @@ export default function Dashboard() {
         : "Could not save invoice to the shared workspace, so local fallback is being used.",
     );
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: isValuation ? "valuation created" : "invoice created",
       recordType: "invoice",
       recordId: created.id,
@@ -19384,7 +19384,7 @@ export default function Dashboard() {
       [selectedInvoice.id]: makeInvoiceEmailDraft(approvedInvoice, selectedInvoiceClient),
     }));
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "progress claim created",
       recordType: "invoice",
       recordId: selectedInvoice.id,
@@ -19475,7 +19475,7 @@ export default function Dashboard() {
     setInvoices(nextInvoices);
     saveHubDetailStateWithInvoices(nextInvoices, "Could not save retention release invoice to the shared workspace.");
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "retention released",
       recordType: "invoice",
       recordId: created.id,
@@ -19502,7 +19502,7 @@ export default function Dashboard() {
       : invoice,
     ));
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "valuation amended",
       recordType: "invoice",
       recordId: selectedInvoice.id,
@@ -19530,7 +19530,7 @@ export default function Dashboard() {
         : invoice,
       ));
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "payment cleared",
         recordType: "invoice",
         recordId: selectedInvoice.id,
@@ -19565,7 +19565,7 @@ export default function Dashboard() {
       amount,
       method: invoicePaymentMethodDraft.trim() || "Bank transfer",
       reference: invoicePaymentReferenceDraft.trim() || undefined,
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
     };
 
     markInvoiceEdited();
@@ -19580,7 +19580,7 @@ export default function Dashboard() {
       : invoice,
     ));
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "payment recorded",
       recordType: "invoice",
       recordId: selectedInvoice.id,
@@ -19634,7 +19634,7 @@ export default function Dashboard() {
       return;
     }
 
-    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "Blake";
     const contactName =
       selectedInvoiceClient?.primaryContact?.split(" ")[0] ||
       selectedInvoice.customer.split(" ")[0] ||
@@ -19717,7 +19717,7 @@ export default function Dashboard() {
       });
 
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "remittance sent",
         recordType: "invoice",
         recordId: selectedInvoice.id,
@@ -19821,7 +19821,7 @@ export default function Dashboard() {
           method: "Credit note",
           reference: selectedInvoice.ref,
           note: "Credit issued and applied",
-          actor: activeEmployee?.name ?? "NeXa user",
+          actor: activeEmployee?.name ?? "Blake user",
           source: "adjustment",
           sourceInvoiceId: selectedInvoice.id,
         },
@@ -19837,7 +19837,7 @@ export default function Dashboard() {
           method: "Credit note",
           reference: nextRef,
           note: reason,
-          actor: activeEmployee?.name ?? "NeXa user",
+          actor: activeEmployee?.name ?? "Blake user",
           source: "adjustment",
           sourceInvoiceId: creditNote.id,
         }
@@ -19876,7 +19876,7 @@ export default function Dashboard() {
     setInvoices(nextInvoices);
     saveHubDetailStateWithInvoices(nextInvoices, "Could not save credit note to the shared workspace.");
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "credit note created",
       recordType: "invoice",
       recordId: creditNote.id,
@@ -19990,7 +19990,7 @@ export default function Dashboard() {
         }
       }
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "xero export",
         recordType: "invoice",
         recordId: invoice.id,
@@ -20042,7 +20042,7 @@ export default function Dashboard() {
       return next;
     });
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: exported ? "xero marked exported" : "xero unmarked",
       recordType: "invoice",
       recordId: invoice.id,
@@ -20177,7 +20177,7 @@ export default function Dashboard() {
       setInvoicePaymentAmountDraft(stillRemaining > 0 ? stillRemaining.toFixed(2) : "");
 
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "xero payment pull",
         recordType: "invoice",
         recordId: selectedInvoice.id,
@@ -20253,7 +20253,7 @@ export default function Dashboard() {
       const created = (await response.json()) as Job;
       setJobs((current) => [created, ...current]);
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "created",
         recordType: "job",
         recordId: created.id,
@@ -20334,7 +20334,7 @@ export default function Dashboard() {
     setInvoices(nextInvoices);
     saveHubDetailStateWithInvoices(nextInvoices, "Could not save recurring invoice to the shared workspace.");
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "invoice created",
       recordType: "invoice",
       recordId: created.id,
@@ -20361,7 +20361,7 @@ export default function Dashboard() {
       ),
     );
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: status.toLowerCase(),
       recordType: "invoice",
       recordId: selectedInvoice.id,
@@ -20459,17 +20459,17 @@ export default function Dashboard() {
       );
     }
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "emailed",
       recordType: "invoice",
       recordId: selectedInvoice.id,
-      summary: `Invoice ${selectedInvoice.ref} emailed from NeXa via Outlook to ${selectedInvoiceEmailDraft.to}.`,
+      summary: `Invoice ${selectedInvoice.ref} emailed from Blake via Outlook to ${selectedInvoiceEmailDraft.to}.`,
       source: "outlook draft",
       importance: "high",
     });
     if (sourceJob && shouldMarkJobInvoiced) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "invoiced",
         recordType: "job",
         recordId: sourceJob.id,
@@ -20507,7 +20507,7 @@ export default function Dashboard() {
       showNotice(`${selectedInvoice.ref} has no outstanding balance to chase.`);
       return;
     }
-    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "Blake";
     try {
       const response = await fetch("/api/setup-config", { headers: requestHeaders });
       const body = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
@@ -20618,7 +20618,7 @@ export default function Dashboard() {
       ),
     );
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "payment chase",
       recordType: "invoice",
       recordId: selectedInvoice.id,
@@ -20656,7 +20656,7 @@ export default function Dashboard() {
     }
 
     const subject = `Application for payment - ${selectedInvoice.sourceName}`;
-    const body = `Hi,\n\nPlease find our application for payment for ${selectedInvoice.sourceName}.\n\nApplication value excluding VAT: ${currency(selectedInvoice.chargeTotal)}.\nVAT: ${currency(selectedInvoice.chargeTotal * (selectedInvoice.vatRate / 100))}.\nTotal applied for: ${currency(selectedInvoiceFinancials.grandTotal)}.\n\nKind regards,\nNeXa`;
+    const body = `Hi,\n\nPlease find our application for payment for ${selectedInvoice.sourceName}.\n\nApplication value excluding VAT: ${currency(selectedInvoice.chargeTotal)}.\nVAT: ${currency(selectedInvoice.chargeTotal * (selectedInvoice.vatRate / 100))}.\nTotal applied for: ${currency(selectedInvoiceFinancials.grandTotal)}.\n\nKind regards,\nBlake`;
     setIsSendingLiveEmail(true);
     let delivery: LiveEmailDelivery;
     try {
@@ -20741,7 +20741,7 @@ export default function Dashboard() {
     ));
 
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "valuation submitted",
       recordType: "invoice",
       recordId: selectedInvoice.id,
@@ -20752,7 +20752,7 @@ export default function Dashboard() {
 
     if (selectedInvoiceSourceJob) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "valuation submitted",
         recordType: "job",
         recordId: selectedInvoiceSourceJob.id,
@@ -21105,7 +21105,7 @@ export default function Dashboard() {
   }
 
   async function applySetupEmailTemplate(kind: "quote" | "invoice" | "invoice-overdue" | "follow-up") {
-    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "Blake";
     try {
       const response = await fetch("/api/setup-config", { headers: requestHeaders });
       const body = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
@@ -21204,7 +21204,7 @@ export default function Dashboard() {
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
           siteId: site.id,
-          actor: activeEmployee?.name ?? "NeXa user",
+          actor: activeEmployee?.name ?? "Blake user",
         }),
       });
       if (!response.ok) throw new Error("Unable to update lead site");
@@ -21320,7 +21320,7 @@ export default function Dashboard() {
       return;
     }
 
-    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "Blake";
     const contactName =
       selectedJobClient?.primaryContact?.split(" ")[0] ||
       selectedJob.customer.split(" ")[0] ||
@@ -21440,7 +21440,7 @@ export default function Dashboard() {
             channel: "WhatsApp",
             subject: `WhatsApp confirmation · ${selectedJob.ref}`,
             body: whatsappMessage,
-            from: activeEmployee?.name ?? "NeXa WhatsApp",
+            from: activeEmployee?.name ?? "Blake WhatsApp",
             to: phoneTo,
             status: "Sent",
           });
@@ -21470,12 +21470,12 @@ export default function Dashboard() {
         kind: "whatsapp",
         actor: activeEmployee?.name ?? selectedJob.manager,
         summary: `Job confirmation sent via ${sentTo} for ${whenLabel}`,
-        source: hasPhone ? "WhatsApp" : "NeXa",
+        source: hasPhone ? "WhatsApp" : "Blake",
         status: "Captured",
       });
 
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "confirmation sent",
         recordType: "job",
         recordId: selectedJob.id,
@@ -21508,7 +21508,7 @@ export default function Dashboard() {
       return;
     }
 
-    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "Blake";
     const contactName =
       selectedJobClient?.primaryContact?.split(" ")[0] ||
       selectedJob.customer.split(" ")[0] ||
@@ -21626,7 +21626,7 @@ export default function Dashboard() {
             channel: "WhatsApp",
             subject: `WhatsApp ETA · ${selectedJob.ref}`,
             body: whatsappMessage,
-            from: activeEmployee?.name ?? "NeXa WhatsApp",
+            from: activeEmployee?.name ?? "Blake WhatsApp",
             to: phoneTo,
             status: "Sent",
           });
@@ -21656,12 +21656,12 @@ export default function Dashboard() {
         kind: "whatsapp",
         actor: activeEmployee?.name ?? selectedJob.manager,
         summary: `ETA sent via ${sentTo} · about ${etaLabel}`,
-        source: hasPhone ? "WhatsApp" : "NeXa",
+        source: hasPhone ? "WhatsApp" : "Blake",
         status: "Captured",
       });
 
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "eta sent",
         recordType: "job",
         recordId: selectedJob.id,
@@ -21689,7 +21689,7 @@ export default function Dashboard() {
       return;
     }
 
-    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "Blake";
     const contactName =
       selectedJobClient?.primaryContact?.split(" ")[0] ||
       selectedJob.customer.split(" ")[0] ||
@@ -21804,7 +21804,7 @@ export default function Dashboard() {
             channel: "WhatsApp",
             subject: `WhatsApp complete · ${selectedJob.ref}`,
             body: whatsappMessage,
-            from: activeEmployee?.name ?? "NeXa WhatsApp",
+            from: activeEmployee?.name ?? "Blake WhatsApp",
             to: phoneTo,
             status: "Sent",
           });
@@ -21833,12 +21833,12 @@ export default function Dashboard() {
         kind: "whatsapp",
         actor: activeEmployee?.name ?? selectedJob.manager,
         summary: `Job complete notice sent via ${sentTo}`,
-        source: hasPhone ? "WhatsApp" : "NeXa",
+        source: hasPhone ? "WhatsApp" : "Blake",
         status: "Captured",
       });
 
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "completion sent",
         recordType: "job",
         recordId: selectedJob.id,
@@ -21900,7 +21900,7 @@ export default function Dashboard() {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
-          actor: activeEmployee?.name ?? "NeXa user",
+          actor: activeEmployee?.name ?? "Blake user",
           costCentres: quoteCostCentres[selectedQuote.id] ?? [],
         }),
       });
@@ -21968,7 +21968,7 @@ export default function Dashboard() {
         showNotice(message);
       } else {
         const missingSetup = exportRecord.setupRequired || "SIMPRO_QUOTE_PUSH_URL";
-        showNotice(`${selectedQuote.ref} saved in NeXa's Simpro queue. It has not reached Simpro yet because ${missingSetup} is not configured.`);
+        showNotice(`${selectedQuote.ref} saved in Blake's Simpro queue. It has not reached Simpro yet because ${missingSetup} is not configured.`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to create Simpro handoff.";
@@ -21990,7 +21990,7 @@ export default function Dashboard() {
   ) {
     if (integrationSettings.simproMode === "Not connected" || integrationSettings.simproMode === "Queued handoff") {
       if (!options.silentIfUnconfigured) {
-        showNotice("simPRO push is turned off in Setup. Switch the workspace to One-way push when you want NeXa to send jobs downstream.");
+        showNotice("simPRO push is turned off in Setup. Switch the workspace to One-way push when you want Blake to send jobs downstream.");
       }
       return null;
     }
@@ -21999,7 +21999,7 @@ export default function Dashboard() {
       method: "POST",
       headers: { ...requestHeaders, "Content-Type": "application/json" },
       body: JSON.stringify({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         costCentres: options.costCentres ?? (jobEstimateCostCentres[job.id] ?? []),
         schedule: options.schedule ?? (jobSchedulePlans[job.id] ?? []),
       }),
@@ -22040,7 +22040,7 @@ export default function Dashboard() {
               : "simPRO bridge failed for this job.",
         );
       } else {
-        showNotice(`${job.ref} is queued in NeXa only until the simPRO job bridge settings are completed.`);
+        showNotice(`${job.ref} is queued in Blake only until the simPRO job bridge settings are completed.`);
       }
     }
 
@@ -22065,7 +22065,7 @@ export default function Dashboard() {
     }
     if (integrationSettings.simproMode === "Not connected" || integrationSettings.simproMode === "Queued handoff") {
       if (!options.silentIfUnconfigured) {
-        showNotice("simPRO is turned off in Setup, so schedule visits stay in NeXa only.");
+        showNotice("simPRO is turned off in Setup, so schedule visits stay in Blake only.");
       }
       return null;
     }
@@ -22111,13 +22111,13 @@ export default function Dashboard() {
           result.results?.filter((item) => !item.ok).map((item) => item.error || item.summary).join(" · ") ||
           result.error ||
           "simPRO schedule push failed.";
-        showNotice(`${job.ref} saved in NeXa, but simPRO diary sync failed: ${detail}`);
+        showNotice(`${job.ref} saved in Blake, but simPRO diary sync failed: ${detail}`);
       }
 
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to push schedules to simPRO.";
-      showNotice(`${job.ref} saved in NeXa, but simPRO diary sync failed: ${message}`);
+      showNotice(`${job.ref} saved in Blake, but simPRO diary sync failed: ${message}`);
       return null;
     }
   }
@@ -22208,11 +22208,11 @@ export default function Dashboard() {
     }
 
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "emailed",
       recordType: "quote",
       recordId: quote.id,
-      summary: `${quote.ref} emailed from NeXa via Outlook to ${draft.to}${draft.attachPdf ? ` with ${documentLayouts.find((layout) => layout.key === draft.layout)?.label ?? "quote"} PDF attached` : ""}. Portal link: ${portalUrl}.`,
+      summary: `${quote.ref} emailed from Blake via Outlook to ${draft.to}${draft.attachPdf ? ` with ${documentLayouts.find((layout) => layout.key === draft.layout)?.label ?? "quote"} PDF attached` : ""}. Portal link: ${portalUrl}.`,
       source: "outlook draft",
       importance: "normal",
     });
@@ -22239,7 +22239,7 @@ export default function Dashboard() {
       ));
     }
 
-    showNotice(recordUpdateWarning ? `Quote email sent, but ${recordUpdateWarning}` : "Quote sent from NeXa and captured against the quote.");
+    showNotice(recordUpdateWarning ? `Quote email sent, but ${recordUpdateWarning}` : "Quote sent from Blake and captured against the quote.");
     setIsSendingLiveEmail(false);
     return true;
   }
@@ -22340,7 +22340,7 @@ export default function Dashboard() {
           kind: "variation",
           actor: quote.customer,
           summary: `${quote.ref}: ${quote.description}`,
-          source: "NeXa",
+          source: "Ayla",
           costValue: 0,
           sellValue: quote.value,
           reason: "Online variation quote accepted",
@@ -22522,7 +22522,7 @@ export default function Dashboard() {
     }));
     setJobPlannerWhatIfMode(false);
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "what-if schedule applied",
       recordType: "job",
       recordId: selectedJob.id,
@@ -22649,7 +22649,7 @@ export default function Dashboard() {
           summary: "Daywork marked dealt with by office",
           createdAt: now,
           status: "Dealt",
-          source: "NeXa" as const,
+          source: "Ayla" as const,
           costCentreId,
           formType: "daywork",
           reason: "Daywork account",
@@ -22729,7 +22729,7 @@ export default function Dashboard() {
     }
 
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: decision === "Approved" ? "timesheet approved" : "timesheet rejected",
       recordType: "job",
       recordId: event.jobId,
@@ -22816,7 +22816,7 @@ export default function Dashboard() {
         return;
       }
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "approved",
         recordType: "job",
         recordId: selectedJob.id,
@@ -23026,7 +23026,7 @@ export default function Dashboard() {
         kind: "po",
         actor: created.requestedBy,
         summary: `${created.item} from ${created.supplier}`,
-        source: "NeXa",
+        source: "Ayla",
         costValue: created.estimatedCost,
         status: created.status,
       });
@@ -23217,7 +23217,7 @@ export default function Dashboard() {
         },
       }));
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: editingJobScheduleAssignmentId ? "planner allocation updated" : "planner allocation added",
         recordType: "job",
         recordId: updated.id,
@@ -23309,7 +23309,7 @@ export default function Dashboard() {
       setJobSchedulePlans((current) => ({ ...current, [selectedJob.id]: nextAssignments }));
       if (editingJobScheduleAssignmentId === assignmentId) cancelJobScheduleEdit();
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "planner allocation removed",
         recordType: "job",
         recordId: selectedJob.id,
@@ -23397,7 +23397,7 @@ export default function Dashboard() {
       `<text x="${width - hoursWidth / 2}" y="${titleHeight + 26}" text-anchor="middle" font-size="11" font-weight="800" fill="#526b78">HOURS</text>`,
       rows,
       `<line x1="0" y1="${height - 34}" x2="${width}" y2="${height - 34}" stroke="#d8e4e9"/>`,
-      `<text x="18" y="${height - 12}" font-size="10" fill="#7a8c95">Downloaded from NeXa Core</text>`,
+      `<text x="18" y="${height - 12}" font-size="10" fill="#7a8c95">Downloaded from Blake Core</text>`,
       `</svg>`,
     ].join("");
     const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
@@ -23432,11 +23432,11 @@ export default function Dashboard() {
         kind: "attendance",
         actor: updated.manager,
         summary: `${updated.manager} started ${updated.ref} from the schedule control.`,
-        source: "NeXa",
+        source: "Ayla",
         status: "Arrived",
       });
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "started",
         recordType: "job",
         recordId: updated.id,
@@ -23464,7 +23464,7 @@ export default function Dashboard() {
       if (!updated) return;
       setActiveJobFolderKey("review");
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "completed",
         recordType: "job",
         recordId: updated.id,
@@ -23487,7 +23487,7 @@ export default function Dashboard() {
     setJobReviewApprovals((current) => ({ ...current, [selectedJob.id]: next }));
     const checkLabel = jobReviewChecks.find((item) => item.key === check)?.label ?? "Review";
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "reviewed",
       recordType: "job",
       recordId: selectedJob.id,
@@ -23514,7 +23514,7 @@ export default function Dashboard() {
       ).then((updated) => {
         if (!updated) return;
         logAuditEvent({
-          actor: activeEmployee?.name ?? "NeXa user",
+          actor: activeEmployee?.name ?? "Blake user",
           action: "completed",
           recordType: "job",
           recordId: updated.id,
@@ -23550,7 +23550,7 @@ export default function Dashboard() {
       );
       if (!updated) return;
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "approved",
         recordType: "job",
         recordId: updated.id,
@@ -23585,7 +23585,7 @@ export default function Dashboard() {
       );
       if (!updated) return;
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "closed",
         recordType: "job",
         recordId: updated.id,
@@ -23637,7 +23637,7 @@ export default function Dashboard() {
     setJobSectionNameDraft("");
     setJobSectionDescriptionDraft("");
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "created",
       recordType: "job",
       recordId: selectedJob.id,
@@ -23807,7 +23807,7 @@ export default function Dashboard() {
     setJobVariationSectionNameDraft("");
     setJobVariationSectionDescriptionDraft("");
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "created",
       recordType: "job",
       recordId: selectedJob.id,
@@ -23850,7 +23850,7 @@ export default function Dashboard() {
     });
     setJobVariationCostCentreNameDraft("");
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "created",
       recordType: "job",
       recordId: selectedJob.id,
@@ -23926,7 +23926,7 @@ export default function Dashboard() {
       kind: "variation",
       actor: activeEmployee?.name ?? selectedJob.manager,
       summary: `${created.ref}: ${name}`,
-      source: "NeXa",
+      source: "Ayla",
       costValue: 0,
       sellValue: 0,
       reason: "Office variation quote",
@@ -23935,7 +23935,7 @@ export default function Dashboard() {
       status: "Quote drafted",
     });
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "created",
       recordType: "quote",
       recordId: created.id,
@@ -24566,7 +24566,7 @@ export default function Dashboard() {
 
     if (selectedJob) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa",
+        actor: activeEmployee?.name ?? "Blake",
         action: "sent",
         recordType: "job",
         recordId: selectedJob.id,
@@ -24620,7 +24620,7 @@ export default function Dashboard() {
 
     if (selectedJob) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa",
+        actor: activeEmployee?.name ?? "Blake",
         action: "uploaded",
         recordType: "job",
         recordId: selectedJob.id,
@@ -24673,7 +24673,7 @@ export default function Dashboard() {
 
     if (selectedJob) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa",
+        actor: activeEmployee?.name ?? "Blake",
         action: "imported",
         recordType: "job",
         recordId: selectedJob.id,
@@ -24711,7 +24711,7 @@ export default function Dashboard() {
           jobRef: selectedJob.ref,
           costCentreId: selectedCostCentre?.id,
           costCentreName: selectedCostCentre?.name,
-          requestedBy: activeEmployee?.name ?? "NeXa user",
+          requestedBy: activeEmployee?.name ?? "Blake user",
           supplier,
           item: lines.map((line) => `${line.quantity} x ${line.description}`).join("; "),
           estimatedCost,
@@ -24734,7 +24734,7 @@ export default function Dashboard() {
         poIssuedAt: workflowTimestamp(),
       });
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "po issued",
         recordType: "purchase_request",
         recordId: approved.id,
@@ -25031,7 +25031,7 @@ export default function Dashboard() {
     }));
     setQuotePlannerDraft((current) => ({ ...current, notes: "" }));
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "scheduled",
       recordType: "quote",
       recordId: selectedQuote.id,
@@ -25130,7 +25130,7 @@ export default function Dashboard() {
     setSelectedQuoteCostCentreId((current) => (current === source.id ? target.id : current));
     setCostCentreActionMenu(null);
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "merged",
       recordType: "quote",
       recordId: selectedQuote.id,
@@ -25171,7 +25171,7 @@ export default function Dashboard() {
     setSelectedQuoteCostCentreId((current) => (current === centreId ? null : current));
     setCostCentreActionMenu(null);
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "deleted",
       recordType: "quote",
       recordId: selectedQuote.id,
@@ -25297,7 +25297,7 @@ export default function Dashboard() {
       ),
     }));
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa",
+      actor: activeEmployee?.name ?? "Blake",
       action: "imported",
       recordType: "quote",
       recordId: selectedQuote.id,
@@ -25332,7 +25332,7 @@ export default function Dashboard() {
 
     if (selectedQuote) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa",
+        actor: activeEmployee?.name ?? "Blake",
         action: "uploaded",
         recordType: "quote",
         recordId: selectedQuote.id,
@@ -25473,7 +25473,7 @@ export default function Dashboard() {
     }));
 
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa",
+      actor: activeEmployee?.name ?? "Blake",
       action: "calculated",
       recordType: "quote",
       recordId: selectedQuote.id,
@@ -25985,7 +25985,7 @@ export default function Dashboard() {
 
     if (selectedQuote) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa",
+        actor: activeEmployee?.name ?? "Blake",
         action: "sent",
         recordType: "quote",
         recordId: selectedQuote.id,
@@ -26045,7 +26045,7 @@ export default function Dashboard() {
 
         if (selectedQuote) {
           logAuditEvent({
-            actor: activeEmployee?.name ?? "NeXa",
+            actor: activeEmployee?.name ?? "Blake",
             action: "uploaded",
             recordType: "quote",
             recordId: selectedQuote.id,
@@ -26095,7 +26095,7 @@ export default function Dashboard() {
 
     if (selectedQuote) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa",
+        actor: activeEmployee?.name ?? "Blake",
         action: "uploaded",
         recordType: "quote",
         recordId: selectedQuote.id,
@@ -26168,7 +26168,7 @@ export default function Dashboard() {
     }));
 
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa",
+      actor: activeEmployee?.name ?? "Blake",
       action: "imported",
       recordType: "quote",
       recordId: selectedQuote.id,
@@ -26619,7 +26619,7 @@ export default function Dashboard() {
     }
 
     logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
+      actor: activeEmployee?.name ?? "Blake user",
       action: "updated",
       recordType: "employee",
       recordId: editingEmployeeId,
@@ -27072,7 +27072,7 @@ export default function Dashboard() {
         email: draft.email.trim(),
         address: draft.address.trim(),
         source,
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
       }),
     });
 
@@ -27123,8 +27123,8 @@ export default function Dashboard() {
   async function persistClientRecordPatch(clientId: string, patch: Partial<ClientRecord>) {
     const response = await fetch(`/api/clients/${clientId}`, {
       method: "PATCH",
-      headers: { ...requestHeaders, "Content-Type": "application/json", "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
-      body: JSON.stringify({ ...patch, actor: activeEmployee?.name ?? "NeXa user" }),
+      headers: { ...requestHeaders, "Content-Type": "application/json", "x-hub-actor": activeEmployee?.name ?? "Blake user" },
+      body: JSON.stringify({ ...patch, actor: activeEmployee?.name ?? "Blake user" }),
     });
     const result = await response.json().catch(() => ({})) as {
       error?: string;
@@ -27155,7 +27155,7 @@ export default function Dashboard() {
       return;
     }
 
-    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "Blake";
     const asAt = currentOperatingDate;
     const rows = activeClientOutstandingInvoices.map((invoice) => {
       const outstanding = invoiceOutstandingBalance(invoice);
@@ -27222,7 +27222,7 @@ export default function Dashboard() {
         lastStatementSentTo: activeClient.email.trim(),
       });
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "statement sent",
         recordType: "client",
         recordId: activeClient.id,
@@ -27253,8 +27253,8 @@ export default function Dashboard() {
   async function persistSiteRecordPatch(siteId: string, patch: Partial<ClientSite>) {
     const response = await fetch(`/api/client-sites/${siteId}`, {
       method: "PATCH",
-      headers: { ...requestHeaders, "Content-Type": "application/json", "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
-      body: JSON.stringify({ ...patch, actor: activeEmployee?.name ?? "NeXa user" }),
+      headers: { ...requestHeaders, "Content-Type": "application/json", "x-hub-actor": activeEmployee?.name ?? "Blake user" },
+      body: JSON.stringify({ ...patch, actor: activeEmployee?.name ?? "Blake user" }),
     });
     const result = await response.json().catch(() => ({})) as {
       error?: string;
@@ -27282,7 +27282,7 @@ export default function Dashboard() {
         accessNotes: draft.accessNotes,
         serviceLine: draft.serviceLine,
         nextVisit: draft.nextVisit,
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
       }),
     });
     const result = await response.json().catch(() => ({})) as {
@@ -27470,7 +27470,7 @@ export default function Dashboard() {
       surveyor: newLead.surveyor,
       surveyDate: newLead.surveyDate,
       surveyTime: newLead.surveyTime,
-      createdBy: newLead.createdBy || activeEmployee?.name || "NeXa user",
+      createdBy: newLead.createdBy || activeEmployee?.name || "Blake user",
       next: hasSurveyBooking ? `Survey booked and notification sent to ${newLead.surveyor}.` : "Check diary and book survey appointment.",
     };
 
@@ -27527,7 +27527,7 @@ export default function Dashboard() {
       setLeadPostcodeSearch("");
       setNewLead(blankLead);
       logAuditEvent({
-        actor: newLead.createdBy || activeEmployee?.name || "NeXa user",
+        actor: newLead.createdBy || activeEmployee?.name || "Blake user",
         action: "created",
         recordType: "lead",
         recordId: result.lead.id,
@@ -27537,7 +27537,7 @@ export default function Dashboard() {
       });
       if (result.lead.status === "Survey booked") {
         logAuditEvent({
-          actor: "NeXa",
+          actor: "Blake",
           action: "notified",
           recordType: "lead",
           recordId: result.lead.id,
@@ -27640,7 +27640,7 @@ export default function Dashboard() {
       setLeadPostcodeSearch("");
       setNewLead(blankLead);
       logAuditEvent({
-        actor: newLead.createdBy || activeEmployee?.name || "NeXa user",
+        actor: newLead.createdBy || activeEmployee?.name || "Blake user",
         action: "created",
         recordType: "lead",
         recordId: createdLead.id,
@@ -27650,7 +27650,7 @@ export default function Dashboard() {
       });
       if (createdLead.status === "Survey booked") {
         logAuditEvent({
-          actor: "NeXa",
+          actor: "Blake",
           action: "notified",
           recordType: "lead",
           recordId: createdLead.id,
@@ -27746,7 +27746,7 @@ export default function Dashboard() {
     if (updated.ok) {
       setLeads((current) => current.map((item) => (item.id === updated.lead.id ? updated.lead : item)));
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "booked",
         recordType: "lead",
         recordId: lead.id,
@@ -27829,7 +27829,7 @@ export default function Dashboard() {
       return;
     }
 
-    const actor = activeEmployee?.name ?? "NeXa user";
+    const actor = activeEmployee?.name ?? "Blake user";
     const leadDraft: LeadDraft = {
       customerMode: "new",
       clientId: lead.clientId,
@@ -28061,7 +28061,7 @@ export default function Dashboard() {
       setNewQuote(blankQuote);
       setQuotePostcodeSearch("");
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "created",
         recordType: "quote",
         recordId: created.id,
@@ -28187,7 +28187,7 @@ export default function Dashboard() {
       setShowCreateJob(false);
       setNewJob(blankJob);
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "created",
         recordType: "job",
         recordId: created.id,
@@ -28210,7 +28210,7 @@ export default function Dashboard() {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
-          actor: activeEmployee?.name ?? "NeXa user",
+          actor: activeEmployee?.name ?? "Blake user",
           chargeValue: quote.id === selectedQuote?.id && selectedQuoteTotals.sell > 0 ? selectedQuoteTotals.sell : undefined,
         }),
       });
@@ -28238,7 +28238,7 @@ export default function Dashboard() {
         ...current.filter((event) => !result.auditEvents.some((created) => created.id === event.id)),
       ]);
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa",
+        actor: activeEmployee?.name ?? "Blake",
         action: "converted",
         recordType: "job",
         recordId: result.job.id,
@@ -28340,7 +28340,7 @@ export default function Dashboard() {
         jobRef: job.ref,
         costCentreId: selectedCostCentre?.id,
         costCentreName: selectedCostCentre?.name,
-        requestedBy: activeEmployee?.name ?? "NeXa user",
+        requestedBy: activeEmployee?.name ?? "Blake user",
         supplier: purchaseDraft.supplier.trim(),
         supplierEmail: purchaseDraft.supplierEmail.trim(),
         item: purchaseDraft.item.trim() || lines.map((line) => line.description).join("; ") || "Open purchase order - details to follow",
@@ -28369,7 +28369,7 @@ export default function Dashboard() {
       );
       closePurchaseForm();
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: editingPurchaseRequestId ? "updated" : "created",
         recordType: "purchase_request",
         recordId: saved.id,
@@ -28440,7 +28440,7 @@ export default function Dashboard() {
         current.map((request) => (request.id === updated.id ? updated : request)),
       );
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: patch.status === "Approved" ? "approved" : "updated",
         recordType: "purchase_request",
         recordId: updated.id,
@@ -28612,7 +28612,7 @@ export default function Dashboard() {
       );
 
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "xero bill export",
         recordType: "purchase_request",
         recordId: request.id,
@@ -28705,7 +28705,7 @@ export default function Dashboard() {
       );
 
       logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
+        actor: activeEmployee?.name ?? "Blake user",
         action: "xero bill payment pull",
         recordType: "purchase_request",
         recordId: request.id,
@@ -29318,7 +29318,7 @@ export default function Dashboard() {
               {isDayworkFlow
                 ? "Enter the Daywork Account here in Core, or on Field — materials, printed names and dual sign-off land in Variations."
                 : isGasServiceFlow
-                  ? "Engineer fills this on the app — values appear here on the NeXa Landlord Gas Safety Record automatically."
+                  ? "Engineer fills this on the app — values appear here on the Blake Landlord Gas Safety Record automatically."
                   : "Engineer fills this on the app — values appear here automatically."}
             </small>
           </div>
@@ -30378,10 +30378,10 @@ export default function Dashboard() {
               scrollWorkspaceToTop();
             }}
           >
-            <span className="account-avatar">{getEmployeeInitials(activeEmployee?.name ?? "NeXa")}</span>
+            <span className="account-avatar">{getEmployeeInitials(activeEmployee?.name ?? "Blake")}</span>
             <span className="account-copy">
               <strong>{activeEmployee?.name ?? "Employee"}</strong>
-              <small>NeXa workspace</small>
+              <small>Blake workspace</small>
             </span>
             <ChevronDown size={14} />
           </button>
@@ -30401,7 +30401,7 @@ export default function Dashboard() {
                   <BuddyCharacter mood={buddyMood} size="md" />
                 </span>
                 <div>
-                  <strong>Blake</strong>
+                  <strong>Ayla</strong>
                   <small>
                     {buddyMood === "alert"
                       ? "Spotted something that’s not right"
@@ -30411,7 +30411,7 @@ export default function Dashboard() {
                           ? "Checking things over"
                           : buddyMood === "good"
                             ? "All good!"
-                            : buddyMemory.habits[0] || "Ask Blake anytime"}
+                            : buddyMemory.habits[0] || "Ask Ayla anytime"}
                   </small>
                 </div>
               </div>
@@ -30519,7 +30519,7 @@ export default function Dashboard() {
                       </button>
                     </div>
                   ) : null}
-                  {message.role === "assistant" && message.aiUsed ? <small>Interpreted with Blake AI · checked against live NeXa data</small> : null}
+                  {message.role === "assistant" && message.aiUsed ? <small>Interpreted with Blake AI · checked against live Blake data</small> : null}
                 </article>
               ))}
               {nexaAssistantBusy ? <p className="buddy-thinking">Blake is checking the live workspace...</p> : null}
@@ -30532,8 +30532,8 @@ export default function Dashboard() {
               }}
             >
               <textarea
-                aria-label="Chat with Blake"
-                placeholder="Ask Blake how to do a quote, what’s missing, or to send anyway..."
+                aria-label="Chat with Ayla"
+                placeholder="Ask Ayla how to do a quote, what’s missing, or to send anyway..."
                 value={nexaAssistantDraft}
                 onChange={(event) => setNexaAssistantDraft(event.target.value)}
                 onKeyDown={(event) => {
@@ -30543,7 +30543,7 @@ export default function Dashboard() {
                   }
                 }}
               />
-              <button className="primary-button icon-only" type="submit" disabled={!nexaAssistantDraft.trim() || nexaAssistantBusy} aria-label="Send to Blake">
+              <button className="primary-button icon-only" type="submit" disabled={!nexaAssistantDraft.trim() || nexaAssistantBusy} aria-label="Send to Ayla">
                 <Send size={17} />
               </button>
             </form>
@@ -30561,7 +30561,7 @@ export default function Dashboard() {
         ) : null}
         <button
           className={nexaAssistantOpen ? `buddy-launcher active mood-${buddyMood}` : `buddy-launcher mood-${buddyMood}`}
-          aria-label={nexaAssistantOpen ? "Close Blake" : "Open Blake"}
+          aria-label={nexaAssistantOpen ? "Close Ask Ayla" : "Open Ask Ayla"}
           title="Chat with Blake"
           onClick={() => setNexaAssistantOpen((current) => !current)}
         >
@@ -30797,7 +30797,7 @@ export default function Dashboard() {
             <a
               href="/train"
               className="context-link"
-              aria-label="Blake Trainer"
+              aria-label="Ayla Trainer"
               data-tooltip="Blake voice-first staff trainer"
             >
               <MessageCircle size={17} />
@@ -30853,7 +30853,7 @@ export default function Dashboard() {
               </>
             ) : (
               <>
-                <img src="/brand/nexa-command-lockup-rail.svg" alt="NeXa - Bound into one command center" />
+                <img src="/brand/blake-lockup-light.svg" alt="blake. — Your AI Office Manager" />
                 <small>Service command center</small>
               </>
             )}
@@ -30980,7 +30980,7 @@ export default function Dashboard() {
                     : homeView === "profile"
                       ? "My profile"
                   : homeView === "addons"
-                    ? "NeXa add-ons"
+                    ? "Blake add-ons"
                     : homeView === "client-record"
                     ? activeClient?.name || "Client record"
                     : homeView === "clients"
@@ -31047,11 +31047,11 @@ export default function Dashboard() {
                   : homeView === "profile"
                     ? `${profileScheduleEntries.length} diary item${profileScheduleEntries.length === 1 ? "" : "s"} · ${profileNotifications.length} notification${profileNotifications.length === 1 ? "" : "s"}`
                   : homeView === "addons"
-                    ? "Takeoff, Field and Connect feed structured work back into NeXa Core"
+                    ? "Takeoff, Field and Connect feed structured work back into Blake Core"
                   : homeView === "client-record"
                     ? `${activeClient?.primaryContact || "No contact"} · ${activeClient?.email || "No email on file"}`
                     : homeView === "clients"
-                      ? `${clients.length} client accounts and ${clientSites.length} live sites in NeXa`
+                      ? `${clients.length} client accounts and ${clientSites.length} live sites in Blake`
                   : homeView === "directory-manager"
                     ? activeDirectoryManager === "sites"
                       ? `${clientSites.length} sites linked to ${clients.length} customer accounts`
@@ -31061,7 +31061,7 @@ export default function Dashboard() {
                           ? `${contacts.length} contact records ready to attach to work`
                           : `${contractors.length} contractor records ready to allocate`
                   : homeView === "employees"
-                    ? `${employees.length} employees onboarded in NeXa`
+                    ? `${employees.length} employees onboarded in Blake`
                     : `${currentOperatingDateLabel} · Live business position`}
               </p>
             </div>
@@ -31434,7 +31434,7 @@ export default function Dashboard() {
                       activeClient
                         ? (() => {
                             logAuditEvent({
-                              actor: activeEmployee?.name ?? "NeXa user",
+                              actor: activeEmployee?.name ?? "Blake user",
                               action: "reviewed",
                               recordType: "client",
                               recordId: activeClient.id,
@@ -31596,7 +31596,7 @@ export default function Dashboard() {
             <section className="profile-workspace">
               <section className="profile-hero-panel">
                 <div className="profile-avatar-large">
-                  {(activeEmployee?.name ?? "NeXa")
+                  {(activeEmployee?.name ?? "Blake")
                     .split(" ")
                     .map((part) => part[0])
                     .join("")
@@ -31604,7 +31604,7 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <span className="permission-heading">Logged-in profile</span>
-                  <h2>{activeEmployee?.name ?? "NeXa user"}</h2>
+                  <h2>{activeEmployee?.name ?? "Blake user"}</h2>
                   <p>{activeEmployee?.profile?.roleLabel ?? activeEmployee?.role ?? "Workspace user"}</p>
                 </div>
                 <div className="profile-hero-stats">
@@ -32133,7 +32133,7 @@ export default function Dashboard() {
                 <div>
                   <span className="permission-heading">Business intelligence</span>
                   <h2>Real-time performance control</h2>
-                  <p>Revenue, margin, delivery, engineer productivity, purchasing, compliance and risks from live NeXa records.</p>
+                  <p>Revenue, margin, delivery, engineer productivity, purchasing, compliance and risks from live Blake records.</p>
                 </div>
                 <div className="reports-filter-grid">
                   <label>
@@ -33084,7 +33084,7 @@ export default function Dashboard() {
                                   amount,
                                   method: poSupplierPaymentDraft.method.trim() || "Bank transfer",
                                   reference: poSupplierPaymentDraft.reference.trim() || undefined,
-                                  actor: activeEmployee?.name ?? "NeXa user",
+                                  actor: activeEmployee?.name ?? "Blake user",
                                   source: "manual" as const,
                                 };
                                 void patchPurchaseRequest(
@@ -33193,7 +33193,7 @@ export default function Dashboard() {
                 customer: job.customer,
                 status: job.status,
               }))}
-              actorName={activeEmployee?.name ?? "NeXa"}
+              actorName={activeEmployee?.name ?? "Blake"}
               defaultSupplier={suppliers[0]?.name || "Plumbase"}
               onPurchaseRequestCreated={(created) => {
                 setPurchaseRequests((current) => {
@@ -33214,7 +33214,7 @@ export default function Dashboard() {
               <div className="addon-hero">
                 <div>
                   <span className="permission-heading">Product suite</span>
-                  <h2>NeXa Core stays the hub</h2>
+                  <h2>Blake Core stays the hub</h2>
                   <p>
                     Specialist add-ons can do the heavy work, then push clean leads, quotes, cost centres,
                     job events, documents and audit logs back into Core.
@@ -33258,7 +33258,7 @@ export default function Dashboard() {
                   <span className="addon-icon"><HardHat size={20} /></span>
                   <div>
                     <strong>{businessSettings.fieldAppName}</strong>
-                    <p>Engineer packs, Ask Blake, photos, hours and job evidence from site.</p>
+                    <p>Engineer packs, Ask Ayla, photos, hours and job evidence from site.</p>
                     <small>Outputs job events, evidence, timesheets, variations and completion checks.</small>
                   </div>
                   <ChevronRight size={17} />
@@ -33275,7 +33275,7 @@ export default function Dashboard() {
                 <a className="addon-product-card" href="/office/whatsapp-pilot">
                   <span className="addon-icon"><Inbox size={20} /></span>
                   <div>
-                    <strong>{businessSettings.hidePlatformName ? `${businessSettings.productName} Connect` : "NeXa Connect"}</strong>
+                    <strong>{businessSettings.hidePlatformName ? `${businessSettings.productName} Connect` : "Blake Connect"}</strong>
                     <p>Outlook, WhatsApp, suppliers, Checkatrade, accounting and API intake.</p>
                     <small>Outputs communications, approvals, supplier costs and audit events.</small>
                   </div>
@@ -33296,7 +33296,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <strong>3. Feed Core</strong>
-                    <span>NeXa Core controls the quote, job, approval, invoice and audit trail.</span>
+                    <span>Blake Core controls the quote, job, approval, invoice and audit trail.</span>
                   </div>
                 </div>
               </section>
@@ -33368,7 +33368,7 @@ export default function Dashboard() {
                           </a>
                         </div>
                         <p style={{ margin: 0, color: "var(--muted, #5b6570)", lineHeight: 1.45 }}>
-                          Start a NeXa Surveyor pack linked to {selectedQuote.ref}. Customer and site come from this quote —
+                          Start a Blake Surveyor pack linked to {selectedQuote.ref}. Customer and site come from this quote —
                           evidence and cost centres feed back into Core instead of a disconnected draft.
                         </p>
                       </section>
@@ -33493,7 +33493,7 @@ export default function Dashboard() {
                                 ]);
                               }}
                             >
-                              Ask Blake ({selectedQuoteBuddyFindings.length + selectedQuoteOpenReviewQuestions.length})
+                              Ask Ayla ({selectedQuoteBuddyFindings.length + selectedQuoteOpenReviewQuestions.length})
                             </button>
                           ) : null}
                         </div>
@@ -34776,7 +34776,7 @@ export default function Dashboard() {
                                 {item.simproQuoteId
                                   ? `Simpro ${item.simproQuoteId}`
                                   : item.status === "Queued"
-                                    ? "Queued in NeXa - not sent to Simpro yet"
+                                    ? "Queued in Blake - not sent to Simpro yet"
                                     : item.mode === "webhook"
                                       ? "Webhook bridge"
                                       : "Queued payload"}
@@ -34923,7 +34923,7 @@ export default function Dashboard() {
                       <p><AlertTriangle size={16} /> No one is scheduled or assigned to this quote cost centre.</p>
                       <h3>Timeline</h3>
                       <div className="simpro-timeline-card">
-                        <strong>{activeEmployee?.name ?? "NeXa"} - Note</strong>
+                        <strong>{activeEmployee?.name ?? "Blake"} - Note</strong>
                         <span>{selectedQuoteCostCentre.name} estimate opened.</span>
                       </div>
                     </aside>
@@ -35431,7 +35431,7 @@ export default function Dashboard() {
                           <div>
                             <h2>Survey tools</h2>
                             <h3>iPad room scans, survey photos, concept looks and takeoff outputs</h3>
-                            <span>Capture the room once, then let NeXa feed the quote, supplier request and client-facing visuals.</span>
+                            <span>Capture the room once, then let Blake feed the quote, supplier request and client-facing visuals.</span>
                           </div>
                           <div className="simpro-parts-actions">
                             <button className="simpro-grey-button" type="button" onClick={() => addSurveyAssetToQuoteCentre(selectedQuoteCostCentre, "Room scan")}>
@@ -38188,7 +38188,7 @@ export default function Dashboard() {
                       <p><AlertTriangle size={16} /> No one is scheduled or assigned to this cost centre.</p>
                       <h3>Timeline</h3>
                       <div className="simpro-timeline-card">
-                        <strong>{activeEmployee?.name ?? "NeXa"} - Note</strong>
+                        <strong>{activeEmployee?.name ?? "Blake"} - Note</strong>
                         <span>{selectedCostCentre.name} estimate opened.</span>
                       </div>
                     </aside>
@@ -40941,13 +40941,13 @@ export default function Dashboard() {
                             );
                           })}
                         </div>
-                        <p>When the appointment is booked, NeXa logs it and notifies the assigned surveyor with the customer, address, source and description.</p>
+                        <p>When the appointment is booked, Blake logs it and notifies the assigned surveyor with the customer, address, source and description.</p>
                         <button
                           className="secondary-button"
                           disabled={selectedLead.status !== "Survey booked"}
                           onClick={() => {
                             logAuditEvent({
-                              actor: "NeXa",
+                              actor: "Blake",
                               action: "notified",
                               recordType: "lead",
                               recordId: selectedLead.id,
@@ -41962,7 +41962,7 @@ export default function Dashboard() {
                         <div>
                           <span className="permission-heading">Migration workspace</span>
                           <h2>Import existing records</h2>
-                          <p>Upload one record type at a time, review the rows, then commit them to the shared NeXa database.</p>
+                          <p>Upload one record type at a time, review the rows, then commit them to the shared Blake database.</p>
                         </div>
                         <button className="secondary-button" type="button" onClick={downloadBusinessImportTemplate}>
                           <FileText size={15} /> Download template
@@ -42042,7 +42042,7 @@ export default function Dashboard() {
                       ) : (
                         <div className="employee-empty-panel setup-import-empty">
                           <strong>No file selected</strong>
-                          <span>Download the template to see the preferred headings, or choose an existing export and NeXa will match common column names.</span>
+                          <span>Download the template to see the preferred headings, or choose an existing export and Blake will match common column names.</span>
                         </div>
                       )}
 
@@ -42797,7 +42797,7 @@ export default function Dashboard() {
 	                          <div className="setup-sync-entity-picker">
 	                            <div className="setup-sync-entity-copy">
 	                              <span>Import selection</span>
-	                              <strong>Choose exactly what NeXa should pull in</strong>
+	                              <strong>Choose exactly what Blake should pull in</strong>
 	                              <small>Default is Clients + Sites first. Preview should mostly show create/link — not piles of conflicts. Tick Leads (latest 10) / Quotes / Jobs / Schedules / Invoices after customers are linked.</small>
 	                              <div className="setup-sync-entity-shortcuts">
 	                                <button className="secondary-button" type="button" onClick={() => setSelectedSimproImportEntities(["clients", "sites"])}>
@@ -42831,7 +42831,7 @@ export default function Dashboard() {
 	                            <div className="setup-readiness-grid setup-sync-grid">
 	                              <article>
 	                                <span>Operating mode</span>
-	                                <strong>NeXa is the front end</strong>
+	                                <strong>Blake is the front end</strong>
 	                                <small>Create leads, quotes, jobs and schedules here, then push them down to simPRO.</small>
 	                              </article>
 	                              <article>
@@ -42853,7 +42853,7 @@ export default function Dashboard() {
 	                          <div className="setup-integration-reconnect">
 	                            <div className="setup-integration-reconnect-copy">
 	                              <span>simPRO reconnect</span>
-	                              <strong>{simproReconnectStatus?.ready ? "Exchange a fresh code inside NeXa" : "OAuth settings still need checked in Render"}</strong>
+	                              <strong>{simproReconnectStatus?.ready ? "Exchange a fresh code inside Blake" : "OAuth settings still need checked in Render"}</strong>
 	                              <small>
 	                                {simproReconnectStatus?.ready
 	                                  ? "Open simPRO, generate a fresh authorisation code, then paste the code or full redirect URL here."
@@ -42886,13 +42886,13 @@ export default function Dashboard() {
 	                          <div className="setup-readiness-grid setup-sync-grid">
 	                            <article>
 	                              <span>{integrationSettings.simproMode === "Two-way sync" ? "Can import" : "Primary direction"}</span>
-	                              <strong>{integrationSettings.simproMode === "Two-way sync" ? "Clients, sites, quotes, jobs, invoices" : "NeXa to simPRO"}</strong>
-	                              <small>{integrationSettings.simproMode === "Two-way sync" ? "Preview first, then apply safe creates and links." : "Use NeXa day to day, with simPRO kept downstream during cutover."}</small>
+	                              <strong>{integrationSettings.simproMode === "Two-way sync" ? "Clients, sites, quotes, jobs, invoices" : "Blake to simPRO"}</strong>
+	                              <small>{integrationSettings.simproMode === "Two-way sync" ? "Preview first, then apply safe creates and links." : "Use Blake day to day, with simPRO kept downstream during cutover."}</small>
 	                            </article>
 	                            <article>
 	                              <span>Linked records</span>
 	                              <strong>{simproSyncStatus?.linkCount ?? 0}</strong>
-	                              <small>Existing NeXa records matched with simPRO records.</small>
+	                              <small>Existing Blake records matched with simPRO records.</small>
 	                            </article>
 	                            <article className={(simproSyncStatus?.lastRun?.totals.conflicts ?? 0) > 0 ? "attention" : ""}>
 	                              <span>Last sync run</span>
@@ -43001,7 +43001,7 @@ export default function Dashboard() {
 	                              <small>
 	                                {xeroConnectionStatus?.accessTokenExpiresAt
 	                                  ? `Access token refreshes around ${xeroConnectionStatus.accessTokenExpiresAt.slice(0, 16).replace("T", " ")}`
-	                                  : "Connect once; NeXa stores the refresh token on the server."}
+	                                  : "Connect once; Blake stores the refresh token on the server."}
 	                              </small>
 	                            </article>
 	                            <article>
@@ -43069,7 +43069,7 @@ export default function Dashboard() {
                             </div>
                           </header>
                           <small>
-                            Choose Outlook or Gmail. NeXa always sends from the email on your employee card
+                            Choose Outlook or Gmail. Blake always sends from the email on your employee card
                             ({activeEmployee?.profile?.email?.trim() || "no email on card yet"}). Add or change that address under People → employee → Details.
                           </small>
                           <div className="setup-form-grid">
@@ -43203,7 +43203,7 @@ export default function Dashboard() {
                               <input
                                 value={whatsAppTestMessage}
                                 onChange={(event) => setWhatsAppTestMessage(event.target.value)}
-                                placeholder="NeXa WhatsApp connection test"
+                                placeholder="Blake WhatsApp connection test"
                               />
                             </label>
                           </div>
@@ -43315,7 +43315,7 @@ export default function Dashboard() {
                           <span className="permission-heading">Accounts integrations</span>
                           <h3>Xero and simPRO live bridge</h3>
                         </div>
-                        <p>Use this area to keep NeXa as the front end, push live records downstream to simPRO, and prepare Xero export without turning day-to-day work back into an import exercise.</p>
+                        <p>Use this area to keep Blake as the front end, push live records downstream to simPRO, and prepare Xero export without turning day-to-day work back into an import exercise.</p>
                       </div>
 
                       <div className="setup-integration-grid">
@@ -43400,8 +43400,8 @@ export default function Dashboard() {
                           <small>
                             {simproSyncStatus?.configured
                               ? integrationSettings.simproMode === "Two-way sync"
-                                ? `Direct API ready at ${simproSyncStatus.endpoint}. Manual Apply uses your selected ticks; weekday end-of-day cron also refreshes leads, quotes, jobs, schedules, invoices, clients and sites after UK close (needs NEXA_IMPORT_TICK_SECRET on Render). NeXa Schedules is your day-to-day diary — visits can push to simPRO managers diary, and EOD/Apply can pull simPRO schedules back in.`
-                                : `Direct API ready at ${simproSyncStatus.endpoint}. Inbound imports are paused while NeXa stays the live front end.`
+                                ? `Direct API ready at ${simproSyncStatus.endpoint}. Manual Apply uses your selected ticks; weekday end-of-day cron also refreshes leads, quotes, jobs, schedules, invoices, clients and sites after UK close (needs NEXA_IMPORT_TICK_SECRET on Render). Blake Schedules is your day-to-day diary — visits can push to simPRO managers diary, and EOD/Apply can pull simPRO schedules back in.`
+                                : `Direct API ready at ${simproSyncStatus.endpoint}. Inbound imports are paused while Blake stays the live front end.`
                               : `Direct API not ready: ${simproSyncStatus?.missing.join(", ") || simproBridgeStatus.missing.join(", ") || "SIMPRO_ credentials missing"}.`}
                           </small>
                           {integrationSettings.simproMode === "Two-way sync" ? (
@@ -43409,7 +43409,7 @@ export default function Dashboard() {
                               <article>
                                 <span>Linked records</span>
                                 <strong>{simproSyncStatus?.linkCount ?? 0}</strong>
-                                <small>simPRO records tied to NeXa records.</small>
+                                <small>simPRO records tied to Blake records.</small>
                               </article>
                               <article>
                                 <span>Webhook inbox</span>
@@ -43430,8 +43430,8 @@ export default function Dashboard() {
                             <div className="setup-readiness-grid setup-sync-grid">
                               <article>
                                 <span>Primary direction</span>
-                                <strong>NeXa to simPRO</strong>
-                                <small>Quotes, jobs and planner updates are pushed downstream from NeXa.</small>
+                                <strong>Blake to simPRO</strong>
+                                <small>Quotes, jobs and planner updates are pushed downstream from Blake.</small>
                               </article>
                               <article>
                                 <span>Inbound imports</span>
@@ -43441,7 +43441,7 @@ export default function Dashboard() {
                               <article>
                                 <span>Bridge mode</span>
                                 <strong>{simproBridgeStatus.configured ? `Ready via ${simproBridgeStatus.mode}` : "Needs completing"}</strong>
-                                <small>{simproBridgeStatus.configured ? "Live handoff is available from NeXa records." : `Missing ${simproBridgeStatus.missing.join(", ") || "simPRO bridge settings"}.`}</small>
+                                <small>{simproBridgeStatus.configured ? "Live handoff is available from Blake records." : `Missing ${simproBridgeStatus.missing.join(", ") || "simPRO bridge settings"}.`}</small>
                               </article>
                             </div>
                           )}
@@ -43451,7 +43451,7 @@ export default function Dashboard() {
                             <div className="setup-rate-table setup-sync-log">
                               <div className="setup-rate-row table-head">
                                 <span>Handoff</span>
-                                <span>What NeXa sends</span>
+                                <span>What Blake sends</span>
                                 <span>When</span>
                               </div>
                               <div className="setup-rate-row">
@@ -43467,7 +43467,7 @@ export default function Dashboard() {
                               <div className="setup-rate-row">
                                 <strong>Schedules</strong>
                                 <span>Current planner allocations attached to the pushed job</span>
-                                <span>Whenever NeXa planner assignments change</span>
+                                <span>Whenever Blake planner assignments change</span>
                               </div>
                             </div>
                           )}
@@ -44271,7 +44271,7 @@ export default function Dashboard() {
                           className="secondary-button"
                           onClick={() => {
                             logAuditEvent({
-                              actor: activeEmployee?.name ?? "NeXa user",
+                              actor: activeEmployee?.name ?? "Blake user",
                               action: "updated",
                               recordType: "client",
                               recordId: activeClient.id,
@@ -44985,7 +44985,7 @@ export default function Dashboard() {
                       <div className="employee-section-heading">
                         <span className="permission-heading">Permission controls</span>
                         <span className="employee-access-note">
-                          Configure what this employee can see and change inside NeXa.
+                          Configure what this employee can see and change inside Blake.
                         </span>
                       </div>
                       <div className="employee-permissions-grid">
@@ -45075,7 +45075,7 @@ export default function Dashboard() {
                       <div className="employee-section-heading">
                         <span className="permission-heading">Personal mailbox</span>
                         <span className="employee-access-note">
-                          Choose Outlook or Gmail. NeXa sends from the email on this employee card ({activeEditingEmployee.profile?.email || employeeProfileDraft.email || "add email on Details first"}).
+                          Choose Outlook or Gmail. Blake sends from the email on this employee card ({activeEditingEmployee.profile?.email || employeeProfileDraft.email || "add email on Details first"}).
                         </span>
                       </div>
                       <div className="setup-form-grid">

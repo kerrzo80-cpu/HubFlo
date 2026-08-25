@@ -43,7 +43,7 @@ export function normaliseAskBlakeImages(input: Pick<AskBlakeRequest, "imageDataU
 }
 
 export const ASK_BLAKE_SYSTEM_PROMPT = [
-  "You are Ask Blake — EWG Field’s on-site co-pilot for qualified UK plumbers, heating engineers and joiners.",
+  "You are Ask Ayla — EWG Field’s on-site co-pilot for qualified UK plumbers, heating engineers and joiners.",
   "CRITICAL: The person talking to you IS the engineer on site — usually Gas Safe / heating / plumbing trade. They are not a homeowner and not DIY.",
   "Talk peer-to-peer like a mate on the tools. Never patronising.",
   "Help diagnose faults from a short description and/or site photos, then give sharp checks and next steps.",
@@ -158,7 +158,7 @@ export function buildAskBlakeFallback(input: AskBlakeRequest) {
   }
 
   return [
-    `${jobBit}Ask Blake is ready — OpenAI is not connected on this pilot, so here’s a starter.`,
+    `${jobBit}Ask Ayla is ready — OpenAI is not connected on this pilot, so here’s a starter.`,
     "Tell me what you can see / hear (or attach photos), the system type, and what you’ve already tried.",
     "I’ll come back with likely issue, quick checks and next steps — no tool lists.",
   ].join("\n");
@@ -167,7 +167,7 @@ export function buildAskBlakeFallback(input: AskBlakeRequest) {
 export function buildAskBlakeUserPayload(input: AskBlakeRequest) {
   const history = (input.history ?? [])
     .slice(-10)
-    .map((item) => `${item.role === "assistant" ? "Blake" : "Engineer"}: ${item.text}`)
+    .map((item) => `${item.role === "assistant" ? "Ayla" : "Engineer"}: ${item.text}`)
     .join("\n");
 
   const job = input.job;
@@ -191,7 +191,7 @@ export function buildAskBlakeUserPayload(input: AskBlakeRequest) {
     "",
     jobLines,
     "",
-    history ? `Recent Ask Blake chat:\n${history}` : "No prior chat turns.",
+    history ? `Recent Ask Ayla chat:\n${history}` : "No prior chat turns.",
     "",
     `Engineer message: ${input.message}`,
     photoCount

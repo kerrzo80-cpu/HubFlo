@@ -2,7 +2,7 @@ import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
 /**
  * Shared, in-app OpenAI configuration. Persisting the key here lets every AI
- * feature (Takeoff, Survey, Field "Ask Blake", the NeXa Assistant) use a single
+ * feature (Takeoff, Survey, Field "Ask Ayla", the Ask Ayla) use a single
  * key entered in Core Setup, without needing an environment variable / redeploy.
  * Environment variables still take precedence (see resolveOpenAiApiKey).
  */

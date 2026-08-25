@@ -9,7 +9,7 @@ import { FIELD_BASE, fieldPath } from "@/lib/field/routes";
 
 const links = [
   { href: fieldPath("/"), label: "My Day", icon: CalendarDays },
-  { href: fieldPath("/ask"), label: "Ask Blake", icon: MessageCircle },
+  { href: fieldPath("/ask"), label: "Ask Ayla", icon: MessageCircle },
   { href: fieldPath("/time-check"), label: "Hours", icon: Clock3 },
 ];
 

@@ -456,7 +456,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invoice with lines is required for Xero export." }, { status: 400 });
   }
 
-  const actor = request.headers.get(employeeHeaderName) || "NeXa";
+  const actor = request.headers.get(employeeHeaderName) || "Blake";
   const createdAt = new Date().toISOString();
   const store = loadServerStore<XeroExportStore>(STORE, { exports: [] });
   const credit = isCreditNote(invoice);

@@ -1672,7 +1672,7 @@ function applyProjectCostCentresToQuote(
 export function attachSurveyEvidenceToQuote(
   projectId: string,
   quoteId: string,
-  actor = "NeXa Field",
+  actor = "Blake Field",
 ) {
   refreshTakeoffStore();
   const project = takeoffStore.projects.find((item) => item.id === projectId);
@@ -1739,7 +1739,7 @@ export function attachSurveyEvidenceToQuote(
 export function attachMarkedTakeoffDrawingToQuote(
   projectId: string,
   documentId: string,
-  actor = "NeXa Takeoff",
+  actor = "Blake Takeoff",
 ) {
   refreshTakeoffStore();
   const project = takeoffStore.projects.find((item) => item.id === projectId);
@@ -2015,7 +2015,7 @@ function buildDraftExtraction(project: TakeoffProject): TakeoffExtractionDraft {
 
 function surveyChatText(project: TakeoffProject) {
   return (project.surveyChat ?? [])
-    .map((message) => `${message.role === "assistant" ? "NeXa" : "User"}: ${message.text}`)
+    .map((message) => `${message.role === "assistant" ? "Ayla" : "User"}: ${message.text}`)
     .join("\n");
 }
 
@@ -2350,7 +2350,7 @@ function buildSurveyChatDraftExtraction(project: TakeoffProject): TakeoffExtract
 
 export function runSurveyChatEstimatePackDraft(
   projectId: string,
-  actor = "NeXa Survey",
+  actor = "Blake Survey",
 ): TakeoffExtractionResult | null {
   refreshTakeoffStore();
   const project = takeoffStore.projects.find((item) => item.id === projectId);
@@ -2606,7 +2606,7 @@ export function applyTakeoffExtractionDraft(
   if (!updated) return null;
 
   appendAuditEvent({
-    actor: options.actor ?? "NeXa Takeoff",
+    actor: options.actor ?? "Blake Takeoff",
     action: "extracted",
     recordType: "takeoff_project",
     recordId: project.id,
@@ -2623,7 +2623,7 @@ export function applyTakeoffExtractionDraft(
 
 export function runTakeoffDraftExtraction(
   projectId: string,
-  actor = "NeXa Takeoff",
+  actor = "Blake Takeoff",
 ): TakeoffExtractionResult | null {
   refreshTakeoffStore();
   const project = takeoffStore.projects.find((item) => item.id === projectId);
@@ -2640,7 +2640,7 @@ export function runTakeoffDraftExtraction(
 export function pushTakeoffProjectToQuote(
   projectId: string,
   quoteId: string,
-  actor = "NeXa Takeoff",
+  actor = "Blake Takeoff",
 ): TakeoffPushResult | null {
   refreshTakeoffStore();
   const project = takeoffStore.projects.find((item) => item.id === projectId);
@@ -2684,7 +2684,7 @@ export function pushTakeoffProjectToQuote(
 export function pushSurveyProjectToQuote(
   projectId: string,
   quoteId: string,
-  actor = "NeXa Survey",
+  actor = "Blake Survey",
 ): TakeoffPushResult | null {
   refreshTakeoffStore();
   const project = takeoffStore.projects.find((item) => item.id === projectId);
@@ -2789,7 +2789,7 @@ export function mergeBoqMaterialAllowances(
 export function applyParsedBoqDocumentsToProject(
   projectId: string,
   imports: Array<{ documentId: string; materials: TakeoffMaterialAllowance[]; note: string }>,
-  actor = "NeXa Takeoff",
+  actor = "Blake Takeoff",
 ): TakeoffProject | null {
   refreshTakeoffStore();
   const project = takeoffStore.projects.find((item) => item.id === projectId);

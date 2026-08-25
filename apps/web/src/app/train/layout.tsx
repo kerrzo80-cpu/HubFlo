@@ -3,9 +3,9 @@ import { EnvHostBanner } from "@/components/EnvHostBanner";
 import "./train.css";
 
 export const metadata: Metadata = {
-  title: "Blake Trainer · NeXa",
+  title: "Blake Trainer · Blake",
   description:
-    "Voice-first AI trainer for NeXa staff — role-aware modules, understanding checks, answers only from approved materials.",
+    "Voice-first AI trainer for Blake staff — role-aware modules, understanding checks, answers only from approved materials.",
   applicationName: "Blake Trainer",
 };
 

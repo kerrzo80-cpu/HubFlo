@@ -37,7 +37,7 @@ export async function POST(request: Request) {
       action: "failed sign in",
       recordType: "employee",
       recordId: "authentication",
-      summary: "A NeXa sign-in attempt was rejected.",
+      summary: "A Blake sign-in attempt was rejected.",
       source: "authentication",
       importance: "high",
     });
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
     action: "signed in",
     recordType: "employee",
     recordId: user.employeeId || user.id,
-    summary: `${user.name} signed in to NeXa using an individual account.`,
+    summary: `${user.name} signed in to Blake using an individual account.`,
     source: "authentication",
     importance: "normal",
   });

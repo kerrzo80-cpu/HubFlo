@@ -1107,7 +1107,7 @@ export default function JobDetailPage() {
       </div>
 
       <Link href={fieldPath(`/ask?job=${encodeURIComponent(job.scheduleId)}`)} className="field-ask-blake-link">
-        Ask Blake about this job
+        Ask Ayla about this job
       </Link>
 
       <div className="site-block">

@@ -113,7 +113,7 @@ export async function POST(request: Request) {
   const message = body.message?.trim();
   const images = normaliseAskBlakeImages(body);
   if (!message && !images.length) {
-    return NextResponse.json({ error: "Ask Blake a question or attach a photo." }, { status: 400 });
+    return NextResponse.json({ error: "Ask Ayla a question or attach a photo." }, { status: 400 });
   }
 
   const mode = body.mode === "voice" ? "voice" : "text";
@@ -132,7 +132,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       reply: buildAskBlakeFallback(input),
       provider: "fallback",
-      warning: "OpenAI is not connected on this pilot — Blake replied with field fallback guidance.",
+      warning: "OpenAI is not connected on this pilot — Ayla replied with field fallback guidance.",
     });
   }
 
@@ -143,7 +143,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       reply: buildAskBlakeFallback(input),
       provider: "fallback",
-      warning: error instanceof Error ? error.message : "Ask Blake could not reach OpenAI.",
+      warning: error instanceof Error ? error.message : "Ask Ayla could not reach OpenAI.",
     });
   }
 }

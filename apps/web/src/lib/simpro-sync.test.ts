@@ -74,7 +74,7 @@ describe("simpro sync preview quality", () => {
     assert.equal(quoteEx.value, 4537.48);
   });
 
-  it("maps simPRO job statuses onto NeXa folder statuses", () => {
+  it("maps simPRO job statuses onto Blake folder statuses", () => {
     assert.equal(jobStatusFromSimpro("Complete"), "Completed");
     assert.equal(jobStatusFromSimpro("Progress"), "In progress");
     assert.equal(jobStatusFromSimpro("Scheduled"), "Scheduled");

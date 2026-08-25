@@ -144,7 +144,7 @@ export default function TakeoffSkillPage() {
       } catch {
         if (active) {
           setAuthState("signed-out");
-          setError("Unable to reach NeXa auth. Refresh and try again.");
+          setError("Unable to reach Blake auth. Refresh and try again.");
         }
       }
     })();
@@ -333,7 +333,7 @@ export default function TakeoffSkillPage() {
             status: "Approved",
             review: {
               ...selected.review,
-              approvedBy: "NeXa Takeoff",
+              approvedBy: "Blake Takeoff",
               approvedAt: new Date().toISOString(),
             },
           }),
@@ -367,7 +367,7 @@ export default function TakeoffSkillPage() {
             Core
           </Link>
           <div>
-            <strong>NeXa Takeoff</strong>
+            <strong>Blake Takeoff</strong>
             <span>Quantity takeoff · count fixtures on drawings</span>
           </div>
         </div>
@@ -392,7 +392,7 @@ export default function TakeoffSkillPage() {
       {authState === "checking" ? (
         <section className="takeoff-skill-auth">
           <h1>Opening Takeoff…</h1>
-          <p>Checking your NeXa sign-in.</p>
+          <p>Checking your Blake sign-in.</p>
         </section>
       ) : null}
 
@@ -405,7 +405,7 @@ export default function TakeoffSkillPage() {
           </p>
           <p className="takeoff-skill-note">No special AI setup is required to start — vector PDF text-tag counts work without OpenAI.</p>
           <a className="takeoff-skill-primary" href="/login?next=/takeoff">
-            Sign in to NeXa
+            Sign in to Blake
           </a>
         </section>
       ) : null}

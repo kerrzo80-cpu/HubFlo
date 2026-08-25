@@ -1,4 +1,4 @@
-# NeXa Current State
+# Blake Current State
 
 **Audit date:** 27 July 2026  
 **Repository:** `/Users/ewgcoomercial/Documents/HubFlo` (GitHub: HubFlo)  
@@ -14,7 +14,7 @@ This report is based on code inspection, local build/test execution, local dev-s
 ```text
 HubFlo/
 ├── apps/
-│   ├── web/                 Next.js 16 — NeXa Core + module PWAs + API routes
+│   ├── web/                 Next.js 16 — Ayla Core + module PWAs + API routes
 │   └── nexa-field-ios/        iOS RoomPlan / LiDAR bridge for takeoff room scans
 ├── packages/
 │   ├── domain/              Shared business rules (surveyor, estimator, invoice gates)
@@ -34,7 +34,7 @@ HubFlo/
 | Monorepo | pnpm 11.5.3 workspaces |
 | Runtime persistence | SQLite (`NEXA_STORE_PATH`) or JSON files (`.hubflo-runtime/`) |
 | Planned persistence | PostgreSQL via Drizzle (`packages/database`) — schema exists, **not connected** |
-| AI | OpenAI optional (`OPENAI_API_KEY`) for takeoffs, survey chat, NeXa Assistant scheduling intent |
+| AI | OpenAI optional (`OPENAI_API_KEY`) for takeoffs, survey chat, Ask Ayla scheduling intent |
 | simPRO | Direct OAuth refresh, scheduler bridge, or webhook push |
 | Deployment | Render (Frankfurt), Node 24.14.0, persistent disk at `/var/data` |
 | Tests | Node built-in test runner + `@hubflo/domain` (15 tests) |
@@ -42,9 +42,9 @@ HubFlo/
 
 ### Product naming in code
 
-- **Current app name:** NeXa (Core manifest, page titles, API health)
+- **Current app name:** Blake (Core manifest, page titles, API health)
 - **Legacy names still present:** HubFlo (package names, some audit strings, header names `x-hubflo-*`)
-- **AI assistant name in brief:** Buddy — **not yet used in UI**; code/UI still says **NeXa Assistant**
+- **AI assistant name in brief:** Buddy — **not yet used in UI**; code/UI still says **Ask Ayla**
 
 ---
 
@@ -75,7 +75,7 @@ Protected endpoints (`/api/integrations/simpro/status`, `/api/go-live/readiness`
 
 | Module | Route(s) | Backend |
 |--------|----------|---------|
-| **NeXa Core** | `/` | Monolithic client SPA + `/api/hub-state`, workflow APIs |
+| **Blake Core** | `/` | Monolithic client SPA + `/api/hub-state`, workflow APIs |
 | **Login** | `/login` | `/api/auth/*` when `NEXA_AUTH_MODE=users` |
 | **Scheduler** | Core → Schedules tab | Client-side planner + `/api/nexa-assistant` booking confirmation |
 | **Surveyor (guided)** | `/survey/guided`, `/survey/guided/[id]` | `/api/surveys/*` |
@@ -87,7 +87,7 @@ Protected endpoints (`/api/integrations/simpro/status`, `/api/go-live/readiness`
 | **Reports** | Core → Reports tab | Client-side aggregations from hub state |
 | **Office alerts / POs** | `/office/alerts`, `/office/po-requests` | Engineer workflow store |
 | **Client portals** | `/client/quotes/[token]`, `/client/variations/[token]` | Portal APIs |
-| **NeXa Assistant (Buddy)** | Core slide-out panel | `POST /api/nexa-assistant` |
+| **Ask Ayla (Buddy)** | Core slide-out panel | `POST /api/nexa-assistant` |
 | **Setup / People** | Core → Setup, People | Hub detail store + server sync APIs |
 
 Auth gate: `apps/web/src/proxy.ts` (Next.js 16 proxy/middleware). Pilot PIN or user-session modes.
@@ -107,7 +107,7 @@ Evidence: code located + automated tests and/or build pass + runtime health.
 - **Proxy auth gate** — pilot Basic Auth and user-session modes implemented in `proxy.ts`
 - **Server-side simPRO OAuth refresh module** — token file, refresh candidates, reconnect flow (`simpro-auth.ts`); secrets stay server-side
 - **simPRO outbound bridge status + test** — Setup Test connection now probes direct OAuth or scheduler login; quote/job push fails clearly when send returns nothing (`simpro-bridge.ts`)
-- **Buddy live chat** — bottom-right dock; multi-turn history; grounded answers from NeXa quotes/jobs/diary; confirm-before-write bookings (`nexa-assistant.ts`, Core UI)
+- **Buddy live chat** — bottom-right dock; multi-turn history; grounded answers from Blake quotes/jobs/diary; confirm-before-write bookings (`nexa-assistant.ts`, Core UI)
 - **simPRO export queue** — quote/job push with audit trail and status (`simpro-bridge.ts`)
 - **Guided survey API surface** — CRUD, photos, scope, pipe runs, equipment, PDF, completion review, send-to-estimator
 - **Takeoffs markup model** — pipes, symbols, layers, calibration, offline draft sync structure (large `takeoff/page.tsx`)
@@ -119,11 +119,11 @@ Evidence: code located + automated tests and/or build pass + runtime health.
 
 Located in code; not end-to-end verified in this audit session.
 
-- **NeXa Core monolith (`page.tsx`, ~33,700 lines)** — leads, quotes, jobs, invoices, scheduler UI, setup, imports
+- **Blake Core monolith (`page.tsx`, ~33,700 lines)** — leads, quotes, jobs, invoices, scheduler UI, setup, imports
 - **Employee card editing** — UI and localStorage/server sync exist; Brian's reported edit failures not reproduced here
 - **Cost centre CRUD in Setup** — code paths present with server sync hold timers
 - **Scheduler drag/drop save** — client writes `jobSchedulePlans`; simPRO schedule sync on confirm depends on env
-- **Buddy / NeXa Assistant live answers** — requires OpenAI key + populated schedule data
+- **Buddy / Ask Ayla live answers** — requires OpenAI key + populated schedule data
 - **Email integration** — SMTP settings API + send/test routes
 - **WhatsApp pilot** — `/office/whatsapp-pilot`
 - **Xero status stub** — `/api/integrations/xero/status`
@@ -154,7 +154,7 @@ Located in code; not end-to-end verified in this audit session.
 - **Xero integration** — status endpoint only
 - **Dashboard seed metrics** — demo workspace seeds representative EWG figures when `NEXA_WORKSPACE_MODE=demo`
 - **AI Surveyor** — local draft storage; separate from guided survey persistence
-- **Historical scheduler URL** — `ewg-hub-scheduler.onrender.com` referenced as optional bridge, not the main NeXa UI
+- **Historical scheduler URL** — `ewg-hub-scheduler.onrender.com` referenced as optional bridge, not the main Blake UI
 
 ---
 
@@ -163,7 +163,7 @@ Located in code; not end-to-end verified in this audit session.
 Not confirmed as fully broken without deeper QA; items with concrete evidence:
 
 - **Local toolchain friction** — `node`/`pnpm` not on default PATH; requires Codex runtime or manual setup (documented in `scripts/typecheck.sh`)
-- **Buddy product naming** — brief requires "Buddy"; UI still "NeXa Assistant" (functional gap vs spec, not runtime error)
+- **Buddy product naming** — brief requires "Buddy"; UI still "Ask Ayla" (functional gap vs spec, not runtime error)
 - **render.yaml pilot simPRO vars** — still documents legacy `SIMPRO_ACCESS_TOKEN` instead of OAuth-first setup (deployment confusion — **being fixed in this audit**)
 
 No critical runtime crash observed in build, health checks, or login shell render.
@@ -298,7 +298,7 @@ Relative to handover brief and go-live plan:
 1. Harden Setup CRUD with server-side persistence tests  
 2. Scheduler save + clash detection QA with simPRO push status visible  
 3. Guided survey → estimator → quote PDF happy path  
-4. Rename NeXa Assistant → **Buddy** in UI; expand grounded Q&A  
+4. Rename Ask Ayla → **Buddy** in UI; expand grounded Q&A  
 5. Engineer my-jobs from live schedule (remove seed date)  
 
 ### Phase 2 — Operational control
@@ -324,4 +324,4 @@ Full takeoffs polish, heat loss, LiDAR/AR, catalogue matching, multi-tenant
 
 ## Honest summary
 
-NeXa is a **real, deployable application** with substantial working surface area in one Next.js monorepo. Production (`nexa-live`, `nexa-pilot`) is **running** on Render with SQLite persistence. Core business logic for surveys and estimates is **test-backed**. simPRO integration is **architecturally correct** (server-side OAuth) but **not verified live** in this session. The largest structural gap is the **unused PostgreSQL layer** and the **monolithic Core UI**. The product is **not ready to claim** full acceptance Tests A–H without focused QA on simPRO, scheduler persistence, engineer time, and setup CRUD.
+Blake is a **real, deployable application** with substantial working surface area in one Next.js monorepo. Production (`nexa-live`, `nexa-pilot`) is **running** on Render with SQLite persistence. Core business logic for surveys and estimates is **test-backed**. simPRO integration is **architecturally correct** (server-side OAuth) but **not verified live** in this session. The largest structural gap is the **unused PostgreSQL layer** and the **monolithic Core UI**. The product is **not ready to claim** full acceptance Tests A–H without focused QA on simPRO, scheduler persistence, engineer time, and setup CRUD.
