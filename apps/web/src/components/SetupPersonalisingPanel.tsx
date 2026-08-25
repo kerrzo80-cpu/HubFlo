@@ -218,7 +218,7 @@ export function SetupPersonalisingPanel({
               </span>
             </label>
             <label className="span-2">
-              Product name (replaces Blake in chrome)
+              Product name (shown with blake. when platform branding is visible)
               <input
                 value={businessSettings.productName}
                 onChange={(event) => onChange({ productName: event.target.value })}
@@ -232,8 +232,11 @@ export function SetupPersonalisingPanel({
                 onChange={(event) => onChange({ hidePlatformName: event.target.checked })}
               />
               <span>
-                <strong>Hide Blake branding</strong>
-                <small>Platform feels like {businessSettings.productName || businessSettings.companyName} for staff and home-screen apps.</small>
+                <strong>Hide blake. product name in labels</strong>
+                <small>
+                  App chrome still shows blake. unless you upload a per-app logo. Company logo on quotes, invoices and
+                  certificates is always your company logo below — never blake.
+                </small>
               </span>
             </label>
           </div>
@@ -246,7 +249,7 @@ export function SetupPersonalisingPanel({
               </div>
               <div>
                 <strong>Company logo</strong>
-                <p>Used on login, PDFs, forms and as fallback when an app has no logo of its own.</p>
+                <p>Used on quotes, invoices, certificates, PDFs and login — never replaced by blake.</p>
                 <input
                   ref={logoInputRef}
                   type="file"

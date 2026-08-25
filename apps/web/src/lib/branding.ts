@@ -1,6 +1,12 @@
 /** Owner white-label / personalising settings shared across Core, Field, Survey, Takeoffs and Heat Design. */
 
-import { PLATFORM_LOCKUP_LIGHT_URL, PLATFORM_MARK_URL, PLATFORM_NAME } from "@/lib/product-brand";
+import {
+  DEFAULT_COMPANY_LOGO_URL,
+  PLATFORM_LOCKUP_LIGHT_URL,
+  PLATFORM_MARK_URL,
+  PLATFORM_NAME,
+  PLATFORM_WORDMARK_DARK_URL,
+} from "@/lib/product-brand";
 
 export type BusinessBrandingSettings = {
   companyName: string;
@@ -73,8 +79,8 @@ export const defaultBusinessBrandingSettings: BusinessBrandingSettings = {
   clientPortalBrandLine: "Control every moving part.",
   brandPrimaryColor: "#157fa8",
   brandAccentColor: "#0f5f7d",
-  logoUrl: "/ewg-logo.png",
-  appIconUrl: "/ewg-logo.png",
+  logoUrl: DEFAULT_COMPANY_LOGO_URL,
+  appIconUrl: DEFAULT_COMPANY_LOGO_URL,
   coreLogoUrl: "",
   fieldLogoUrl: "",
   surveyLogoUrl: "",
@@ -246,23 +252,26 @@ export function applyBrandCssVariables(brand: Pick<PublicBranding, "brandPrimary
   root.style.setProperty("--blue-soft", lightenHex(primary, 0.88));
 }
 
-/** In-app header logo for an app (per-app upload → blake. product mark). Company logo stays on PDFs/forms. */
+/** Company / trading logo for PDFs, certificates and Customise Forms — never the blake. product mark. */
+export function resolveCompanyLogoUrl(brand: PublicBranding | BusinessBrandingSettings): string {
+  return trimLogoUrl(brand.logoUrl) || DEFAULT_COMPANY_LOGO_URL;
+}
+
+/** In-app product chrome logo (per-app upload → blake. wordmark). Not for customer-facing forms. */
 export function resolveBrandLogoUrl(brand: PublicBranding | BusinessBrandingSettings, app?: BrandAppKey): string {
   if (app) {
     const specific = trimLogoUrl(brand[brandAppLogoField(app)]);
     if (specific) return specific;
   }
-  return PLATFORM_MARK_URL;
+  return PLATFORM_WORDMARK_DARK_URL;
 }
 
-/** Home-screen / PWA icon for an app (per-app → shared app icon → blake. mark). */
+/** Home-screen / PWA icon for an app (per-app → blake. mark). Company logo stays on forms. */
 export function resolveBrandIconUrl(brand: PublicBranding | BusinessBrandingSettings, app?: BrandAppKey): string {
   if (app) {
     const specific = trimLogoUrl(brand[brandAppLogoField(app)]);
     if (specific) return specific;
   }
-  const sharedIcon = trimLogoUrl(brand.appIconUrl);
-  if (sharedIcon && sharedIcon !== trimLogoUrl(brand.logoUrl)) return sharedIcon;
   return PLATFORM_MARK_URL;
 }
 

@@ -131,7 +131,7 @@ import {
   resolvePlatformRailLockup,
   type BusinessBrandingSettings,
 } from "@/lib/branding";
-import { PLATFORM_LOCKUP_DARK_URL, PLATFORM_WORDMARK } from "@/lib/product-brand";
+import { PLATFORM_WORDMARK, PLATFORM_WORDMARK_DARK_URL } from "@/lib/product-brand";
 import {
   normalizeFormDocumentTemplate,
   resolveFormDocumentChrome,
@@ -30348,7 +30348,7 @@ export default function Dashboard() {
         <div className="brand-lockup">
           <img
             className="company-logo"
-            src={businessSettings.coreLogoUrl?.trim() || PLATFORM_LOCKUP_DARK_URL}
+            src={businessSettings.coreLogoUrl?.trim() || PLATFORM_WORDMARK_DARK_URL}
             alt={businessSettings.hidePlatformName ? businessSettings.companyName : PLATFORM_WORDMARK}
           />
         </div>

@@ -1,5 +1,5 @@
 import type { BusinessBrandingSettings } from "@/lib/branding";
-import { normalizeBusinessBranding } from "@/lib/branding";
+import { normalizeBusinessBranding, resolveCompanyLogoUrl } from "@/lib/branding";
 
 export type FormDocumentLayout =
   | "quote"
@@ -106,7 +106,7 @@ export function resolveFormDocumentChrome(
 ): FormDocumentChrome {
   const business = normalizeBusinessBranding(businessRaw);
   const headerColor = template.headerColor?.trim() || business.brandPrimaryColor || "#157fa8";
-  const logoUrl = template.logoUrl?.trim() || business.logoUrl || "/ewg-logo.png";
+  const logoUrl = template.logoUrl?.trim() || resolveCompanyLogoUrl(business);
   return {
     logoUrl,
     showLogo: template.showLogo !== false,
