@@ -57,7 +57,8 @@ Wordmark rules:
 
 - **blake** in lowercase charcoal (`#2C3138` on light backgrounds, white on dark)
 - **Blue dot** period (`#4A90D9`) — never the same colour as the letters
-- Medium-weight rounded sans (Inter Medium paths in SVG)
+- Medium-weight rounded sans (Plus Jakarta Sans Medium paths in SVG)
+- Blue dot sits on the **baseline** like a full stop — not vertically centred on the letters
 
 Assets:
 - `apps/web/public/brand/blake-wordmark.svg`
