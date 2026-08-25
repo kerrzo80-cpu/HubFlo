@@ -20,14 +20,11 @@ Confirm expected keys exist (`people-store`, `workflow-store`, `hub-detail-store
 ## Schema apply
 
 ```bash
-export DATABASE_URL=postgresql://...
-pnpm db:generate
+export DATABASE_URL=postgresql://...?sslmode=require
 pnpm db:migrate
-# Also apply packages/database/sql/0001_tenant_security.sql after baseline tables exist
-# Then 0002 / 0003 as needed
+node infra/migrate/apply-postgres-sql.mjs 0001_tenant_security.sql 0004_files_leads_takeoff_rls.sql
+node infra/migrate/bootstrap-staging-tenant.mjs --slug ewg-staging --name "EWG Staging"
 ```
-
-Until baseline Drizzle migrations exist for core tables, apply generated SQL from `drizzle-kit generate` first. See `packages/database/sql/0000_baseline_gap.md`.
 
 ## Mapping (order)
 
