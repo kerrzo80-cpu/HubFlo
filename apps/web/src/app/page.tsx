@@ -30394,7 +30394,7 @@ export default function Dashboard() {
 
       <div className="buddy-dock" aria-live="polite">
         {nexaAssistantOpen ? (
-          <aside className="buddy-panel" aria-label="Blake assistant">
+          <aside className="buddy-panel" aria-label="Ask Ayla">
             <header>
               <div>
                 <span className={`buddy-mark mood-${buddyMood}`}>
@@ -30415,13 +30415,13 @@ export default function Dashboard() {
                   </small>
                 </div>
               </div>
-              <button className="icon-button" aria-label="Close Blake" onClick={() => setNexaAssistantOpen(false)}>
+              <button className="icon-button" aria-label="Close Ask Ayla" onClick={() => setNexaAssistantOpen(false)}>
                 <X size={18} />
               </button>
             </header>
             <div className="buddy-messages" ref={nexaAssistantMessagesRef}>
               {selectedQuote && buddyHasOpenChecks ? (
-                <div className={`buddy-checks mood-${buddyMood}`} aria-label="Blake quote checks">
+                <div className={`buddy-checks mood-${buddyMood}`} aria-label="Ayla quote checks">
                   <strong>
                     {buddyAlertCount > 0
                       ? `${buddyAlertCount} important check${buddyAlertCount === 1 ? "" : "s"} on ${selectedQuote.ref}`
@@ -30562,7 +30562,7 @@ export default function Dashboard() {
         <button
           className={nexaAssistantOpen ? `buddy-launcher active mood-${buddyMood}` : `buddy-launcher mood-${buddyMood}`}
           aria-label={nexaAssistantOpen ? "Close Ask Ayla" : "Open Ask Ayla"}
-          title="Chat with Blake"
+          title="Chat with Ayla"
           onClick={() => setNexaAssistantOpen((current) => !current)}
         >
           {nexaAssistantOpen ? (
@@ -30797,7 +30797,7 @@ export default function Dashboard() {
             <a
               href="/train"
               className="context-link"
-              aria-label="Ayla Trainer"
+              aria-label="Blake Trainer"
               data-tooltip="Blake voice-first staff trainer"
             >
               <MessageCircle size={17} />
