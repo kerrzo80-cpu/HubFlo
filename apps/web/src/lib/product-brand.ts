@@ -10,6 +10,8 @@ export const PLATFORM_POSITIONING = "Built for busy trade businesses";
 export const PLATFORM_WORDMARK_INK = "#2C3138";
 /** Wordmark dot (period) — always blue, never the same as letters. */
 export const PLATFORM_WORDMARK_DOT = "#4A90D9";
+/** Compact blake. mark for app chrome — official artwork, not a font. */
+export const PLATFORM_MARK_URL = "/brand/blake-mark.svg";
 /** Wordmark only for light headers. */
 export const PLATFORM_WORDMARK_DARK_URL = "/brand/blake-wordmark-dark.svg";
 /** Wordmark only for dark headers. */

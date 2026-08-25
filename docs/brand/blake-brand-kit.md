@@ -28,6 +28,7 @@ Avoid:
 - NeXa / Nexa (retired product name)
 - Ask Blake (retired assistant label)
 - BLAKE in all caps for body copy
+- Rebuilding the wordmark from a font — always use the official logo artwork
 
 ## Assistant
 
@@ -43,29 +44,36 @@ Ayla reads live Blake records, answers operational questions and prepares action
 
 | Token | Hex | Use |
 | --- | --- | --- |
-| Charcoal | `#2C3138` | Wordmark letters |
+| Charcoal | `#222222` | Wordmark letters (from official artwork) |
 | Blake Blue | `#4A90D9` | Wordmark dot (period) |
 | Action Blue | `#2563EB` | Primary CTAs, links, selected states |
 | Soft Mist | `#F8FAFC` | Soft page atmosphere |
 | Line | `#E2E8F0` | Borders and dividers |
-| Steel | `#64748B` | Secondary text |
+| Steel | `#8B939A` | Secondary text / tagline |
 | Ayla Violet | `#7C3AED` | Assistant accents |
 
 ## Logo Assets
 
-Wordmark rules:
+The wordmark is **official raster artwork**, not a font substitution. Source file:
 
-- **blake** in lowercase charcoal (`#2C3138` on light backgrounds, white on dark)
-- **Blue dot** period (`#4A90D9`) — never the same colour as the letters
-- Medium-weight rounded sans (Plus Jakarta Sans Medium paths in SVG)
-- Blue dot sits on the **baseline** like a full stop — not vertically centred on the letters
+- `docs/brand/blake-logo-source.jpg`
 
-Assets:
-- `apps/web/public/brand/blake-wordmark.svg`
-- `apps/web/public/brand/blake-lockup-dark.svg` (for light backgrounds)
-- `apps/web/public/brand/blake-lockup-light.svg` (for dark backgrounds)
+Derived assets in `apps/web/public/brand/`:
 
-Legacy `nexa-*` mark files remain in the repo for backwards compatibility during the transition.
+| File | Use |
+| --- | --- |
+| `blake-wordmark-master.png` | Wordmark only (light backgrounds) |
+| `blake-wordmark-light-master.png` | Wordmark only (dark headers) |
+| `blake-lockup-master.png` | Wordmark + tagline (light backgrounds) |
+| `blake-lockup-light-master.png` | Wordmark + tagline (dark rail) |
+| `blake-mark-master.png` | App icon tile |
+| `blake-wordmark-dark.svg` | SVG wrapper → wordmark master |
+| `blake-wordmark-light.svg` | SVG wrapper → light wordmark |
+| `blake-lockup-dark.svg` | SVG wrapper → lockup master |
+| `blake-lockup-light.svg` | SVG wrapper → light lockup |
+| `blake-mark.svg` | SVG wrapper → mark master |
+
+When the logo changes, replace `blake-logo-source.jpg` and re-export the PNG masters — do not redraw with CSS or font stacks.
 
 ## Voice
 
@@ -86,7 +94,5 @@ Ayla should sound:
 
 - AI Office Manager
 - Ask Ayla
-- Quote faster
-- Stay on schedule
-- Control every job
-- Protect your profit
+- blake. (wordmark)
+- Your AI Office Manager (tagline)
