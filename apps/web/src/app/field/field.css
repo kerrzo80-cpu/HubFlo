@@ -50,9 +50,9 @@
 }
 
 .field-topbar img {
-  height: 40px;
+  height: 36px;
   width: auto;
-  max-width: 72px;
+  max-width: 140px;
   object-fit: contain;
 }
 
