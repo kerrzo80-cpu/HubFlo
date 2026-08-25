@@ -55,6 +55,7 @@ export const secretAuthCronPaths = new Set([
   "/api/integrations/intake",
   "/api/whatsapp/webhook",
   "/api/reports/board-pack/cron",
+  "/api/ops/postgres-reconcile",
 ]);
 const publicAssetPaths = new Set([
   "/ewg-logo.png",
