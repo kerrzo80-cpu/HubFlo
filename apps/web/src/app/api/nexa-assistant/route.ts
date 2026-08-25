@@ -1,15 +1,36 @@
 import { NextResponse } from "next/server";
 
-import { getAccessProfileFromHeaders } from "@/lib/access";
-import { confirmBlakeOperatorAction } from "@/lib/blake-operator";
+import { canEditTenders, getAccessProfileFromHeaders } from "@/lib/access";
+import type { BlakeScreenContext } from "@/lib/blake-open-record";
+import { contextualiseJobDirectoryFollowUp, handleBlakeJobDirectoryMessage } from "@/lib/blake-job-directory";
+import {
+  confirmBlakeOrchestratorAction,
+  handleBlakeOrchestratedMessage,
+} from "@/lib/blake-orchestrator";
+import { parseJsonRequestBody } from "@/lib/http";
 import {
   confirmNexaAssistantAction,
-  type BuddyClientContext,
+  handleNexaAssistantMessage,
   type BlakeHistoryMessage,
   type BuddyClientContext,
 } from "@/lib/nexa-assistant";
-import { handleContextAwareNexaAssistantMessage } from "@/lib/nexa-assistant-context";
-import { parseJsonRequestBody } from "@/lib/http";
+import { loadServerStore } from "@/lib/server-store";
+import { confirmCreateLeadWorkflow } from "@/lib/blake-create-lead-workflow";
+import { confirmBlakeWriteAction, handleBlakeWriteMessage } from "@/lib/blake-write-operator";
+
+export const runtime = "nodejs";
+export const maxDuration = 90;
+
+function readScreenContext(input: unknown): BlakeScreenContext | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const raw = input as Record<string, unknown>;
+  const view = typeof raw.view === "string" ? raw.view.slice(0, 80) : undefined;
+  const tenderId = typeof raw.tenderId === "string" ? raw.tenderId.slice(0, 120) : undefined;
+  const jobId = typeof raw.jobId === "string" ? raw.jobId.slice(0, 120) : undefined;
+  const takeoffId = typeof raw.takeoffId === "string" ? raw.takeoffId.slice(0, 120) : undefined;
+  if (!view && !tenderId && !jobId && !takeoffId) return undefined;
+  return { view, tenderId, jobId, takeoffId };
+}
 
 type AssistantRequest = {
   message?: string;
@@ -179,37 +200,17 @@ export async function GET(request: Request) {
   if (!canChat) {
     return NextResponse.json({ error: "Your role cannot use Blake." }, { status: 403 });
   }
-  const payload = await parseJsonRequestBody<AssistantRequest>(request);
-  if (!payload) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-
-  const actor = {
-    id: request.headers.get("x-nexa-auth-user-id")
-      || request.headers.get("x-hubflo-employee-id")
-      || "nexa-user",
-    name: request.headers.get("x-nexa-auth-user-name") || "Blake user",
-  };
-
-  if (payload.confirmActionId) {
-    const operatorResult = await confirmBlakeOperatorAction(payload.confirmActionId, actor, access);
-    if (operatorResult.matched) {
-      return NextResponse.json(operatorResult, { status: operatorResult.status });
-    }
-    if (!access.canEditJobs) {
-      return NextResponse.json({ error: "Your role can chat with Blake but cannot create bookings." }, { status: 403 });
-    }
-    const result = await confirmNexaAssistantAction(payload.confirmActionId, actor);
-    return NextResponse.json(result, { status: result.status });
-  }
-
-  const message = payload.message?.trim();
-  if (!message) return NextResponse.json({ error: "Ask Ayla a question first." }, { status: 400 });
-  const history = Array.isArray(payload.history)
-    ? payload.history
-      .filter((item): item is BlakeHistoryMessage => Boolean(item && (item.role === "user" || item.role === "assistant") && typeof item.text === "string"))
-      .slice(-16)
-      .map((item) => ({ role: item.role, text: item.text.slice(0, 4000) }))
-    : [];
-  const buddyContext =
-    payload.buddyContext && typeof payload.buddyContext === "object" ? payload.buddyContext : undefined;
-  return NextResponse.json(await handleContextAwareNexaAssistantMessage(message, actor, access, { history, buddyContext }));
+  const url = new URL(request.url);
+  const { loadBlakeMemoryForScreen } = await import("@/lib/blake-record-memory");
+  const memory = loadBlakeMemoryForScreen({
+    tenderId: url.searchParams.get("tenderId"),
+    jobId: url.searchParams.get("jobId"),
+    takeoffId: url.searchParams.get("takeoffId"),
+  });
+  return NextResponse.json({
+    messages: memory.messages,
+    scope: memory.scope,
+    lastScanSummary: memory.lastScanSummary || null,
+    rejectedCodes: memory.rejectedCodes,
+  });
 }

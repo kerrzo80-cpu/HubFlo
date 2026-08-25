@@ -395,15 +395,21 @@ function TrainSession({
     setVoiceState("speaking");
     try {
       await unlockBlakeVoice();
-      await new Promise<void>((resolve, reject) => {
-        void speakBlakeReply(text, {
-          speakPath: "/api/field/ask-ayla/speak",
-          onEnd: () => resolve(),
-        })
-          .then((stop) => {
-            stopSpeakRef.current = stop;
-          })
-          .catch(reject);
+      setSoundReady(true);
+      const lastBlake = [...bubbles].reverse().find((item) => item.role === "blake")?.text || pendingSpeak;
+      if (!lastBlake) {
+        setVoiceState("idle");
+        setError("Nothing to play yet — start a module first.");
+        return;
+      }
+      stopSpeakRef.current?.();
+      stopSpeakRef.current = await speakBlakeReply(lastBlake, {
+        speakPath: "/api/blake-trainer/speak",
+        preferServer: false,
+        onEnd: () => {
+          stopSpeakRef.current = null;
+          scheduleAutoListen();
+        },
       });
     } catch (err) {
       setVoiceState("idle");

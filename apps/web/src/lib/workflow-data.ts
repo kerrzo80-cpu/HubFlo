@@ -123,6 +123,8 @@ export interface Quote {
   simproSentAt?: string;
   /** Chain continuity ids (survey / takeoff / heat design). */
   metadata?: Record<string, string | undefined>;
+  /** ISO timestamp used for newest-first directory ordering. */
+  createdAt?: string;
 }
 
 export interface PurchaseRequest {

@@ -578,7 +578,7 @@ function deterministicBusinessReply(message: string): string | null {
   const context = buildWorkspaceContext();
 
   if (/\b(hello|hi|hey|good (morning|afternoon|evening))\b/i.test(message)) {
-    return `Hi — I'm Ayla, your Blake business assistant. I can check the diary, quote pipeline, jobs and follow-ups using live Blake data. What do you need?`;
+    return `Hi — I'm Ayla, your Blake business assistant. I can check the diary, quote pipeline, jobs, tenders and follow-ups using live Blake data. What do you need?`;
   }
 
   if (/\b(help|what can you)\b/i.test(message)) {
@@ -609,7 +609,7 @@ function deterministicBusinessReply(message: string): string | null {
   }
 
   if (/\bover.*(labour|hours)|labour.*(over|variance)|running over/i.test(lower)) {
-    if (!context.labourOverruns.length) return "No jobs currently show a positive labour cost variance in Blake.";
+    if (!context.labourOverruns.length) return "No jobs currently show a positive labour cost variance in NeXa.";
     return `Jobs with labour over allowance:\n${context.labourOverruns
       .map((job) => `• ${job.ref} · ${job.customer} · variance ${currency(job.variance || 0)} (planned ${job.planned ?? "?"}h / actual ${job.actual ?? "?"}h)`)
       .join("\n")}`;
@@ -617,7 +617,7 @@ function deterministicBusinessReply(message: string): string | null {
 
   if (/\b(sales|turnover|pipeline|how (are|is) (we|sales))\b/i.test(lower)) {
     return [
-      `Live Blake snapshot:`,
+      `Live NeXa snapshot:`,
       `• ${context.summary.quotes} quotes · ${context.summary.openJobs} open jobs · ${context.summary.leads} leads`,
       `• Accepted/converted quote value currently held: ${currency(context.summary.acceptedSalesValue)}`,
       `• ${context.quoteFollowUps.length} quotes still in Draft/Sent follow-up`,
@@ -626,7 +626,7 @@ function deterministicBusinessReply(message: string): string | null {
   }
 
   if (/\b(how many|count).*(job|quote|lead|customer|employee)/i.test(lower)) {
-    return `Blake currently has ${context.summary.customers} customers, ${context.summary.employees} employees, ${context.summary.leads} leads, ${context.summary.quotes} quotes and ${context.summary.jobs} jobs (${context.summary.openJobs} open).`;
+    return `NeXa currently has ${context.summary.customers} customers, ${context.summary.employees} employees, ${context.summary.leads} leads, ${context.summary.quotes} quotes and ${context.summary.jobs} jobs (${context.summary.openJobs} open).`;
   }
 
   return null;
@@ -646,7 +646,7 @@ async function conversationalReply(
   if (!apiKey) {
     return {
       reply: deterministic
-        ?? "I can answer from live Blake data about quotes, jobs, follow-ups and the diary. Ask a specific Blake question, or check that NEXA_OPENAI_API_KEY is set in Render for freer conversation.",
+        ?? "I can answer from live NeXa data about quotes, jobs, follow-ups and the diary. Ask a specific NeXa question, or check that NEXA_OPENAI_API_KEY is set in Render for freer conversation.",
       aiUsed: false,
     };
   }
@@ -661,37 +661,44 @@ async function conversationalReply(
   }));
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        temperature: 0.2,
-        messages: [
-          {
-            role: "system",
-            content: [
-              "You are Ayla, the Blake business assistant for Errol Watson Group field-service operations.",
-              "Answer using only the supplied Blake workspace JSON, Blake learning notes, and the conversation.",
-              "If the data does not contain the answer, say what is missing. Never invent bookings, values, customers or availability.",
-              "Do not change schedules, quote values, variations or invoices yourself. Suggest and ask the user to confirm operational changes.",
-              "When the user asks how to do something in Blake, give a short numbered walkthrough.",
-              "Use Blake learning notes (habits, repeated misses, quote watch) to personalise advice — evolve with how this team works.",
-              "Keep answers concise, plain English, and useful for a commercial manager.",
-              `The current user is ${actorName}.`,
-              buddyContext ? `Blake learning notes JSON:\n${JSON.stringify(buddyContext)}` : "",
-              `Live Blake workspace JSON:\n${JSON.stringify(context)}`,
-            ].filter(Boolean).join("\n"),
-          },
-          ...recentHistory,
-          { role: "user", content: message },
-        ],
-      }),
-    });
-    if (!response.ok) {
-      return {
-        reply: deterministic ?? "Blake could not reach the AI service just now. Try a more specific Blake question about quotes, jobs or the diary.",
-        aiUsed: false,
+    const system = [
+      `You are Blake, the universal AI operating layer inside NeXa for ${displayCompanyName(getHubDetailState().businessSettings)}.`,
+      "Talk naturally like a capable ChatGPT colleague. Understand follow-up questions from conversation; do not force users into forms or repeat questions they have answered.",
+      "Use the available NeXa tools whenever live records, figures, reports, invoices, profitability, customers or schedules are needed. Do not guess live facts from general knowledge.",
+      "Explain tool results in clear business English and answer the actual question. If records lack reliable cost data, say so explicitly rather than presenting a false margin.",
+      "Read actions may run immediately. Never claim a write happened unless a confirmed NeXa capability reports success; explain that operational writes require confirmation.",
+      "If the user is looking at a tender, job or takeoff, discuss that record first. Honour scope instructions and preserve conversational context.",
+      "Be useful beyond database lookups too: reason, draft, compare, explain and advise as ChatGPT would, while keeping NeXa facts grounded.",
+      BLAKE_FILE_DUMP_LIMIT,
+      `Today is ${new Date().toISOString().slice(0, 10)} and UK date order applies. The current user is ${actorName}.`,
+      buddyContext ? `Working preferences:\n${JSON.stringify(buddyContext)}` : "",
+      openRecord && (openRecord.tender || openRecord.job || openRecord.takeoff) ? `Open record:\n${JSON.stringify(openRecord)}` : "",
+      extras?.scope ? `Confirmed scope:\n${JSON.stringify(extras.scope)}` : "",
+      extras?.lastScanSummary ? `Last drawing scan:\n${extras.lastScanSummary}` : "",
+      `Compact workspace orientation (use tools for detailed facts):\n${JSON.stringify(context.summary)}`,
+    ].filter(Boolean).join("\n");
+    const messages: Array<Record<string, unknown>> = [
+      { role: "system", content: system },
+      ...recentHistory,
+      { role: "user", content: message },
+    ];
+    const definitions = coreContext
+      ? blakeCore.definitions().filter((item) => item.mode === "read" && item.requiredPermissions.every((permission) => coreContext.access[permission as keyof AccessProfile] === true))
+      : [];
+    const tools = definitions.map((item) => ({
+      type: "function",
+      function: { name: item.name, description: item.description, parameters: item.inputSchema },
+    }));
+
+    for (let turn = 0; turn < 5; turn += 1) {
+      const response = await openAiFetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model, temperature: 0.2, messages, tools: tools.length ? tools : undefined, tool_choice: tools.length ? "auto" : undefined }),
+      });
+      if (!response.ok) return { reply: deterministic ?? "Blake could not reach the AI service just now. No Blake data was changed.", aiUsed: false };
+      const body = await response.json() as {
+        choices?: Array<{ message?: { role?: string; content?: string | null; tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }> } }>;
       };
       const assistant = body.choices?.[0]?.message;
       if (!assistant) return { reply: deterministic ?? "I could not form a reply from the live workspace.", aiUsed: false };
@@ -706,7 +713,7 @@ async function conversationalReply(
         try { input = JSON.parse(call.function.arguments || "{}"); } catch { input = {}; }
         const result = coreContext
           ? await blakeCore.execute(call.function.name, input, coreContext)
-          : { ok: false, error: { message: "No trusted NeXa context is available." } };
+          : { ok: false, error: { message: "No trusted Blake context is available." } };
         messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
       }
     }
@@ -780,7 +787,7 @@ async function handleSchedulingMessage(
   if (intent.action !== "book") {
     const bookingText = bookings.length
       ? `Existing diary entries: ${bookings.map((item) => `${item.startTime}-${item.endTime} ${item.label}`).join("; ")}.`
-      : "There are no job or survey bookings in the Blake diary.";
+      : "There are no job or survey bookings in the NeXa diary.";
     return {
       reply: `${employee.name} works ${working.from}-${working.to} on ${formatUkDate(intent.dateIso)}. ${bookingText}`,
       intent,
@@ -1262,7 +1269,7 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
   refreshPendingStore();
   const action = pendingStore.actions.find((item) => item.id === actionId);
   if (!action || action.actorId !== actor.id) {
-    return { ok: false as const, status: 404, reply: "That booking request has expired. Ask Ayla to check the slot again." };
+    return { ok: false as const, status: 404, reply: "That request has expired. Ask Blake again." };
   }
 
   if (action.kind === "budget_prices") {
@@ -1386,8 +1393,8 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
     action: "scheduled by Blake",
     recordType: "job",
     recordId: job.id,
-    summary: `${employee.name} assigned to ${action.costCentreName} on ${formatUkDate(action.date)} from ${action.startTime} to ${action.endTime}.`,
-    source: "Ayla",
+    summary: `${employee.name} assigned to ${booking.costCentreName} on ${formatUkDate(booking.date)} from ${booking.startTime} to ${booking.endTime}.`,
+    source: "Blake",
     importance: "high",
   });
   pendingStore.actions = pendingStore.actions.filter((item) => item.id !== booking.id);
@@ -1401,8 +1408,8 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
   const simproNote = simpro?.exportRecord.status === "Sent"
     ? " The updated schedule was also sent to simPRO."
     : simpro?.exportRecord.status === "Failed"
-      ? " The Blake booking is saved, but the simPRO update failed and is logged for review."
-      : " The Blake booking is saved; simPRO is not currently configured for a live push.";
+      ? " The NeXa booking is saved, but the simPRO update failed and is logged for review."
+      : " The NeXa booking is saved; simPRO is not currently configured for a live push.";
   return {
     ok: true as const,
     status: 200,

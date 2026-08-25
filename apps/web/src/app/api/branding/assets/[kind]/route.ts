@@ -12,7 +12,13 @@ import {
   saveHomeIconAsset,
   type BrandingAssetKind,
 } from "@/lib/branding-assets";
-import { normalizeBusinessBranding, resolveBrandIconUrl, type BrandAppKey } from "@/lib/branding";
+import {
+  APP_ICON_COMPOSE_VERSION,
+  ensureSquareAppIcon,
+  isAppIconAssetKind,
+  toAppleTouchIcon,
+} from "@/lib/branding-icon-square";
+import { normalizeBusinessBranding, resolveBrandIconUrl, resolveBrandLogoUrl, type BrandAppKey } from "@/lib/branding";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 
 export const runtime = "nodejs";
@@ -122,19 +128,21 @@ export async function GET(request: Request, { params }: Params) {
       }
     }
     const brand = normalizeBusinessBranding(getHubDetailState().businessSettings);
-    // Company "logo" asset must never fall through to the blake. product mark.
-    // App icons (logo-field, etc.) may use the product mark when nothing was uploaded.
     const fallback =
-      kind === "logo"
-        ? brand.logoUrl || "/ewg-logo.png"
-        : resolveBrandIconUrl(brand, appKeyForKind(kind));
-    const safeFallback =
-      !fallback || fallback.startsWith("/api/branding/assets/")
-        ? kind === "logo"
-          ? "/ewg-logo.png"
-          : "/brand/blake-mark.svg"
-        : fallback;
-    return NextResponse.redirect(new URL(safeFallback, request.url), 302);
+      kind === "logo" ? resolveBrandLogoUrl(brand) : resolveBrandIconUrl(brand, appKeyForKind(kind));
+    if (!fallback || fallback.startsWith("/api/branding/assets/")) {
+      return new NextResponse(null, { status: 404 });
+    }
+    const target = fallback.startsWith("http") ? fallback : new URL(fallback, publicOrigin(request)).toString();
+    return NextResponse.redirect(target, 302);
+  }
+
+  if (home && isAppIconAssetKind(kind)) {
+    try {
+      return await serveHomeIcon(kind, asset, apple);
+    } catch {
+      // Fall through to raw asset.
+    }
   }
 
   return new NextResponse(new Uint8Array(asset.buffer), {
