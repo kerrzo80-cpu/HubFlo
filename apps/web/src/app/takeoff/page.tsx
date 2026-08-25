@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
+import { resolveBrandLogoUrl } from "@/lib/branding";
+import { useBrand } from "@/components/BrandProvider";
 import {
   ArrowLeft,
   Check,
@@ -55,6 +57,7 @@ function stepIndex(step: TakeoffSkillStep) {
 }
 
 export default function TakeoffSkillPage() {
+  const brand = useBrand();
   const [authState, setAuthState] = useState<AuthState>("checking");
   const [authName, setAuthName] = useState<string | null>(null);
   const [projects, setProjects] = useState<TakeoffProject[]>([]);

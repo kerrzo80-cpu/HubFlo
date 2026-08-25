@@ -128,8 +128,11 @@ import {
   normalizeBusinessBranding,
   operationsLabel,
   platformLabel,
+  resolveBrandLogoUrl,
+  resolvePlatformRailLockup,
   type BusinessBrandingSettings,
 } from "@/lib/branding";
+import { PLATFORM_LOCKUP_DARK_URL, PLATFORM_WORDMARK } from "@/lib/product-brand";
 import {
   normalizeFormDocumentTemplate,
   resolveFormDocumentChrome,
@@ -30344,7 +30347,11 @@ export default function Dashboard() {
       ) : null}
       <header className="global-header">
         <div className="brand-lockup">
-          <img className="company-logo" src={businessSettings.logoUrl || "/ewg-logo.png"} alt={businessSettings.companyName} />
+          <img
+            className="company-logo"
+            src={businessSettings.coreLogoUrl?.trim() || PLATFORM_LOCKUP_DARK_URL}
+            alt={businessSettings.hidePlatformName ? businessSettings.companyName : PLATFORM_WORDMARK}
+          />
         </div>
 
         <label className="global-search">
@@ -30846,17 +30853,8 @@ export default function Dashboard() {
           </a>
 
           <div className="support-panel">
-            {businessSettings.hidePlatformName ? (
-              <>
-                <img src={businessSettings.logoUrl || "/ewg-logo.png"} alt={businessSettings.companyName} />
-                <small>{businessSettings.productName || businessSettings.companyName}</small>
-              </>
-            ) : (
-              <>
-                <img src="/brand/blake-lockup-light.svg" alt="blake. — Your AI Office Manager" />
-                <small>Service command center</small>
-              </>
-            )}
+            <img src={resolvePlatformRailLockup(businessSettings)} alt={PLATFORM_WORDMARK} />
+            <small>{businessSettings.hidePlatformName ? businessSettings.productName || businessSettings.companyName : "Your AI Office Manager"}</small>
           </div>
         </aside>
 

@@ -1,6 +1,6 @@
 /** Owner white-label / personalising settings shared across Core, Field, Survey, Takeoffs and Heat Design. */
 
-import { PLATFORM_NAME } from "@/lib/product-brand";
+import { PLATFORM_LOCKUP_LIGHT_URL, PLATFORM_MARK_URL, PLATFORM_NAME } from "@/lib/product-brand";
 
 export type BusinessBrandingSettings = {
   companyName: string;
@@ -82,7 +82,7 @@ export const defaultBusinessBrandingSettings: BusinessBrandingSettings = {
   heatDesignLogoUrl: "",
   portalWelcomeText: "Welcome to your Errol Watson Group workspace. Review quotes, jobs and invoices in one place.",
   portalAcceptanceText: "By accepting this quotation online you confirm the scope, price and terms shown.",
-  hidePlatformName: true,
+  hidePlatformName: false,
   productName: "EWG",
   coreAppName: "EWG Core",
   fieldAppName: "EWG Field",
@@ -246,20 +246,29 @@ export function applyBrandCssVariables(brand: Pick<PublicBranding, "brandPrimary
   root.style.setProperty("--blue-soft", lightenHex(primary, 0.88));
 }
 
-/** In-app header logo for an app (per-app → company logo). */
+/** In-app header logo for an app (per-app upload → blake. product mark). Company logo stays on PDFs/forms. */
 export function resolveBrandLogoUrl(brand: PublicBranding | BusinessBrandingSettings, app?: BrandAppKey): string {
   if (app) {
     const specific = trimLogoUrl(brand[brandAppLogoField(app)]);
     if (specific) return specific;
   }
-  return brand.logoUrl || defaultBusinessBrandingSettings.logoUrl;
+  return PLATFORM_MARK_URL;
 }
 
-/** Home-screen / PWA icon for an app (per-app → shared app icon → company logo). */
+/** Home-screen / PWA icon for an app (per-app → shared app icon → blake. mark). */
 export function resolveBrandIconUrl(brand: PublicBranding | BusinessBrandingSettings, app?: BrandAppKey): string {
   if (app) {
     const specific = trimLogoUrl(brand[brandAppLogoField(app)]);
     if (specific) return specific;
   }
-  return brand.appIconUrl || brand.logoUrl || defaultBusinessBrandingSettings.logoUrl;
+  const sharedIcon = trimLogoUrl(brand.appIconUrl);
+  if (sharedIcon && sharedIcon !== trimLogoUrl(brand.logoUrl)) return sharedIcon;
+  return PLATFORM_MARK_URL;
+}
+
+/** Dark-rail lockup for Core sidebar — blake. unless a Core-specific logo was uploaded. */
+export function resolvePlatformRailLockup(brand: PublicBranding | BusinessBrandingSettings): string {
+  const coreLogo = trimLogoUrl(brand.coreLogoUrl);
+  if (coreLogo) return coreLogo;
+  return PLATFORM_LOCKUP_LIGHT_URL;
 }

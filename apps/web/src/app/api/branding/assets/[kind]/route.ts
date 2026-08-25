@@ -58,7 +58,7 @@ export async function GET(request: Request, { params }: Params) {
     const fallback =
       kind === "logo" ? resolveBrandLogoUrl(brand) : resolveBrandIconUrl(brand, appKeyForKind(kind));
     const safeFallback =
-      !fallback || fallback.startsWith("/api/branding/assets/") ? "/ewg-logo.png" : fallback;
+      !fallback || fallback.startsWith("/api/branding/assets/") ? "/brand/blake-mark.svg" : fallback;
     return NextResponse.redirect(new URL(safeFallback, request.url), 302);
   }
 
