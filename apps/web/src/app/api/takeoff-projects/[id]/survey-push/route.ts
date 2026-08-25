@@ -20,11 +20,11 @@ export async function POST(
 
   const body = await parseJsonRequestBody<SurveyPushPayload>(request);
   if (!body?.quoteId) {
-    return NextResponse.json({ error: "Search and select the NeXa quote before pushing this survey." }, { status: 400 });
+    return NextResponse.json({ error: "Search and select the Blake quote before pushing this survey." }, { status: 400 });
   }
 
   const { id } = await params;
-  const actor = body.actor?.trim() || request.headers.get(employeeHeaderName) || "NeXa Survey";
+  const actor = body.actor?.trim() || request.headers.get(employeeHeaderName) || "Blake Survey";
   const result = pushSurveyProjectToQuote(id, body.quoteId, actor);
 
   if (!result) {

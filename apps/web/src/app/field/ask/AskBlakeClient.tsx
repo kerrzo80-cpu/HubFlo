@@ -55,7 +55,7 @@ export default function AskBlakePage() {
     let cancelled = false;
     async function loadStatus() {
       try {
-        const response = await fetch("/api/field/ask-blake", { method: "GET" });
+        const response = await fetch("/api/field/ask-ayla", { method: "GET" });
         const body = (await response.json().catch(() => ({}))) as AskBlakeStatus & {
           error?: string;
           connected?: boolean;
@@ -72,13 +72,13 @@ export default function AskBlakePage() {
           connected: Boolean(body.connected),
           warning: body.connected
             ? undefined
-            : "OpenAI isn’t connected — Blake can still use the field fallback.",
+            : "OpenAI isn’t connected — Ayla can still use the field fallback.",
         });
       } catch {
         if (!cancelled) {
           setStatus({
             connected: false,
-            warning: "Couldn’t reach Ask Blake — check signal and refresh.",
+            warning: "Couldn’t reach Ask Ayla — check signal and refresh.",
           });
         }
       }
@@ -89,27 +89,18 @@ export default function AskBlakePage() {
     };
   }, []);
 
-  const blakeMood =
-    status == null ? "idle" : status.connected === false ? "alert" : job ? "guide" : "idle";
-
   return (
     <main className="field-screen ask-blake-page">
       <header className="ask-blake-hero">
-        <BlakeCharacter mood={blakeMood} size="hero" />
+        <BlakeCharacter mood="idle" size="hero" />
         <div>
-          <p className="eyebrow">Blake · on-site AI</p>
-          <h1>Ask Blake</h1>
+          <p className="eyebrow">Ask Ayla</p>
+          <h1>Type, photos or video</h1>
           <p className="field-page-sub">
             {job?.jobRef
-              ? `${job.jobRef} · ${job.customer ?? "Job"} — describe the fault or attach media.`
-              : "Your site backbone. Describe the fault, or attach a photo or short video for cause, checks and next steps."}
+              ? `${job.jobRef} · ${job.customer ?? "Job"}`
+              : "Describe the fault or attach a photo or short video — likely cause, checks, next steps."}
           </p>
-          {status ? (
-            <span className={`ask-blake-live-chip ${status.connected ? "is-live" : "is-soft"}`}>
-              <BlakeCharacter mood={status.connected ? "good" : "alert"} size="sm" />
-              {status.connected ? "Blake live" : "Blake fallback"}
-            </span>
-          ) : null}
         </div>
       </header>
 

@@ -2841,7 +2841,7 @@ const filteredMarkupPlantTools = useMemo(() => {
   const markupSyncLabel = (() => {
     if (!markupOfflineDraftSavedAt) return "";
     if (markupSyncStatus === "saving") return "Saving markup...";
-    if (markupSyncStatus === "saved") return "Saved to NeXa";
+    if (markupSyncStatus === "saved") return "Saved to Blake";
     if (markupSyncStatus === "offline") return "Saved offline";
     if (markupSyncStatus === "queued") return "Offline draft waiting to sync";
     if (markupSyncStatus === "error") return "Markup sync needs retry";
@@ -3289,7 +3289,7 @@ const filteredMarkupPlantTools = useMemo(() => {
       if (patch.servicesMarkup) {
         const savedAt = writeMarkupOfflineDraft(projectId, patch.servicesMarkup, {
           pendingSync: false,
-          reason: "Markup synced to NeXa",
+          reason: "Markup synced to Blake",
         });
         if (savedAt) setMarkupOfflineDraftSavedAt(savedAt);
         setMarkupPendingSyncProjectId((current) => (current === projectId ? "" : current));
@@ -3347,7 +3347,7 @@ const filteredMarkupPlantTools = useMemo(() => {
       servicesMarkup: draftMarkup,
       materialAllowances: quantityPatch.materialAllowances,
       supplierRequests: quantityPatch.supplierRequests,
-    }, "Offline markup draft synced to NeXa.");
+    }, "Offline markup draft synced to Blake.");
   }
 
   function currentServicesMarkupSnapshot() {
@@ -5662,7 +5662,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   ) {
     const backgroundSvg = exportBackgroundDataUrl
       ? `<image href="${escapeSvgText(exportBackgroundDataUrl)}" x="0" y="0" width="${markupCanvasWidth}" height="${markupCanvasHeight}" preserveAspectRatio="none" opacity="0.9" />`
-      : `<rect x="0" y="0" width="${markupCanvasWidth}" height="${markupCanvasHeight}" fill="#ffffff" /><text x="28" y="42" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#607084">${escapeSvgText(markupSelectedDrawing?.fileName ?? "Drawing source saved in NeXa")}</text>`;
+      : `<rect x="0" y="0" width="${markupCanvasWidth}" height="${markupCanvasHeight}" fill="#ffffff" /><text x="28" y="42" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#607084">${escapeSvgText(markupSelectedDrawing?.fileName ?? "Drawing source saved in Blake")}</text>`;
     const pipeSvg = snapshot.pipes.map((pipe) => {
       const points = pipe.points.map((point) => `${point.x},${point.y}`).join(" ");
       const colour = escapeSvgText(markupPipeColour(pipe.material, pipe.diameter, pipe.service));
@@ -5757,7 +5757,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
           documentId: snapshotDocument.id,
-          actor: "NeXa Takeoff",
+          actor: "Blake Takeoff",
         }),
       });
       if (!response.ok) {
@@ -6037,7 +6037,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         setActiveTab("boq");
         setBlakeBoqDraft(null);
         setNotice(
-          `${files.length} ${kind.toLowerCase()} file${files.length === 1 ? "" : "s"} uploaded — ${result.importedBoqLines} bill line${result.importedBoqLines === 1 ? "" : "s"} imported. Upload drawings too, then Ask Blake to review bill for clips and hours/metre.`,
+          `${files.length} ${kind.toLowerCase()} file${files.length === 1 ? "" : "s"} uploaded — ${result.importedBoqLines} bill line${result.importedBoqLines === 1 ? "" : "s"} imported. Upload drawings too, then Ask Ayla to review bill for clips and hours/metre.`,
         );
       } else {
         const warning = result.parseWarnings?.slice(0, 2).join(" ") ?? "";
@@ -6134,7 +6134,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     if (!selectedProject) return;
     const billCount = selectedProject.materialAllowances.filter((line) => !line.parentMaterialId).length;
     if (!billCount) {
-      setError("Import BOQ Excel lines first, then ask Blake to review each bill item against the drawings.");
+      setError("Import BOQ Excel lines first, then ask Ayla to review each bill item against the drawings.");
       setActiveTab("intake");
       return;
     }
@@ -6142,7 +6142,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       document.kind === "Drawing" || document.kind === "Marked-up drawing",
     );
     if (!hasDrawing && aiStatus?.connected) {
-      setNotice("No drawings on this project yet — Blake will still suggest ancillaries/labour from the bill, then refine when drawings are uploaded.");
+      setNotice("No drawings on this project yet — Ayla will still suggest ancillaries/labour from the bill, then refine when drawings are uploaded.");
     }
 
     setIsBlakeReviewing(true);
@@ -6755,7 +6755,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
             approvedBy: "Office review",
           },
         });
-        if (!approvedProject) throw new Error("Unable to approve Takeoff project before pushing into NeXa.");
+        if (!approvedProject) throw new Error("Unable to approve Takeoff project before pushing into Blake.");
         projectToPush = approvedProject;
       }
 
@@ -6776,7 +6776,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       setQuotes((current) => current.map((quote) => (quote.id === result.quote.id ? result.quote : quote)));
       setPushedQuoteLink({
         href: `/?quote=${encodeURIComponent(result.quote.id)}`,
-        label: `Open ${result.quote.ref} in NeXa`,
+        label: `Open ${result.quote.ref} in Blake`,
       });
       setActiveTab("review");
       setNotice(`${result.project.reference} pushed into ${result.quote.ref}: ${result.costCentres?.length ?? 1} cost centre(s) added to the quote.`);
@@ -7365,7 +7365,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         {markupToolMode === "calibrate"
                           ? `Draw a reference line over a known dimension. ${markupCalibrationPickedCount}/2 endpoints selected.`
                           : markupSelectedDrawing
-                            ? `${markupSelectedDrawing.fileName} is locked behind the editable NeXa markup.`
+                            ? `${markupSelectedDrawing.fileName} is locked behind the editable Blake markup.`
                             : "Upload a drawing to use as the locked background."}
                       </span>
                     </div>
@@ -8395,7 +8395,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       <Ruler size={18} />
                       <span>
                         <strong>iPad / iPhone room scan</strong>
-                        <small>Live capture should run through NeXa Field using iOS RoomPlan where the device supports it. This pilot imports the RoomPlan JSON or scan export after capture.</small>
+                        <small>Live capture should run through Blake Field using iOS RoomPlan where the device supports it. This pilot imports the RoomPlan JSON or scan export after capture.</small>
                       </span>
                       <UploadButton
                         kind="LiDAR scan"
@@ -9177,7 +9177,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         onClick={() => runBlakeBoqReview(false)}
                       >
                         <Sparkles size={15} />
-                        {isBlakeReviewing ? "Blake reviewing…" : "Ask Blake to review bill"}
+                        {isBlakeReviewing ? "Blake reviewing…" : "Ask Ayla to review bill"}
                       </button>
                       <button
                         className="takeoff-secondary-button"
@@ -9366,7 +9366,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         </div>
                       ))}
                       {!selectedProject.labourAllowances.length ? (
-                        <p className="takeoff-empty-table-note">Ask Blake to review the bill to draft hours per metre / Nr against each item.</p>
+                        <p className="takeoff-empty-table-note">Ask Ayla to review the bill to draft hours per metre / Nr against each item.</p>
                       ) : null}
                     </div>
                   </article>
@@ -9407,7 +9407,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       <article>
                         <span>Survey evidence</span>
                         <strong>{surveyEvidenceDocuments.length}</strong>
-                        <small>Photos, notes and LiDAR from NeXa Survey</small>
+                        <small>Photos, notes and LiDAR from Blake Survey</small>
                       </article>
                       <article>
                         <span>Office documents</span>

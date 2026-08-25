@@ -118,7 +118,7 @@ test("Blake teaches from approved materials and tracks completion through a chec
         role: "Engineer",
         mode: "check_answer",
         message:
-          "NeXa is the command center for quotes and jobs with Core and Field. If it’s not in approved materials Blake must not guess and I should ask Brian.",
+          "Blake is the command center for quotes and jobs. If it’s not in approved materials Blake must not guess and I should ask Brian.",
         voice: true,
       });
       assert.equal(check.checkResult?.passed, true);

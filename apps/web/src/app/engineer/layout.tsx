@@ -149,7 +149,13 @@ export default function EngineerLayout({ children }: Readonly<{ children: React.
           }
         }
       `}</style>
-      <EngineerBrandBar />
+      <header className="engineer-brand-bar" aria-label="Blake engineer app">
+        <img src="/brand/blake-mark.svg" alt="" aria-hidden="true" />
+        <div className="engineer-brand-copy">
+          <strong>Ayla</strong>
+          <span>Field command</span>
+        </div>
+      </header>
       {children}
     </>
   );

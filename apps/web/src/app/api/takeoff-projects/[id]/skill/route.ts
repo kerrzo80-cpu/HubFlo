@@ -665,7 +665,7 @@ export async function POST(
   const action = body?.action;
   if (!action) return NextResponse.json({ error: "action is required" }, { status: 400 });
 
-  const actor = body?.actor?.trim() || request.headers.get(employeeHeaderName) || "NeXa Takeoff";
+  const actor = body?.actor?.trim() || request.headers.get(employeeHeaderName) || "Blake Takeoff";
   let skill = ensureSkill(project);
 
   if (action === "analyse") {

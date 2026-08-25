@@ -3,23 +3,10 @@ import { EnvHostBanner } from "@/components/EnvHostBanner";
 import "./train.css";
 
 export const metadata: Metadata = {
-  title: "Trainer",
+  title: "Blake Trainer · Blake",
   description:
-    "Voice-first AI trainer for staff — role-aware modules, understanding checks, answers only from approved materials.",
-  applicationName: "Trainer",
-  manifest: "/api/manifest/trainer",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "black-translucent",
-    title: "Trainer",
-  },
-  icons: {
-    icon: [
-      { url: "/api/branding/favicon?size=32&v=tab4", sizes: "32x32", type: "image/png" },
-      { url: "/api/branding/assets/logo-trainer?home=1&v=compose5", sizes: "512x512", type: "image/png" },
-    ],
-    apple: [{ url: "/api/branding/assets/logo-trainer?apple=1&v=compose5", sizes: "180x180", type: "image/png" }],
-  },
+    "Voice-first AI trainer for Blake staff — role-aware modules, understanding checks, answers only from approved materials.",
+  applicationName: "Blake Trainer",
 };
 
 export const viewport: Viewport = {

@@ -67,13 +67,11 @@ export default function EngineerTimeCheckPage() {
           </div>
           <TriangleAlert size={21} />
         </div>
-        <p className="engineer-muted-copy">
-          A gap between scheduled jobs needs assigning in Field Hours — link it to an existing job and cost centre, or
-          create a reactive job if work came in before the office could schedule it.
-        </p>
-        <Link href="/field/time-check" className="engineer-secondary-action" style={{ display: "inline-flex", marginTop: 8 }}>
-          <Clock3 size={16} /> Assign gaps in Field Hours
-        </Link>
+        <p className="engineer-muted-copy">Blake found a 30 minute gap between scheduled jobs. Assign it to an existing job/cost centre, or create a reactive job if work came in before the office could schedule it.</p>
+        <div className="engineer-gap-options">
+          <button type="button">Assign to job and cost centre</button>
+          <button type="button">Create reactive job</button>
+        </div>
       </section>
 
       <section className="engineer-outcome-bar" aria-label="Time check actions">

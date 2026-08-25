@@ -100,7 +100,7 @@ function reviewCopy(alert: OfficeAttentionItem) {
   if (alert.type === "Missing daily time check") {
     return {
       title: "Timesheet chase",
-      body: "NeXa has not had the engineer confirmation for the day. Chase privately so clients and other engineers do not see hours or pay details.",
+      body: "Blake has not had the engineer confirmation for the day. Chase privately so clients and other engineers do not see hours or pay details.",
       rows: [
         ["Expected reply", "Confirmed / changed hours / no work"],
         ["Last chase", "09:00 today"],

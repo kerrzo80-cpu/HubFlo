@@ -190,7 +190,7 @@ export function getLastSimproDiscovery() {
   return discoveryStore.lastRun ?? null;
 }
 
-export async function runSimproDiscovery(actor = "NeXa admin"): Promise<SimproDiscoveryResult> {
+export async function runSimproDiscovery(actor = "Blake admin"): Promise<SimproDiscoveryResult> {
   const startedAt = new Date().toISOString();
   const probes: SimproDiscoveryProbe[] = [];
   const fixturesSaved: string[] = [];

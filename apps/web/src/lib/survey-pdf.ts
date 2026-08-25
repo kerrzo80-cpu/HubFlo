@@ -88,7 +88,7 @@ export async function createSurveyPdf(
   pdf.setTitle(`${survey.reference} - ${survey.customerName} site survey`);
   pdf.setAuthor(`${company} - NeXa Surveyor`);
   pdf.setSubject(`${survey.jobType} survey`);
-  pdf.setCreator("NeXa Surveyor");
+  pdf.setCreator("Blake Surveyor");
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const logo = await embedLogo(pdf);

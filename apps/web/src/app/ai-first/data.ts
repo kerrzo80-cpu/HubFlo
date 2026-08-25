@@ -37,7 +37,7 @@ export type LeadJobTypeOption = {
   hint: string;
 };
 
-export type AuditActor = "AI" | "Blake" | "Brian" | "Customer" | "System";
+export type AuditActor = "AI" | "Ayla" | "Brian" | "Customer" | "System";
 
 export type AuditEvent = {
   id: string;
@@ -152,7 +152,7 @@ export const conversationSeed = [
   },
   {
     role: "ai" as const,
-    text: "Understood — I’m Blake. I’ve loaded the Heating System Playbook for this lead.",
+    text: "Understood — I’m Ayla. I’ve loaded the Heating System Playbook for this lead.",
   },
 ];
 

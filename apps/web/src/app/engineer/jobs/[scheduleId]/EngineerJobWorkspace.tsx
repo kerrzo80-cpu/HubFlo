@@ -76,12 +76,12 @@ function checklistTitle(costCentre: string) {
 function checklistHelp(costCentre: string) {
   const normalised = costCentre.toLowerCase();
   if (/service/.test(normalised) && /boiler/.test(normalised)) {
-    return "Fill each stop/go item — answers populate the Gas service record on this job in NeXa Core. Required items block Complete.";
+    return "Fill each stop/go item — answers populate the Gas service record on this job in Blake Core. Required items block Complete.";
   }
   if (/replace|replacement|install|boiler change/.test(normalised)) {
-    return "Boiler replacement stop/go. Evidence writes straight into NeXa Core on the cost centre before handover.";
+    return "Boiler replacement stop/go. Evidence writes straight into Blake Core on the cost centre before handover.";
   }
-  return "This checklist is driven by the cost centre type. Evidence writes into NeXa Core; required items block completion.";
+  return "This checklist is driven by the cost centre type. Evidence writes into Blake Core; required items block completion.";
 }
 
 function statusCopy(status: EngineerJobWorkflow["requirements"][number]["status"]) {
@@ -288,7 +288,7 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
         photoName: draft.photoName,
         evidence: draft,
       },
-      "Evidence saved — NeXa Core gas/service form updated.",
+      "Evidence saved — Ayla Core gas/service form updated.",
     );
     if (saved) {
       setDraftByRequirement((current) => {
@@ -553,7 +553,7 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
                       <strong>{statusCopy(requirement.status)}</strong>
                       {requirement.status === "missing" ? (
                         <button type="button" onClick={() => void markRequirementDone(requirement.id)} disabled={isSaving}>
-                          {evidenceType === "Checkbox" ? "Mark complete" : "Save to NeXa"}
+                          {evidenceType === "Checkbox" ? "Mark complete" : "Save to Blake"}
                         </button>
                       ) : null}
                     </div>

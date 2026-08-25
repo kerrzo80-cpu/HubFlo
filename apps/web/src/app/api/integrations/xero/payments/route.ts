@@ -303,7 +303,7 @@ export async function POST(request: NextRequest) {
             ? "Sent"
             : invoice.status || "Sent";
 
-    const actor = request.headers.get(employeeHeaderName) || "NeXa";
+    const actor = request.headers.get(employeeHeaderName) || "Blake";
 
     return NextResponse.json({
       ok: true,

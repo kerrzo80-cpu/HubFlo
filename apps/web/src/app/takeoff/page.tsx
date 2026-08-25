@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
+import { resolveBrandLogoUrl } from "@/lib/branding";
+import { useBrand } from "@/components/BrandProvider";
 import {
   ChevronDown,
   ExternalLink,
@@ -174,9 +176,8 @@ async function apiFetch(input: string, init: RequestInit & { skipAuthRedirect?: 
   return response;
 }
 
-export default function TakeoffStudioPage() {
+export default function TakeoffSkillPage() {
   const brand = useBrand();
-  const fileRef = useRef<HTMLInputElement | null>(null);
   const [authState, setAuthState] = useState<AuthState>("checking");
   const [authName, setAuthName] = useState<string | null>(null);
   const [projects, setProjects] = useState<TakeoffProject[]>([]);
@@ -622,7 +623,10 @@ export default function TakeoffStudioPage() {
         }
         await refresh();
       } catch {
-        if (active) setAuthState("signed-out");
+        if (active) {
+          setAuthState("signed-out");
+          setError("Unable to reach Blake auth. Refresh and try again.");
+        }
       }
     })();
     return () => {
@@ -1874,10 +1878,22 @@ export default function TakeoffStudioPage() {
     setBusy("push");
     setError(null);
     try {
-      const prepared = await prepareBoqForPush({ allowPendingAiReview: true });
-      if (!prepared) {
-        setBusy(null);
-        return;
+      // Apply BOQ materials first
+      await runSkill("apply-boq");
+      // Approve if needed
+      if (selected.status === "Draft" || selected.status === "In review") {
+        await apiFetch(`/api/takeoff-projects/${selected.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status: "Approved",
+            review: {
+              ...selected.review,
+              approvedBy: "Blake Takeoff",
+              approvedAt: new Date().toISOString(),
+            },
+          }),
+        });
       }
       const push = await apiFetch(`/api/takeoff-projects/${selected.id}/push-to-tender`, {
         method: "POST",
@@ -2113,18 +2129,18 @@ export default function TakeoffStudioPage() {
   }
 
   return (
-    <div className="nexa-studio">
-      <header className="nexa-studio-top">
-        <div className="nexa-studio-brand">
-          {resolveBrandLogoUrl(brand, "takeoffs") ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={resolveBrandLogoUrl(brand, "takeoffs")} alt={brand.companyName || "Takeoffs"} />
-          ) : (
-            <strong>{brand.companyName || "Takeoffs"}</strong>
-          )}
+    <div className="takeoff-skill-shell">
+      <header className="takeoff-skill-topbar">
+        <div className="takeoff-skill-brand">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={resolveBrandLogoUrl(brand, "takeoffs")} alt={brand.takeoffsAppName || "blake."} width={40} height={40} />
+          <Link href="/" className="takeoff-skill-back">
+            <ArrowLeft size={16} />
+            Core
+          </Link>
           <div>
-            <strong>{brand.takeoffsAppName}</strong>
-            <span>Blake · {brand.tradingName || brand.companyName}</span>
+            <strong>{brand.takeoffsAppName || "Blake Takeoff"}</strong>
+            <span>Quantity takeoff · count fixtures on drawings</span>
           </div>
         </div>
         <nav className="nexa-studio-flow" aria-label="Takeoff steps">
@@ -2299,24 +2315,37 @@ export default function TakeoffStudioPage() {
         </div>
       ) : null}
 
-      {blakeStep ? (
-        <div className="nexa-studio-blake-overlay" role="status" aria-live="polite">
-          <div className="nexa-studio-blake-card">
-            <BuddyCharacter mood="thinking" size="md" interactive={false} />
-            <strong>Blake is working</strong>
-            <p>{blakeStep}</p>
-            <Loader2 className="spin" size={20} />
-          </div>
-        </div>
+      {authState === "checking" ? (
+        <section className="takeoff-skill-auth">
+          <h1>Opening Takeoff…</h1>
+          <p>Checking your Blake sign-in.</p>
+        </section>
       ) : null}
 
-      {/* Notice/error + Blake review overlay canvas — scale alerts live in the rail (in-flow). */}
-      <div className="nexa-studio-banner-stack" aria-live="polite">
-        {(notice || error) ? (
-          <div className={`nexa-studio-banner ${error ? "error" : "ok"}`}>
-            <span>{error || notice}</span>
-            {error && selectedId ? (
-              <span className="nexa-studio-banner-actions">
+      {authState === "signed-out" ? (
+        <section className="takeoff-skill-auth">
+          <h1>Sign in to use Takeoff</h1>
+          <p>
+            Takeoff uses your Core login. Sign in first, then you’ll be able to create projects,
+            upload drawings, run the skill, and push a BOQ into a quote.
+          </p>
+          <p className="takeoff-skill-note">No special AI setup is required to start — vector PDF text-tag counts work without OpenAI.</p>
+          <a className="takeoff-skill-primary" href="/login?next=/takeoff">
+            Sign in to Blake
+          </a>
+        </section>
+      ) : null}
+
+      {authState === "signed-in" || authState === "pilot" ? (
+      <div className="takeoff-skill-layout">
+        <aside className="takeoff-skill-sidebar">
+          <div className="takeoff-skill-card">
+            <header>
+              <FolderOpen size={16} />
+              <h2>Projects</h2>
+            </header>
+            <div className="takeoff-skill-project-list">
+              {projects.length ? projects.map((project) => (
                 <button
                   type="button"
                   onClick={() => {

@@ -182,7 +182,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const actor = request.headers.get(employeeHeaderName) || "NeXa";
+  const actor = request.headers.get(employeeHeaderName) || "Blake";
   const createdAt = new Date().toISOString();
   const store = loadServerStore<XeroBillExportStore>(STORE, { exports: [] });
 

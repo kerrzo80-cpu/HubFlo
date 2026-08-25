@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const actor = body.actor?.trim() || request.headers.get(employeeHeaderName) || "NeXa user";
+  const actor = body.actor?.trim() || request.headers.get(employeeHeaderName) || "Blake user";
 
   if (body.resolve?.operationId && body.resolve.action) {
     try {

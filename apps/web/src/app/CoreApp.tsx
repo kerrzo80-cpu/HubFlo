@@ -186,8 +186,10 @@ import {
   platformLabel,
   resolveBrandChromeLogoUrl,
   resolveBrandLogoUrl,
+  resolvePlatformRailLockup,
   type BusinessBrandingSettings,
 } from "@/lib/branding";
+import { PLATFORM_WORDMARK, PLATFORM_WORDMARK_DARK_URL } from "@/lib/product-brand";
 import {
   FORM_PRESENTATION_OPTIONS,
   isGasSafeFormLayout,
@@ -8706,7 +8708,7 @@ export default function CoreApp() {
     {
       id: "buddy-welcome",
       role: "assistant",
-      text: "Hi, I’m Blake. Ask me anything, just as you would in ChatGPT. I can reason with you and use your authorised live NeXa data for jobs, quotes, customers, invoices, reports and schedules. I’ll ask before making operational changes.",
+      text: "Hi — I’m Ayla. I hold the quote checks and walkthroughs so the page stays clear. Ask me what’s missing, how to finish a quote, or to send anyway.",
     },
   ]);
   const nexaAssistantMessagesRef = useRef<HTMLDivElement | null>(null);
@@ -16351,7 +16353,7 @@ export default function CoreApp() {
           role: "assistant",
           text:
             action.kind === "confirm_fault_report" && response.ok
-              ? `${result.reply || "Fault logged."}\n\nOpen the Faults inbox any time from Ask Blake → Faults inbox.`
+              ? `${result.reply || "Fault logged."}\n\nOpen the Faults inbox any time from Ask Ayla → Faults inbox.`
               : result.reply || result.error || "The booking was not created.",
           openFaultsInbox: action.kind === "confirm_fault_report" && response.ok,
         },
@@ -34666,14 +34668,14 @@ export default function CoreApp() {
 
       {nexaAssistantOpen ? (
         <div className="buddy-dock" aria-live="polite">
-          <aside className="buddy-panel" aria-label="Blake assistant">
+          <aside className="buddy-panel" aria-label="Ask Ayla">
             <header>
               <div>
                 <span className={`buddy-mark mood-${buddyMood}`}>
                   <BuddyCharacter mood={buddyMood} size="md" />
                 </span>
                 <div>
-                  <strong>Blake</strong>
+                  <strong>Ayla</strong>
                   <small>
                     {blakeOpenTender && homeView === "tenders"
                       ? `Open tender · ${blakeOpenTender.name}`
@@ -34686,18 +34688,18 @@ export default function CoreApp() {
                         : buddyMood === "guide"
                           ? "Checking the job over"
                           : buddyMood === "good"
-                            ? "All good — Blake’s on it"
-                            : "Chat naturally · connected to your authorised NeXa workspace"}
+                            ? "All good — Ayla’s on it"
+                            : "Chat naturally · connected to your authorised Blake workspace"}
                   </small>
                 </div>
               </div>
-              <button className="icon-button" aria-label="Close Blake" onClick={() => setNexaAssistantOpen(false)}>
+              <button className="icon-button" aria-label="Close Ask Ayla" onClick={() => setNexaAssistantOpen(false)}>
                 <X size={18} />
               </button>
             </header>
             <div className="buddy-messages" ref={nexaAssistantMessagesRef}>
               {selectedQuote && buddyHasOpenChecks ? (
-                <div className={`buddy-checks mood-${buddyMood}`} aria-label="Blake quote checks">
+                <div className={`buddy-checks mood-${buddyMood}`} aria-label="Ayla quote checks">
                   <strong>
                     {buddyAlertCount > 0
                       ? `${buddyAlertCount} important check${buddyAlertCount === 1 ? "" : "s"} on ${selectedQuote.ref}`
@@ -34807,10 +34809,10 @@ export default function CoreApp() {
                       </button>
                     </div>
                   ) : null}
-                  {message.role === "assistant" && message.aiUsed ? <small>Interpreted with Blake AI · checked against live NeXa data</small> : null}
+                  {message.role === "assistant" && message.aiUsed ? <small>Interpreted with Blake AI · checked against live Blake data</small> : null}
                 </article>
               ))}
-              {nexaAssistantBusy ? <p className="buddy-thinking">Blake is checking the live workspace...</p> : null}
+              {nexaAssistantBusy ? <p className="buddy-thinking">Ayla is checking the live workspace...</p> : null}
             </div>
             <div className="buddy-report-chips" aria-label="Quick actions">
               {blakeOpenTender || ((homeView === "job-record" || homeView === "cost-centre-record") && selectedJob) ? (
@@ -34907,7 +34909,7 @@ export default function CoreApp() {
                     ? `Talk about ${blakeOpenTender.name} — e.g. ignore electrical, price the plumbing bill only`
                     : (homeView === "job-record" || homeView === "cost-centre-record") && selectedJob
                       ? `Talk about ${selectedJob.ref} — files, BoQ, then a guide price`
-                      : "Ask Blake… or report a problem / suggest an improvement"
+                      : "Ask Ayla… or report a problem / suggest an improvement"
                 }
                 value={nexaAssistantDraft}
                 onChange={(event) => setNexaAssistantDraft(event.target.value)}
@@ -35228,12 +35230,12 @@ export default function CoreApp() {
               className={
                 `buddy-launcher context-blake-launcher mood-${buddyMood}`
               }
-              aria-label="Open Blake chat"
-              title="Open your full Blake chat"
-              data-tooltip="Blake"
+              aria-label="Open Ask Ayla"
+              title="Chat with Ayla"
+              data-tooltip="Ask Ayla"
             >
               <BuddyCharacter mood={buddyMood} size="md" className="buddy-launcher-mascot" />
-              <span className="buddy-launcher-label">Ask Blake</span>
+              <span className="buddy-launcher-label">Ask Ayla</span>
               {buddyAlertCount > 0 ? (
                 <em className="buddy-launcher-badge" aria-hidden>
                   {buddyAlertCount > 9 ? "9+" : buddyAlertCount}
@@ -35248,11 +35250,7 @@ export default function CoreApp() {
 
           <div className="support-panel">
             {/* Wide company wordmark — square CORE marks look cut-boxed on the blue rail. */}
-            {resolveBrandChromeLogoUrl(businessSettings, "core") ? (
-              <img src={resolveBrandChromeLogoUrl(businessSettings, "core")} alt={displayCompanyName(businessSettings)} />
-            ) : (
-              <strong>{displayCompanyName(businessSettings)}</strong>
-            )}
+            <img src={resolvePlatformRailLockup(businessSettings)} alt={PLATFORM_WORDMARK} />
             <small>{businessSettings.productName || businessSettings.companyName}</small>
           </div>
         </aside>
@@ -38230,7 +38228,7 @@ export default function CoreApp() {
                   <span className="addon-icon"><HardHat size={20} /></span>
                   <div>
                     <strong>{businessSettings.fieldAppName}</strong>
-                    <p>Engineer packs, Ask Blake, photos, hours and job evidence from site.</p>
+                    <p>Engineer packs, Ask Ayla, photos, hours and job evidence from site.</p>
                     <small>Outputs job events, evidence, timesheets, variations and completion checks.</small>
                   </div>
                   <ChevronRight size={17} />
@@ -38468,7 +38466,7 @@ export default function CoreApp() {
                               }}
                             >
                               <BuddyCharacter mood="guide" size="sm" interactive={false} />
-                              Ask Blake ({selectedQuoteBuddyFindings.length + selectedQuoteOpenReviewQuestions.length})
+                              Ask Ayla ({selectedQuoteBuddyFindings.length + selectedQuoteOpenReviewQuestions.length})
                             </button>
                           ) : null}
                         </div>

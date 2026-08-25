@@ -446,14 +446,14 @@ export async function testEmployeeMailboxConnection(employeeId: string) {
   }
   const result = await sendViaResolvedMailbox(mailbox, {
     to: mailbox.from,
-    subject: "NeXa mailbox connection test",
+    subject: "Blake mailbox connection test",
     text: [
-      "This test email was sent by NeXa from your personal mailbox settings.",
+      "This test email was sent by Blake from your personal mailbox settings.",
       "",
       `Provider: ${mailbox.provider}`,
       `Sent: ${new Date().toISOString()}`,
       "",
-      "Receiving this message confirms NeXa can send as you on jobs and quotes.",
+      "Receiving this message confirms Blake can send as you on jobs and quotes.",
     ].join("\n"),
   });
   markEmployeeMailboxTested(employeeId, mailbox.from, result.messageId, result.sentAt);

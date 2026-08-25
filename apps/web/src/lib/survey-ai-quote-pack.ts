@@ -84,11 +84,11 @@ async function enrichSurveyWithAi(survey: SurveyRecord): Promise<{ enrichment: A
     return {
       aiUsed: false,
       enrichment: {
-        assumptions: [`Generated without OpenAI using the NeXa ${dynamicPath.intent.itemGroup} rules.`],
+        assumptions: [`Generated without OpenAI using the Blake ${dynamicPath.intent.itemGroup} rules.`],
         exclusions: ["Anything not recorded in the survey evidence remains excluded until confirmed."],
         riskNotes: dynamicPath.nextQuestions.slice(0, 3).map((item) => `Confirm on site: ${item.question}`),
         scopeSuggestions: [],
-        summary: "Rule-based NeXa pack prepared from the live survey evidence. Add NEXA_OPENAI_API_KEY for freer AI enrichment.",
+        summary: "Rule-based Blake pack prepared from the live survey evidence. Add NEXA_OPENAI_API_KEY for freer AI enrichment.",
       },
     };
   }
@@ -123,7 +123,7 @@ async function enrichSurveyWithAi(survey: SurveyRecord): Promise<{ enrichment: A
             content: [{
               type: "input_text",
               text: [
-                "You are Blake preparing an estimating pack for NeXa Surveyor.",
+                "You are Ayla preparing an estimating pack for Blake Surveyor.",
                 "Only use the supplied survey JSON. Do not invent measurements, makes, models or prices.",
                 "Suggest missing commercial assumptions, exclusions, risks and optional extra scope lines that an estimator should review.",
                 "Keep suggestions practical for UK plumbing and heating work.",

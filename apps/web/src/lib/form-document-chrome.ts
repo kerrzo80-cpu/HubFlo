@@ -1,5 +1,5 @@
 import type { BusinessBrandingSettings } from "@/lib/branding";
-import { normalizeBusinessBranding } from "@/lib/branding";
+import { normalizeBusinessBranding, resolveCompanyLogoUrl } from "@/lib/branding";
 import { scrubCompanyRegistrationDisplay } from "@/lib/commercial-safeguards";
 
 export type FormDocumentLayout =
@@ -181,7 +181,7 @@ export function resolveFormDocumentChrome(
 ): FormDocumentChrome {
   const business = normalizeBusinessBranding(businessRaw);
   const headerColor = template.headerColor?.trim() || business.brandPrimaryColor || "#157fa8";
-  const logoUrl = template.logoUrl?.trim() || business.logoUrl || "";
+  const logoUrl = template.logoUrl?.trim() || resolveCompanyLogoUrl(business);
   const registration = scrubCompanyRegistrationDisplay({
     vatNumber: business.vatNumber,
     companyNumber: business.companyNumber,

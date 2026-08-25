@@ -8,10 +8,10 @@ This file is the shared source of truth for Codex chats working on HubFlo. Updat
 
 ## Key decisions
 
-- Build the field experience as a standalone app (`apps/field`) that can ship and be tested before live NeXa wiring.
+- Build the field experience as a standalone app (`apps/field`) that can ship and be tested before live Blake wiring.
 - Keep office scheduling / Core in HubFlo (`apps/web`); connect the field app via a `NexaFieldClient` adapter when ready.
 - Keep a mobile-first engineer module in Core as the API/source of truth for schedule and time charging.
-- Office schedules people into jobs on NeXa; those assignments appear as the engineer **My Day** schedule (push / notify later).
+- Office schedules people into jobs on Blake; those assignments appear as the engineer **My Day** schedule (push / notify later).
 - Field job packs include: job description, programme / Gantt for the day, drawings, photos and other engineer-visible docs.
 - **Blake** is the field co-pilot in the engineer app (same Blake as office, field-scoped prompts).
 - Do not use start/stop timers; engineers will forget them.
@@ -181,7 +181,7 @@ Paper sheet should capture:
 Workflow:
 
 - Engineer takes a photo of the sheet inside the job.
-- If OpenAI is connected, NeXa reads the photo and extracts structured fields.
+- If OpenAI is connected, Blake reads the photo and extracts structured fields.
 - If the scan is unclear, the engineer can type helper text and the office still receives the sheet image/name for review.
 - Extracted actual hours create a time entry for office review.
 - Equipment movements are logged against the job.
@@ -201,7 +201,7 @@ Do not build start/stop timers as the primary workflow.
 
 Use schedule-first confirmation led by Blake:
 
-- NeXa creates a default daily time check from scheduled jobs.
+- Blake creates a default daily time check from scheduled jobs.
 - Blake prompts the engineer near end of day (soft 4:00pm, stronger 5:15pm).
 - Blake walks each job: “You were booked 2 hrs — was it 2, or do we amend?”
 - Engineer confirms as scheduled or amends start/finish/break with a short reason.
@@ -269,11 +269,11 @@ Each scheduled visit should expose an engineer-visible pack:
 - Existing site / office photos.
 - Stop/go checklist for the cost centre.
 
-Blake on the job can answer practical questions from that pack later via **Ask Blake** (photo/fault diagnosis, quick checks and next steps for tradespeople). MVP also includes pack visibility + Blake time check.
+Blake on the job can answer practical questions from that pack later via **Ask Ayla** (photo/fault diagnosis, quick checks and next steps for tradespeople). MVP also includes pack visibility + Blake time check.
 
-## Ask Blake
+## Ask Ayla
 
-Field AI co-pilot (tab: **Ask Blake**):
+Field AI co-pilot (tab: **Ask Ayla**):
 
 - Diagnose common plumbing/heating/joinery issues from a short description and optional site photo.
 - Return likely issue, quick checks and next steps — peer-to-peer for qualified engineers (no tool lists or “call a pro” advice).

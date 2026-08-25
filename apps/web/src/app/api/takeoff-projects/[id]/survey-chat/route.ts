@@ -71,7 +71,7 @@ function projectContext(project: TakeoffProject) {
 
 function recentTranscript(messages: TakeoffSurveyChatMessage[]) {
   return messages.slice(-18).map((message) => (
-    `${message.role === "assistant" ? "NeXa" : "User"}: ${message.text}`
+    `${message.role === "assistant" ? "Ayla" : "User"}: ${message.text}`
   )).join("\n");
 }
 
@@ -339,7 +339,7 @@ function buildPilotEstimateReply(project: TakeoffProject, message: string, mode:
     "Targeted questions:",
     bulletList(profile.questions),
     "",
-    "Next action: use Push into quote so NeXa creates the quote description, cost centres, labour/material lines and supplier request items directly on the linked quote.",
+    "Next action: use Push into quote so Ayla creates the quote description, cost centres, labour/material lines and supplier request items directly on the linked quote.",
   ].join("\n");
 }
 
@@ -377,7 +377,7 @@ async function runOpenAiSurveyChat(project: TakeoffProject, nextMessages: Takeof
           content: [{
             type: "input_text",
             text: [
-              "You are NeXa AI Estimator for a UK plumbing, heating and bathroom contractor.",
+              "You are Ayla, Blake AI Estimator for a UK plumbing, heating and bathroom contractor.",
               "Run a live survey-to-quote conversation. Be practical, commercial and specific.",
               "Do not use a fixed questionnaire. First identify the item or system, then identify the work type, then branch your next question from that.",
               "Examples: radiator like-for-like means ask isolation valves, drain-down, TRVs, inhibitor and system type; radiator relocation means ask new position, pipe route, floor type, route length and heat loss.",
@@ -402,13 +402,13 @@ async function runOpenAiSurveyChat(project: TakeoffProject, nextMessages: Takeof
             type: "input_text",
             text: [
               `Actor: ${actor}`,
-              "Current NeXa project context:",
+              "Current Blake project context:",
               projectContext(project),
               "",
               "Recent conversation:",
               recentTranscript(nextMessages),
               "",
-              "Reply as NeXa with the next useful pricing response.",
+              "Reply as Blake with the next useful pricing response.",
             ].join("\n"),
           }],
         },
@@ -447,7 +447,7 @@ export async function POST(
     return NextResponse.json({ error: "Takeoff project not found" }, { status: 404 });
   }
 
-  const actor = request.headers.get(employeeHeaderName) || "NeXa surveyor";
+  const actor = request.headers.get(employeeHeaderName) || "Blake surveyor";
   const config = getTakeoffOpenAiConfig();
   const userMessage: TakeoffSurveyChatMessage = {
     id: makeId("survey-chat"),
@@ -459,7 +459,7 @@ export async function POST(
 
   let provider: "OpenAI" | "Pilot" = "Pilot";
   let reply = buildPilotReply(project, message);
-  let warning = config.connected ? "" : "OpenAI is not connected, so NeXa used the pilot chat fallback.";
+  let warning = config.connected ? "" : "OpenAI is not connected, so Blake used the pilot chat fallback.";
 
   if (config.connected) {
     try {

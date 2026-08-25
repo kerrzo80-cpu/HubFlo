@@ -589,7 +589,7 @@ async function runOpenAiSurveyDraft(project: TakeoffProject, actor: string, apiK
           role: "developer",
           content: [{
             type: "input_text",
-            text: "You are a UK plumbing and heating estimating assistant for NeXa. Turn site survey notes/photos into a conservative draft quote for office review. Never present uncertain photo-based quantities as final measurements. Put uncertainty into riskFlags and questions.",
+            text: "You are a UK plumbing and heating estimating assistant for Blake. Turn site survey notes/photos into a conservative draft quote for office review. Never present uncertain photo-based quantities as final measurements. Put uncertainty into riskFlags and questions.",
           }],
         },
         {
@@ -643,7 +643,7 @@ export async function POST(
 
   const body = await parseJsonRequestBody<SurveyDraftPayload>(request);
   const { id } = await params;
-  const actor = body?.actor?.trim() || request.headers.get(employeeHeaderName) || "NeXa Survey quote";
+  const actor = body?.actor?.trim() || request.headers.get(employeeHeaderName) || "Blake Survey quote";
   const openAiConfig = getTakeoffOpenAiConfig();
   const project = getTakeoffProject(id);
 

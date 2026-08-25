@@ -95,7 +95,7 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
   } catch {
     const snippet = text.replace(/\s+/g, " ").trim().slice(0, 160);
     if (response.status === 502 || /<!DOCTYPE html>|>\s*502\s*</i.test(text)) {
-      throw new Error("Upload failed on the live server (502). NeXa is compressing photos before upload — try again after refresh, one photo at a time.");
+      throw new Error("Upload failed on the live server (502). Blake is compressing photos before upload — try again after refresh, one photo at a time.");
     }
     throw new Error(
       response.ok
@@ -700,7 +700,8 @@ export default function SimpleSurveyWorkspacePage() {
           <header>
             <div>
               <p>
-                Connect this survey to the quote (or lead/job) in NeXa Core. Customer and site can prefill from that record.
+                Connect this survey to the quote (or lead/job) in Blake Core. Customer and site can prefill from that record —
+                you should not re-type them as a disconnected draft.
               </p>
             </div>
             {survey.jobLink && coreOpenHref ? (

@@ -197,33 +197,9 @@ export default function MyDayPage() {
         </Link>
       ) : null}
 
-      <Link
-        href={
-          firstJob && isToday
-            ? fieldPath(`/ask?job=${encodeURIComponent(firstJob.scheduleId)}`)
-            : fieldPath("/ask")
-        }
-        className="field-blake-row"
-      >
-        <BlakeCharacter mood="idle" size="md" />
-        <span className="field-blake-row-copy">
-          <strong>Ask Blake</strong>
-          <small>
-            {firstJob && isToday
-              ? `Stuck on ${firstJob.customer}? Fault diagnosis and next steps`
-              : "On-site fault diagnosis, checks and next steps"}
-          </small>
-        </span>
-        <ChevronRight size={18} aria-hidden className="field-blake-row-chevron" />
-      </Link>
-
-      <Link href="/train" className="field-blake-row is-soft">
-        <BlakeCharacter mood="guide" size="md" />
-        <span className="field-blake-row-copy">
-          <strong>Blake Trainer</strong>
-          <small>Voice training · approved {brand.trainerAppName} materials only</small>
-        </span>
-        <ChevronRight size={18} aria-hidden className="field-blake-row-chevron" />
+      <Link href="/train" className="field-next-job" style={{ marginTop: 10 }}>
+        <span>Blake Trainer</span>
+        <strong>Voice training · approved Blake materials only</strong>
       </Link>
 
       {error ? <div className="feedback error">{error}</div> : null}

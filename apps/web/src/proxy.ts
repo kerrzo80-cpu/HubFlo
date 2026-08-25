@@ -272,20 +272,20 @@ export function proxy(request: NextRequest) {
 
   if (pathname.startsWith("/api/")) {
     return NextResponse.json(
-      { error: "NeXa pilot login required. Refresh the page and sign in again." },
+      { error: "Blake pilot login required. Refresh the page and sign in again." },
       {
         status: 401,
         headers: {
-          "WWW-Authenticate": 'Basic realm="NeXa pilot", charset="UTF-8"',
+          "WWW-Authenticate": 'Basic realm="Blake pilot", charset="UTF-8"',
         },
       },
     );
   }
 
-  return new NextResponse("NeXa pilot login required", {
+  return new NextResponse("Blake pilot login required", {
     status: 401,
     headers: {
-      "WWW-Authenticate": 'Basic realm="NeXa pilot", charset="UTF-8"',
+      "WWW-Authenticate": 'Basic realm="Blake pilot", charset="UTF-8"',
     },
   });
 }

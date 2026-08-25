@@ -752,8 +752,8 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
         type: "Checklist",
         title: requirement.label,
         detail: evidenceSummary
-          ? `${requirement.label} captured and written to NeXa Core gas/service form: ${evidenceSummary}`
-          : `${requirement.label} completed — NeXa Core stop/go form updated.`,
+          ? `${requirement.label} captured and written to Blake Core gas/service form: ${evidenceSummary}`
+          : `${requirement.label} completed — Ayla Core stop/go form updated.`,
         createdBy,
         createdAt,
       });

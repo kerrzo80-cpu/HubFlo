@@ -129,7 +129,7 @@ function toTakeoffRoom(room: RoomScanRoomPayload, index: number, documentId: str
     areaM2: round(areaM2),
     heatLoadWatts: 0,
     notes: [
-      "Imported from NeXa Field LiDAR/RoomPlan scan.",
+      "Imported from Blake Field LiDAR/RoomPlan scan.",
       room.confidence ? `Capture confidence: ${room.confidence}.` : "",
       room.notes?.trim() || "",
     ].filter(Boolean).join(" "),
@@ -234,7 +234,7 @@ function roomPlanPreviewImageDataUrl(rooms: TakeoffRoom[], payload: RoomScanPayl
     <svg xmlns="http://www.w3.org/2000/svg" width="420" height="320" viewBox="0 0 420 320">
       <rect width="420" height="320" rx="24" fill="#f4fbfd"/>
       <rect x="18" y="18" width="384" height="284" rx="18" fill="#ffffff" stroke="#b7dceb"/>
-      <text x="32" y="42" font-family="Arial" font-size="14" font-weight="700" fill="#162532">NeXa LiDAR room scan</text>
+      <text x="32" y="42" font-family="Arial" font-size="14" font-weight="700" fill="#162532">Blake LiDAR room scan</text>
       <text x="32" y="62" font-family="Arial" font-size="11" fill="#6a7a88">${escapeSvgText(room.name)}</text>
       <rect x="${x}" y="${y}" width="${planWidth}" height="${planHeight}" rx="10" fill="#e9f7fb" stroke="#14345f" stroke-width="6"/>
       ${openingMarks}
@@ -398,7 +398,7 @@ export async function POST(
 
   const uploadedAt = payload.capturedAt || new Date().toISOString();
   const documentId = `lidar-doc-${randomUUID()}`;
-  const actor = payload.actor?.trim() || request.headers.get(employeeHeaderName) || "NeXa Field";
+  const actor = payload.actor?.trim() || request.headers.get(employeeHeaderName) || "Blake Field";
   const rooms = scanRooms.map((room, index) => toTakeoffRoom(room, index, documentId));
   const measurements = rooms.flatMap((room) => roomMeasurements(room, documentId));
   const previewImageDataUrl = roomPlanPreviewImageDataUrl(rooms, payload);

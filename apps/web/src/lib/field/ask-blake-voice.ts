@@ -255,7 +255,7 @@ function getSharedAudio() {
 
 export async function ensureMicAccess() {
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-    throw new Error("This phone can’t open the microphone for Ask Blake.");
+    throw new Error("This phone can’t open the microphone for Ask Ayla.");
   }
   // iPhone: keep constraints simple first — fancy AEC settings can yield a silent track.
   try {
@@ -612,7 +612,7 @@ export async function speakBlakeReply(
   text: string,
   options?: { speakPath?: string; onEnd?: () => void; preferServer?: boolean },
 ) {
-  const speakPath = options?.speakPath ?? "/api/field/ask-blake/speak";
+  const speakPath = options?.speakPath ?? "/api/field/ask-ayla/speak";
   const onEnd = options?.onEnd;
 
   try {
@@ -656,7 +656,7 @@ export function voiceStatusLabel(state: VoiceSessionState) {
     case "speaking":
       return "Blake is talking";
     case "unsupported":
-      return "This phone can’t record for Ask Blake";
+      return "This phone can’t record for Ask Ayla";
     case "error":
       return "Mic issue — tap to try again";
     default:

@@ -1,5 +1,5 @@
 /**
- * Map Simpro sections → cost centres → materials/labour into NeXa hub shapes.
+ * Map Simpro sections → cost centres → materials/labour into Blake hub shapes.
  * Pure functions — no I/O. Used by deep import on Apply sync.
  */
 
@@ -65,7 +65,7 @@ function markupPercent(unitCost: number, unitSell: number) {
   return Math.round(((unitSell - unitCost) / unitCost) * 1000) / 10;
 }
 
-/** NeXa sell from cost + default markup % (Finance settings). */
+/** Blake sell from cost + default markup % (Finance settings). */
 export function lineSellFromCostMarkup(unitCost: number, markupPercentValue: number) {
   if (!(unitCost > 0)) return 0;
   const markup = Number.isFinite(markupPercentValue) ? markupPercentValue : 30;
@@ -379,11 +379,11 @@ function mapQuoteLine(
   const labour = isLabourItem(record);
   const quantity = lineQuantity(record);
   // Cost from simPRO BasePrice. Keep simPRO SellPrice as charge when present so the
-  // quoted total stays intact; only apply NeXa default markup when sell is missing.
+  // quoted total stays intact; only apply Blake default markup when sell is missing.
   const simproSell = lineUnitSell(record, quantity);
   let unitCost = lineUnitCost(record, quantity, simproSell);
   const defaultMarkup = resolveLineMarkup(labour, options);
-  // Charge-only / mirrored-cost rows: back out cost from sell using NeXa default markup
+  // Charge-only / mirrored-cost rows: back out cost from sell using Blake default markup
   // so Cost and Sell are never identical after import.
   if (simproSell > 0 && defaultMarkup > 0 && (!(unitCost > 0) || costsLookLikeSell(unitCost, simproSell))) {
     unitCost = Math.round((simproSell / (1 + defaultMarkup / 100)) * 100) / 100;
@@ -457,7 +457,7 @@ function normaliseBrief(value: string) {
 }
 
 /**
- * Simpro stores one Description on the cost centre. When NeXa pushed the centre,
+ * Simpro stores one Description on the cost centre. When Blake pushed the centre,
  * that field is usually `name\n\nclientDescription\n\nengineerDescription`.
  * Native Simpro centres usually have a single free-text Description.
  */
@@ -526,7 +526,7 @@ export function splitCostCentreDescriptions(
   }
 
   if (parts.length >= 2) {
-    // First block often repeats the centre name when pushed from NeXa.
+    // First block often repeats the centre name when pushed from Blake.
     if (normaliseBrief(parts[0] || "") === normaliseBrief(centreName)) {
       const rest = parts.slice(1);
       if (rest.length >= 2) {

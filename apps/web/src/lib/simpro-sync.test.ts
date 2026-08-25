@@ -74,7 +74,7 @@ describe("simpro sync preview quality", () => {
     assert.equal(quoteEx.value, 4537.48);
   });
 
-  it("maps simPRO job statuses onto NeXa folder statuses", () => {
+  it("maps simPRO job statuses onto Blake folder statuses", () => {
     assert.equal(jobStatusFromSimpro("Complete"), "Completed");
     assert.equal(jobStatusFromSimpro("Progress"), "In progress");
     assert.equal(jobStatusFromSimpro("Scheduled"), "Scheduled");
@@ -136,7 +136,8 @@ describe("simpro sync preview quality", () => {
         { ID: 2, Stage: "Closed", DateModified: "2026-08-05" },
         { ID: 3, Stage: "Open", DateModified: "2026-08-04" },
       ]).map((row) => row.ID).join(","),
-      "3,1",
+      // Newest working set, then oldest→newest so prepended creates end newest-first.
+      "1,3",
     );
 
     // Open stage must not become Lost because a custom Status.Name mentions archive/lost.
@@ -156,7 +157,8 @@ describe("simpro sync preview quality", () => {
       { ID: 3, IsPaid: false, DateIssued: "2026-07-20", InvoiceNo: "NEW" },
     ]);
     assert.equal(invoices.length, 2);
-    assert.equal(invoices[0]?.ID, 3);
+    assert.equal(invoices[0]?.ID, 1);
+    assert.equal(invoices[1]?.ID, 3);
 
     const quotes = scopeSimproRecords(
       "quotes",

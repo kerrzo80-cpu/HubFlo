@@ -92,7 +92,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     .filter((job): job is NonNullable<typeof job> => Boolean(job));
 
   appendAuditEvent({
-    actor: typeof body.actor === "string" && body.actor.trim() ? body.actor.trim() : "NeXa user",
+    actor: typeof body.actor === "string" && body.actor.trim() ? body.actor.trim() : "Blake user",
     action: updated.archived ? "archived" : "updated",
     recordType: "site",
     recordId: updated.id,
@@ -119,7 +119,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   if (!deleted) return NextResponse.json({ error: "Site not found." }, { status: 404 });
 
   appendAuditEvent({
-    actor: request.headers.get("x-hub-actor")?.trim() || "NeXa user",
+    actor: request.headers.get("x-hub-actor")?.trim() || "Blake user",
     action: "deleted",
     recordType: "site",
     recordId: id,

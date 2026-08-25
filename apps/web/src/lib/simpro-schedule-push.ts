@@ -1,5 +1,5 @@
 /**
- * NeXa → simPRO schedule write path for the managers diary.
+ * Blake → simPRO schedule write path for the managers diary.
  * Creates / updates / deletes job cost-centre schedules so Field My Day
  * and simPRO stay aligned without the legacy ewg-hub-scheduler diary.
  */
@@ -126,7 +126,7 @@ async function simproWrite(
   return { endpoint, response, body };
 }
 
-/** Extract staff ID from NeXa employee ids like `simpro-staff-12` or plain numeric ids. */
+/** Extract staff ID from Blake employee ids like `simpro-staff-12` or plain numeric ids. */
 export function parseSimproStaffId(employeeId: string): number | undefined {
   const trimmed = employeeId.trim();
   if (!trimmed) return undefined;
@@ -168,7 +168,7 @@ export function getSimproSchedulePushStatus(): SchedulePushStatus {
     missing,
     scheduleRateId,
     guidance: missing.length
-      ? `Schedule push needs direct simPRO API access and a default rate. Missing: ${missing.join(", ")}. Set SIMPRO_DEFAULT_SCHEDULE_RATE_ID to a valid simPRO ScheduleRate ID, then schedule from NeXa Schedules.`
+      ? `Schedule push needs direct simPRO API access and a default rate. Missing: ${missing.join(", ")}. Set SIMPRO_DEFAULT_SCHEDULE_RATE_ID to a valid simPRO ScheduleRate ID, then schedule from Blake Schedules.`
       : "Managers diary visits will write into simPRO schedules for linked jobs.",
   };
 }
@@ -454,7 +454,7 @@ async function deleteSchedule(input: {
 }
 
 /**
- * Push one or more NeXa planner assignments into simPRO schedules for a linked job.
+ * Push one or more Blake planner assignments into simPRO schedules for a linked job.
  * Also accepts delete of a previously pushed assignment (by id + simproScheduleId).
  */
 export async function pushJobSchedulesToSimpro(input: {

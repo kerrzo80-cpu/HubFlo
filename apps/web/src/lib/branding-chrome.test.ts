@@ -3,8 +3,10 @@ import { describe, it } from "node:test";
 
 import { defaultBusinessBrandingSettings, resolveBrandChromeLogoUrl, resolveBrandLogoUrl } from "@/lib/branding";
 
+const BLAKE_WORDMARK = "/brand/blake-wordmark-dark.svg";
+
 describe("resolveBrandChromeLogoUrl", () => {
-  it("prefers the wide company wordmark over a square CORE mark in chrome bars", () => {
+  it("prefers the blake. wordmark over a square CORE mark in chrome bars", () => {
     const brand = {
       ...defaultBusinessBrandingSettings,
       logoUrl: "/ewg-logo.png",
@@ -12,22 +14,22 @@ describe("resolveBrandChromeLogoUrl", () => {
       fieldLogoUrl: "/api/branding/assets/logo-field?v=1",
     };
     assert.equal(resolveBrandLogoUrl(brand, "core"), "/api/branding/assets/logo-core?v=1");
-    assert.equal(resolveBrandChromeLogoUrl(brand, "core"), "/ewg-logo.png");
+    assert.equal(resolveBrandChromeLogoUrl(brand, "core"), BLAKE_WORDMARK);
     assert.equal(resolveBrandChromeLogoUrl(brand, "field"), "/api/branding/assets/logo-field?v=1");
   });
 
-  it("falls back to company logo when a per-app chrome logo is empty", () => {
+  it("falls back to the blake. wordmark when a per-app chrome logo is empty", () => {
     const brand = {
       ...defaultBusinessBrandingSettings,
       logoUrl: "/ewg-logo.png",
       fieldLogoUrl: "",
     };
-    assert.equal(resolveBrandChromeLogoUrl(brand, "field"), "/ewg-logo.png");
+    assert.equal(resolveBrandChromeLogoUrl(brand, "field"), BLAKE_WORDMARK);
   });
 
   it("does not invent an EWG logo when the company has none", () => {
     assert.equal(defaultBusinessBrandingSettings.logoUrl, "");
-    assert.equal(resolveBrandChromeLogoUrl(defaultBusinessBrandingSettings, "core"), "");
-    assert.equal(resolveBrandLogoUrl(defaultBusinessBrandingSettings, "core"), "");
+    assert.equal(resolveBrandChromeLogoUrl(defaultBusinessBrandingSettings, "core"), BLAKE_WORDMARK);
+    assert.equal(resolveBrandLogoUrl(defaultBusinessBrandingSettings, "core"), BLAKE_WORDMARK);
   });
 });
