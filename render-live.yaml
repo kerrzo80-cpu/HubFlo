@@ -103,9 +103,9 @@ services:
         value: live
       - key: NEXT_PUBLIC_NEXA_ENVIRONMENT
         value: live
-      # Enable only after pilot mirror reconciliation is completely green.
+      # Mirror JSON stores to nexa-live-postgres (SQLite remains primary until ETL cutover).
       - key: NEXA_POSTGRES_MIRROR
-        value: "0"
+        value: "1"
       - key: NEXA_TENANT_KEY
         value: ewg-live
       - key: DATABASE_URL
