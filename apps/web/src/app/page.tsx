@@ -1607,7 +1607,7 @@ type JobDeliveryEvent = {
   clientApprovalStatus?: "Not sent" | "Sent" | "Viewed" | "Approved" | "Declined";
   status?: string;
   portalToken?: string;
-  source: "Ayla" | "WhatsApp" | "Engineer app";
+  source: "Blake" | "WhatsApp" | "Engineer app";
   costCentreId?: string;
   formType?: string;
   plumberSignature?: string;
@@ -22340,7 +22340,7 @@ export default function Dashboard() {
           kind: "variation",
           actor: quote.customer,
           summary: `${quote.ref}: ${quote.description}`,
-          source: "Ayla",
+          source: "Blake",
           costValue: 0,
           sellValue: quote.value,
           reason: "Online variation quote accepted",
@@ -22649,7 +22649,7 @@ export default function Dashboard() {
           summary: "Daywork marked dealt with by office",
           createdAt: now,
           status: "Dealt",
-          source: "Ayla" as const,
+          source: "Blake" as const,
           costCentreId,
           formType: "daywork",
           reason: "Daywork account",
@@ -23026,7 +23026,7 @@ export default function Dashboard() {
         kind: "po",
         actor: created.requestedBy,
         summary: `${created.item} from ${created.supplier}`,
-        source: "Ayla",
+        source: "Blake",
         costValue: created.estimatedCost,
         status: created.status,
       });
@@ -23432,7 +23432,7 @@ export default function Dashboard() {
         kind: "attendance",
         actor: updated.manager,
         summary: `${updated.manager} started ${updated.ref} from the schedule control.`,
-        source: "Ayla",
+        source: "Blake",
         status: "Arrived",
       });
       logAuditEvent({
@@ -23926,7 +23926,7 @@ export default function Dashboard() {
       kind: "variation",
       actor: activeEmployee?.name ?? selectedJob.manager,
       summary: `${created.ref}: ${name}`,
-      source: "Ayla",
+      source: "Blake",
       costValue: 0,
       sellValue: 0,
       reason: "Office variation quote",
