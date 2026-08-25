@@ -10,6 +10,7 @@ import { useBrand } from "@/components/BrandProvider";
 import { useNexaClient } from "@/lib/field/nexa";
 import { formatDuration, isoDate, todayLabel } from "@/lib/field/format";
 import { fieldPath } from "@/lib/field/routes";
+import { TRAINER_APP_NAME } from "@/lib/product-brand";
 import type { FieldScheduleItem } from "@/lib/field/types";
 
 type FieldAlert = {
@@ -198,7 +199,7 @@ export default function MyDayPage() {
       ) : null}
 
       <Link href="/train" className="field-next-job" style={{ marginTop: 10 }}>
-        <span>Blake Trainer</span>
+        <span>{TRAINER_APP_NAME}</span>
         <strong>Voice training · approved Blake materials only</strong>
       </Link>
 

@@ -100,11 +100,11 @@ export const nexaSystemKnowledge: SystemKnowledgeTopic[] = [
     tags: ["core", "navigation", "modules"],
     content: [
       "Core’s top module bar covers Dashboard, Leads, Quotes, Jobs, Schedules, Invoices, POs, People, Recurring, Reports, Stock, Xero and Setup.",
-      "The blue left sidebar has Overview, My work, Reports, and Addons links to Surveyor, Takeoff, Heat Design, Field and Blake Trainer.",
+      "The blue left sidebar has Overview, My work, Reports, and Addons links to Surveyor, Takeoff, Heat Design, Field and Ayla Trainer.",
       "Use Core for office commercial and scheduling work. Use Field for on-site engineer work.",
     ].join(" "),
     teachScript:
-      "In Core, the top bar is your main modules — Dashboard through Setup. The blue left rail has Overview and Addons like Field, Surveyor and Blake Trainer.",
+      "In Core, the top bar is your main modules — Dashboard through Setup. The blue left rail has Overview and Addons like Field, Surveyor and Ayla Trainer.",
     checkPoints: ["dashboard", "quotes", "jobs", "schedules", "setup", "addons"],
     checkPrompt: "Name three Core top-bar modules and one Addon from the blue left rail.",
   },
@@ -397,13 +397,13 @@ export const nexaSystemKnowledge: SystemKnowledgeTopic[] = [
   },
   {
     id: "sys-blake-trainer",
-    title: "Blake Trainer",
+    title: "Ayla Trainer",
     kind: "faq",
     area: "trainer",
     roles: ALL_ROLES,
     tags: ["trainer", "blake", "admin"],
     content: [
-      "Blake Trainer is the voice-first staff training surface at /train.",
+      "Ayla Trainer is the voice-first staff training surface at /train.",
       "Training is a continuous conversation: Blake speaks, then listens; you talk naturally and pause when finished; Blake replies — no Start talking button.",
       "Blake pauses for understanding checks, and answers only from approved materials.",
       "Admins such as Brian manage materials and flows in /train/admin.",
@@ -411,9 +411,9 @@ export const nexaSystemKnowledge: SystemKnowledgeTopic[] = [
       "Completion is tracked per person and per flow.",
     ].join(" "),
     teachScript:
-      "You’re in Blake Trainer. We talk back and forth — I’ll teach, then listen while you speak, then reply. Checks stay grounded in the approved NeXa pack. Admins rebuild modules when the system changes.",
+      "You’re in Ayla Trainer. We talk back and forth — I’ll teach, then listen while you speak, then reply. Checks stay grounded in the approved NeXa pack. Admins rebuild modules when the system changes.",
     checkPoints: ["train", "approved", "check", "admin", "completion"],
-    checkPrompt: "What does Blake Trainer do, and what must answers stay grounded in?",
+    checkPrompt: "What does Ayla Trainer do, and what must answers stay grounded in?",
   },
   {
     id: "sys-simpro",
@@ -524,7 +524,7 @@ export function generateBlakeTrainerCatalog(options?: {
     moduleFromTopics(
       "mod-nexa-foundations",
       "NeXa foundations",
-      "What NeXa is, the no-guessing rule, and how Blake Trainer works.",
+      "What NeXa is, the no-guessing rule, and how Ayla Trainer works.",
       ["sys-nexa-overview", "sys-rule-no-guess", "sys-blake-trainer"],
       10,
     ),

@@ -26,3 +26,5 @@ export const DEFAULT_COMPANY_LOGO_URL = "/ewg-logo.png";
 export const ASSISTANT_NAME = "Ayla";
 export const ASSISTANT_ASK = "Ask Ayla";
 export const ASSISTANT_TAGLINE = "Your intelligent assistant inside Blake.";
+/** Voice-first staff training app in the blake. suite. */
+export const TRAINER_APP_NAME = "Ayla Trainer";

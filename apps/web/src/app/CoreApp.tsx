@@ -189,7 +189,7 @@ import {
   resolvePlatformRailLockup,
   type BusinessBrandingSettings,
 } from "@/lib/branding";
-import { PLATFORM_WORDMARK, PLATFORM_WORDMARK_DARK_URL } from "@/lib/product-brand";
+import { PLATFORM_WORDMARK, PLATFORM_WORDMARK_DARK_URL, TRAINER_APP_NAME } from "@/lib/product-brand";
 import {
   FORM_PRESENTATION_OPTIONS,
   isGasSafeFormLayout,
@@ -2617,7 +2617,7 @@ const TRUSTED_EMPLOYEE_SESSION_DAYS = 60;
 
 const modules: ModuleItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, active: true },
-  { label: "Blake Trainer", icon: MessageCircle, href: "/train" },
+  { label: TRAINER_APP_NAME, icon: MessageCircle, href: "/train" },
   { label: "Leads", icon: Mail },
   { label: "Quotes", icon: FileText },
   { label: "Tenders", icon: ClipboardList },
@@ -13414,7 +13414,7 @@ export default function CoreApp() {
     if (!hasCoreOfficeAccess(access)) return [];
     return modules.filter((module) => {
       if (module.label === "Dashboard") return true;
-      if (module.label === "Blake Trainer") return access.showSurveyor || access.canCustomize;
+      if (module.label === TRAINER_APP_NAME) return access.showSurveyor || access.canCustomize;
       if (module.label === "Leads") return access.canCreateLead || access.showCustomers || access.showQuotes;
       if (module.label === "People" && !access.showCustomers) return false;
       if (module.label === "Jobs" && !access.showJobs) return false;
@@ -35158,11 +35158,11 @@ export default function CoreApp() {
             <a
               href="/train"
               className="context-link"
-              aria-label="Blake Trainer"
-              data-tooltip="Blake voice-first staff trainer"
+              aria-label={TRAINER_APP_NAME}
+              data-tooltip="Ayla voice-first staff trainer"
             >
               <MessageCircle size={17} />
-              <span>Blake Trainer</span>
+              <span>{TRAINER_APP_NAME}</span>
             </a>
             {visibleSideNav.map((item) => {
               const Icon = item.icon;
@@ -35194,9 +35194,9 @@ export default function CoreApp() {
           <div className="sidebar-divider" />
           <p className="sidebar-label">Addons</p>
           {access.showSurveyor || access.canCustomize ? (
-            <a href="/train" className="context-link" aria-label="Blake Trainer" data-tooltip="Blake Trainer">
+            <a href="/train" className="context-link" aria-label={TRAINER_APP_NAME} data-tooltip={TRAINER_APP_NAME}>
               <MessageCircle size={17} />
-              <span>Blake Trainer</span>
+              <span>{TRAINER_APP_NAME}</span>
             </a>
           ) : null}
           {access.showSurveyor ? (
@@ -38236,7 +38236,7 @@ export default function CoreApp() {
                 <a className="addon-product-card" href="/train">
                   <span className="addon-icon"><Sparkles size={20} /></span>
                   <div>
-                    <strong>{businessSettings.trainerAppName || "Blake Trainer"}</strong>
+                    <strong>{businessSettings.trainerAppName || TRAINER_APP_NAME}</strong>
                     <p>Voice-first staff training with role-aware modules and understanding checks.</p>
                     <small>Answers only from approved guides, screenshots, videos, FAQs and company rules.</small>
                   </div>

@@ -2364,16 +2364,19 @@ button:disabled {
   color: #17303d;
   display: grid;
   gap: 28px;
-  grid-template-columns: 280px minmax(260px, 620px) 1fr;
+  grid-template-columns: minmax(148px, 196px) minmax(260px, 620px) 1fr;
   height: 72px;
-  padding: 0 24px;
+  padding: 0 24px 0 8px;
 }
 
 .brand-lockup {
   align-items: center;
   display: flex;
   gap: 18px;
+  justify-content: flex-start;
+  margin-left: 0;
   min-width: 0;
+  padding-left: 0;
 }
 
 .brand-lockup img {
@@ -31371,6 +31374,7 @@ body {
   background: rgba(255, 255, 255, 0.97) !important;
   border-bottom-color: rgba(88, 172, 213, 0.24) !important;
   box-shadow: 0 10px 30px rgba(40, 126, 168, 0.08) !important;
+  padding-left: 8px !important;
 }
 
 .brand-lockup img {

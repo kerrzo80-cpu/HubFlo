@@ -26,6 +26,7 @@ import {
   type MicLevelMonitor,
   type VoiceSessionState,
 } from "@/lib/field/ask-blake-voice";
+import { TRAINER_APP_NAME } from "@/lib/product-brand";
 import { TrainChrome } from "./TrainChrome";
 
 type CatalogResponse = {
@@ -678,7 +679,7 @@ function TrainSession({
           <div className="blake-train-stage-head">
             <BlakeCharacter mood={moodForState(voiceState, phase)} size="lg" />
             <div>
-              <h1>{module?.title || "Blake Trainer"}</h1>
+              <h1>{module?.title || TRAINER_APP_NAME}</h1>
               <p>
                 {step ? `${step.kind === "check" ? "Check-in" : "Step"}: ${step.title}` : "Getting ready…"}
                 {progress ? ` · ${progressPercent(progress)}%` : ""}

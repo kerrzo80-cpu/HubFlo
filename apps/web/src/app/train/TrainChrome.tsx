@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { useBrand } from "@/components/BrandProvider";
-import { resolveBrandLogoUrl } from "@/lib/branding";
+import { PLATFORM_WORDMARK, TRAINER_APP_NAME } from "@/lib/product-brand";
 
 export function TrainChrome({
   children,
@@ -14,7 +13,6 @@ export function TrainChrome({
   subtitle?: string;
 }) {
   const pathname = usePathname();
-  const brand = useBrand();
   const links = [
     { href: "/train", label: "Train", exact: true },
     { href: "/train/admin", label: "Admin" },
@@ -29,7 +27,7 @@ export function TrainChrome({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/blake-mark.svg" alt="" aria-hidden="true" />
           <div>
-            <strong>Blake · Blake Trainer</strong>
+            <strong>{PLATFORM_WORDMARK} · {TRAINER_APP_NAME}</strong>
             <span>{subtitle}</span>
           </div>
         </div>

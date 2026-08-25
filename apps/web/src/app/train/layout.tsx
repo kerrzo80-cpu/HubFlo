@@ -1,12 +1,13 @@
 import type { Metadata, Viewport } from "next";
 import { EnvHostBanner } from "@/components/EnvHostBanner";
+import { PLATFORM_NAME, TRAINER_APP_NAME } from "@/lib/product-brand";
 import "./train.css";
 
 export const metadata: Metadata = {
-  title: "Blake Trainer · Blake",
+  title: `${TRAINER_APP_NAME} · ${PLATFORM_NAME}`,
   description:
     "Voice-first AI trainer for Blake staff — role-aware modules, understanding checks, answers only from approved materials.",
-  applicationName: "Blake Trainer",
+  applicationName: TRAINER_APP_NAME,
 };
 
 export const viewport: Viewport = {

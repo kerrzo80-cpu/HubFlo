@@ -101,7 +101,7 @@ export const defaultBusinessBrandingSettings: BusinessBrandingSettings = {
   surveyAppName: "Survey",
   takeoffsAppName: "Takeoffs",
   heatDesignAppName: "Heat Design",
-  trainerAppName: "Trainer",
+  trainerAppName: "Ayla Trainer",
 };
 
 export function displayCompanyName(brand?: { companyName?: string; tradingName?: string } | null) {
