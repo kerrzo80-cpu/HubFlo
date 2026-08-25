@@ -1,30 +1,37 @@
 # NeXa AWS migration progress
 
-**Last update:** 25 August 2026  
-**Production deploy branch:** `codex/ai-surveyor-estimator-takeoff` (not `main`)  
-**Working branch:** `cursor/phase-a-on-prod-branch-d175`
+**Last update:** 25 August 2026 (deployed)  
+**Production deploy branch (temporary):** `cursor/phase-a-on-prod-branch-d175`  
+**Canonical long-term branch:** `codex/ai-surveyor-estimator-takeoff`  
+**Live commit:** `98a33d90019763abff8e932480b5a4bb07f014af`
 
 ## Status
 
 | Step | Status | Notes |
 |------|--------|-------|
-| Phase 1 audit | Done on prod branch | `docs/PRODUCTION_STABILITY_AWS_MIGRATION_AUDIT.md` |
-| Render secrets for fail-closed | Done | `SIMPRO_WEBHOOK_SECRET`, `HUBFLO_INTEGRATION_TOKEN`, `NEXA_IMPORT_TICK_SECRET` set via API |
-| Phase A hardening on **prod branch** | In progress | Fail-closed webhooks, OpenAI env-only, timeouts, upload caps |
-| Live Postgres | Exists empty | `nexa-live-postgres` basic-256mb; `NEXA_POSTGRES_MIRROR=0`; 0 tables |
-| AWS staging Lightsail/S3 | Blocked | Waiting on AWS credentials |
-| Cutover | Not started | Render stays live |
+| Phase 1 audit | Done | `docs/PRODUCTION_STABILITY_AWS_MIGRATION_AUDIT.md` on prod branch |
+| Render secrets | Done | webhook / intake / import-tick set via API |
+| Phase A on prod branch | **Deployed live** | Health `ok: true`; OpenAI `source: env` |
+| Postgres mirror | **Enabled** | `NEXA_POSTGRES_MIRROR=1`; SQLite still primary |
+| Live Postgres tables | Pending first writes / reconcile | DB was empty; `nexa_store` created lazily on write |
+| AWS Lightsail/S3 staging | Blocked | Waiting on AWS credentials |
+| Cutover | Not started | Render stays live; no DNS change |
 
-## Important production facts
+## Verified live
 
-- `nexa-live` auto-deploys from `codex/ai-surveyor-estimator-takeoff`
-- Recent tip commits failed to build; live still serves an older successful deploy
-- Plan is **standard** (not starter); runtime heap tip already 1536
-- Office backup → S3 helpers already exist (`office-backup-s3.ts`)
-- JSON→`nexa_store` mirror already exists but is disabled
+```text
+GET https://nexa-live.onrender.com/api/health
+ok: true
+store: sqlite
+postgresMirror.enabled: true
+openai.connected: true (env)
+deployment.branch: cursor/phase-a-on-prod-branch-d175
+deployment.commit: 98a33d90...
+```
 
-## Operator next
+## Next
 
-1. Merge/deploy Phase A prod-branch PR once build is green
-2. Optionally set `NEXA_POSTGRES_MIRROR=1` after deploy (additive; SQLite remains primary)
-3. Provide AWS credentials for Lightsail + S3 staging
+1. Merge PR into `codex/ai-surveyor-estimator-takeoff` and point Render auto-deploy back at that branch
+2. Run authenticated `POST /api/ops/postgres-reconcile` once to backfill `nexa_store` hashes
+3. Provide AWS credentials for Lightsail + private S3 staging
+4. Keep pilot suspended/deleted only if unused; keep `nexa-live` + disk
