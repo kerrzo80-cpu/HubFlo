@@ -30,7 +30,7 @@ const FRAME_QUALITY = 0.62;
  * Optional live camera frames so Ayla can see the job while you talk.
  */
 export function AskBlakeTalkLab({
-  realtimePath = "/api/field/ask-blake/realtime-session",
+  realtimePath = "/api/field/ask-ayla/realtime-session",
   variant = "lab",
 }: AskBlakeTalkLabProps) {
   const isLab = variant === "lab";

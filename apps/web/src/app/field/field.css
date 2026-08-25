@@ -1591,3 +1591,8 @@
   color: var(--steel);
   font-size: 12px;
 }
+
+
+/* Ask Ayla aliases — keep .ask-blake selectors working during transition */
+.ask-ayla { }
+.ask-blake-bubble.is-ayla { }

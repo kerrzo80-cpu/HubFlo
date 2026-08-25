@@ -478,7 +478,7 @@ export async function speakBlakeReply(
   text: string,
   options?: { speakPath?: string; onEnd?: () => void },
 ) {
-  const speakPath = options?.speakPath ?? "/api/field/ask-blake/speak";
+  const speakPath = options?.speakPath ?? "/api/field/ask-ayla/speak";
   const onEnd = options?.onEnd;
 
   try {

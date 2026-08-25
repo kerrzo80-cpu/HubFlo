@@ -55,7 +55,7 @@ export default function AskBlakePage() {
     let cancelled = false;
     async function loadStatus() {
       try {
-        const response = await fetch("/api/field/ask-blake", { method: "GET" });
+        const response = await fetch("/api/field/ask-ayla", { method: "GET" });
         const body = (await response.json().catch(() => ({}))) as AskBlakeStatus & {
           error?: string;
           connected?: boolean;

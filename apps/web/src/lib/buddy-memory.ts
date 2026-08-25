@@ -34,8 +34,8 @@ export type BuddyMemory = {
 
 const STORAGE_KEY = "hubflo:buddy-memory:v1";
 
-export const buddyAvatarSrc = "/brand/blake-poses/blake-idle.png";
-export const buddyPhotoAvatarSrc = "/brand/blake-poses/blake-idle.png";
+export const buddyAvatarSrc = "/brand/ayla-avatar.png";
+export const buddyPhotoAvatarSrc = "/brand/ayla-avatar.png";
 export const blakePoseSrc = {
   idle: "/brand/blake-poses/blake-idle.png",
   alert: "/brand/blake-poses/blake-alert.png",

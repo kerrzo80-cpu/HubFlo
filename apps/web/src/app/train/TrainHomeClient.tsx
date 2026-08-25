@@ -206,7 +206,7 @@ function TrainSession({
 
   useEffect(() => {
     setSupported(speechSupported());
-    void fetch("/api/field/ask-blake")
+    void fetch("/api/field/ask-ayla")
       .then((res) => res.json())
       .then((data: { connected?: boolean }) => setOpenaiOk(Boolean(data.connected)))
       .catch(() => setOpenaiOk(false));
@@ -271,7 +271,7 @@ function TrainSession({
       await unlockBlakeVoice();
       await new Promise<void>((resolve, reject) => {
         void speakBlakeReply(text, {
-          speakPath: "/api/field/ask-blake/speak",
+          speakPath: "/api/field/ask-ayla/speak",
           onEnd: () => resolve(),
         })
           .then((stop) => {
@@ -371,7 +371,7 @@ function TrainSession({
         setVoiceState("idle");
         return;
       }
-      const text = await transcribeBlakeAudio(blob, "/api/field/ask-blake/transcribe");
+      const text = await transcribeBlakeAudio(blob, "/api/field/ask-ayla/transcribe");
       const trimmed = text.trim();
       if (!trimmed) {
         setError("Could not transcribe — try again or type.");

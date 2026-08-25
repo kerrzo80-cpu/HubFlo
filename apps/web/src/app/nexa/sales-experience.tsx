@@ -134,7 +134,7 @@ function AylaPeek() {
   return (
     <aside className={styles.aylaPeek} aria-label={ASSISTANT_ASK}>
       <Image
-        src="/brand/buddy-avatar.png"
+        src="/brand/ayla-avatar.png"
         width={88}
         height={88}
         alt={ASSISTANT_NAME}

@@ -30,7 +30,7 @@ type PendingAttachment = {
   label: string;
 };
 
-export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: AskBlakeChatProps) {
+export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-ayla" }: AskBlakeChatProps) {
   const [messages, setMessages] = useState<AskBlakeMessage[]>([
     {
       role: "assistant",
@@ -266,12 +266,12 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
   const canAddMore = attachments.length < ASK_BLAKE_MAX_PHOTOS;
 
   return (
-    <section className="ask-blake" aria-label="Ask Ayla">
+    <section className="ask-ayla ask-blake" aria-label="Ask Ayla">
       <div className="ask-blake-thread">
         {messages.map((message, index) => (
           <div
             key={`${message.role}-${index}`}
-            className={`ask-blake-bubble ${message.role === "assistant" ? "is-blake" : "is-user"}`}
+            className={`ask-blake-bubble ${message.role === "assistant" ? "is-ayla is-blake" : "is-user"}`}
           >
             {message.role === "assistant" ? (
               <span className="ask-blake-avatar">
@@ -294,7 +294,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
           </div>
         ))}
         {busy ? (
-          <div className="ask-blake-bubble is-blake">
+          <div className="ask-blake-bubble is-ayla is-blake">
             <span className="ask-blake-avatar">
               <BlakeCharacter mood="thinking" size="sm" />
             </span>

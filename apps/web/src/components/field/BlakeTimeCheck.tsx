@@ -175,7 +175,7 @@ export function BlakeTimeCheck() {
       <header className="field-page-header blake-header">
         <BlakeCharacter mood={mood} size="md" />
         <div>
-          <p className="eyebrow">Blake</p>
+          <p className="eyebrow">Hours</p>
           <h1>Time check</h1>
           <p className="field-page-sub">
             {summary

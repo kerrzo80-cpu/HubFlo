@@ -13927,7 +13927,7 @@ export default function Dashboard() {
     setNexaAssistantDraft("");
     setNexaAssistantBusy(true);
     try {
-      const response = await fetch("/api/nexa-assistant", {
+      const response = await fetch("/api/ayla-assistant", {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -13983,7 +13983,7 @@ export default function Dashboard() {
     if (nexaAssistantBusy) return;
     setNexaAssistantBusy(true);
     try {
-      const response = await fetch("/api/nexa-assistant", {
+      const response = await fetch("/api/ayla-assistant", {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ confirmActionId: action.id }),
@@ -30572,7 +30572,7 @@ export default function Dashboard() {
           ) : (
             <BuddyCharacter mood={buddyMood} size="lg" className="buddy-launcher-mascot" />
           )}
-          <span className="buddy-launcher-label">Blake</span>
+          <span className="buddy-launcher-label">Ayla</span>
           {!nexaAssistantOpen && buddyAlertCount > 0 ? (
             <em className="buddy-launcher-badge" aria-hidden>
               {buddyAlertCount > 9 ? "9+" : buddyAlertCount}

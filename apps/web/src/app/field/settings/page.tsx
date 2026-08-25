@@ -91,7 +91,7 @@ export default function SettingsPage() {
             <li>Open the next job from My Day.</li>
             <li>Tick a couple of checklist items.</li>
             <li>
-              Finish with <a href={fieldPath("/time-check")}>Blake</a> — amend one job longer.
+              Finish with <a href={fieldPath("/time-check")}>Hours</a> — amend one job longer.
             </li>
           </ul>
           <button className="primary-btn" type="button" onClick={resetDemo}>
