@@ -128,7 +128,6 @@ import {
   normalizeBusinessBranding,
   operationsLabel,
   platformLabel,
-  resolveBrandLogoUrl,
   resolvePlatformRailLockup,
   type BusinessBrandingSettings,
 } from "@/lib/branding";

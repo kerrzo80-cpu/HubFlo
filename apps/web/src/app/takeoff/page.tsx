@@ -365,12 +365,14 @@ export default function TakeoffSkillPage() {
     <div className="takeoff-skill-shell">
       <header className="takeoff-skill-topbar">
         <div className="takeoff-skill-brand">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={resolveBrandLogoUrl(brand, "takeoffs")} alt={brand.takeoffsAppName || "blake."} width={40} height={40} />
           <Link href="/" className="takeoff-skill-back">
             <ArrowLeft size={16} />
             Core
           </Link>
           <div>
-            <strong>Blake Takeoff</strong>
+            <strong>{brand.takeoffsAppName || "Blake Takeoff"}</strong>
             <span>Quantity takeoff · count fixtures on drawings</span>
           </div>
         </div>
