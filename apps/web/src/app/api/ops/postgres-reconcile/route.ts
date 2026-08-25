@@ -4,7 +4,24 @@ import { getAccessProfileFromHeaders } from "@/lib/access";
 import { listServerStoreNames, readServerStoreSnapshot } from "@/lib/server-store";
 import { postgresMirrorSnapshot, storeContentHash, writePostgresMirror } from "@/lib/postgres-store-mirror";
 
+function expectedReconcileSecret() {
+  return process.env.NEXA_BACKUP_CRON_SECRET?.trim()
+    || process.env.NEXA_IMPORT_TICK_SECRET?.trim()
+    || "";
+}
+
+function providedReconcileSecret(request: Request) {
+  return (
+    request.headers.get("x-nexa-backup-secret")?.trim()
+    || request.headers.get("x-nexa-import-tick-secret")?.trim()
+    || ""
+  );
+}
+
 function canReconcile(request: Request) {
+  const expected = expectedReconcileSecret();
+  const provided = providedReconcileSecret(request);
+  if (expected && provided === expected) return true;
   return getAccessProfileFromHeaders(request.headers).canCustomize;
 }
 

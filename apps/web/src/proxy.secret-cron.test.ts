@@ -9,6 +9,7 @@ describe("secretAuthCronPaths", () => {
     assert.equal(secretAuthCronPaths.has("/api/integrations/simpro/sync/cron"), true);
     assert.equal(secretAuthCronPaths.has("/api/integrations/simpro/import/tick"), true);
     assert.equal(secretAuthCronPaths.has("/api/reports/board-pack/cron"), true);
+    assert.equal(secretAuthCronPaths.has("/api/ops/postgres-reconcile"), true);
   });
 
   it("does not open interactive office-backup admin APIs", () => {

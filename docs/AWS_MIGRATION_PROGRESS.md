@@ -1,37 +1,33 @@
 # NeXa AWS migration progress
 
-**Last update:** 25 August 2026 (deployed)  
-**Production deploy branch (temporary):** `cursor/phase-a-on-prod-branch-d175`  
-**Canonical long-term branch:** `codex/ai-surveyor-estimator-takeoff`  
-**Live commit:** `98a33d90019763abff8e932480b5a4bb07f014af`
+**Last update:** 25 August 2026 (Render staging + Postgres baseline)  
+**Production branch:** `codex/ai-surveyor-estimator-takeoff`  
+**Staging URL:** https://nexa-trial.onrender.com  
+**Live URL:** https://nexa-live.onrender.com
 
 ## Status
 
 | Step | Status | Notes |
 |------|--------|-------|
-| Phase 1 audit | Done | `docs/PRODUCTION_STABILITY_AWS_MIGRATION_AUDIT.md` on prod branch |
-| Render secrets | Done | webhook / intake / import-tick set via API |
-| Phase A on prod branch | **Deployed live** | Health `ok: true`; OpenAI `source: env` |
-| Postgres mirror | **Enabled** | `NEXA_POSTGRES_MIRROR=1`; SQLite still primary |
-| Live Postgres tables | Pending first writes / reconcile | DB was empty; `nexa_store` created lazily on write |
-| AWS Lightsail/S3 staging | Blocked | Waiting on AWS credentials |
+| Phase 1 audit | Done | `docs/PRODUCTION_STABILITY_AWS_MIGRATION_AUDIT.md` |
+| Phase A on prod branch | **Merged + live** | PR #231 merged |
+| Render staging (`nexa-trial`) | **Live** | Isolated SQLite + pilot Postgres |
+| Postgres mirror (live) | **Re-enabled** | `NEXA_POSTGRES_MIRROR=1` via Render API |
+| Postgres backfill | **Done (live + trial)** | 72 stores live; 46 stores trial; `cutoverAllowed: true` |
+| Drizzle baseline | **Applied on staging PG** | `0000_hot_eternals.sql` |
+| AWS Lightsail/S3 | Deferred | Render staging covers testing |
 | Cutover | Not started | Render stays live; no DNS change |
 
-## Verified live
+## Verified
 
 ```text
 GET https://nexa-live.onrender.com/api/health
-ok: true
-store: sqlite
-postgresMirror.enabled: true
-openai.connected: true (env)
-deployment.branch: cursor/phase-a-on-prod-branch-d175
-deployment.commit: 98a33d90...
+GET https://nexa-trial.onrender.com/api/health
 ```
 
 ## Next
 
-1. Merge PR into `codex/ai-surveyor-estimator-takeoff` and point Render auto-deploy back at that branch
-2. Run authenticated `POST /api/ops/postgres-reconcile` once to backfill `nexa_store` hashes
-3. Provide AWS credentials for Lightsail + private S3 staging
-4. Keep pilot suspended/deleted only if unused; keep `nexa-live` + disk
+1. Deploy cron-auth postgres reconcile → `POST /api/ops/postgres-reconcile` on live + trial
+2. Apply `sql/0001_tenant_security.sql` on staging after baseline smoke
+3. SQLite inventory + ETL rehearsal on staging copy
+4. AWS only if/when a second host is wanted
