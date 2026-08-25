@@ -1,1 +1,2 @@
-export { runtime, POST } from "../../ask-blake/speak/route";
+export const runtime = "nodejs";
+export { POST } from "../../ask-blake/speak/route";
