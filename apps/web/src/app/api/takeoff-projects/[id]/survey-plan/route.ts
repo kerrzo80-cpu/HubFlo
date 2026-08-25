@@ -14,6 +14,7 @@ import {
   type TakeoffSurveyStopGoItem,
   type TakeoffSurveyWorkflow,
 } from "@/lib/takeoff-data";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export const runtime = "nodejs";
 
@@ -253,7 +254,7 @@ function inferSurveyType(scope: string) {
 }
 
 async function runOpenAiSurveyPlan(project: TakeoffProject, workflow: TakeoffSurveyWorkflow, apiKey: string, model: string) {
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await openAiFetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,

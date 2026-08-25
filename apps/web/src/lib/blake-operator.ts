@@ -21,6 +21,7 @@ import {
   type Job,
   type Quote,
 } from "@/lib/workflow-data";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export type BlakeOperatorCapability =
   | "create_lead"
@@ -257,7 +258,7 @@ async function planOperatorAction(
   const recentHistory = history.slice(-10).map((item) => `${item.role}: ${item.text}`).join("\n");
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await openAiFetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({

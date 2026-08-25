@@ -9,6 +9,7 @@ import {
   type TakeoffProject,
   type TakeoffSurveyChatMessage,
 } from "@/lib/takeoff-data";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export const runtime = "nodejs";
 
@@ -362,7 +363,7 @@ function buildPilotReply(project: TakeoffProject, message: string) {
 }
 
 async function runOpenAiSurveyChat(project: TakeoffProject, nextMessages: TakeoffSurveyChatMessage[], apiKey: string, model: string, actor: string) {
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await openAiFetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,

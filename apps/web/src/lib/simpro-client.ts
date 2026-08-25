@@ -24,6 +24,8 @@ export type SimproClientOptions = {
   baseDelayMs?: number;
   /** Override company path segment (multi-company builds). */
   companyId?: string;
+  /** Hard timeout per attempt (default 30s). */
+  timeoutMs?: number;
 };
 
 function sleep(ms: number) {
@@ -126,6 +128,7 @@ export async function simproGet(
           Authorization: `Bearer ${config.token}`,
         },
         cache: "no-store",
+        signal: AbortSignal.timeout(options.timeoutMs ?? 30_000),
       });
       const headers = headerMap(response.headers);
       const body = await response.json().catch(() => ({}));

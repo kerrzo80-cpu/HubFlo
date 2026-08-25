@@ -677,3 +677,81 @@ export const estimateCorrections = pgTable(
   { id: id(), tenantId: tenantId(), estimateId: uuid("estimate_id").notNull(), lineType: text("line_type").notNull(), lineId: text("line_id").notNull(), reason: text("reason").notNull(), actorUserId: uuid("actor_user_id"), actorName: text("actor_name").notNull(), reusable: boolean("reusable").default(false).notNull(), correction: jsonb("correction").$type<Record<string, unknown>>().default({}).notNull(), ...timestamps },
   (table) => [index("estimate_corrections_estimate_idx").on(table.tenantId, table.estimateId), index("estimate_corrections_reusable_idx").on(table.tenantId, table.reusable)],
 );
+
+/** Generic object metadata for S3 (or transitional local) file storage. */
+export const files = pgTable(
+  "files",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    storageKey: text("storage_key").notNull(),
+    bucket: text("bucket"),
+    fileName: text("file_name").notNull(),
+    mimeType: text("mime_type").notNull(),
+    byteSize: integer("byte_size").notNull(),
+    checksumSha256: text("checksum_sha256"),
+    entityType: text("entity_type").notNull(),
+    entityId: text("entity_id").notNull(),
+    legacyStorageKey: text("legacy_storage_key"),
+    createdByUserId: uuid("created_by_user_id"),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("files_tenant_storage_key_unique").on(table.tenantId, table.storageKey),
+    index("files_tenant_entity_idx").on(table.tenantId, table.entityType, table.entityId),
+  ],
+);
+
+export const leads = pgTable(
+  "leads",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    legacyId: text("legacy_id"),
+    reference: text("reference"),
+    customerName: text("customer_name").notNull(),
+    siteName: text("site_name"),
+    status: text("status").notNull(),
+    source: text("source"),
+    payload: jsonb("payload").$type<Record<string, unknown>>().default({}).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    index("leads_tenant_idx").on(table.tenantId),
+    uniqueIndex("leads_tenant_legacy_unique").on(table.tenantId, table.legacyId),
+  ],
+);
+
+export const takeoffProjects = pgTable(
+  "takeoff_projects",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    legacyId: text("legacy_id"),
+    name: text("name").notNull(),
+    status: text("status").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().default({}).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    index("takeoff_projects_tenant_idx").on(table.tenantId),
+    uniqueIndex("takeoff_projects_tenant_legacy_unique").on(table.tenantId, table.legacyId),
+  ],
+);
+
+export const integrationConnections = pgTable(
+  "integration_connections",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    provider: text("provider").notNull(),
+    status: text("status").notNull(),
+    /** Non-secret metadata only — credentials live in Secrets Manager / env. */
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("integration_connections_tenant_provider_unique").on(table.tenantId, table.provider),
+  ],
+);
+

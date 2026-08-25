@@ -10,6 +10,7 @@ import {
 } from "@/lib/field/ask-blake";
 import { parseJsonRequestBody } from "@/lib/http";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export const runtime = "nodejs";
 
@@ -42,7 +43,7 @@ async function runOpenAi(input: AskBlakeRequest, apiKey: string, preferredModel:
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 28_000);
     try {
-      const response = await fetch("https://api.openai.com/v1/responses", {
+      const response = await openAiFetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,

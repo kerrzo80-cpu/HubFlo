@@ -19,6 +19,20 @@ const userAuthPublicPaths = new Set([
   "/heat-design",
   "/nexa-ai-first.html",
 ]);
+
+/** Secret-authenticated integration endpoints — must bypass session cookie gate. */
+const secretAuthApiPaths = new Set([
+  "/api/integrations/simpro/webhook",
+  "/api/integrations/simpro/sync/cron",
+  "/api/integrations/simpro/import/tick",
+  "/api/integrations/email/inbound",
+  "/api/integrations/intake",
+  "/api/whatsapp/webhook",
+]);
+
+function isSecretAuthApiPath(pathname: string) {
+  return secretAuthApiPaths.has(pathname);
+}
 const publicAssetPaths = new Set([
   "/ewg-logo.png",
   "/apple-icon.png",
@@ -82,6 +96,10 @@ export function proxy(request: NextRequest) {
   }
 
   if (isUserAuthenticationEnabled()) {
+    // Webhooks / cron / intake authenticate with their own shared secrets.
+    if (isSecretAuthApiPath(pathname)) {
+      return NextResponse.next();
+    }
     if (
       userAuthPublicPaths.has(pathname) ||
       publicPagePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))

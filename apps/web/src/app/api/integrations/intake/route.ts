@@ -36,10 +36,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+import { integrationBearerAuthorized } from "@/lib/runtime-security";
+
 function hasIntegrationAccess(request: Request) {
-  const expectedToken = process.env.HUBFLO_INTEGRATION_TOKEN;
-  if (!expectedToken) return true;
-  return request.headers.get("authorization") === `Bearer ${expectedToken}`;
+  return integrationBearerAuthorized(request);
 }
 
 function badRequest(message: string) {

@@ -18,6 +18,7 @@ import {
   type TakeoffPipeRun,
   type TakeoffProject,
 } from "@/lib/takeoff-data";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export const runtime = "nodejs";
 
@@ -575,7 +576,7 @@ async function runOpenAiSurveyDraft(project: TakeoffProject, actor: string, apiK
     throw new SurveyDraftInputError("OpenAI is connected, but no AI-ready survey files are stored. Re-upload the notes/photos, then run AI draft quote again.");
   }
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await openAiFetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,

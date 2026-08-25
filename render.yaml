@@ -16,7 +16,7 @@ services:
       - key: NODE_VERSION
         value: 24.14.0
       - key: NODE_OPTIONS
-        value: --max-old-space-size=3072
+        value: --max-old-space-size=384
       - key: NEXA_STORE_PATH
         value: /var/data/nexa-pilot.sqlite
       - key: NEXA_STORE_DIR

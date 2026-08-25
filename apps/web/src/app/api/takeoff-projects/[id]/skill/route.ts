@@ -34,6 +34,7 @@ import {
   inferDisciplineFromText,
   patternsForAssemblyCode,
 } from "@/lib/takeoff-pdf-extract";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export const runtime = "nodejs";
 
@@ -212,7 +213,7 @@ Prefer vector/text reliability. Flag raster/image-only sheets as Low.`,
   }
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await openAiFetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${config.apiKey}`,
@@ -324,7 +325,7 @@ Drawing index: ${JSON.stringify(skill.drawingIndex.sheets.map((sheet) => ({
   }
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await openAiFetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${config.apiKey}`,

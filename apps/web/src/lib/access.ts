@@ -249,14 +249,48 @@ export function parsePermissionOverrides(value: string | null | undefined): Acce
   }
 }
 
+/** Deny-all profile used when role is missing under strict (users) auth. */
+export const denyAccessProfile: AccessProfile = {
+  showCustomers: false,
+  showJobs: false,
+  showQuotes: false,
+  showAssets: false,
+  showStock: false,
+  showFinance: false,
+  showSchedule: false,
+  canCreateJob: false,
+  canCreateQuote: false,
+  canCreateLead: false,
+  canEditJobs: false,
+  canDeleteJobs: false,
+  canRequestPurchase: false,
+  canApprovePurchase: false,
+  canCustomize: false,
+  canEditInvoice: false,
+};
+
+function isStrictAccessMode() {
+  return process.env.NEXA_AUTH_MODE?.trim().toLowerCase() === "users";
+}
+
 export function getAccessProfile(
   role: HubRole | null | undefined,
   overrides: AccessOverride | null | undefined = null,
 ): AccessProfile {
-  if (!overrides) {
-    return roleAccess[role ?? "Owner/Admin"];
+  // Production users-mode: never elevate a missing role to Owner/Admin.
+  // Local/pilot without users auth keeps the historical Owner/Admin default for DX.
+  if (!role) {
+    if (isStrictAccessMode()) {
+      return overrides ? { ...denyAccessProfile, ...overrides } : denyAccessProfile;
+    }
+    return overrides
+      ? { ...roleAccess["Owner/Admin"], ...overrides }
+      : roleAccess["Owner/Admin"];
   }
-  return { ...roleAccess[role ?? "Owner/Admin"], ...overrides };
+  if (!overrides) {
+    return roleAccess[role];
+  }
+  return { ...roleAccess[role], ...overrides };
 }
 
 export function parseRole(value: string | null | undefined): HubRole | null {
@@ -267,6 +301,11 @@ export function parseRole(value: string | null | undefined): HubRole | null {
 export function getAccessProfileFromHeaders(headers: Headers): AccessProfile {
   const role = parseRole(headers.get(roleHeaderName));
   const overrides = parsePermissionOverrides(headers.get(permissionHeaderName));
+  // Under users auth the proxy must inject the session role. If it is absent,
+  // treat the request as unprivileged even if the client sent permission JSON.
+  if (isStrictAccessMode() && !role && !headers.get("x-nexa-auth-user-id")) {
+    return denyAccessProfile;
+  }
   return getAccessProfile(role, overrides);
 }
 

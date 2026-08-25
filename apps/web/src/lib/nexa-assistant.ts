@@ -6,6 +6,7 @@ import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/li
 import { pushJobToSimpro } from "@/lib/simpro-bridge";
 import { getJobs, getQuotes, updateJob, type Job } from "@/lib/workflow-data";
 import type { Employee, Weekday } from "@/lib/access";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 type ScheduleAssignment = {
   id: string;
@@ -269,7 +270,7 @@ async function aiIntent(message: string, employees: Employee[], now: Date): Prom
     || process.env.NEXA_TAKEOFF_OPENAI_MODEL?.trim()
     || "gpt-4.1-mini";
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await openAiFetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -527,7 +528,7 @@ async function conversationalReply(
   }));
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await openAiFetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({

@@ -1,10 +1,11 @@
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
+import { requireEnvSecretsOnly } from "@/lib/runtime-security";
 
 /**
- * Shared, in-app OpenAI configuration. Persisting the key here lets every AI
- * feature (Takeoff, Survey, Field "Ask Blake", the NeXa Assistant) use a single
- * key entered in Core Setup, without needing an environment variable / redeploy.
- * Environment variables still take precedence (see resolveOpenAiApiKey).
+ * Shared, in-app OpenAI configuration.
+ * Environment variables always win (see resolveOpenAiApiKey).
+ * In live/users/production, keys must NOT be persisted in the app data store —
+ * use Render/AWS secrets instead.
  */
 const STORE_NAME = "nexa-openai-config";
 export const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
@@ -20,14 +21,33 @@ export function getStoredOpenAiConfig(): StoredOpenAiConfig {
 }
 
 export function getStoredOpenAiKey(): string {
+  if (requireEnvSecretsOnly()) return "";
   return getStoredOpenAiConfig().apiKey?.trim() || "";
 }
 
 export function saveStoredOpenAiConfig(apiKey: string, model?: string): StoredOpenAiConfig {
+  if (requireEnvSecretsOnly()) {
+    throw new Error(
+      "OpenAI API keys cannot be saved in the app data store on live/production. Set OPENAI_API_KEY or NEXA_OPENAI_API_KEY in the host secrets instead.",
+    );
+  }
   const existing = getStoredOpenAiConfig();
   const config: StoredOpenAiConfig = {
     apiKey: apiKey.trim(),
     model: model?.trim() || existing.model?.trim() || DEFAULT_OPENAI_MODEL,
+    updatedAt: new Date().toISOString(),
+  };
+  writeServerStore(STORE_NAME, config);
+  return config;
+}
+
+/** Persist model preference only (no API key) — allowed in all modes. */
+export function saveStoredOpenAiModel(model: string): StoredOpenAiConfig {
+  const existing = getStoredOpenAiConfig();
+  const config: StoredOpenAiConfig = {
+    // Drop any previously stored key when running in strict mode.
+    apiKey: requireEnvSecretsOnly() ? undefined : existing.apiKey,
+    model: model.trim() || existing.model?.trim() || DEFAULT_OPENAI_MODEL,
     updatedAt: new Date().toISOString(),
   };
   writeServerStore(STORE_NAME, config);

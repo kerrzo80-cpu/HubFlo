@@ -23,8 +23,8 @@ import {
 
 export const runtime = "nodejs";
 
-const MAX_TAKEOFF_UPLOAD_BYTES = 250 * 1024 * 1024;
-const MAX_TAKEOFF_REQUEST_BYTES = 300 * 1024 * 1024;
+const MAX_TAKEOFF_UPLOAD_BYTES = 40 * 1024 * 1024;
+const MAX_TAKEOFF_REQUEST_BYTES = 45 * 1024 * 1024;
 const documentKinds: TakeoffDocumentKind[] = ["Drawing", "Marked-up drawing", "Specification", "Contractor BOQ", "Survey note", "Survey photo", "LiDAR scan"];
 
 function isDocumentKind(value: FormDataEntryValue | null): value is TakeoffDocumentKind {
