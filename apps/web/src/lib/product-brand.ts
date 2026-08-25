@@ -6,8 +6,10 @@ export const PLATFORM_WORDMARK = "blake.";
 export const PLATFORM_TAGLINE = "Your AI Office Manager";
 export const PLATFORM_POSITIONING = "Built for busy trade businesses";
 
-/** Compact blake. mark for app chrome (says “blake.”, not “b.”). */
-export const PLATFORM_MARK_URL = "/brand/blake-mark.svg";
+/** Wordmark letter colour on light backgrounds. */
+export const PLATFORM_WORDMARK_INK = "#2C3138";
+/** Wordmark dot (period) — always blue, never the same as letters. */
+export const PLATFORM_WORDMARK_DOT = "#4A90D9";
 /** Wordmark only for light headers. */
 export const PLATFORM_WORDMARK_DARK_URL = "/brand/blake-wordmark-dark.svg";
 /** Wordmark only for dark headers. */

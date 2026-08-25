@@ -43,7 +43,8 @@ Ayla reads live Blake records, answers operational questions and prepares action
 
 | Token | Hex | Use |
 | --- | --- | --- |
-| Charcoal | `#0F172A` | Wordmark, deep surfaces |
+| Charcoal | `#2C3138` | Wordmark letters |
+| Blake Blue | `#4A90D9` | Wordmark dot (period) |
 | Action Blue | `#2563EB` | Primary CTAs, links, selected states |
 | Soft Mist | `#F8FAFC` | Soft page atmosphere |
 | Line | `#E2E8F0` | Borders and dividers |
@@ -52,7 +53,13 @@ Ayla reads live Blake records, answers operational questions and prepares action
 
 ## Logo Assets
 
-- `apps/web/public/brand/blake-mark.svg`
+Wordmark rules:
+
+- **blake** in lowercase charcoal (`#2C3138` on light backgrounds, white on dark)
+- **Blue dot** period (`#4A90D9`) — never the same colour as the letters
+- Medium-weight rounded sans (Inter Medium paths in SVG)
+
+Assets:
 - `apps/web/public/brand/blake-wordmark.svg`
 - `apps/web/public/brand/blake-lockup-dark.svg` (for light backgrounds)
 - `apps/web/public/brand/blake-lockup-light.svg` (for dark backgrounds)
