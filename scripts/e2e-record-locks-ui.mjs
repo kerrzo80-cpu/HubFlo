@@ -2,10 +2,12 @@
 /** Puppeteer UI test: read-only banner when second user opens same quote (API cookie auth). */
 import fs from "node:fs";
 import http from "node:http";
+import https from "node:https";
 import path from "node:path";
 import puppeteer from "puppeteer-core";
 
 const BASE = (process.env.NEXA_E2E_BASE_URL || "http://127.0.0.1:3001").replace(/\/$/, "");
+const BASE_URL = new URL(BASE);
 const OUT = process.env.NEXA_E2E_OUT || "/opt/cursor/artifacts/e2e-record-locks-ui";
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -17,7 +19,8 @@ const PASS_B = process.env.NEXA_E2E_PASSWORD_B || "LockViewerPass123!X";
 function apiLogin(username, password) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify({ username, password });
-    const req = http.request(
+    const lib = BASE_URL.protocol === "https:" ? https : http;
+    const req = lib.request(
       `${BASE}/api/auth/login`,
       { method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) } },
       (res) => {
@@ -42,9 +45,10 @@ async function setSessionCookie(page, cookiePair) {
   await page.setCookie({
     name: "nexa_session",
     value,
-    domain: "127.0.0.1",
+    domain: BASE_URL.hostname,
     path: "/",
     httpOnly: true,
+    secure: BASE_URL.protocol === "https:",
   });
 }
 

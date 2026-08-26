@@ -18,6 +18,8 @@
     "e2e:test-jobs:live": "NEXA_E2E_BASE_URL=https://nexa-live.onrender.com node scripts/e2e-test-jobs.mjs",
     "ops:drill": "node scripts/ops-harden-drill.mjs",
     "ops:drill:live": "NEXA_E2E_BASE_URL=https://nexa-live.onrender.com node scripts/ops-harden-drill.mjs",
+    "e2e:record-locks:live": "NEXA_E2E_BASE_URL=https://nexa-live.onrender.com node scripts/e2e-record-locks.mjs",
+    "e2e:record-locks-ui:live": "NEXA_E2E_BASE_URL=https://nexa-live.onrender.com node scripts/e2e-record-locks-ui.mjs",
     "ops:inventory": "node scripts/nexa-production-inventory.mjs",
     "test:domain": "pnpm --filter @hubflo/domain test",
     "db:generate:local": "./scripts/pnpm.sh --filter @hubflo/database db:generate",
