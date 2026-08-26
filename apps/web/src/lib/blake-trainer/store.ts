@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { HubRole } from "@/lib/access";
 import { createBlakeTrainerSeedState } from "@/lib/blake-trainer/seed";
+import { generateBlakeTrainerCatalog } from "@/lib/blake-trainer/system-knowledge";
 import type {
   TrainerFlow,
   TrainerFlowStatus,
@@ -31,7 +32,20 @@ function makeId(prefix: string) {
 }
 
 function readStore(): TrainerStoreState {
-  return loadServerStore(STORE_NAME, createBlakeTrainerSeedState());
+  const state = loadServerStore(STORE_NAME, createBlakeTrainerSeedState());
+  // Upgrade workspaces that still have the early hand-built catalog.
+  if (!state.flows.some((flow) => flow.id === "flow-manager-full")) {
+    const catalog = generateBlakeTrainerCatalog({
+      approvedBy: "Brian Kerr",
+      createdBy: "Brian Kerr",
+    });
+    state.materials = catalog.materials;
+    state.modules = catalog.modules;
+    state.flows = catalog.flows;
+    // keep existing progress rows
+    writeServerStore(STORE_NAME, state);
+  }
+  return state;
 }
 
 function saveStore(state: TrainerStoreState) {
@@ -430,6 +444,51 @@ export function setFlowStatus(flowId: string, status: TrainerFlowStatus): Traine
     }
   }
   return upsertFlow({ ...flow, status });
+}
+
+/**
+ * Blake rebuilds materials, modules and published flows from the approved
+ * NeXa system knowledge pack. Learner progress is preserved.
+ */
+export function regenerateBlakeTrainerFromSystemKnowledge(actorName = "Brian Kerr") {
+  const state = readStore();
+  const catalog = generateBlakeTrainerCatalog({
+    approvedBy: actorName,
+    createdBy: actorName,
+  });
+  const stamp = nowIso();
+
+  // Keep any extra admin-authored materials that are not system ids.
+  const systemMaterialIds = new Set(catalog.materials.map((item) => item.id));
+  const customMaterials = state.materials.filter((item) => !systemMaterialIds.has(item.id) && !item.id.startsWith("mat-sys-"));
+
+  const systemModuleIds = new Set(catalog.modules.map((item) => item.id));
+  const customModules = state.modules.filter((item) => !systemModuleIds.has(item.id) && !item.id.startsWith("mod-"));
+
+  const systemFlowIds = new Set(catalog.flows.map((item) => item.id));
+  const customFlows = state.flows.filter((item) => !systemFlowIds.has(item.id) && !item.id.startsWith("flow-"));
+
+  state.materials = [
+    ...catalog.materials.map((item) => ({ ...item, updatedAt: stamp, approvedAt: stamp, approvedBy: actorName })),
+    ...customMaterials,
+  ];
+  state.modules = [...catalog.modules, ...customModules];
+  state.flows = [
+    ...catalog.flows.map((item) => ({ ...item, createdBy: actorName, updatedAt: stamp })),
+    ...customFlows,
+  ];
+  saveStore(state);
+
+  return {
+    materials: catalog.materials.length,
+    modules: catalog.modules.length,
+    flows: catalog.flows.length,
+    customMaterialsKept: customMaterials.length,
+    customModulesKept: customModules.length,
+    customFlowsKept: customFlows.length,
+    generatedAt: stamp,
+    generatedBy: actorName,
+  };
 }
 
 export function resetBlakeTrainerStoreForTests() {

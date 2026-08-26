@@ -103,9 +103,17 @@ async function main() {
       ).filter((centre) => !String(centre.id || "").includes("daywork")),
     },
   };
+  const wipeResult = await json<{ ok?: boolean }>("/api/hub-state", {
+    method: "PUT",
+    body: JSON.stringify(wiped),
+  });
+  if (!wipeResult.ok) {
+    throw new Error("Hub wipe PUT failed");
+  }
+  // PUT no longer echoes the full hub (OOM on volume jobs) — re-GET to verify Field sheets survived.
   const afterWipe = await json<{
     dayworkSheets?: Record<string, { materialsJson?: string; clientSignerName?: string }>;
-  }>("/api/hub-state", { method: "PUT", body: JSON.stringify(wiped) });
+  }>("/api/hub-state");
 
   const sheet =
     afterWipe.dayworkSheets?.["job-gas-cert-trial:job-gas-cert-trial-daywork-account"];

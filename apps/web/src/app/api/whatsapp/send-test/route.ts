@@ -40,7 +40,7 @@ export async function POST(request: Request) {
       channel: "WhatsApp",
       subject: payload.jobRef ? `WhatsApp · ${payload.jobRef}` : "WhatsApp message",
       body: payload.message,
-      from: payload.actorName?.trim() || "NeXa WhatsApp",
+      from: payload.actorName?.trim() || "Blake WhatsApp",
       to: payload.to,
       messageId: result.providerMessageId,
       status: "Sent",

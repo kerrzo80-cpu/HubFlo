@@ -10,13 +10,13 @@ export default function TalkLabPage() {
           <p className="eyebrow">Dev sandbox</p>
           <h1>Talk lab</h1>
           <p className="field-page-sub">
-            Same hands-free engine as Ask Blake → Talk. Extra lab log for debugging.
+            Same hands-free engine as Ask Ayla → Talk. Extra lab log for debugging.
           </p>
         </div>
       </header>
 
       <div className="feedback">
-        Prefer <strong>Ask Blake → Talk</strong> in the app. This page keeps the detailed lab log.
+        Prefer <strong>Ask Ayla → Talk</strong> in the app. This page keeps the detailed lab log.
       </div>
 
       <AskBlakeTalkLab variant="lab" />

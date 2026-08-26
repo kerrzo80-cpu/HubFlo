@@ -38,6 +38,10 @@ function mapAttachment(item: EngineerScheduleItem["attachments"][number]): Field
             : "PDF",
     uploadedBy: item.uploadedBy,
     uploadedAt: item.uploadedAt,
+    url: item.url,
+    mimeType: item.mimeType,
+    size: item.size,
+    storageKey: item.storageKey,
   };
 }
 
@@ -99,6 +103,8 @@ export function engineerScheduleToFieldItem(item: EngineerScheduleItem): FieldSc
     attachments: item.attachments.map(mapAttachment),
     photos: item.photos.map(mapAttachment),
     requirements: item.requirements.map(mapRequirement),
+    costCentreTemplate: item.costCentres?.[0]?.templateName || item.costCentre,
+    costCentreId: item.costCentres?.[0]?.id,
   };
 }
 

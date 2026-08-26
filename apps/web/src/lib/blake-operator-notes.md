@@ -1,6 +1,6 @@
 # Blake operator foundation
 
-This module is the first implementation of the NeXa capability/action layer described in #206.
+This module is the first implementation of the Blake capability/action layer described in #206.
 
 Initial confirmed write capabilities:
 
@@ -14,12 +14,12 @@ Initial confirmed write capabilities:
 Principles:
 
 - OpenAI plans the requested action and extracts user-supplied values.
-- NeXa validates required fields and permissions.
+- Blake validates required fields and permissions.
 - Writes are stored as pending actions and require confirmation.
 - A typed `yes`, `confirm`, `do it`, etc. can confirm the same pending action, so the flow works for future voice clients as well as buttons.
-- Confirmation re-checks the logged-in user's current NeXa permissions.
+- Confirmation re-checks the logged-in user's current Blake permissions.
 - The model never executes database writes directly.
-- Existing NeXa business services (`createLead`, `createQuote`, `createJob`, and update equivalents) perform the writes.
+- Existing Blake business services (`createLead`, `createQuote`, `createJob`, and update equivalents) perform the writes.
 - The current confirmation-card wire format is reused for frontend compatibility; the API resolves generic Blake actions before legacy booking confirmations.
 
-This is intentionally an incremental foundation. New NeXa capabilities should be added through the same registry/execution boundary rather than as separate chatbot handlers.
+This is intentionally an incremental foundation. New Blake capabilities should be added through the same registry/execution boundary rather than as separate chatbot handlers.

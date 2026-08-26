@@ -30,7 +30,7 @@ const appConfig: Record<
     startUrl: "/survey",
     scope: "/survey",
     shortFallback: "Survey",
-    description: "Guided site capture and survey packs.",
+    description: "Site capture, evidence packs and Blake cost centres.",
   },
   estimator: {
     key: "estimator",
@@ -52,6 +52,13 @@ const appConfig: Record<
     scope: "/heat-design",
     shortFallback: "Heat Design",
     description: "Floor plan, emitters and heat kit linked to quotes and jobs.",
+  },
+  trainer: {
+    key: "trainer",
+    startUrl: "/train",
+    scope: "/train",
+    shortFallback: "Trainer",
+    description: "Voice-first staff trainer with role-aware modules and checks.",
   },
 };
 
@@ -80,22 +87,22 @@ export async function GET(_request: Request, { params }: Params) {
     lang: "en-GB",
     icons: [
       {
-        src: icon,
+        src: icon.includes("?") ? `${icon}&v=compose5` : `${icon}?v=compose5`,
         sizes: "512x512",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: icon,
+        src: icon.includes("?") ? `${icon}&v=compose5` : `${icon}?v=compose5`,
         sizes: "192x192",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: icon,
-        sizes: "any",
+        src: icon.includes("?") ? `${icon}&v=compose5` : `${icon}?v=compose5`,
+        sizes: "512x512",
         type: "image/png",
-        purpose: "any",
+        purpose: "maskable",
       },
     ],
   };

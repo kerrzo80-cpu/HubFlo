@@ -4,12 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { Check, Eye, EyeOff, Loader2, MousePointer2, Plus, Trash2 } from "lucide-react";
 
 import type { TakeoffDocument } from "@/lib/takeoff-data";
-import type { TakeoffConfidence, TakeoffMeasuredQuantity } from "@/lib/takeoff-skill";
+import type { StudioAiReviewMeasuredQuantity, StudioAiReviewStatus } from "@/lib/takeoff-studio";
+import type { TakeoffConfidence } from "@/lib/takeoff-skill";
 
-type OverlayPin = NonNullable<TakeoffMeasuredQuantity["tagMatches"]>[number] & {
+type OverlayPin = NonNullable<StudioAiReviewMeasuredQuantity["tagMatches"]>[number] & {
   code: string;
   description: string;
   quantityId: string;
+  confidence?: TakeoffConfidence;
 };
 
 type ToolMode = "select" | "add" | "delete";
@@ -36,10 +38,14 @@ function newPinId() {
 type Props = {
   projectId: string;
   documents: TakeoffDocument[];
-  measured: TakeoffMeasuredQuantity[];
+  measured: StudioAiReviewMeasuredQuantity[];
   busy?: boolean;
-  onApply: (measured: TakeoffMeasuredQuantity[]) => Promise<void>;
+  reviewStatus?: StudioAiReviewStatus;
+  onApply: (measured: StudioAiReviewMeasuredQuantity[]) => Promise<void>;
   onFindTags?: () => Promise<void>;
+  onReject?: () => Promise<void>;
+  onRejectClass?: (code: string, description: string) => void;
+  onClose?: () => void;
 };
 
 /**
@@ -51,8 +57,12 @@ export default function TakeoffOverlayReview({
   documents,
   measured,
   busy,
+  reviewStatus,
   onApply,
   onFindTags,
+  onReject,
+  onRejectClass,
+  onClose,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -83,13 +93,14 @@ export default function TakeoffOverlayReview({
           code: row.code,
           description: row.description,
           quantityId: row.id,
+          confidence: row.confidence,
         });
       }
     }
     setPins(next);
     const qtySeed: Record<string, number> = {};
     for (const row of measured) {
-      if (row.unit !== "nr") qtySeed[row.id] = row.quantity;
+      if (row.unit !== "nr") qtySeed[row.id] = row.quantity ?? 0;
     }
     setManualQty(qtySeed);
     const firstPrimary = primaries.find((row) => row.unit === "nr") || placeableRows[0];
@@ -141,8 +152,8 @@ export default function TakeoffOverlayReview({
   );
 
   const liveQty = useCallback(
-    (row: TakeoffMeasuredQuantity) => {
-      if (row.unit !== "nr") return manualQty[row.id] ?? row.quantity;
+    (row: StudioAiReviewMeasuredQuantity) => {
+      if (row.unit !== "nr") return manualQty[row.id] ?? row.quantity ?? 0;
       return pins.filter((pin) => pin.quantityId === row.id && !pin.excluded).length;
     },
     [manualQty, pins],
@@ -265,6 +276,7 @@ export default function TakeoffOverlayReview({
     if (tool === "delete") {
       if (!hit) return;
       setPins((prev) => prev.map((pin) => (pin.id === hit.id ? { ...pin, excluded: true } : pin)));
+      onRejectClass?.(hit.code, hit.description);
       setSelectedPinId(null);
       return;
     }
@@ -322,11 +334,11 @@ export default function TakeoffOverlayReview({
       list.push(pin);
       byQuantity.set(pin.quantityId, list);
     }
-    const next: TakeoffMeasuredQuantity[] = measured.map((row) => {
+    const next: StudioAiReviewMeasuredQuantity[] = measured.map((row) => {
       const rowPins = byQuantity.get(row.id);
       if (row.unit !== "nr") {
-        const quantity = manualQty[row.id] ?? row.quantity;
-        const confidence: TakeoffConfidence = quantity > 0 ? "Medium" : row.confidence;
+        const quantity = manualQty[row.id] ?? row.quantity ?? 0;
+        const confidence: TakeoffConfidence = quantity > 0 ? "Medium" : row.confidence ?? "Low";
         return {
           ...row,
           quantity,
@@ -337,7 +349,7 @@ export default function TakeoffOverlayReview({
       if (!rowPins) {
         return { ...row, quantity: 0, tagMatches: [] };
       }
-      const tagMatches = rowPins.map(({ code: _c, description: _d, quantityId: _q, ...match }) => match);
+      const tagMatches = rowPins.map(({ code: _c, description: _d, quantityId: _q, confidence: _confidence, ...match }) => match);
       const active = tagMatches.filter((match) => !match.excluded).length;
       const confidence: TakeoffConfidence = active > 0 ? (row.confidence === "High" ? "High" : "Medium") : "Low";
       return {
@@ -352,6 +364,8 @@ export default function TakeoffOverlayReview({
   }
 
   const activeCount = pins.filter((pin) => !pin.excluded).length;
+  const lowConfidenceCount = pins.filter((pin) => !pin.excluded && pin.confidence === "Low").length;
+  const isAiReview = Boolean(reviewStatus);
 
   if (!drawingDocs.length) {
     return (
@@ -365,19 +379,24 @@ export default function TakeoffOverlayReview({
     <div className="takeoff-board">
       <aside className="takeoff-board-sidebar">
         <header>
-          <strong>Count on drawing</strong>
-          <span>Select an item, then click every instance on the plan</span>
+          <strong>{isAiReview ? "Review AI counts" : "Count on drawing"}</strong>
+          <span>
+            {isAiReview
+              ? "Confirm Blake's suggested pins, or remove/exclude anything that should not reach Core."
+              : "Select an item, then click every instance on the plan"}
+          </span>
         </header>
         <div className="takeoff-board-items">
           <h4>Primaries</h4>
           {primaries.map((row) => {
             const qty = liveQty(row);
             const active = placeCode === row.code && tool === "add";
+            const lowConfidence = row.confidence === "Low";
             return (
               <button
                 key={row.id}
                 type="button"
-                className={active ? "item on" : "item"}
+                className={`${active ? "item on" : "item"}${lowConfidence ? " low-confidence" : ""}`}
                 onClick={() => {
                   if (row.unit === "nr") selectItemToPlace(row.code);
                 }}
@@ -385,7 +404,7 @@ export default function TakeoffOverlayReview({
                 <span className="swatch" style={{ background: colourForCode(row.code) }} />
                 <span className="meta">
                   <strong>{row.code}</strong>
-                  <small>{row.description}</small>
+                  <small>{row.description}{lowConfidence ? " · Low confidence" : ""}</small>
                 </span>
                 {row.unit === "nr" ? (
                   <em>{qty}</em>
@@ -465,11 +484,25 @@ export default function TakeoffOverlayReview({
             </button>
           ) : null}
           <p className="takeoff-overlay-count">
-            {tool === "add" ? `Counting ${placeCode || "…"} — click the drawing` : `${activeCount} pins on sheets`}
+            {isAiReview
+              ? `Review ${activeCount} active AI pin(s)${lowConfidenceCount ? ` · ${lowConfidenceCount} low confidence` : ""}`
+              : tool === "add"
+                ? `Counting ${placeCode || "…"} — click the drawing`
+                : `${activeCount} pins on sheets`}
           </p>
+          {onClose ? (
+            <button className="takeoff-skill-secondary" type="button" disabled={Boolean(busy)} onClick={onClose}>
+              Back to Studio
+            </button>
+          ) : null}
+          {onReject ? (
+            <button className="takeoff-skill-secondary danger" type="button" disabled={Boolean(busy)} onClick={() => void onReject()}>
+              Reject these pins
+            </button>
+          ) : null}
           <button className="takeoff-skill-primary" type="button" disabled={Boolean(busy)} onClick={() => void applyEdits()}>
             {busy ? <Loader2 className="spin" size={16} /> : <Check size={16} />}
-            Save & derive fittings
+            {isAiReview ? "Confirm pins (guide counts, not a firm price)" : "Save & derive fittings"}
           </button>
         </div>
 
@@ -520,14 +553,24 @@ export default function TakeoffOverlayReview({
               {pagePins.map((pin) => {
                 const { cx, cy } = toCanvas(pin.x, pin.y);
                 const selected = selectedPinId === pin.id;
+                const lowConfidence = pin.confidence === "Low";
                 const colour = colourForCode(pin.code);
                 return (
                   <g key={pin.id} transform={`translate(${cx} ${cy})`}>
+                    {lowConfidence ? (
+                      <circle
+                        r={selected ? 17 : 15}
+                        fill="none"
+                        stroke="#f79009"
+                        strokeWidth={3}
+                        strokeDasharray="4 3"
+                      />
+                    ) : null}
                     <circle
                       r={selected ? 13 : 10}
                       fill={`${colour}dd`}
-                      stroke={selected ? "#101828" : "#ffffff"}
-                      strokeWidth={selected ? 3 : 2}
+                      stroke={selected ? "#101828" : lowConfidence ? "#f79009" : "#ffffff"}
+                      strokeWidth={selected ? 3 : lowConfidence ? 3 : 2}
                     />
                     <text textAnchor="middle" dominantBaseline="middle" fill="#ffffff" fontSize="8" fontWeight="700">
                       {pin.code.replace(/^P-/, "").slice(0, 6)}

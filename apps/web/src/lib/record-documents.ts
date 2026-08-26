@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { getServerStoreDirectory, loadServerStore, writeServerStore } from "@/lib/server-store";
 
-export type RecordDocumentScope = "lead" | "quote" | "job" | "invoice";
+export type RecordDocumentScope = "lead" | "quote" | "job" | "invoice" | "tender" | "fault";
 
 export type StoredRecordDocument = {
   id: string;
@@ -53,6 +53,7 @@ export function saveUploadedRecordDocument(input: {
   fileName: string;
   mimeType: string;
   bytes: Buffer;
+  linkedTo?: string;
 }) {
   const id = `doc-${randomUUID()}`;
   const safeName = input.fileName.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 120) || "upload.bin";
@@ -69,7 +70,7 @@ export function saveUploadedRecordDocument(input: {
     name: input.fileName,
     type: input.mimeType || "Attachment",
     visibility: input.visibility,
-    linkedTo: input.recordRef,
+    linkedTo: input.linkedTo?.trim() || input.recordRef,
     fileUrl: `/api/record-documents/${encodeURIComponent(id)}/file`,
     checksum,
     size: input.bytes.length,
@@ -97,3 +98,36 @@ export function readRecordDocumentFile(id: string) {
     bytes: readFileSync(path.join(dir, match)),
   };
 }
+
+/** Remove a stored upload (index + file on disk). Returns false if unknown. */
+export function deleteRecordDocument(id: string) {
+  const record = getRecordDocument(id);
+  if (!record) return false;
+  const dir = path.join(documentsDir(), record.scope, encodeURIComponent(record.recordRef));
+  if (existsSync(dir)) {
+    const match = readdirSync(dir).find((name) => name.startsWith(`${record.id}-`));
+    if (match) {
+      try {
+        unlinkSync(path.join(dir, match));
+      } catch {
+        // Metadata still drops even if the file is already gone.
+      }
+    }
+  }
+  store.documents = store.documents.filter((item) => item.id !== id);
+  persist();
+  return true;
+}
+
+/** Best-effort delete when a tender/quote only stores the `/api/record-documents/:id/file` URL. */
+export function deleteRecordDocumentByFileUrl(url: string | undefined | null) {
+  if (!url) return false;
+  const match = String(url).match(/\/api\/record-documents\/([^/?#]+)\/file/i);
+  if (!match?.[1]) return false;
+  try {
+    return deleteRecordDocument(decodeURIComponent(match[1]));
+  } catch {
+    return false;
+  }
+}
+

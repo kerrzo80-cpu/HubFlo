@@ -69,6 +69,10 @@ export function getVariationPortalRequestsByJob(jobId: string) {
   return clone(variationPortalStore.requests.filter((request) => request.jobId === jobId));
 }
 
+export function listVariationPortalRequests() {
+  return clone(variationPortalStore.requests);
+}
+
 export function getVariationPortalRequestsByVariationEvent(variationEventId: string) {
   return clone(variationPortalStore.requests.find((request) => request.variationEventId === variationEventId) ?? null);
 }
@@ -139,4 +143,17 @@ export function setVariationPortalResponse(
   request.actionedAt = mapNow();
   persistVariationPortalStore();
   return clone(request);
+}
+
+/** Remove portal approval request(s) linked to a variation delivery event. */
+export function deleteVariationPortalByEventId(variationEventId: string) {
+  const before = variationPortalStore.requests.length;
+  const id = String(variationEventId || "").trim();
+  if (!id) return 0;
+  variationPortalStore.requests = variationPortalStore.requests.filter(
+    (request) => request.variationEventId !== id,
+  );
+  const removed = before - variationPortalStore.requests.length;
+  if (removed > 0) persistVariationPortalStore();
+  return removed;
 }

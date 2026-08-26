@@ -1,14 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import Link from "next/link";
+import { LayoutDashboard } from "lucide-react";
+import { BuddyCharacter } from "@/lib/BuddyCharacter";
+import { assertHeatDesignExportable } from "@/lib/commercial-safeguards";
 import {
   autoMarkExteriorWalls,
+  applyPlanScaleCalibration,
+  buildUfhCircuitsOnLayout,
   calculateRoomHeatLoss,
   calculateSystemDesign,
   compareHeatingOptions,
   heatPumpCatalogue,
   heatingSystemOptions,
   isDecimalDraft,
+  isSignedDecimalDraft,
+  clampDesignExternalTemp,
+  numberFromInput,
   kitExtraOptions,
   kw,
   makeBlankRoom,
@@ -18,8 +27,11 @@ import {
   normaliseProject,
   pickRadiatorForRoom,
   recommendedRadiatorsForRoom,
+  applyBlakePipeSizing,
   seedHeatingLayout,
   suggestHeatPump,
+  summariseHeatingFittings,
+  ufhWorkflowStatus,
   wattsLabel,
   buildEras,
   ceilingTypes,
@@ -28,104 +40,339 @@ import {
   floorTypes,
   flowTempOptionsForSystem,
   glazingTypes,
+  mergeUserDrawnPipes,
+  placePlantOnLayout,
   propertyTypes,
   radiatorRanges,
+  readPlanUnderlayBlob,
   roomTypes,
   wallTypes,
   type HeatDesignProject,
   type HeatDesignRoom,
   type HeatingEmitterMode,
+  type HeatingFittingsSummary,
+  type HeatingPlantKind,
   type HeatingSystemLayout,
+  type PlanPoint,
+  type PlanUnderlay,
+  type UfhDesignSummary,
+  type UfhPattern,
+  type UfhSpacingMm,
 } from "@/lib/heat-design";
 import { useBrand } from "@/components/BrandProvider";
 import { resolveBrandLogoUrl } from "@/lib/branding";
+import {
+  chipClassForPricingState,
+  derivePricingState,
+  PRICING_STATE_HINT,
+  PRICING_STATE_LABEL,
+} from "@/lib/price-ledger";
 import { FloorPlanCanvas } from "./FloorPlanCanvas";
 import { MaterialsWizard } from "./MaterialsWizard";
 import { DesignReport } from "./DesignReport";
 import "./heat-design.css";
 
 const STORAGE_KEY = "nexa-heat-design-lab-v9";
+const PROJECTS_CACHE_KEY = `${STORAGE_KEY}-projects`;
+const LEGACY_STORAGE_KEYS = [
+  STORAGE_KEY,
+  "nexa-heat-design-lab-v8",
+  "nexa-heat-design-lab-v7",
+  "nexa-heat-design-lab-v6",
+  "nexa-heat-design-lab-v5",
+  "nexa-heat-design-lab-v4",
+  "nexa-heat-design-lab-v3",
+  "nexa-heat-design-lab-v2",
+  "nexa-heat-design-lab-v1",
+] as const;
 
 type LabTab = "project" | "plan" | "materials" | "rooms" | "system" | "options" | "kit" | "forms" | "report";
-type LinkTarget = "job" | "quote";
+type LinkTarget = "job" | "quote" | "tender";
+type SaveStatus = "loading" | "saving" | "saved" | "offline" | "error";
 
-function loadProject(): HeatDesignProject {
-  if (typeof window === "undefined") return makeBlankProject();
+function readCachedProject(): HeatDesignProject | null {
+  if (typeof window === "undefined") return null;
   try {
-    const raw =
-      window.localStorage.getItem(STORAGE_KEY) ??
-      window.localStorage.getItem("nexa-heat-design-lab-v8") ??
-      window.localStorage.getItem("nexa-heat-design-lab-v7") ??
-      window.localStorage.getItem("nexa-heat-design-lab-v6") ??
-      window.localStorage.getItem("nexa-heat-design-lab-v5") ??
-      window.localStorage.getItem("nexa-heat-design-lab-v4") ??
-      window.localStorage.getItem("nexa-heat-design-lab-v3") ??
-      window.localStorage.getItem("nexa-heat-design-lab-v2") ??
-      window.localStorage.getItem("nexa-heat-design-lab-v1");
-    if (!raw) return makeBlankProject();
-    return normaliseProject(JSON.parse(raw) as HeatDesignProject);
+    for (const key of LEGACY_STORAGE_KEYS) {
+      const raw = window.localStorage.getItem(key);
+      if (raw) return normaliseProject(JSON.parse(raw) as HeatDesignProject);
+    }
   } catch {
-    return makeBlankProject();
+    return null;
   }
+  return null;
+}
+
+function readCachedProjects() {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(PROJECTS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as HeatDesignProject[];
+    return Array.isArray(parsed) ? parsed.map((item) => normaliseProject(item)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function upsertProjectList(projects: HeatDesignProject[], project: HeatDesignProject) {
+  const normalised = normaliseProject(project);
+  const next = projects.some((item) => item.id === normalised.id)
+    ? projects.map((item) => (item.id === normalised.id ? normalised : item))
+    : [normalised, ...projects];
+  return next.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+function formatRevisionTimestamp(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export default function HeatDesignLabPage() {
   const brand = useBrand();
   const [tab, setTab] = useState<LabTab>("plan");
+  const [projects, setProjects] = useState<HeatDesignProject[]>([]);
   const [project, setProject] = useState<HeatDesignProject | null>(null);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("loading");
   const [pendingPrint, setPendingPrint] = useState(false);
   const [layoutMode, setLayoutMode] = useState(false);
+  const [takeoffBusy, setTakeoffBusy] = useState(false);
+  const [blakeBusy, setBlakeBusy] = useState(false);
+  const [blakeMessage, setBlakeMessage] = useState("");
+  const [budgetBusy, setBudgetBusy] = useState(false);
+  const [underlayBusy, setUnderlayBusy] = useState(false);
+  const [fittingsSummary, setFittingsSummary] = useState<HeatingFittingsSummary | null>(null);
+  const [ufhSummary, setUfhSummary] = useState<UfhDesignSummary | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
-  const [linkTarget, setLinkTarget] = useState<LinkTarget>("job");
+  const [linkTarget, setLinkTarget] = useState<LinkTarget>("quote");
   const [jobOptions, setJobOptions] = useState<Array<{ id: string; ref: string; customer: string; site: string }>>([]);
   const [quoteOptions, setQuoteOptions] = useState<Array<{ id: string; ref: string; customer: string; status: string }>>(
     [],
   );
+  const [tenderOptions, setTenderOptions] = useState<
+    Array<{ id: string; name: string; client: string; status: string }>
+  >([]);
   const [selectedJobId, setSelectedJobId] = useState("");
   const [selectedQuoteId, setSelectedQuoteId] = useState("");
+  const [selectedTenderId, setSelectedTenderId] = useState("");
+  /** Local draft so users can type `-` / `-5` before a finite number commits. */
+  const [designExternalTempDraft, setDesignExternalTempDraft] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+  const hydratedRef = useRef(false);
+  const applyingServerSaveRef = useRef(false);
+  const skipNextProjectSaveRef = useRef(false);
+  const saveTimerRef = useRef<number | null>(null);
+  /** Bumps on every local edit so stale PUT responses cannot wipe newer rooms/walls. */
+  const saveGenerationRef = useRef(0);
 
   useEffect(() => {
-    const loaded = loadProject();
+    let cancelled = false;
     const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
     const jobId = params?.get("jobId") || "";
     const quoteId = params?.get("quoteId") || "";
-    const next = {
-      ...loaded,
-      linkedJobId: jobId || loaded.linkedJobId,
-      linkedQuoteId: quoteId || loaded.linkedQuoteId,
-    };
-    setProject(next);
-    setSelectedRoomId(next.rooms[0]?.id ?? null);
-    if (jobId) {
-      setLinkTarget("job");
-      setSelectedJobId(jobId);
-      setTab("kit");
-    } else if (quoteId) {
-      setLinkTarget("quote");
-      setSelectedQuoteId(quoteId);
-      setTab("kit");
+    const tenderId = params?.get("tenderId") || "";
+    const projectId = params?.get("projectId") || "";
+
+    function applyIncomingLinks(input: HeatDesignProject) {
+      if (!jobId && !quoteId && !tenderId) return input;
+      return {
+        ...input,
+        linkedJobId: jobId || input.linkedJobId,
+        linkedQuoteId: quoteId || input.linkedQuoteId,
+        linkedTenderId: tenderId || input.linkedTenderId,
+        updatedAt: new Date().toISOString(),
+      };
     }
+
+    function activate(nextProjects: HeatDesignProject[], active: HeatDesignProject, status: SaveStatus) {
+      if (cancelled) return;
+      const linked = normaliseProject(applyIncomingLinks(active));
+      setProjects(upsertProjectList(nextProjects, linked));
+      setProject(linked);
+      setSelectedRoomId(linked.rooms[0]?.id ?? null);
+      setSelectedJobId(linked.linkedJobId || "");
+      setSelectedQuoteId(linked.linkedQuoteId || "");
+      setSelectedTenderId(linked.linkedTenderId || "");
+      setSaveStatus(status);
+      skipNextProjectSaveRef.current = status === "saved" && !jobId && !quoteId && !tenderId;
+      if (jobId) {
+        setLinkTarget("job");
+        setSelectedJobId(jobId);
+        setTab("kit");
+      } else if (quoteId) {
+        setLinkTarget("quote");
+        setSelectedQuoteId(quoteId);
+        setTab("kit");
+      } else if (tenderId) {
+        setLinkTarget("tender");
+        setSelectedTenderId(tenderId);
+        setTab("kit");
+      }
+      hydratedRef.current = true;
+    }
+
+    async function hydrateProjects() {
+      const cachedProject = readCachedProject();
+      const cachedProjects = readCachedProjects();
+      try {
+        const res = await fetch("/api/heat-design/projects", { cache: "no-store" });
+        if (!res.ok) throw new Error("Could not load heat design projects");
+        const data = await res.json();
+        const serverProjects = (Array.isArray(data) ? data : []).map((item) => normaliseProject(item as HeatDesignProject));
+        if (serverProjects.length > 0) {
+          const active =
+            (projectId ? serverProjects.find((item) => item.id === projectId) : undefined)
+            ?? serverProjects.find((item) => item.id === cachedProject?.id)
+            ?? serverProjects[0]!;
+          activate(serverProjects, active, "saved");
+          if (projectId && active.id === projectId) {
+            setNotice(`Opened Heat Design from AI spine · ${active.name}`);
+          }
+          return;
+        }
+
+        if (cachedProject) {
+          const migrateRes = await fetch("/api/heat-design/projects", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cachedProject),
+          });
+          if (!migrateRes.ok) throw new Error("Could not migrate cached heat design project");
+          const migrated = normaliseProject((await migrateRes.json()) as HeatDesignProject);
+          activate([migrated], migrated, "saved");
+          setNotice("Migrated your saved Heat Design project to the server.");
+          return;
+        }
+
+        const blank = normaliseProject(makeBlankProject());
+        activate([blank], blank, "saving");
+      } catch {
+        const fallback = cachedProject ?? cachedProjects[0] ?? normaliseProject(makeBlankProject());
+        activate(cachedProjects.length ? cachedProjects : [fallback], fallback, "offline");
+        setNotice("Offline — loaded the Heat Design cache. Changes will keep saving locally until the server is reachable.");
+      }
+    }
+
+    hydrateProjects();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (!project) return;
+    setProjects((current) => upsertProjectList(current, project));
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(project));
     } catch {
       setNotice("Couldn't save this design locally — your browser storage may be full or blocked.");
     }
+
+    if (applyingServerSaveRef.current) {
+      applyingServerSaveRef.current = false;
+      return;
+    }
+
+    if (skipNextProjectSaveRef.current) {
+      skipNextProjectSaveRef.current = false;
+      return;
+    }
+
+    if (!hydratedRef.current) return;
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    const generation = ++saveGenerationRef.current;
+    const payload = project;
+    setSaveStatus((current) => (current === "offline" ? current : "saving"));
+    saveTimerRef.current = window.setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/heat-design/projects/${encodeURIComponent(payload.id)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error("Could not save heat design project");
+        const saved = normaliseProject((await res.json()) as HeatDesignProject);
+        // A newer edit started after this PUT was queued — keep local truth.
+        if (generation !== saveGenerationRef.current) {
+          setProjects((current) => upsertProjectList(current, { ...saved, rooms: payload.rooms }));
+          setSaveStatus("saved");
+          return;
+        }
+        setProjects((current) => upsertProjectList(current, saved));
+        setProject((current) => {
+          if (!current || current.id !== saved.id) return current;
+          // Never replace rooms/walls with an older server snapshot.
+          if (current.updatedAt.localeCompare(saved.updatedAt) > 0) {
+            applyingServerSaveRef.current = true;
+            return {
+              ...current,
+              revisions: saved.revisions ?? current.revisions,
+            };
+          }
+          if (current.rooms.length > saved.rooms.length) {
+            applyingServerSaveRef.current = true;
+            return {
+              ...current,
+              revisions: saved.revisions ?? current.revisions,
+            };
+          }
+          applyingServerSaveRef.current = true;
+          return {
+            ...saved,
+            // Prefer local geometry if timestamps tie but local has more detail.
+            rooms: current.rooms.length >= saved.rooms.length ? current.rooms : saved.rooms,
+            heatingLayout: current.heatingLayout?.updatedAt &&
+              (!saved.heatingLayout?.updatedAt ||
+                current.heatingLayout.updatedAt.localeCompare(saved.heatingLayout.updatedAt) > 0)
+              ? current.heatingLayout
+              : saved.heatingLayout,
+          };
+        });
+        setSaveStatus("saved");
+      } catch {
+        if (generation === saveGenerationRef.current) setSaveStatus("offline");
+      }
+    }, 700);
+
+    return () => {
+      if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    };
   }, [project]);
+
+  useEffect(() => {
+    if (!projects.length) return;
+    try {
+      window.localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify(projects));
+    } catch {
+      /* active project cache still gives us a single-project fallback */
+    }
+  }, [projects]);
+
+  useEffect(() => {
+    function onOnline() {
+      if (!project || saveStatus !== "offline") return;
+      void flushProjectToServer({ ...project, updatedAt: new Date().toISOString() });
+    }
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [project, saveStatus]);
 
   useEffect(() => {
     let cancelled = false;
     Promise.all([
       fetch("/api/jobs").then((res) => (res.ok ? res.json() : [])),
       fetch("/api/quotes").then((res) => (res.ok ? res.json() : [])),
+      fetch("/api/tenders").then((res) => (res.ok ? res.json() : { tenders: [] })),
     ])
-      .then(([jobs, quotes]) => {
+      .then(([jobs, quotes, tendersPayload]) => {
         if (cancelled) return;
         if (Array.isArray(jobs)) {
           setJobOptions(
@@ -147,6 +394,15 @@ export default function HeatDesignLabPage() {
             })),
           );
         }
+        const tenders = Array.isArray(tendersPayload?.tenders) ? tendersPayload.tenders : [];
+        setTenderOptions(
+          tenders.map((row: { id: string; name: string; client: string; status: string }) => ({
+            id: row.id,
+            name: row.name,
+            client: row.client,
+            status: row.status,
+          })),
+        );
       })
       .catch(() => {
         /* signed-out users can still design locally */
@@ -167,6 +423,11 @@ export default function HeatDesignLabPage() {
   }, [project?.linkedQuoteId]);
 
   useEffect(() => {
+    if (!project?.linkedTenderId) return;
+    setSelectedTenderId(project.linkedTenderId);
+  }, [project?.linkedTenderId]);
+
+  useEffect(() => {
     if (!pendingPrint || tab !== "report") return;
     const timer = window.setTimeout(() => {
       window.print();
@@ -176,6 +437,18 @@ export default function HeatDesignLabPage() {
   }, [pendingPrint, tab]);
 
   function requestPrint() {
+    if (design) {
+      const gate = assertHeatDesignExportable({
+        coveragePercent: design.coveragePercent,
+        designLoadKw: design.designLoadKw,
+        capacityAtFlowKw: design.capacityAtFlowKw,
+        emitterShortfallCount: design.emitterUpgradeCount,
+      });
+      if (gate) {
+        setNotice(gate);
+        return;
+      }
+    }
     setTab("report");
     setPendingPrint(true);
   }
@@ -190,6 +463,78 @@ export default function HeatDesignLabPage() {
       project.reportOptionIds,
     );
   }, [project, design]);
+
+  function activateProject(next: HeatDesignProject) {
+    const normalised = normaliseProject(next);
+    setProject(normalised);
+    setDesignExternalTempDraft(null);
+    setSelectedRoomId(normalised.rooms[0]?.id ?? null);
+    setSelectedJobId(normalised.linkedJobId || "");
+    setSelectedQuoteId(normalised.linkedQuoteId || "");
+    setSelectedTenderId(normalised.linkedTenderId || "");
+  }
+
+  function selectProject(id: string) {
+    const next = projects.find((item) => item.id === id);
+    if (!next) return;
+    skipNextProjectSaveRef.current = true;
+    activateProject(next);
+    setLayoutMode(false);
+    setSaveStatus(saveStatus === "offline" ? "offline" : "saved");
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("projectId", next.id);
+      window.history.replaceState({}, "", url.toString());
+    }
+  }
+
+  async function saveProjectNow() {
+    if (!project) return;
+    const snapshot = { ...project, updatedAt: new Date().toISOString() };
+    setSaveStatus("saving");
+    try {
+      await flushProjectToServer(snapshot, { surfaceError: true });
+      setNotice(`Saved · ${snapshot.name || "Untitled heat design"}`);
+    } catch (err) {
+      setSaveStatus("error");
+      setNotice(err instanceof Error ? err.message : "Could not save heat design.");
+    }
+  }
+
+  async function deleteActiveProject() {
+    if (!project) return;
+    const name = project.name || "Untitled heat design";
+    if (typeof window !== "undefined" && !window.confirm(`Delete project “${name}”? This cannot be undone.`)) {
+      return;
+    }
+    const deletingId = project.id;
+    setSaveStatus("saving");
+    try {
+      const res = await fetch(`/api/heat-design/projects/${encodeURIComponent(deletingId)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Could not delete heat design project");
+      const remaining = projects.filter((item) => item.id !== deletingId);
+      try {
+        window.localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify(remaining));
+      } catch {
+        /* ignore */
+      }
+      if (remaining.length) {
+        skipNextProjectSaveRef.current = true;
+        setProjects(remaining);
+        activateProject(remaining[0]!);
+        setSaveStatus("saved");
+        setNotice(`Deleted “${name}”. Opened ${remaining[0]!.name || "another project"}.`);
+        return;
+      }
+      await startBlankPlan();
+      setNotice(`Deleted “${name}”. Started a new blank project.`);
+    } catch (err) {
+      setSaveStatus("error");
+      setNotice(err instanceof Error ? err.message : "Could not delete project.");
+    }
+  }
 
   function patchProject(patch: Partial<HeatDesignProject>) {
     setProject((current) =>
@@ -220,23 +565,27 @@ export default function HeatDesignLabPage() {
   }
 
   function addRoom() {
+    let nextId: string | null = null;
     setProject((current) => {
       if (!current) return current;
       const room = makeBlankRoom(current.rooms.length, {
         floorLevel: current.activeFloor ?? "ground",
         withDefaultWindow: false,
       });
-      setSelectedRoomId(room.id);
+      nextId = room.id;
       return {
         ...current,
         rooms: autoMarkExteriorWalls([...current.rooms, room]),
         updatedAt: new Date().toISOString(),
       };
     });
+    if (nextId) setSelectedRoomId(nextId);
+    setLayoutMode(false);
     setTab("plan");
   }
 
   function placeRoom(roomType: string, planX: number, planY: number, lengthM?: number, widthM?: number) {
+    let nextId: string | null = null;
     setProject((current) => {
       if (!current) return current;
       const room = makeBlankRoom(current.rooms.length, {
@@ -248,46 +597,96 @@ export default function HeatDesignLabPage() {
         floorLevel: current.activeFloor ?? "ground",
         withDefaultWindow: false,
       });
-      setSelectedRoomId(room.id);
+      nextId = room.id;
       return {
         ...current,
         rooms: autoMarkExteriorWalls([...current.rooms, room]),
         updatedAt: new Date().toISOString(),
       };
     });
+    if (nextId) setSelectedRoomId(nextId);
+    setLayoutMode(false);
   }
 
   function removeRoom(roomId: string) {
+    let nextSelected: string | null = null;
     setProject((current) => {
       if (!current) return current;
       const rooms = autoMarkExteriorWalls(current.rooms.filter((room) => room.id !== roomId));
-      setSelectedRoomId(rooms[0]?.id ?? null);
+      nextSelected = rooms[0]?.id ?? null;
       return { ...current, rooms, updatedAt: new Date().toISOString() };
     });
+    setSelectedRoomId(nextSelected);
+    setLayoutMode(false);
   }
 
-  function startBlankPlan() {
-    startTransition(() => {
-      const next = makeBlankProject();
-      setProject(next);
-      setSelectedRoomId(null);
-      setSelectedJobId("");
-      setSelectedQuoteId("");
-      setLayoutMode(false);
-      setTab("plan");
-      setNotice("New design — draw the floor plan, then link materials to a quote or job.");
-    });
+  async function startBlankPlan() {
+    setSaveStatus("saving");
+    const localProject = normaliseProject(makeBlankProject());
+    try {
+      const res = await fetch("/api/heat-design/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(localProject),
+      });
+      if (!res.ok) throw new Error("Could not create heat design project");
+      const created = normaliseProject((await res.json()) as HeatDesignProject);
+      startTransition(() => {
+        setProjects((current) => upsertProjectList(current, created));
+        activateProject(created);
+        setLayoutMode(false);
+        setTab("plan");
+        setNotice("New project — draw the floor plan, then link materials to a quote, tender, or job.");
+        setSaveStatus("saved");
+      });
+    } catch {
+      startTransition(() => {
+        setProjects((current) => upsertProjectList(current, localProject));
+        activateProject(localProject);
+        setLayoutMode(false);
+        setTab("plan");
+        setNotice("New project — server unavailable, saved locally for now.");
+        setSaveStatus("offline");
+      });
+    }
   }
 
   function resetDemo() {
-    startTransition(() => {
-      const next = makeDemoProject();
-      setProject(next);
-      setSelectedRoomId(next.rooms[0]?.id ?? null);
-      setLayoutMode(false);
-      setTab("plan");
-      setNotice("Loaded sample project — Portlethen semi.");
-    });
+    void (async () => {
+      setSaveStatus("saving");
+      const localProject = normaliseProject({
+        ...makeDemoProject(),
+        id: `hd-${Date.now().toString(36)}`,
+        name: "Sample · Portlethen semi",
+        updatedAt: new Date().toISOString(),
+      });
+      try {
+        const res = await fetch("/api/heat-design/projects", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(localProject),
+        });
+        if (!res.ok) throw new Error("Could not create sample project");
+        const created = normaliseProject((await res.json()) as HeatDesignProject);
+        startTransition(() => {
+          setProjects((current) => upsertProjectList(current, created));
+          activateProject(created);
+          setLayoutMode(false);
+          setTab("plan");
+          setNotice("Loaded sample as a new project — Portlethen semi (your other projects stay untouched).");
+          setSaveStatus("saved");
+        });
+      } catch {
+        startTransition(() => {
+          setProjects((current) => upsertProjectList(current, localProject));
+          activateProject(localProject);
+          setLayoutMode(false);
+          setTab("plan");
+          setNotice("Sample loaded locally — server unavailable.");
+          setSaveStatus("offline");
+        });
+      }
+    })();
   }
 
   function autoPickPump() {
@@ -318,17 +717,21 @@ export default function HeatDesignLabPage() {
           ? defaultFlowTempForSystem("ashp")
           : flowTemperature;
     const nextProject = { ...project, chosenSystemId: optionId, emitterMode, flowTemperature: nextFlow };
-    const layout = seedHeatingLayout(nextProject, optionId, emitterMode);
+    const layout = seedHeatingLayout(nextProject, optionId, emitterMode, {
+      preservePlants: project.heatingLayout?.plants,
+    });
     patchProject({
       chosenSystemId: optionId,
       emitterMode,
       flowTemperature: nextFlow,
       heatingLayout: layout,
     });
+    setFittingsSummary(summariseHeatingFittings(layout));
+    // Open Heating layout so Draw pipe / plant tools are visible immediately on Plan.
     setLayoutMode(true);
     setTab("plan");
     setNotice(
-      `Designed ${option?.label ?? "system"} at ${nextFlow}°C flow with ${emitterMode === "ufh" ? "underfloor heating" : emitterMode === "mixed" ? "mixed radiators / UFH" : "radiators"}.`,
+      `Designed ${option?.label ?? "system"} at ${nextFlow}°C flow with ${emitterMode === "ufh" ? "underfloor heating" : emitterMode === "mixed" ? "mixed radiators / UFH" : "radiators"}${project.heatingLayout?.plants?.length ? " — kept your plant positions" : ""}. Use Draw pipe or drag plant. Ask Blake for kit + sizing, then Send to Takeoff.`,
     );
   }
 
@@ -402,6 +805,7 @@ export default function HeatDesignLabPage() {
         body: JSON.stringify({
           quoteId: selectedQuoteId || undefined,
           createNew,
+          projectId: project.id,
           customerName: project.customerName,
           projectName: project.name,
           address: [project.address, project.postcode].filter(Boolean).join(", "),
@@ -409,6 +813,10 @@ export default function HeatDesignLabPage() {
           flowTemperature: project.flowTemperature,
           emitterMode: project.emitterMode,
           kit: design.kit,
+          coveragePercent: design.coveragePercent,
+          designLoadKw: design.designLoadKw,
+          capacityAtFlowKw: design.capacityAtFlowKw,
+          emitterShortfallCount: design.emitterUpgradeCount,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -448,9 +856,73 @@ export default function HeatDesignLabPage() {
     }
   }
 
+  async function linkKitToTender() {
+    if (!project || !design) return;
+    setLinkBusy(true);
+    try {
+      const option = heatingSystemOptions.find((item) => item.id === project.chosenSystemId);
+      const createNew = !selectedTenderId;
+      const res = await fetch("/api/heat-design/push-to-tender", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenderId: selectedTenderId || undefined,
+          createNew,
+          projectId: project.id,
+          customerName: project.customerName,
+          projectName: project.name,
+          address: [project.address, project.postcode].filter(Boolean).join(", "),
+          chosenSystemLabel: option?.label,
+          flowTemperature: project.flowTemperature,
+          emitterMode: project.emitterMode,
+          kit: design.kit,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        setNotice("Sign in to Core to link this design to a tender.");
+        return;
+      }
+      if (!res.ok) {
+        setNotice(data.error || "Could not link to tender — check tender permissions.");
+        return;
+      }
+      const tenderLabel = data.tender?.name || "Tender";
+      patchProject({ linkedTenderId: data.tender?.id, linkedTenderRef: tenderLabel });
+      setSelectedTenderId(data.tender?.id || "");
+      if (data.tender?.id) {
+        setTenderOptions((current) => {
+          if (current.some((row) => row.id === data.tender.id)) return current;
+          return [
+            {
+              id: data.tender.id,
+              name: data.tender.name,
+              client: data.tender.client,
+              status: data.tender.status || "In Progress",
+            },
+            ...current,
+          ];
+        });
+      }
+      setNotice(
+        data.created
+          ? `Created tender “${tenderLabel}” and pushed ${data.lineCount} BoQ lines into Heating design.`
+          : `Updated tender “${tenderLabel}” with ${data.lineCount} BoQ lines in Heating design.`,
+      );
+    } catch {
+      setNotice("Could not reach tenders API — check you are signed in to Core.");
+    } finally {
+      setLinkBusy(false);
+    }
+  }
+
   async function pushKitToCore() {
     if (linkTarget === "quote") {
       await linkKitToQuote();
+      return;
+    }
+    if (linkTarget === "tender") {
+      await linkKitToTender();
       return;
     }
     await linkKitToJob();
@@ -459,14 +931,434 @@ export default function HeatDesignLabPage() {
   function regenerateLayout(mode?: HeatingEmitterMode) {
     if (!project?.chosenSystemId) return;
     const emitterMode = mode ?? project.emitterMode ?? project.heatingLayout?.emitterMode ?? "radiators";
-    const layout = seedHeatingLayout(project, project.chosenSystemId, emitterMode);
+    const userPlants = project.heatingLayout?.plants?.filter((p) => p.placedByUser) ?? [];
+    const layout = seedHeatingLayout(project, project.chosenSystemId, emitterMode, {
+      preservePlants: project.heatingLayout?.plants,
+    });
     patchProject({ emitterMode, heatingLayout: layout });
+    setFittingsSummary(summariseHeatingFittings(layout));
     setLayoutMode(true);
-    setNotice("Re-designed heating layout with the selected emitter type.");
+    setNotice(
+      userPlants.length
+        ? `Routed pipes + emitters around your ${userPlants.length} placed plant piece${userPlants.length === 1 ? "" : "s"} — nothing else added on plan.`
+        : "Designed heating layout with the selected emitter type.",
+    );
+  }
+
+  function placePlant(kind: HeatingPlantKind, x: number, y: number) {
+    if (!project) return;
+    const systemOptionId = project.chosenSystemId || project.reportOptionIds?.[0] || "opt-ashp";
+    const layout = placePlantOnLayout(project.heatingLayout, kind, x, y, project.activeFloor ?? "ground", {
+      systemOptionId,
+      emitterMode: project.emitterMode ?? "radiators",
+      cylinderLitres: project.cylinderLitres,
+    });
+    patchProject({
+      chosenSystemId: project.chosenSystemId || systemOptionId,
+      heatingLayout: layout,
+    });
+    // Keep rooms editable — Heating layout is optional when nudging plant / pipes.
+    setLayoutMode(false);
+    setNotice(
+      `Placed ${kind.replace(/_/g, " ")}. Add plant as needed, then Generate UFH (or Route pipes). Generation does not invent missing plant.`,
+    );
+  }
+
+  function applyPlanScale(from: PlanPoint, to: PlanPoint, knownMetres: number) {
+    if (!project?.planUnderlay) return;
+    try {
+      const result = applyPlanScaleCalibration(
+        project.planUnderlay,
+        from,
+        to,
+        knownMetres,
+        project.rooms,
+        project.heatingLayout ?? null,
+      );
+      const hadUfh = (result.layout?.pipes ?? []).some((pipe) => /ufh loop/i.test(pipe.label));
+      patchProject({
+        planUnderlay: result.underlay,
+        rooms: result.rooms,
+        heatingLayout: result.layout,
+      });
+      if (hadUfh && result.layout) {
+        // Geometry scaled — regenerate UFH so loop spacing stays correct in real metres.
+        const { layout, summary } = buildUfhCircuitsOnLayout(
+          {
+            ...project,
+            planUnderlay: result.underlay,
+            rooms: result.rooms,
+            heatingLayout: result.layout,
+            emitterMode: "ufh",
+          },
+          result.layout,
+          { pattern: "serpentine" },
+        );
+        patchProject({ heatingLayout: layout, emitterMode: "ufh" });
+        setUfhSummary(summary);
+        setFittingsSummary(summariseHeatingFittings(layout));
+      } else {
+        setUfhSummary(null);
+      }
+      setNotice(
+        `Scale applied · ${knownMetres} m reference (×${result.scaleFactor.toFixed(3)}). Room areas and pipe lengths now use real metres.`,
+      );
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Could not apply scale.");
+    }
+  }
+
+  function generateUfhCircuits(options: { pattern: UfhPattern; spacingMm?: UfhSpacingMm }) {
+    if (!project) return;
+    if (!project.rooms.length) {
+      setNotice("Draw heated rooms before generating UFH.");
+      return;
+    }
+    const systemOptionId = project.chosenSystemId || project.reportOptionIds?.[0] || "opt-gas";
+    const existingPlants = project.heatingLayout?.plants;
+    const base =
+      project.heatingLayout ??
+      seedHeatingLayout(
+        { ...project, chosenSystemId: systemOptionId, emitterMode: "ufh" },
+        systemOptionId,
+        "ufh",
+        { preservePlants: existingPlants, onlyUserPlants: true },
+      );
+    // Ensure plant network exists, then build real UFH circuits (seed alone may skip if no rooms at seed time).
+    const seeded = seedHeatingLayout(
+      { ...project, chosenSystemId: systemOptionId, emitterMode: "ufh", heatingLayout: base },
+      systemOptionId,
+      "ufh",
+      { preservePlants: base.plants },
+    );
+    const { layout, summary } = buildUfhCircuitsOnLayout(
+      { ...project, chosenSystemId: systemOptionId, emitterMode: "ufh", heatingLayout: seeded },
+      seeded,
+      {
+        pattern: options.pattern,
+        spacingOverrideMm: options.spacingMm,
+      },
+    );
+    patchProject({
+      chosenSystemId: systemOptionId,
+      emitterMode: "ufh",
+      heatingLayout: layout,
+    });
+    setUfhSummary(summary);
+    setFittingsSummary(summariseHeatingFittings(layout));
+    setLayoutMode(true);
+    setNotice(
+      summary.circuitCount
+        ? `Generated ${summary.circuitCount} UFH circuit${summary.circuitCount === 1 ? "" : "s"} · ${summary.ufhPipeM} m loop + ${summary.tailPipeM} m tails. Review kit, then Send to Takeoff.`
+        : "No UFH circuits generated — check room polygons and try again.",
+    );
+  }
+
+  function setPlanUnderlay(planUnderlay: PlanUnderlay | null) {
+    patchProject({ planUnderlay });
+    setNotice(
+      planUnderlay
+        ? "Drawing underlay added — calibrate scale on a known dimension before trusting metre totals."
+        : "Drawing underlay cleared.",
+    );
+  }
+
+  async function useLinkedTakeoffDrawing() {
+    if (!project) return;
+    if (!project.linkedTakeoffId) {
+      setNotice("Link or Send to Takeoff first, then Use Takeoff PDF under the plan.");
+      return;
+    }
+    setUnderlayBusy(true);
+    try {
+      const res = await fetch(`/api/takeoff-projects/${encodeURIComponent(project.linkedTakeoffId)}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        documents?: Array<{
+          id: string;
+          kind: string;
+          fileName: string;
+          mimeType?: string;
+        }>;
+        reference?: string;
+      };
+      if (!res.ok) throw new Error(body.error || `Takeoff load failed (${res.status})`);
+      const drawings = (body.documents || []).filter(
+        (doc) =>
+          doc.kind === "Drawing"
+          || doc.kind === "Marked-up drawing"
+          || /\.pdf$/i.test(doc.fileName)
+          || /^image\//i.test(doc.mimeType || ""),
+      );
+      const doc = drawings[0];
+      if (!doc) {
+        setNotice(
+          `No drawing on Takeoff ${body.reference || project.linkedTakeoffRef || ""} — upload a PDF there, then try again.`,
+        );
+        return;
+      }
+      const fileRes = await fetch(
+        `/api/takeoff-projects/${encodeURIComponent(project.linkedTakeoffId)}/documents/${encodeURIComponent(doc.id)}/file`,
+        { credentials: "include", cache: "no-store" },
+      );
+      if (!fileRes.ok) throw new Error(`Could not download Takeoff drawing (${fileRes.status})`);
+      const blob = await fileRes.blob();
+      const underlay = await readPlanUnderlayBlob(blob, doc.fileName, project.rooms);
+      if (!underlay) {
+        setNotice(`Could not rasterise ${doc.fileName} — try Upload PDF / photo instead.`);
+        return;
+      }
+      setPlanUnderlay(underlay);
+      setNotice(`Underlay from Takeoff · ${doc.fileName} (first page).`);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Could not load Takeoff drawing.");
+    } finally {
+      setUnderlayBusy(false);
+    }
+  }
+
+  function blakeSizeRoutes() {
+    if (!project?.heatingLayout?.pipes?.length) {
+      setNotice("Design on plan first, then Blake can size 28 / 22 / 15 mm routes.");
+      return;
+    }
+    const layout = applyBlakePipeSizing(project.heatingLayout);
+    const summary = summariseHeatingFittings(layout);
+    patchProject({ heatingLayout: layout });
+    setFittingsSummary(summary);
+    setLayoutMode(true);
+    setNotice(
+      `Rule size · ${summary.totalMetres} m · ${summary.totalElbows} elbows · ${summary.totalCouplings} couplings · ${summary.totalReducers} reducers (copper 28→22→15 · UFH 16 mm PEX). Prefer Ask Blake for live AI.`,
+    );
+  }
+
+  async function refreshBlakeBudgetPrices() {
+    if (!project?.id) return;
+    setBudgetBusy(true);
+    try {
+      const res = await fetch("/api/heat-design/budget-prices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: project.id, forceRefresh: true }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        aiUsed?: boolean;
+        pricedCount?: number;
+        stillOpenCount?: number;
+        budgetTotal?: number;
+        project?: HeatDesignProject;
+      };
+      if (!res.ok || !body.ok) {
+        throw new Error(body.error || `Budget prices failed (${res.status})`);
+      }
+      if (body.project) {
+        patchProject({ blakeProposal: body.project.blakeProposal });
+      }
+      setNotice(
+        body.aiUsed
+          ? `Blake budget costs · ${body.pricedCount ?? 0} lines · £${Number(body.budgetTotal || 0).toFixed(0)} — amend when supplier quotes land.`
+          : `Guide budget costs · ${body.pricedCount ?? 0} lines${body.stillOpenCount ? ` · ${body.stillOpenCount} still open` : ""}.`,
+      );
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Could not refresh budget prices.");
+    } finally {
+      setBudgetBusy(false);
+    }
+  }
+
+  async function flushProjectToServer(
+    snapshot: HeatDesignProject,
+    options: { surfaceError?: boolean } = {},
+  ) {
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const generation = ++saveGenerationRef.current;
+    try {
+      const res = await fetch(`/api/heat-design/projects/${encodeURIComponent(snapshot.id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(snapshot),
+      });
+      if (!res.ok) {
+        if (options.surfaceError) throw new Error(`Could not save heat design (${res.status})`);
+        setSaveStatus((current) => (current === "offline" ? current : "error"));
+        return;
+      }
+      if (generation !== saveGenerationRef.current) return;
+      setProjects((current) => upsertProjectList(current, snapshot));
+      setSaveStatus("saved");
+    } catch (err) {
+      setSaveStatus("offline");
+      if (options.surfaceError) {
+        throw err instanceof Error ? err : new Error("Could not save heat design");
+      }
+      /* Ask Blake still sends the client snapshot — save race is non-fatal */
+    }
+  }
+
+  async function askBlakeLive() {
+    if (!project?.id) return;
+    if (
+      !project.chosenSystemId
+      && !project.heatingLayout?.pipes?.length
+      && !project.heatingLayout?.plants?.length
+      && !project.rooms?.length
+    ) {
+      setNotice("Pick a system, place plant, or design on plan first, then Ask Blake.");
+      return;
+    }
+    setBlakeBusy(true);
+    const snapshot: HeatDesignProject = {
+      ...project,
+      // Ensure a system id so server seed can run even if engineer only placed plant.
+      chosenSystemId:
+        project.chosenSystemId
+        || project.heatingLayout?.systemOptionId
+        || project.reportOptionIds?.[0]
+        || "opt-ashp",
+      updatedAt: new Date().toISOString(),
+    };
+    try {
+      // Flush + send snapshot so Ask Blake never designs against a stale server project
+      // (autosave is debounced — plant placed moments ago would otherwise be missing).
+      await flushProjectToServer(snapshot);
+      const res = await fetch("/api/heat-design/blake-propose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: snapshot.id,
+          project: snapshot,
+          message: blakeMessage.trim() || undefined,
+          regenerateLayout: true,
+          apply: true,
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        aiUsed?: boolean;
+        connected?: boolean;
+        summary?: string;
+        narrative?: string;
+        fittings?: HeatingFittingsSummary;
+        project?: HeatDesignProject;
+        pipeCount?: number;
+        routeNotes?: string[];
+        clarifyingQuestions?: Array<{ key: string; question: string; why: string }>;
+      };
+      if (!res.ok || !body.ok) {
+        throw new Error(body.error || `Ask Blake failed (${res.status})`);
+      }
+      if (body.project) {
+        patchProject({
+          blakeProposal: body.project.blakeProposal,
+          heatingLayout: body.project.heatingLayout ?? snapshot.heatingLayout,
+          chosenSystemId: body.project.chosenSystemId || snapshot.chosenSystemId,
+          emitterMode: body.project.emitterMode || snapshot.emitterMode,
+        });
+      }
+      if (body.fittings) setFittingsSummary(body.fittings);
+      setLayoutMode(true);
+      setTab("plan");
+      const qCount = body.clarifyingQuestions?.length || 0;
+      const pipes =
+        body.pipeCount
+        ?? body.project?.heatingLayout?.pipes?.length
+        ?? 0;
+      setNotice(
+        body.aiUsed
+          ? `Blake (live AI) · ${pipes} pipe run${pipes === 1 ? "" : "s"}${qCount ? ` · ${qCount} question${qCount === 1 ? "" : "s"}` : ""} — ${body.summary || "design ready."}`
+          : body.connected
+            ? `Blake rule design · ${pipes} pipes — ${body.summary || "OpenAI could not finish; geometry still drawn."}`
+            : `OpenAI not connected — rule design drew ${pipes} pipe run${pipes === 1 ? "" : "s"}. Set OPENAI_API_KEY on Render for live Blake.`,
+      );
+      setBlakeMessage("");
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Ask Blake could not reply.");
+    } finally {
+      setBlakeBusy(false);
+    }
+  }
+
+  async function sendLayoutToTakeoff(options: { createNew?: boolean } = {}) {
+    if (!project?.id) return;
+    if (!project.heatingLayout?.pipes?.length) {
+      setNotice("Design on plan first — nothing to send to Takeoff yet.");
+      setTab("plan");
+      return;
+    }
+    if (design) {
+      const gate = assertHeatDesignExportable({
+        coveragePercent: design.coveragePercent,
+        designLoadKw: design.designLoadKw,
+        capacityAtFlowKw: design.capacityAtFlowKw,
+        emitterShortfallCount: design.emitterUpgradeCount,
+      });
+      if (gate) {
+        setNotice(gate);
+        return;
+      }
+    }
+    setTakeoffBusy(true);
+    try {
+      // Ensure sizes before handoff.
+      const layout = applyBlakePipeSizing(project.heatingLayout);
+      patchProject({ heatingLayout: layout });
+      const res = await fetch("/api/heat-design/send-to-takeoff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: project.id,
+          takeoffId: options.createNew ? undefined : project.linkedTakeoffId,
+          createNew: Boolean(options.createNew) || !project.linkedTakeoffId,
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        takeoff?: { id: string; reference: string; name: string };
+        fittings?: HeatingFittingsSummary;
+        project?: HeatDesignProject;
+        created?: boolean;
+      };
+      if (!res.ok || !body.ok || !body.takeoff) {
+        throw new Error(body.error || `Send failed (${res.status})`);
+      }
+      if (body.project) {
+        patchProject({
+          linkedTakeoffId: body.project.linkedTakeoffId,
+          linkedTakeoffRef: body.project.linkedTakeoffRef,
+          heatingLayout: body.project.heatingLayout ?? layout,
+        });
+      }
+      if (body.fittings) setFittingsSummary(body.fittings);
+      setNotice(
+        `${body.created ? "Created" : "Updated"} takeoff ${body.takeoff.reference} with sized routes + fittings. Open Takeoff to Push.`,
+      );
+      window.open(
+        `/takeoff?projectId=${encodeURIComponent(body.takeoff.id)}`,
+        "_blank",
+        "noopener,noreferrer",
+      );
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Could not send to Takeoff.");
+    } finally {
+      setTakeoffBusy(false);
+    }
   }
 
   function patchLayout(layout: HeatingSystemLayout) {
     patchProject({ heatingLayout: layout });
+    if (layout.pipes.some((pipe) => pipe.diameterMm)) {
+      setFittingsSummary(summariseHeatingFittings(layout));
+    }
   }
 
   function changeEmitterMode(mode: HeatingEmitterMode) {
@@ -477,7 +1369,8 @@ export default function HeatDesignLabPage() {
   if (!project || !design) {
     return (
       <main className="hd-lab">
-        <div className="hd-shell">
+        <div className="hd-shell hd-loading-shell">
+          <div className="hd-loading-pulse" aria-hidden />
           <p className="hd-lead">Loading Heat Design…</p>
         </div>
       </main>
@@ -495,42 +1388,94 @@ export default function HeatDesignLabPage() {
   const showHeatPumpPicker = (project.reportOptionIds ?? []).some(
     (id) => id === "opt-ashp" || id === "opt-hybrid",
   ) || chosenOption?.kind === "ashp" || chosenOption?.kind === "hybrid";
+  const projectOptions = projects.length ? projects : [project];
+  const revisionHistory = project.revisions ?? [];
+  const saveStatusLabel =
+    saveStatus === "saved"
+      ? "Saved to server"
+      : saveStatus === "saving"
+        ? "Saving…"
+        : saveStatus === "loading"
+          ? "Loading projects…"
+          : saveStatus === "error"
+            ? "Save failed — try Save"
+            : "Offline — saved locally";
 
   return (
     <main className={`hd-lab${tab === "plan" ? " is-plan-mode" : ""}`}>
       <div className="hd-shell">
         <header className="hd-topbar">
-          <div className="hd-brand">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img className="hd-brand-logo" src={resolveBrandLogoUrl(brand, "heat-design")} alt={brand.companyName} />
-            <div className="hd-brand-kicker">Live · links to Core quotes & jobs</div>
-            <h1>{brand.heatDesignAppName}</h1>
-            {tab !== "plan" ? (
-              <p>
-                Draw the house, size the system, then push materials into a Core quote or job — or create a new one.
-              </p>
-            ) : null}
+          <div className="hd-brand-row">
+            <div className="hd-brand">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img className="hd-brand-logo" src={resolveBrandLogoUrl(brand, "heat-design")} alt={brand.companyName} />
+              <div className="hd-brand-kicker">Live · links to Core quotes, tenders & jobs</div>
+              <h1>{brand.heatDesignAppName}</h1>
+              {tab !== "plan" ? (
+                <p className="hd-brand-lead">
+                  Draw the house, size the system, then push materials into a Core quote, tender, or job — or create a
+                  new one.
+                </p>
+              ) : null}
+            </div>
+            <Link href="/" className="hd-btn hd-btn-core" aria-label="Back to Core">
+              <LayoutDashboard size={16} aria-hidden />
+              Core
+            </Link>
           </div>
           <div className="hd-top-actions">
-            <button type="button" className="hd-btn hd-btn-ghost" onClick={startBlankPlan}>
-              New design
-            </button>
-            <button type="button" className="hd-btn hd-btn-ghost" onClick={resetDemo}>
-              Load sample
-            </button>
-            <button type="button" className="hd-btn" onClick={addRoom}>
-              Add room
-            </button>
-            <button type="button" className="hd-btn" onClick={requestPrint}>
-              Print report
-            </button>
-            <button type="button" className="hd-btn hd-btn-primary" onClick={autoPickPump}>
-              Auto-size pump
-            </button>
+            <label className="hd-project-switcher">
+              <span>Project</span>
+              <select value={project.id} onChange={(event) => selectProject(event.target.value)}>
+                {projectOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name || "Untitled heat design"}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className={`hd-save-status is-${saveStatus}`}>{saveStatusLabel}</span>
+            <div className="hd-action-cluster" role="group" aria-label="Project actions">
+              <button
+                type="button"
+                className="hd-btn hd-btn-primary"
+                onClick={() => void saveProjectNow()}
+                disabled={saveStatus === "saving" || saveStatus === "loading"}
+              >
+                Save
+              </button>
+              <button type="button" className="hd-btn hd-btn-ghost" onClick={startBlankPlan}>
+                New project
+              </button>
+              <button
+                type="button"
+                className="hd-btn hd-btn-ghost hd-btn-danger"
+                onClick={() => void deleteActiveProject()}
+                disabled={saveStatus === "saving" || saveStatus === "loading"}
+              >
+                Delete
+              </button>
+              <button type="button" className="hd-btn hd-btn-ghost hd-btn-desktop" onClick={resetDemo}>
+                Load sample
+              </button>
+              <button type="button" className="hd-btn" onClick={addRoom}>
+                Add room
+              </button>
+              <button type="button" className="hd-btn hd-btn-desktop" onClick={requestPrint}>
+                Print report
+              </button>
+              <button type="button" className="hd-btn hd-btn-primary" onClick={autoPickPump}>
+                Auto-size pump
+              </button>
+            </div>
           </div>
         </header>
 
-        {notice ? <div className="hd-banner">{notice}</div> : null}
+        {notice ? (
+          <div className="hd-banner is-toast" role="status">
+            {notice}
+          </div>
+        ) : null}
 
         <nav className="hd-tabs" aria-label="Heat design sections">
           {(
@@ -614,10 +1559,26 @@ export default function HeatDesignLabPage() {
                     Design external temp °C
                     <input
                       inputMode="decimal"
-                      value={project.designExternalTemp}
+                      value={designExternalTempDraft ?? String(project.designExternalTemp)}
+                      onFocus={() => setDesignExternalTempDraft(String(project.designExternalTemp))}
                       onChange={(event) => {
-                        const value = Number(event.target.value);
-                        if (Number.isFinite(value)) patchProject({ designExternalTemp: value });
+                        const raw = event.target.value;
+                        if (raw !== "" && !isSignedDecimalDraft(raw)) return;
+                        setDesignExternalTempDraft(raw);
+                        if (raw === "" || raw === "-" || /[.,]$/.test(raw)) return;
+                        const value = numberFromInput(raw);
+                        if (Number.isFinite(value)) {
+                          patchProject({ designExternalTemp: clampDesignExternalTemp(value) });
+                        }
+                      }}
+                      onBlur={() => {
+                        const raw = designExternalTempDraft;
+                        setDesignExternalTempDraft(null);
+                        if (raw == null || raw === "" || raw === "-") return;
+                        const value = numberFromInput(raw, project.designExternalTemp);
+                        if (Number.isFinite(value)) {
+                          patchProject({ designExternalTemp: clampDesignExternalTemp(value) });
+                        }
                       }}
                     />
                   </label>
@@ -683,16 +1644,16 @@ export default function HeatDesignLabPage() {
               <>
                 <h2>Floor plan</h2>
                 <p className="hd-lead">
-                  Draw the rooms, then choose radiators or underfloor heating below before designing a system on the
-                  plan.
+                  Heating design (UFH v1): calibrate scale → draw rooms → place plant → Generate UFH circuits → kit /
+                  BoQ lengths. Geometric design + heat-loss estimate — not an MCS certificate.
                 </p>
                 <div className="hd-emitter-picker">
                   <strong>Emitters for this design</strong>
                   <div className="hd-emitter-choices" role="group" aria-label="Emitter type">
                     {(
                       [
+                        ["ufh", "Underfloor heating", "Serpentine / spiral circuits + manifold tails"],
                         ["radiators", "Radiators", "Sized radiator per room (model × mm)"],
-                        ["ufh", "Underfloor heating", "UFH zone in each room"],
                         ["mixed", "Mixed", "UFH in wet rooms, radiators elsewhere"],
                       ] as const
                     ).map(([id, label, hint]) => (
@@ -737,15 +1698,271 @@ export default function HeatDesignLabPage() {
                   layoutMode={layoutMode}
                   onLayoutModeChange={setLayoutMode}
                   onPatchLayout={patchLayout}
-                  onRegenerateLayout={project.chosenSystemId ? () => regenerateLayout() : undefined}
+                  onDesignHeating={() =>
+                    designSystemOnPlan(project.chosenSystemId || project.reportOptionIds?.[0] || "opt-ashp")
+                  }
+                  onRegenerateLayout={
+                    project.heatingLayout || project.chosenSystemId
+                      ? () => {
+                          const systemOptionId =
+                            project.chosenSystemId || project.reportOptionIds?.[0] || "opt-ashp";
+                          const emitterMode = project.emitterMode ?? "radiators";
+                          const next = { ...project, chosenSystemId: systemOptionId, emitterMode };
+                          const userPlants = project.heatingLayout?.plants?.filter((p) => p.placedByUser) ?? [];
+                          let layout = seedHeatingLayout(next, systemOptionId, emitterMode, {
+                            preservePlants: project.heatingLayout?.plants,
+                          });
+                          if (emitterMode === "ufh") {
+                            const built = buildUfhCircuitsOnLayout(next, layout, { pattern: "serpentine" });
+                            layout = built.layout;
+                            setUfhSummary(built.summary);
+                          } else {
+                            setUfhSummary(null);
+                          }
+                          layout = mergeUserDrawnPipes(layout, project.heatingLayout?.pipes);
+                          patchProject({
+                            chosenSystemId: systemOptionId,
+                            emitterMode,
+                            heatingLayout: layout,
+                          });
+                          setFittingsSummary(summariseHeatingFittings(layout));
+                          setLayoutMode(true);
+                          setNotice(
+                            userPlants.length
+                              ? `Routed pipes + emitters around your ${userPlants.length} placed plant piece${userPlants.length === 1 ? "" : "s"} — drawn pipes kept.`
+                              : "Designed heating layout for the selected system.",
+                          );
+                        }
+                      : undefined
+                  }
+                  onPlacePlant={placePlant}
                   layoutSystemLabel={chosenOption?.label}
                   emitterMode={project.emitterMode ?? "radiators"}
                   onEmitterModeChange={changeEmitterMode}
+                  planUnderlay={project.planUnderlay}
+                  onPlanUnderlayChange={setPlanUnderlay}
+                  onApplyPlanScale={applyPlanScale}
+                  onGenerateUfh={generateUfhCircuits}
+                  ufhSummary={ufhSummary}
+                  workflowSteps={ufhWorkflowStatus(project).steps}
+                  onUseTakeoffDrawing={() => void useLinkedTakeoffDrawing()}
+                  takeoffDrawingBusy={underlayBusy}
+                  linkedTakeoffRef={project.linkedTakeoffRef}
                   onFinishSurveyedPlan={() => {
                     setTab("system");
                     setNotice("Surveyed plan locked in — pick a system and design flow temperature next.");
                   }}
                 />
+                <div className="hd-blake-route-panel" aria-label="Blake kit assist">
+                  <header>
+                    <strong className="hd-blake-title">
+                      <BuddyCharacter mood={blakeBusy ? "thinking" : "idle"} size="sm" interactive={false} />
+                      Blake kit assist
+                    </strong>
+                    <span>
+                      Optional: sizes defined kit / BoQ notes after Generate UFH has drawn circuits. Does not invent room
+                      loops — generation is rule-based. Not an MCS certificate.
+                    </span>
+                  </header>
+                  <label className="hd-blake-ask-label">
+                    <span className="sr-only">Message for Blake</span>
+                    <textarea
+                      className="hd-blake-ask-input"
+                      rows={2}
+                      value={blakeMessage}
+                      onChange={(event) => setBlakeMessage(event.target.value)}
+                      placeholder="Optional — e.g. existing TRVs stay, cylinder in airing cupboard, UFH in kitchen only…"
+                      disabled={blakeBusy}
+                    />
+                  </label>
+                  <div className="hd-blake-route-actions">
+                    <button
+                      type="button"
+                      className="hd-btn hd-btn-primary"
+                      disabled={blakeBusy}
+                      onClick={() => void askBlakeLive()}
+                    >
+                      <BuddyCharacter mood={blakeBusy ? "thinking" : "idle"} size="sm" interactive={false} />
+                      {blakeBusy ? "Blake thinking…" : "Ask Blake (kit)"}
+                    </button>
+                    <button
+                      type="button"
+                      className="hd-btn"
+                      disabled={takeoffBusy || !project.heatingLayout?.pipes?.length}
+                      onClick={() => void sendLayoutToTakeoff()}
+                    >
+                      {takeoffBusy ? "Sending…" : project.linkedTakeoffRef ? "Update Takeoff" : "Send to Takeoff"}
+                    </button>
+                    <button
+                      type="button"
+                      className="hd-btn hd-btn-ghost"
+                      disabled={!project.heatingLayout?.pipes?.length || blakeBusy}
+                      onClick={blakeSizeRoutes}
+                      title="Local rule tiers only"
+                    >
+                      Size only (rules)
+                    </button>
+                    {project.linkedTakeoffRef ? (
+                      <button
+                        type="button"
+                        className="hd-btn hd-btn-ghost"
+                        disabled={takeoffBusy}
+                        onClick={() => void sendLayoutToTakeoff({ createNew: true })}
+                      >
+                        New takeoff
+                      </button>
+                    ) : null}
+                  </div>
+                  {project.blakeProposal ? (
+                    <div className="hd-blake-ai-output">
+                      <p className="hd-blake-ai-badge">
+                        {project.blakeProposal.aiUsed
+                          ? `Live AI${project.blakeProposal.model ? ` · ${project.blakeProposal.model}` : ""}`
+                          : project.blakeProposal.connected
+                            ? "Rule fallback (OpenAI error)"
+                            : "Rule fallback (OpenAI not connected)"}
+                      </p>
+                      <p className="hd-blake-ai-summary">{project.blakeProposal.summary}</p>
+                      {project.blakeProposal.narrative ? (
+                        <p className="hd-blake-ai-narrative">{project.blakeProposal.narrative}</p>
+                      ) : null}
+                      {project.blakeProposal.routeNotes?.length ? (
+                        <ul className="hd-blake-ai-notes">
+                          {project.blakeProposal.routeNotes.map((note) => (
+                            <li key={note}>{note}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      {project.blakeProposal.clarifyingQuestions?.length ? (
+                        <div className="hd-blake-ai-questions">
+                          <strong>Blake still needs</strong>
+                          <ul>
+                            {project.blakeProposal.clarifyingQuestions.map((q) => (
+                              <li key={q.key}>
+                                <button
+                                  type="button"
+                                  className="hd-blake-q-btn"
+                                  onClick={() => setBlakeMessage(q.question)}
+                                >
+                                  {q.question}
+                                </button>
+                                {q.why ? <small>{q.why}</small> : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {project.linkedTakeoffRef ? (
+                    <p className="hd-lead" style={{ margin: 0 }}>
+                      Linked takeoff{" "}
+                      {project.linkedTakeoffId ? (
+                        <a href={`/takeoff?projectId=${encodeURIComponent(project.linkedTakeoffId)}`}>
+                          <strong>{project.linkedTakeoffRef}</strong>
+                        </a>
+                      ) : (
+                        <strong>{project.linkedTakeoffRef}</strong>
+                      )}
+                    </p>
+                  ) : null}
+                  {project.heatingLayout?.pipes?.length &&
+                  (fittingsSummary || project.heatingLayout.pipes.some((p) => p.diameterMm)) ? (
+                    <ul className="hd-blake-fit-list">
+                      {(fittingsSummary || summariseHeatingFittings(project.heatingLayout)).bySize.map((row) => (
+                        <li key={row.diameterMm}>
+                          <strong>
+                            {row.diameterMm} mm {row.material || (row.diameterMm === 16 ? "PEX" : "Copper")}
+                          </strong>
+                          <span>
+                            {row.metres} m
+                            {row.diameterMm === 16 || row.material === "PEX"
+                              ? " · coil (no copper fittings)"
+                              : ` · ${row.elbows} elbow${row.elbows === 1 ? "" : "s"} · ${row.couplings} coupling${row.couplings === 1 ? "" : "s"}`}
+                          </span>
+                        </li>
+                      ))}
+                      {(fittingsSummary || summariseHeatingFittings(project.heatingLayout)).reducers.map((row) => (
+                        <li key={`${row.fromMm}-${row.toMm}`}>
+                          <strong>
+                            {row.fromMm}→{row.toMm}
+                          </strong>
+                          <span>
+                            {row.count} reducer{row.count === 1 ? "" : "s"}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {design.kit.length ? (
+                    <div className="hd-defined-kit" aria-label="Defined kit">
+                      <div className="hd-defined-kit-head">
+                        <strong>Defined kit</strong>
+                        <span>
+                          {design.kit.length} lines · {money(design.kitTotal)} ex VAT
+                          {project.blakeProposal?.kitLines?.length
+                            ? " · plant + Blake ancillaries (budget until Firm)"
+                            : " · catalogue + rule ancillaries"}
+                        </span>
+                      </div>
+                      <div className="hd-kit-table hd-kit-table-compact">
+                        <div className="hd-kit-row hd-kit-head">
+                          <span>Item</span>
+                          <span>Qty</span>
+                          <span>Cost</span>
+                        </div>
+                        {design.kit.slice(0, 14).map((line) => {
+                          const state = derivePricingState(line);
+                          return (
+                            <div key={line.id} className="hd-kit-row">
+                              <span>
+                                <strong>
+                                  {line.description}
+                                  <span
+                                    className={`hd-price-chip ${chipClassForPricingState(state)}`}
+                                    title={line.pricingNote || PRICING_STATE_HINT[state]}
+                                  >
+                                    {PRICING_STATE_LABEL[state]}
+                                  </span>
+                                </strong>
+                                <small>{line.category}</small>
+                              </span>
+                              <span>
+                                {line.qty}
+                                {line.unit ? ` ${line.unit}` : ""}
+                              </span>
+                              <span>
+                                {state === "rfq" && !(line.unitCost > 0) ? "RFQ" : money(line.qty * line.unitCost)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                        {design.kit.length > 14 ? (
+                          <div className="hd-kit-row">
+                            <span>
+                              <small>+{design.kit.length - 14} more on the Kit tab</small>
+                            </span>
+                            <span />
+                            <span>
+                              <button type="button" className="hd-btn hd-btn-ghost" onClick={() => setTab("kit")}>
+                                Full kit
+                              </button>
+                            </span>
+                          </div>
+                        ) : null}
+                        <div className="hd-kit-row hd-kit-total">
+                          <span>Kit total (materials ex VAT — provisional until Firm)</span>
+                          <span />
+                          <span>{money(design.kitTotal)}</span>
+                        </div>
+                      </div>
+                      <p className="hd-defined-kit-note">
+                        Generate UFH first for loop + tail metres. Blake kit assist refreshes ancillaries / budget prices.
+                        Send to Takeoff pushes this BOQ — not a full hydraulic calculation.
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
               </>
             ) : null}
 
@@ -1122,7 +2339,7 @@ export default function HeatDesignLabPage() {
                 <p className="hd-lead">
                   Built for{" "}
                   <strong>{chosenOption?.label || "the design system"}</strong> at {project.flowTemperature}°C flow.
-                  Push materials into an existing Core quote or job, or create a new one.
+                  Push materials into an existing Core quote, tender, or job — or create a new one.
                 </p>
                 <div className={`hd-banner${design.materialsComplete ? "" : " warn"}`} style={{ marginBottom: 12 }}>
                   {design.materialsComplete
@@ -1131,22 +2348,102 @@ export default function HeatDesignLabPage() {
                 </div>
 
                 <div className="hd-job-link-panel">
+                  <strong className="hd-blake-title">
+                    <BuddyCharacter mood="guide" size="sm" interactive={false} />
+                    Ask Blake → Takeoff
+                  </strong>
+                  <p>
+                    Live Blake proposes sizes and the ancillaries kit from OpenAI. Send to Takeoff builds that BOQ;
+                    kit push below still sends the full materials list into Core.
+                  </p>
+                  {project.blakeProposal ? (
+                    <div className={`hd-banner${project.blakeProposal.aiUsed ? "" : " warn"}`} style={{ marginBottom: 10 }}>
+                      {project.blakeProposal.aiUsed ? "Live AI kit on this design" : "Rule fallback kit"}
+                      {" — "}
+                      {project.blakeProposal.summary}
+                    </div>
+                  ) : null}
+                  <div className="hd-blake-route-actions" style={{ marginBottom: 10 }}>
+                    <button
+                      type="button"
+                      className="hd-btn hd-btn-primary"
+                      disabled={blakeBusy}
+                      onClick={() => {
+                        setTab("plan");
+                        void askBlakeLive();
+                      }}
+                    >
+                      <BuddyCharacter mood={blakeBusy ? "thinking" : "idle"} size="sm" interactive={false} />
+                      {blakeBusy ? "Blake thinking…" : "Ask Blake"}
+                    </button>
+                    <button
+                      type="button"
+                      className="hd-btn"
+                      disabled={takeoffBusy || !project.heatingLayout?.pipes?.length}
+                      onClick={() => void sendLayoutToTakeoff()}
+                    >
+                      {takeoffBusy ? "Sending…" : project.linkedTakeoffRef ? "Update Takeoff" : "Send to Takeoff"}
+                    </button>
+                  </div>
+                  {project.linkedTakeoffRef ? (
+                    <div className="hd-banner" style={{ marginBottom: 10 }}>
+                      Takeoff{" "}
+                      {project.linkedTakeoffId ? (
+                        <a href={`/takeoff?projectId=${encodeURIComponent(project.linkedTakeoffId)}`}>
+                          <strong>{project.linkedTakeoffRef}</strong>
+                        </a>
+                      ) : (
+                        <strong>{project.linkedTakeoffRef}</strong>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="hd-job-link-panel">
                   <strong>Link to Core</strong>
                   <p>
-                    Materials land in a <em>Heating design</em> cost centre. Quote lines convert to job materials when
-                    the quote is accepted.
+                    Pick a quote, tender, or job, then push the Defined kit. Quotes/jobs get a{" "}
+                    <em>Heating design</em> cost centre; tenders get a <em>Heating design</em> BoQ sheet (PEX UFH and
+                    copper plant stay separate).
                   </p>
-                  {(project.linkedJobRef || project.linkedQuoteRef) && (
+                  {(project.linkedJobRef || project.linkedQuoteRef || project.linkedTenderRef) && (
                     <div className="hd-banner" style={{ marginBottom: 10 }}>
                       {project.linkedQuoteRef ? (
                         <>
-                          Quote <strong>{project.linkedQuoteRef}</strong>
+                          Quote{" "}
+                          {project.linkedQuoteId ? (
+                            <a href={`/?quote=${encodeURIComponent(project.linkedQuoteId)}`}>
+                              <strong>{project.linkedQuoteRef}</strong>
+                            </a>
+                          ) : (
+                            <strong>{project.linkedQuoteRef}</strong>
+                          )}
+                          {project.linkedTenderRef || project.linkedJobRef ? " · " : null}
+                        </>
+                      ) : null}
+                      {project.linkedTenderRef ? (
+                        <>
+                          Tender{" "}
+                          {project.linkedTenderId ? (
+                            <a href="/tenders">
+                              <strong>{project.linkedTenderRef}</strong>
+                            </a>
+                          ) : (
+                            <strong>{project.linkedTenderRef}</strong>
+                          )}
                           {project.linkedJobRef ? " · " : null}
                         </>
                       ) : null}
                       {project.linkedJobRef ? (
                         <>
-                          Job <strong>{project.linkedJobRef}</strong>
+                          Job{" "}
+                          {project.linkedJobId ? (
+                            <a href={`/?job=${encodeURIComponent(project.linkedJobId)}`}>
+                              <strong>{project.linkedJobRef}</strong>
+                            </a>
+                          ) : (
+                            <strong>{project.linkedJobRef}</strong>
+                          )}
                         </>
                       ) : null}
                     </div>
@@ -1158,6 +2455,13 @@ export default function HeatDesignLabPage() {
                       onClick={() => setLinkTarget("quote")}
                     >
                       Quote
+                    </button>
+                    <button
+                      type="button"
+                      className={`hd-btn${linkTarget === "tender" ? " hd-btn-primary" : " hd-btn-ghost"}`}
+                      onClick={() => setLinkTarget("tender")}
+                    >
+                      Tender
                     </button>
                     <button
                       type="button"
@@ -1181,6 +2485,19 @@ export default function HeatDesignLabPage() {
                           ))}
                         </select>
                       </label>
+                    ) : linkTarget === "tender" ? (
+                      <label className="hd-field">
+                        Tender
+                        <select value={selectedTenderId} onChange={(event) => setSelectedTenderId(event.target.value)}>
+                          <option value="">Create new tender</option>
+                          {tenderOptions.map((tender) => (
+                            <option key={tender.id} value={tender.id}>
+                              {tender.name} — {tender.client}
+                              {tender.status ? ` · ${tender.status}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                     ) : (
                       <label className="hd-field">
                         Job
@@ -1199,29 +2516,47 @@ export default function HeatDesignLabPage() {
                       type="button"
                       className="hd-btn hd-btn-primary"
                       disabled={linkBusy || !design.kit.length || !project.chosenSystemId}
+                      title={
+                        !project.chosenSystemId
+                          ? "Design a system on plan first"
+                          : !design.kit.length
+                            ? "Kit is empty — run Design on plan"
+                            : undefined
+                      }
                       onClick={() => void pushKitToCore()}
                     >
                       {linkBusy
-                        ? "Linking…"
+                        ? "Pushing…"
                         : linkTarget === "quote"
                           ? selectedQuoteId
-                            ? "Link materials to quote"
+                            ? "Push materials to quote"
                             : "Create quote + push materials"
-                          : selectedJobId
-                            ? "Link materials to job"
-                            : "Create job + push materials"}
+                          : linkTarget === "tender"
+                            ? selectedTenderId
+                              ? "Push materials to tender"
+                              : "Create tender + push materials"
+                            : selectedJobId
+                              ? "Push materials to job"
+                              : "Create job + push materials"}
                     </button>
                   </div>
+                  {!linkBusy && !project.chosenSystemId ? (
+                    <p className="hd-lead" style={{ marginTop: 8 }}>
+                      Push is disabled until you design a system on plan — the kit must match gas / ASHP / oil etc.
+                    </p>
+                  ) : !linkBusy && !design.kit.length ? (
+                    <p className="hd-lead" style={{ marginTop: 8 }}>
+                      Push is disabled — kit is empty. Open System, run Design on plan, then return here to push
+                      materials.
+                    </p>
+                  ) : null}
                   {!project.customerName.trim() ? (
                     <p className="hd-lead" style={{ marginTop: 8 }}>
-                      Tip: fill customer name on the Project tab before creating a new quote or job.
+                      Tip: fill customer name on the Project tab before creating a new quote, tender, or job.
                     </p>
                   ) : null}
                 </div>
 
-                {!project.chosenSystemId ? (
-                  <p className="hd-lead">Design a system on plan first so the kit matches gas / ASHP / oil etc.</p>
-                ) : null}
                 <div className="hd-extras">
                   {kitExtraOptions.map((extra) => {
                     const on = project.kitExtras.includes(extra.id);
@@ -1243,27 +2578,56 @@ export default function HeatDesignLabPage() {
                     );
                   })}
                 </div>
+                <div className="hd-blake-route-actions" style={{ marginBottom: 12 }}>
+                  <button
+                    type="button"
+                    className="hd-btn hd-btn-primary"
+                    disabled={budgetBusy || blakeBusy}
+                    onClick={() => void refreshBlakeBudgetPrices()}
+                  >
+                    {budgetBusy ? "Pricing…" : "Blake budget prices"}
+                  </button>
+                  <span className="hd-lead" style={{ margin: 0 }}>
+                    Live AI UK trade ballpark — replace with supplier quotes when uploaded.
+                  </span>
+                </div>
+                <div className="hd-banner" style={{ marginBottom: 12 }}>
+                  Price Ledger: <strong>Budget</strong> / <strong>Guide</strong> are planning figures.{" "}
+                  <strong>RFQ</strong> awaits the merchant. <strong>Firm</strong> is a confirmed supplier cost —
+                  that wins, and feeds the rate library.
+                </div>
                 <div className="hd-kit-table">
                   <div className="hd-kit-row hd-kit-head">
                     <span>Item</span>
                     <span>Qty</span>
                     <span>Cost</span>
                   </div>
-                  {design.kit.map((line) => (
-                    <div key={line.id} className="hd-kit-row">
-                      <span>
-                        <strong>{line.description}</strong>
-                        <small>{line.category}</small>
-                      </span>
-                      <span>
-                        {line.qty}
-                        {line.unit ? ` ${line.unit}` : ""}
-                      </span>
-                      <span>{line.unitCost === 0 ? "—" : money(line.qty * line.unitCost)}</span>
-                    </div>
-                  ))}
+                  {design.kit.map((line) => {
+                    const state = derivePricingState(line);
+                    return (
+                      <div key={line.id} className="hd-kit-row">
+                        <span>
+                          <strong>
+                            {line.description}
+                            <span
+                              className={`hd-price-chip ${chipClassForPricingState(state)}`}
+                              title={line.pricingNote || PRICING_STATE_HINT[state]}
+                            >
+                              {PRICING_STATE_LABEL[state]}
+                            </span>
+                          </strong>
+                          <small>{line.category}</small>
+                        </span>
+                        <span>
+                          {line.qty}
+                          {line.unit ? ` ${line.unit}` : ""}
+                        </span>
+                        <span>{state === "rfq" && !(line.unitCost > 0) ? "RFQ" : money(line.qty * line.unitCost)}</span>
+                      </div>
+                    );
+                  })}
                   <div className="hd-kit-row hd-kit-total">
-                    <span>Kit total (materials ex VAT)</span>
+                    <span>Kit total (materials ex VAT — provisional until Firm)</span>
                     <span />
                     <span>{money(design.kitTotal)}</span>
                   </div>
@@ -1447,7 +2811,7 @@ export default function HeatDesignLabPage() {
                 <div>
                   <h2>Heating options report</h2>
                   <p className="hd-lead" style={{ marginBottom: 0 }}>
-                    Professional Errol Watson Group report — includes the systems ticked under Options.
+                    Professional company report — includes the systems ticked under Options.
                   </p>
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -1464,6 +2828,7 @@ export default function HeatDesignLabPage() {
               project={project}
               design={design}
               options={optionResults}
+              companyName={brand.companyName}
               className={tab === "report" ? undefined : "is-print-source"}
             />
           </section>
@@ -1472,9 +2837,10 @@ export default function HeatDesignLabPage() {
             <section className="hd-panel">
               <h2>Design snapshot</h2>
               <p className="hd-lead">
-                {project.linkedQuoteRef || project.linkedJobRef
+                {project.linkedQuoteRef || project.linkedTenderRef || project.linkedJobRef
                   ? [
                       project.linkedQuoteRef ? `Quote ${project.linkedQuoteRef}` : null,
+                      project.linkedTenderRef ? `Tender ${project.linkedTenderRef}` : null,
                       project.linkedJobRef ? `Job ${project.linkedJobRef}` : null,
                     ]
                       .filter(Boolean)
@@ -1504,7 +2870,9 @@ export default function HeatDesignLabPage() {
                 </div>
                 <div className="hd-stat warm">
                   <span>Core link</span>
-                  <strong>{project.linkedQuoteRef || project.linkedJobRef || "Not linked"}</strong>
+                  <strong>
+                    {project.linkedQuoteRef || project.linkedTenderRef || project.linkedJobRef || "Not linked"}
+                  </strong>
                 </div>
               </div>
               {chosenOption?.kind === "ashp" || chosenOption?.kind === "hybrid" ? (
@@ -1527,12 +2895,30 @@ export default function HeatDesignLabPage() {
                 </div>
               )}
             </section>
+            <section className="hd-panel hd-history-panel no-print">
+              <div className="hd-history-head">
+                <h2>History</h2>
+                <span>{revisionHistory.length} revision{revisionHistory.length === 1 ? "" : "s"}</span>
+              </div>
+              {revisionHistory.length ? (
+                <ol className="hd-history-list">
+                  {revisionHistory.slice(0, 5).map((revision) => (
+                    <li key={revision.id}>
+                      <time dateTime={revision.at}>{formatRevisionTimestamp(revision.at)}</time>
+                      <span>{revision.summary}</span>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="hd-history-empty">No server saves recorded yet.</p>
+              )}
+            </section>
           </aside>
         </div>
 
         <p className="hd-lab-note">
           Open at <code>/heat-design</code> or from Core → Quick access. Push materials from{" "}
-          <strong>Kit &amp; link</strong> into a quote or job (existing or new). They appear under{" "}
+          <strong>Kit &amp; link</strong> into a quote, tender, or job (existing or new). They appear under{" "}
           <em>Heating design</em>.
         </p>
       </div>

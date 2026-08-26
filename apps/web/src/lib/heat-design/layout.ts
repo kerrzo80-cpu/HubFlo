@@ -1,12 +1,15 @@
 import { pickRadiatorForRoom } from "./calc";
 import { dist, polygonBounds, roomPolygon, roomWallExterior } from "./geometry";
 import { heatingSystemOptions, type HeatingSystemKind } from "./systems";
+import { buildUfhCircuitsOnLayout } from "./ufh-circuits";
+import { sizeTierForPipe, type HeatingPipeSizeTier } from "./pipe-sizing";
 import type {
   FloorLevel,
   HeatDesignProject,
   HeatDesignRoom,
   HeatingEmitterItem,
   HeatingEmitterMode,
+  HeatingPipeDiameterMm,
   HeatingPipeKind,
   HeatingPipeRun,
   HeatingPlantItem,
@@ -14,6 +17,9 @@ import type {
   HeatingSystemLayout,
   PlanPoint,
 } from "./types";
+
+export { isUfhCircuitPipe, sizeTierForPipe } from "./pipe-sizing";
+export type { HeatingPipeSizeTier } from "./pipe-sizing";
 
 function uid(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -165,6 +171,7 @@ function makePlant(
   point: PlanPoint,
   floorLevel: FloorLevel,
   size?: { widthM: number; depthM: number },
+  placedByUser?: boolean,
 ): HeatingPlantItem {
   return {
     id: uid(`plant-${kind}`),
@@ -175,21 +182,130 @@ function makePlant(
     floorLevel,
     widthM: size?.widthM,
     depthM: size?.depthM,
+    placedByUser: placedByUser || undefined,
   };
 }
+
+/** Group related plant kinds so “one boiler” / “one cylinder” stays unique on plan. */
+export function plantRole(kind: HeatingPlantKind): string {
+  if (kind === "boiler" || kind === "electric_boiler") return "boiler";
+  if (kind === "cylinder" || kind === "buffer") return "cylinder";
+  if (kind === "manifold") return "manifold";
+  if (kind === "outdoor_unit") return "outdoor_unit";
+  if (kind === "oil_tank" || kind === "lpg_tank") return "fuel_tank";
+  return kind;
+}
+
+export function defaultPlantLabel(kind: HeatingPlantKind, cylinderLitres = 210): string {
+  switch (kind) {
+    case "boiler":
+      return "Gas boiler";
+    case "electric_boiler":
+      return "Electric boiler";
+    case "outdoor_unit":
+      return "Outdoor unit";
+    case "cylinder":
+      return `${cylinderLitres || 210}L cylinder`;
+    case "buffer":
+      return "Buffer / volumiser";
+    case "manifold":
+      return "Heating manifold";
+    case "oil_tank":
+      return "Oil tank";
+    case "lpg_tank":
+      return "LPG tank";
+    default:
+      return "Plant";
+  }
+}
+
+export function plantFootprint(kind: HeatingPlantKind) {
+  return plantSizes(kind);
+}
+
+/**
+ * Drop / click-place plant. Replaces any existing plant in the same role so the plan stays sane,
+ * except manifolds — engineers often place two (UFH + rads / upstairs + downstairs).
+ * Does not redraw pipes — call seedHeatingLayout with preservePlants after the engineer is happy.
+ */
+export function placePlantOnLayout(
+  layout: HeatingSystemLayout | null | undefined,
+  kind: HeatingPlantKind,
+  x: number,
+  y: number,
+  floorLevel: FloorLevel,
+  options: {
+    label?: string;
+    systemOptionId?: string;
+    emitterMode?: HeatingEmitterMode;
+    cylinderLitres?: number;
+  } = {},
+): HeatingSystemLayout {
+  const size = plantSizes(kind);
+  const role = plantRole(kind);
+  const manifoldIndex =
+    role === "manifold" ? (layout?.plants ?? []).filter((row) => plantRole(row.kind) === "manifold").length + 1 : 0;
+  const plant = makePlant(
+    kind,
+    options.label ||
+      (manifoldIndex > 1
+        ? `Heating manifold ${manifoldIndex}`
+        : defaultPlantLabel(kind, options.cylinderLitres)),
+    { x, y },
+    floorLevel,
+    size,
+    true,
+  );
+  const previous =
+    role === "manifold"
+      ? [...(layout?.plants ?? [])]
+      : (layout?.plants ?? []).filter((row) => plantRole(row.kind) !== role);
+  return {
+    systemOptionId: layout?.systemOptionId || options.systemOptionId || "opt-ashp",
+    plants: [...previous, plant],
+    pipes: layout?.pipes ?? [],
+    emitters: layout?.emitters ?? [],
+    emitterMode: layout?.emitterMode ?? options.emitterMode ?? "radiators",
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function removePlantFromLayout(layout: HeatingSystemLayout, plantId: string): HeatingSystemLayout {
+  return {
+    ...layout,
+    plants: layout.plants.filter((plant) => plant.id !== plantId),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export type SeedHeatingLayoutOptions = {
+  /** Engineer plant positions to keep while redrawing emitters + pipe routes. */
+  preservePlants?: HeatingPlantItem[] | null;
+  /**
+   * When true, never invent boiler / cylinder / manifold / OU the engineer did not place.
+   * Defaults to true whenever any preserved plant is `placedByUser`.
+   * Pass false to force a full auto plant kit (e.g. Design on plan from a blank).
+   */
+  onlyUserPlants?: boolean;
+};
 
 function makePipe(
   kind: HeatingPipeKind,
   label: string,
   points: PlanPoint[],
   floorLevel: FloorLevel,
+  size?: HeatingPipeSizeTier,
 ): HeatingPipeRun {
+  const tier = size || sizeTierForPipe(kind, label);
   return {
     id: uid(`pipe-${kind}`),
     kind,
     label,
     points: points.map((p) => ({ x: p.x, y: p.y })),
     floorLevel,
+    diameterMm: tier.diameterMm,
+    pipeSpecId: tier.pipeSpecId,
+    material: tier.material,
   };
 }
 
@@ -199,6 +315,40 @@ function plantSizes(kind: HeatingPlantKind) {
   if (kind === "oil_tank" || kind === "lpg_tank") return { widthM: 1.2, depthM: 0.7 };
   if (kind === "manifold") return { widthM: 0.5, depthM: 0.18 };
   return { widthM: 0.48, depthM: 0.32 };
+}
+
+function pickPreservedPlant(
+  preserved: HeatingPlantItem[],
+  kind: HeatingPlantKind,
+  floor: FloorLevel,
+): HeatingPlantItem | null {
+  const role = plantRole(kind);
+  const onFloor = preserved.filter((plant) => (plant.floorLevel ?? "ground") === floor);
+  const pool = onFloor.length ? onFloor : preserved;
+  return pool.find((plant) => plantRole(plant.kind) === role) ?? null;
+}
+
+function reuseOrMakePlant(
+  preserved: HeatingPlantItem[],
+  kind: HeatingPlantKind,
+  label: string,
+  slot: PlanPoint,
+  floor: FloorLevel,
+): HeatingPlantItem {
+  const existing = pickPreservedPlant(preserved, kind, floor);
+  if (!existing) return makePlant(kind, label, slot, floor, plantSizes(kind));
+  const size = plantSizes(kind);
+  return {
+    ...existing,
+    kind,
+    label: existing.placedByUser && existing.label ? existing.label : label,
+    x: existing.x,
+    y: existing.y,
+    floorLevel: floor,
+    widthM: existing.widthM ?? size.widthM,
+    depthM: existing.depthM ?? size.depthM,
+    placedByUser: existing.placedByUser,
+  };
 }
 
 function kindForOption(optionId: string): HeatingSystemKind {
@@ -310,93 +460,94 @@ function serviceSpineY(rooms: HeatDesignRoom[], plantRoom: HeatDesignRoom): numb
   return Math.min(plantBox.maxY - 0.35, maxY - 0.25);
 }
 
-/**
- * Seed a designed heating layout: spaced plant, outdoor unit kept on-canvas,
- * radiators / UFH in each room, and tidy spine pipe routes.
- */
-export function seedHeatingLayout(
-  project: HeatDesignProject,
-  systemOptionId: string,
-  emitterMode: HeatingEmitterMode = project.emitterMode ?? "radiators",
-): HeatingSystemLayout {
-  const kind = kindForOption(systemOptionId);
-  const floor: FloorLevel = project.activeFloor ?? "ground";
-  const plantRoom = pickPlantRoom(project.rooms, floor) ?? project.rooms[0];
-  const plants: HeatingPlantItem[] = [];
-  const pipes: HeatingPipeRun[] = [];
-
-  if (!plantRoom) {
+function reusePreservedPlants(preserved: HeatingPlantItem[], floor: FloorLevel): HeatingPlantItem[] {
+  const onFloor = preserved.filter((plant) => (plant.floorLevel ?? "ground") === floor);
+  const pool = onFloor.length ? onFloor : preserved;
+  return pool.map((plant) => {
+    const size = plantSizes(plant.kind);
     return {
-      systemOptionId,
-      plants,
-      pipes,
-      emitters: [],
-      emitterMode,
-      updatedAt: new Date().toISOString(),
+      ...plant,
+      floorLevel: plant.floorLevel ?? floor,
+      widthM: plant.widthM ?? size.widthM,
+      depthM: plant.depthM ?? size.depthM,
     };
-  }
-
-  const outdoorDist = Math.min(1.5, Math.max(1.0, project.outdoorUnitDistanceM || 1.5));
-  const outdoor = outdoorAnchor(plantRoom, outdoorDist);
-  const emitters = buildEmitters(project, floor, emitterMode);
-  const spineY = serviceSpineY(
-    project.rooms.filter((r) => (r.floorLevel ?? "ground") === floor),
-    plantRoom,
-  );
-
-  const indoorKinds: Array<{ kind: HeatingPlantKind; label: string }> = [];
-  if (kind === "ashp") {
-    indoorKinds.push(
-      { kind: "cylinder", label: `${project.cylinderLitres || 210}L cylinder` },
-      { kind: "manifold", label: "Heating manifold" },
-    );
-  } else if (kind === "hybrid") {
-    indoorKinds.push(
-      { kind: "boiler", label: "Gas boiler (peak)" },
-      { kind: "cylinder", label: `${project.cylinderLitres || 210}L cylinder` },
-      { kind: "manifold", label: "Heating manifold" },
-    );
-  } else if (kind === "gas" || kind === "electric") {
-    indoorKinds.push(
-      {
-        kind: kind === "electric" ? "electric_boiler" : "boiler",
-        label: kind === "electric" ? "Electric boiler" : "Gas boiler",
-      },
-      { kind: "cylinder", label: `${project.cylinderLitres || 210}L cylinder` },
-      { kind: "manifold", label: "Heating manifold" },
-    );
-  } else {
-    indoorKinds.push(
-      { kind: "boiler", label: kind === "oil" ? "Oil boiler" : "LPG boiler" },
-      { kind: "cylinder", label: `${project.cylinderLitres || 210}L cylinder` },
-      { kind: "manifold", label: "Heating manifold" },
-    );
-  }
-
-  const slots = plantBaySlots(plantRoom, indoorKinds.length);
-  indoorKinds.forEach((item, index) => {
-    const slot = slots[index] ?? roomCentroid(plantRoom);
-    plants.push(makePlant(item.kind, item.label, slot, floor, plantSizes(item.kind)));
   });
+}
 
-  if (kind === "ashp" || kind === "hybrid") {
-    plants.push(makePlant("outdoor_unit", "Outdoor unit", outdoor, floor, plantSizes("outdoor_unit")));
-  } else if (kind === "oil" || kind === "lpg") {
-    plants.push(
-      makePlant(
-        kind === "oil" ? "oil_tank" : "lpg_tank",
-        kind === "oil" ? "Oil tank" : "LPG tank",
-        outdoor,
-        floor,
-        plantSizes(kind === "oil" ? "oil_tank" : "lpg_tank"),
-      ),
-    );
+/** Human-readable notes of what the seeded network actually connected — for Blake UI. */
+export function describeHeatingLayoutNotes(layout: HeatingSystemLayout | null | undefined): string[] {
+  if (!layout) return [];
+  const notes: string[] = [];
+  const plantLabels = layout.plants.map((p) => p.label || p.kind.replace(/_/g, " "));
+  if (plantLabels.length) {
+    notes.push(`Plant on plan: ${plantLabels.join(", ")}.`);
   }
+  const emitters = layout.emitters ?? [];
+  if (emitters.length) {
+    const rads = emitters.filter((e) => e.kind === "radiator").length;
+    const ufh = emitters.filter((e) => e.kind === "ufh").length;
+    const bits: string[] = [];
+    if (rads) bits.push(`${rads} radiator${rads === 1 ? "" : "s"}`);
+    if (ufh) bits.push(`${ufh} UFH zone${ufh === 1 ? "" : "s"}`);
+    notes.push(`Emitters: ${bits.join(" + ") || `${emitters.length} emitters`}.`);
+  } else if (layout.plants.length) {
+    notes.push("No room polygons — primary / flow–return drawn plant-to-plant only.");
+  }
+  const ufhLoops = (layout.pipes || []).filter((p) => /ufh loop/i.test(p.label)).length;
+  if (ufhLoops) {
+    notes.push(`${ufhLoops} UFH circuit${ufhLoops === 1 ? "" : "s"} drawn inside room polygons.`);
+  }
+  const labels = (layout.pipes || [])
+    .map((p) => p.label)
+    .filter(Boolean)
+    .slice(0, 10);
+  if (labels.length) {
+    notes.push(`Routes: ${labels.join("; ")}.`);
+  } else {
+    notes.push("No pipe runs were generated — place boiler / cylinder / manifold (or draw rooms), then ask again.");
+  }
+  notes.push("Geometric draft only — not an MCS / full hydraulic certificate.");
+  return notes;
+}
 
-  const cylinder = plants.find((p) => p.kind === "cylinder");
-  const manifold = plants.find((p) => p.kind === "manifold");
+/**
+ * Always draw a usable heating network when plant and/or rooms exist.
+ * Preserves engineer plant; invents full plant kit only when nothing was placed.
+ */
+export function ensureDesignLayout(
+  project: HeatDesignProject,
+  options: SeedHeatingLayoutOptions & {
+    systemOptionId?: string;
+    emitterMode?: HeatingEmitterMode;
+  } = {},
+): HeatingSystemLayout | null {
+  const systemOptionId =
+    options.systemOptionId || project.chosenSystemId || project.heatingLayout?.systemOptionId || "";
+  if (!systemOptionId) return null;
+  const hasPlant = (options.preservePlants?.length || project.heatingLayout?.plants?.length || 0) > 0;
+  const hasRooms = (project.rooms?.length || 0) > 0;
+  if (!hasPlant && !hasRooms) return null;
+  const emitterMode =
+    options.emitterMode || project.emitterMode || project.heatingLayout?.emitterMode || "radiators";
+  return seedHeatingLayout(project, systemOptionId, emitterMode, {
+    preservePlants: options.preservePlants ?? project.heatingLayout?.plants,
+    onlyUserPlants: options.onlyUserPlants,
+  });
+}
+
+/** Primary / fuel pipes that connect placed plant pieces (works with or without rooms). */
+function appendPlantNetworkPipes(
+  pipes: HeatingPipeRun[],
+  plants: HeatingPlantItem[],
+  kind: HeatingSystemKind,
+  floor: FloorLevel,
+  plantRoom: HeatDesignRoom | undefined,
+): void {
+  const cylinder = plants.find((p) => p.kind === "cylinder" || p.kind === "buffer");
+  const manifolds = plants.filter((p) => p.kind === "manifold");
   const boiler = plants.find((p) => p.kind === "boiler" || p.kind === "electric_boiler");
   const ou = plants.find((p) => p.kind === "outdoor_unit" || p.kind === "oil_tank" || p.kind === "lpg_tank");
+  const source = cylinder ?? boiler;
 
   if (ou && cylinder && (kind === "ashp" || kind === "hybrid")) {
     // Keep refrigerant on a short L: OU → wall line → cylinder
@@ -425,7 +576,9 @@ export function seedHeatingLayout(
     );
   }
   if (kind === "gas" && boiler) {
-    const meter = outdoorAnchor(plantRoom, 0.5);
+    const meter = plantRoom
+      ? outdoorAnchor(plantRoom, 0.5)
+      : { x: boiler.x - 0.9, y: boiler.y + 0.65 };
     pipes.push(makePipe("gas", "Gas supply", manhattanRoute(meter, { x: boiler.x, y: boiler.y }, true), floor));
   }
   if (boiler && cylinder) {
@@ -438,23 +591,176 @@ export function seedHeatingLayout(
       ),
     );
   }
-  if (cylinder && manifold) {
+
+  if (source && manifolds.length) {
+    const fromLabel = cylinder ? "Cylinder" : "Boiler";
+    manifolds.forEach((manifold, index) => {
+      const suffix = manifolds.length > 1 ? ` ${index + 1}` : "";
+      const from = { x: source.x, y: source.y };
+      const to = { x: manifold.x, y: manifold.y };
+      pipes.push(
+        makePipe(
+          "primary",
+          `${fromLabel} → manifold${suffix}`,
+          manhattanRoute(from, to, true),
+          floor,
+        ),
+      );
+      // Visible F&R companions (offset enough to read next to primary on PDF underlays).
+      pipes.push(
+        makePipe(
+          "flow",
+          `Flow · manifold${suffix}`,
+          manhattanRoute({ x: from.x - 0.12, y: from.y - 0.08 }, { x: to.x - 0.12, y: to.y - 0.08 }, true),
+          floor,
+        ),
+        makePipe(
+          "return",
+          `Return · manifold${suffix}`,
+          manhattanRoute({ x: to.x + 0.12, y: to.y + 0.08 }, { x: from.x + 0.12, y: from.y + 0.08 }, false),
+          floor,
+        ),
+      );
+    });
+  } else if (boiler && !cylinder && !manifolds.length) {
+    // Lone boiler: small primary stub so Route pipes never looks empty.
     pipes.push(
       makePipe(
         "primary",
-        "Cylinder → manifold",
-        manhattanRoute({ x: cylinder.x, y: cylinder.y }, { x: manifold.x, y: manifold.y }, true),
+        "Boiler primary stub",
+        [
+          { x: boiler.x, y: boiler.y },
+          { x: boiler.x + 0.45, y: boiler.y },
+          { x: boiler.x + 0.45, y: boiler.y + 0.35 },
+        ],
         floor,
       ),
     );
   }
+}
 
-  const hub = manifold ?? boiler ?? cylinder;
+/**
+ * Seed a designed heating layout: spaced plant, outdoor unit kept on-canvas,
+ * radiators / UFH in each room, and tidy spine pipe routes.
+ *
+ * When engineer-placed plant is present, routes only around those pieces —
+ * Blake / Route pipes must not surprise-add a cylinder or OU the user never placed.
+ * Plant-to-plant mains still draw when rooms are missing (PDF underlay / plant-first).
+ */
+export function seedHeatingLayout(
+  project: HeatDesignProject,
+  systemOptionId: string,
+  emitterMode: HeatingEmitterMode = project.emitterMode ?? "radiators",
+  options: SeedHeatingLayoutOptions = {},
+): HeatingSystemLayout {
+  const kind = kindForOption(systemOptionId);
+  const floor: FloorLevel = project.activeFloor ?? "ground";
+  const plantRoom = pickPlantRoom(project.rooms, floor) ?? project.rooms[0];
+  const plants: HeatingPlantItem[] = [];
+  const pipes: HeatingPipeRun[] = [];
+  const preserved = options.preservePlants ?? [];
+  const onlyUserPlants =
+    options.onlyUserPlants === true
+    || (options.onlyUserPlants !== false && preserved.some((plant) => plant.placedByUser));
+
+  // No rooms and no plant to preserve — nothing to route.
+  if (!plantRoom && !preserved.length) {
+    return {
+      systemOptionId,
+      plants: [],
+      pipes,
+      emitters: [],
+      emitterMode,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  // Plant-first / PDF underlay: keep engineer plant and draw mains even without room polygons.
+  if (!plantRoom) {
+    plants.push(...reusePreservedPlants(preserved, floor));
+    appendPlantNetworkPipes(pipes, plants, kind, floor, undefined);
+    return {
+      systemOptionId,
+      plants,
+      pipes,
+      emitters: [],
+      emitterMode,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  const outdoorDist = Math.min(1.5, Math.max(1.0, project.outdoorUnitDistanceM || 1.5));
+  const outdoor = outdoorAnchor(plantRoom, outdoorDist);
+  const emitters = buildEmitters(project, floor, emitterMode);
+  const spineY = serviceSpineY(
+    project.rooms.filter((r) => (r.floorLevel ?? "ground") === floor),
+    plantRoom,
+  );
+
+  if (onlyUserPlants && preserved.length) {
+    plants.push(...reusePreservedPlants(preserved, floor));
+  } else {
+    const indoorKinds: Array<{ kind: HeatingPlantKind; label: string }> = [];
+    if (kind === "ashp") {
+      indoorKinds.push(
+        { kind: "cylinder", label: `${project.cylinderLitres || 210}L cylinder` },
+        { kind: "manifold", label: "Heating manifold" },
+      );
+    } else if (kind === "hybrid") {
+      indoorKinds.push(
+        { kind: "boiler", label: "Gas boiler (peak)" },
+        { kind: "cylinder", label: `${project.cylinderLitres || 210}L cylinder` },
+        { kind: "manifold", label: "Heating manifold" },
+      );
+    } else if (kind === "gas" || kind === "electric") {
+      indoorKinds.push(
+        {
+          kind: kind === "electric" ? "electric_boiler" : "boiler",
+          label: kind === "electric" ? "Electric boiler" : "Gas boiler",
+        },
+        { kind: "cylinder", label: `${project.cylinderLitres || 210}L cylinder` },
+        { kind: "manifold", label: "Heating manifold" },
+      );
+    } else {
+      indoorKinds.push(
+        { kind: "boiler", label: kind === "oil" ? "Oil boiler" : "LPG boiler" },
+        { kind: "cylinder", label: `${project.cylinderLitres || 210}L cylinder` },
+        { kind: "manifold", label: "Heating manifold" },
+      );
+    }
+
+    const slots = plantBaySlots(plantRoom, indoorKinds.length);
+    indoorKinds.forEach((item, index) => {
+      const slot = slots[index] ?? roomCentroid(plantRoom);
+      plants.push(reuseOrMakePlant(preserved, item.kind, item.label, slot, floor));
+    });
+
+    if (kind === "ashp" || kind === "hybrid") {
+      plants.push(reuseOrMakePlant(preserved, "outdoor_unit", "Outdoor unit", outdoor, floor));
+    } else if (kind === "oil" || kind === "lpg") {
+      plants.push(
+        reuseOrMakePlant(
+          preserved,
+          kind === "oil" ? "oil_tank" : "lpg_tank",
+          kind === "oil" ? "Oil tank" : "LPG tank",
+          outdoor,
+          floor,
+        ),
+      );
+    }
+  }
+
+  appendPlantNetworkPipes(pipes, plants, kind, floor, plantRoom);
+
+  const hub =
+    plants.find((p) => p.kind === "manifold")
+    ?? plants.find((p) => p.kind === "boiler" || p.kind === "electric_boiler")
+    ?? plants.find((p) => p.kind === "cylinder");
   const hubPoint = hub ? { x: hub.x, y: hub.y } : roomCentroid(plantRoom);
 
   emitters.forEach((emitter, index) => {
     if (emitter.kind === "ufh") {
-      // Short tails into the zone from the spine
+      // Short tails into the zone from the spine — replaced by real loops when UFH generate runs.
       const entry = { x: emitter.x, y: emitter.y + emitter.depthM / 2 - 0.15 };
       pipes.push(
         makePipe("flow", `UFH flow · ${emitter.label}`, spineRoute(hubPoint, entry, spineY, -0.08), floor),
@@ -485,7 +791,7 @@ export function seedHeatingLayout(
     );
   });
 
-  return {
+  const draft: HeatingSystemLayout = {
     systemOptionId,
     plants,
     pipes,
@@ -493,26 +799,41 @@ export function seedHeatingLayout(
     emitterMode,
     updatedAt: new Date().toISOString(),
   };
+
+  // UFH mode: replace rectangular zones + stub tails with serpentine circuits + manifold tails.
+  if (emitterMode === "ufh" && emitters.some((e) => e.kind === "ufh")) {
+    return buildUfhCircuitsOnLayout(project, draft, { pattern: "serpentine" }).layout;
+  }
+
+  return draft;
 }
 
-export function pipeStroke(kind: HeatingPipeKind): { stroke: string; dash?: string; width: number } {
-  switch (kind) {
-    case "flow":
-      return { stroke: "#dc2626", width: 3.2 };
-    case "return":
-      return { stroke: "#2563eb", width: 3.2 };
-    case "refrigerant":
-      return { stroke: "#7c3aed", width: 4, dash: "8 4" };
-    case "gas":
-      return { stroke: "#ca8a04", width: 3.5, dash: "5 4" };
-    case "oil":
-      return { stroke: "#92400e", width: 3.5, dash: "6 3" };
-    case "dhw":
-      return { stroke: "#0891b2", width: 3 };
-    case "primary":
-    default:
-      return { stroke: "#157fa8", width: 3.5 };
-  }
+export function pipeStroke(
+  kind: HeatingPipeKind,
+  diameterMm?: number,
+): { stroke: string; dash?: string; width: number } {
+  const sizeBoost =
+    diameterMm === 28 ? 1.35 : diameterMm === 22 ? 1.1 : diameterMm === 16 ? 0.9 : diameterMm === 15 ? 0.85 : 1;
+  const base = (() => {
+    switch (kind) {
+      case "flow":
+        return { stroke: "#dc2626", width: 3.2 };
+      case "return":
+        return { stroke: "#2563eb", width: 3.2 };
+      case "refrigerant":
+        return { stroke: "#7c3aed", width: 4, dash: "8 4" };
+      case "gas":
+        return { stroke: "#ca8a04", width: 3.5, dash: "5 4" };
+      case "oil":
+        return { stroke: "#92400e", width: 3.5, dash: "6 3" };
+      case "dhw":
+        return { stroke: "#0891b2", width: 3 };
+      case "primary":
+      default:
+        return { stroke: "#157fa8", width: 3.5 };
+    }
+  })();
+  return { ...base, width: Number((base.width * sizeBoost).toFixed(2)) };
 }
 
 export function plantFill(kind: HeatingPlantKind): string {
@@ -538,7 +859,9 @@ export function plantFill(kind: HeatingPlantKind): string {
 export function movePlant(layout: HeatingSystemLayout, plantId: string, x: number, y: number): HeatingSystemLayout {
   return {
     ...layout,
-    plants: layout.plants.map((plant) => (plant.id === plantId ? { ...plant, x, y } : plant)),
+    plants: layout.plants.map((plant) =>
+      plant.id === plantId ? { ...plant, x, y, placedByUser: true } : plant,
+    ),
     updatedAt: new Date().toISOString(),
   };
 }
@@ -592,7 +915,85 @@ export function translatePipe(layout: HeatingSystemLayout, pipeId: string, dx: n
   };
 }
 
-/** Place a surveyed (existing) radiator on a room wall — HeatPunk-style. */
+/** Polyline length in metres. */
+export function pipeLengthM(points: PlanPoint[]) {
+  let total = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    const a = points[i - 1];
+    const b = points[i];
+    if (!a || !b) continue;
+    total += dist(a, b);
+  }
+  return total;
+}
+
+/** Append a user-drawn pipe run (Spruce-style click path). Survives Route pipes regen. */
+export function appendManualPipeRun(
+  layout: HeatingSystemLayout,
+  input: {
+    kind: HeatingPipeKind;
+    points: PlanPoint[];
+    floorLevel: FloorLevel;
+    existing?: boolean;
+    diameterMm?: HeatingPipeDiameterMm;
+    flowLpm?: number;
+    label?: string;
+  },
+): HeatingSystemLayout {
+  const points = input.points.map((p) => ({ x: p.x, y: p.y }));
+  if (points.length < 2) return layout;
+  const kindLabel =
+    input.kind === "flow"
+      ? "Flow"
+      : input.kind === "return"
+        ? "Return"
+        : input.kind === "dhw"
+          ? "DHW"
+          : input.kind === "primary"
+            ? "Primary"
+            : input.kind === "gas"
+              ? "Gas"
+              : input.kind;
+  const pipe = makePipe(
+    input.kind,
+    input.label || `${input.existing ? "Existing " : ""}${kindLabel} (drawn)`,
+    points,
+    input.floorLevel,
+    input.diameterMm
+      ? {
+          diameterMm: input.diameterMm,
+          pipeSpecId: input.diameterMm === 16 ? "pex-16" : `cu-${input.diameterMm}`,
+          material: input.diameterMm === 16 ? "PEX" : "Copper",
+        }
+      : undefined,
+  );
+  pipe.placedByUser = true;
+  pipe.existing = Boolean(input.existing) || undefined;
+  pipe.flowLpm = typeof input.flowLpm === "number" && Number.isFinite(input.flowLpm) ? input.flowLpm : undefined;
+  return {
+    ...layout,
+    pipes: [...layout.pipes, pipe],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/** Keep engineer-drawn pipes when auto-route rebuilds the network. */
+export function mergeUserDrawnPipes(
+  layout: HeatingSystemLayout,
+  previous?: HeatingPipeRun[] | null,
+): HeatingSystemLayout {
+  const keep = (previous || []).filter((pipe) => pipe.placedByUser && pipe.points.length >= 2);
+  if (!keep.length) return layout;
+  const keptIds = new Set(keep.map((pipe) => pipe.id));
+  const auto = layout.pipes.filter((pipe) => !keptIds.has(pipe.id));
+  return {
+    ...layout,
+    pipes: [...auto, ...keep],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/** Place a surveyed (existing) radiator on a room wall. */
 export function placeSurveyedRadiatorOnWall(
   room: HeatDesignRoom,
   wallIndex: number,

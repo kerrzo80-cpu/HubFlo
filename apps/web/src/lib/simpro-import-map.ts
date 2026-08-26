@@ -1,5 +1,5 @@
 /**
- * Phase C — map Simpro job/quote headers into NeXa workflow shapes.
+ * Phase C — map Simpro job/quote headers into Blake workflow shapes.
  * Hierarchy (sections/CCs/lines) is applied by simpro-deep-import / simpro-hierarchy-map on Apply.
  */
 

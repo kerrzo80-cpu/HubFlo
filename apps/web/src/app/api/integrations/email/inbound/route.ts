@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { appendJobCommunication, matchInboundToJob } from "@/lib/job-comms-match";
+import { integrationBearerAuthorized } from "@/lib/runtime-security";
 
 function hasIntegrationAccess(request: Request) {
-  const expectedToken = process.env.HUBFLO_INTEGRATION_TOKEN;
-  if (!expectedToken) return true;
-  return request.headers.get("authorization") === `Bearer ${expectedToken}`;
+  return integrationBearerAuthorized(request);
 }
 
 type InboundEmailBody = {
@@ -49,7 +48,7 @@ export async function POST(request: Request) {
     subject,
     body: text,
     from,
-    to: typeof body?.to === "string" ? body.to : "NeXa",
+    to: typeof body?.to === "string" ? body.to : "Blake",
     messageId: typeof body?.messageId === "string" ? body.messageId : undefined,
     status: "Received",
   });

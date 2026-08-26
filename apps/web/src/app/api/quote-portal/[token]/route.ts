@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { appendAuditEvent } from "@/lib/people-data";
-import { convertQuoteToJob, getQuotes, updateQuote, type QuoteStatus } from "@/lib/workflow-data";
+import { convertQuoteToJobServer, getQuotePortalLineSummary } from "@/lib/quote-conversion-handoff";
+import { getQuotes, updateQuote, type QuoteStatus } from "@/lib/workflow-data";
 
 type RouteContext = {
   params: Promise<{ token: string }>;
@@ -34,15 +35,19 @@ export async function GET(_request: Request, context: RouteContext) {
     });
   }
 
+  const centres = getQuotePortalLineSummary(updated.id);
+  const centresSell = centres.reduce((sum, centre) => sum + centre.sell, 0);
+
   return NextResponse.json({
     id: updated.id,
     ref: updated.ref,
     customer: updated.customer,
     description: updated.description,
     status: updated.status,
-    value: updated.value,
+    value: centresSell > 0 ? centresSell : updated.value,
     viewedAt: updated.viewedAt,
     respondedAt: updated.respondedAt,
+    centres,
     job: updated.convertedJobId
       ? {
           id: updated.convertedJobId,
@@ -64,6 +69,12 @@ export async function POST(request: Request, context: RouteContext) {
   const payload = (await request.json().catch(() => null)) as { response?: "Accepted" | "Declined" } | null;
   if (!payload?.response) {
     return NextResponse.json({ error: "Choose Accepted or Declined" }, { status: 400 });
+  }
+
+  const { assertQuotePortalResponseAllowed } = await import("@/lib/commercial-safeguards");
+  const portalGate = assertQuotePortalResponseAllowed(quote.status);
+  if (portalGate) {
+    return NextResponse.json({ error: portalGate }, { status: 409 });
   }
 
   if (quote.convertedJobId) {
@@ -100,11 +111,19 @@ export async function POST(request: Request, context: RouteContext) {
     importance: "high",
   });
 
-  const conversion = status === "Accepted" ? convertQuoteToJob(quote.id, quote.customer, updated.value) : null;
+  const conversion =
+    status === "Accepted"
+      ? convertQuoteToJobServer(quote.id, {
+          actor: quote.customer,
+          chargeValue: updated.value,
+          source: "client portal",
+        })
+      : null;
 
   return NextResponse.json({
     quote: conversion?.quote ?? updated,
     job: conversion?.job ?? null,
     auditEvents: conversion?.auditEvents ?? [],
+    handoff: conversion?.handoff ?? null,
   });
 }

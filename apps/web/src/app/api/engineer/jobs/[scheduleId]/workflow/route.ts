@@ -9,6 +9,7 @@ import {
 } from "@/lib/engineer-workflow-store";
 import { parseJsonRequestBody } from "@/lib/http";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export const runtime = "nodejs";
 
@@ -71,7 +72,7 @@ async function scanPaperSheetWithOpenAi(
   const images = (payload.images ?? []).filter((image: string) => image.startsWith("data:image/")).slice(0, 3);
   if (!config.apiKey || !images.length) return null;
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await openAiFetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${config.apiKey}`,

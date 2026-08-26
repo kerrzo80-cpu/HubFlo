@@ -373,7 +373,7 @@ export function jobStatusFromSimpro(value: string): string {
   return "Pending";
 }
 
-/** Keep NeXa workflow advances (Complete → Ready to invoice → Invoiced) when simPRO still says Complete. */
+/** Keep Blake workflow advances (Complete → Ready to invoice → Invoiced) when simPRO still says Complete. */
 export function preferNexaJobWorkflowStatus(existingStatus: string | undefined, mappedStatus: string | undefined) {
   const existing = String(existingStatus || "").trim();
   const mapped = String(mappedStatus || "").trim();
@@ -474,6 +474,7 @@ export const SIMPRO_QUOTE_IMPORT_LIMIT = 30;
 /** Pending + Progress + Complete working set (simPRO folder counts can exceed 60). */
 export const SIMPRO_JOB_IMPORT_LIMIT = 80;
 /** Latest open leads (including scheduled surveys) for the diary. */
+/** Nightly / EOD working set — keep high enough to catch new open leads without a full dump. */
 export const SIMPRO_LEAD_IMPORT_LIMIT = 10;
 /** Bulk client/site directory imports must stay small — uncapped 40×250 was crashing Apply. */
 export const SIMPRO_CLIENT_IMPORT_LIMIT = 80;
@@ -820,7 +821,7 @@ export function findSimproLinkForNexa(entity: SimproSyncEntity, nexaId?: string)
   return simproSyncStore.links.find((link) => link.nexaType === entity && link.nexaId === nexaId);
 }
 
-/** Drop shallow + durable links for a deleted NeXa record so re-import can create again. */
+/** Drop shallow + durable links for a deleted Blake record so re-import can create again. */
 export function clearSimproLinksForNexaRecord(entity: SimproSyncEntity, nexaId: string) {
   const id = nexaId.trim();
   if (!id) return { syncLinksRemoved: 0, entityLinksRemoved: 0 };
@@ -846,7 +847,7 @@ function nexaRecordExistsForLink(link: SimproSyncLink): boolean {
   return true;
 }
 
-/** If a sync link points at a deleted NeXa row, remove it so import can create fresh. */
+/** If a sync link points at a deleted Blake row, remove it so import can create fresh. */
 function pruneOrphanLink(entity: SimproSyncEntity, simproId: string): SimproSyncLink | undefined {
   const link = existingLink(entity, simproId);
   if (!link) return undefined;
@@ -1237,7 +1238,7 @@ function resolveClientForRecord(record: UnknownRecord, mode: SimproSyncMode) {
   let client = clientId ? getClients().find((item) => item.id === clientId) : undefined;
 
   // Quote/job list rows often only have Customer.ID (sometimes as a bare number).
-  // Create/link the NeXa customer so the quote does not land as "Customer to confirm".
+  // Create/link the Blake customer so the quote does not land as "Customer to confirm".
   if (!client && mode === "apply") {
     const customerId = simproCustomerId(record);
     const cached = customerId ? customerDetailCache.get(customerId) : null;
@@ -1362,7 +1363,7 @@ export function processClient(record: UnknownRecord, mode: SimproSyncMode): Simp
 
   const matches = findClientByNameOrEmail(mapped.name, mapped.email);
   if (matches.length > 1) {
-    return operation("clients", "conflict", `${mapped.name} matches more than one NeXa customer.`, {
+    return operation("clients", "conflict", `${mapped.name} matches more than one Blake customer.`, {
       simproId,
       simproName: mapped.name,
       candidates: matches.map((match) => ({
@@ -1398,7 +1399,7 @@ export function processClient(record: UnknownRecord, mode: SimproSyncMode): Simp
     const gapNote = gaps.length
       ? ` Missing on simPRO record: ${gaps.join(", ")} — can still import and fill later.`
       : "";
-    return operation("clients", "create", `Create NeXa customer ${mapped.name}.${gapNote}`, {
+    return operation("clients", "create", `Create Blake customer ${mapped.name}.${gapNote}`, {
       simproId,
       simproName: mapped.name,
       detail: gaps.length ? `Optional fields to confirm: ${gaps.join(", ")}` : undefined,
@@ -1430,7 +1431,7 @@ export function processClient(record: UnknownRecord, mode: SimproSyncMode): Simp
     source: "simPRO sync",
     importance: "normal",
   });
-  return operation("clients", "create", `Created NeXa customer ${client.name}.`, { simproId, simproName: mapped.name, nexaId: client.id, nexaRef: client.accountReference });
+  return operation("clients", "create", `Created Blake customer ${client.name}.`, { simproId, simproName: mapped.name, nexaId: client.id, nexaRef: client.accountReference });
 }
 
 export function processSite(record: UnknownRecord, mode: SimproSyncMode): SimproSyncOperation {
@@ -1476,14 +1477,14 @@ export function processSite(record: UnknownRecord, mode: SimproSyncMode): Simpro
       simproName: siteName,
       seed: { site: siteFromSimpro(record, "pending-client") },
       detail: customerExternalId
-        ? `Customer simPRO ${customerExternalId} was not found in NeXa.`
+        ? `Customer simPRO ${customerExternalId} was not found in Blake.`
         : "simPRO site has no Customer ID — link the customer manually, then re-run.",
     });
   }
   const mapped = siteFromSimpro(record, clientId);
   const matches = findSiteMatch(clientId, mapped);
   if (matches.length > 1) {
-    return operation("sites", "conflict", `${mapped.name} matches more than one NeXa site.`, {
+    return operation("sites", "conflict", `${mapped.name} matches more than one Blake site.`, {
       simproId,
       simproName: mapped.name,
       candidates: matches.map((match) => ({
@@ -1510,7 +1511,7 @@ export function processSite(record: UnknownRecord, mode: SimproSyncMode): Simpro
   }
 
   if (mode === "preview") {
-    return operation("sites", "create", `Create NeXa site ${mapped.name}.`, { simproId, simproName: mapped.name });
+    return operation("sites", "create", `Create Blake site ${mapped.name}.`, { simproId, simproName: mapped.name });
   }
 
   const site = addClientSiteRecord({
@@ -1535,7 +1536,7 @@ export function processSite(record: UnknownRecord, mode: SimproSyncMode): Simpro
     source: "simPRO sync",
     importance: "normal",
   });
-  return operation("sites", "create", `Created NeXa site ${site.name}.`, { simproId, simproName: mapped.name, nexaId: site.id });
+  return operation("sites", "create", `Created Blake site ${site.name}.`, { simproId, simproName: mapped.name, nexaId: site.id });
 }
 
 async function hydrateRecordSite(config: ResolvedSimproDirectConfig, record: UnknownRecord) {
@@ -1637,7 +1638,7 @@ function quoteCostCentresNeedRefresh(nexaQuoteId: string) {
     const missingBrief =
       !String(row.clientDescription || "").trim() && !String(row.engineerDescription || "").trim();
     const lines = Array.isArray(row.lines) ? row.lines : [];
-    // Need a real cost (BasePrice). Sell may be simPRO charge or NeXa markup — either is fine.
+    // Need a real cost (BasePrice). Sell may be simPRO charge or Blake markup — either is fine.
     const missingCost = lines.some((line) => {
       const sell = Number(line.unitSell) || 0;
       const cost = Number(line.unitCost) || 0;
@@ -1761,9 +1762,8 @@ async function withQuoteHierarchy(
         nexaQuoteId,
         mergeSimproTotalHints(deep.record, listRecord ?? prefetch),
       );
-      const ccCount = Array.isArray(getHubDetailState().quoteCostCentres?.[nexaQuoteId])
-        ? getHubDetailState().quoteCostCentres?.[nexaQuoteId]?.length ?? 0
-        : 0;
+      const quoteCentres = getHubDetailState().quoteCostCentres?.[nexaQuoteId];
+      const ccCount = Array.isArray(quoteCentres) ? quoteCentres.length : 0;
       headerNote = ` Header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)} · ${ccCount} cost centres).`;
       if (isBlankImportedCustomerName(mapped.customer)) {
         return {
@@ -2002,7 +2002,7 @@ async function processQuote(record: UnknownRecord, mode: SimproSyncMode): Promis
     return operation(
       "quotes",
       "create",
-      `Create NeXa quote for ${mapped.customer}: ${mapped.description} · £${mapped.value.toFixed(2)} (cost centres + materials/labour on apply).`,
+      `Create Blake quote for ${mapped.customer}: ${mapped.description} · £${mapped.value.toFixed(2)} (cost centres + materials/labour on apply).`,
       { simproId, simproName: mapped.description, detail: mapped.description },
     );
   }
@@ -2097,7 +2097,7 @@ async function processJob(record: UnknownRecord, mode: SimproSyncMode): Promise<
     return operation(
       "jobs",
       "create",
-      `Create NeXa job for ${mapped.customer}: ${mapped.description} · £${mapped.value.toFixed(2)} (cost centres, materials/labour + schedules on apply).`,
+      `Create Blake job for ${mapped.customer}: ${mapped.description} · £${mapped.value.toFixed(2)} (cost centres, materials/labour + schedules on apply).`,
       { simproId, simproName: mapped.description, detail: mapped.site },
     );
   }
@@ -2244,7 +2244,7 @@ async function fetchLeadScheduleHint(config: ResolvedSimproDirectConfig, leadId:
 
 function leadStageToken(record: UnknownRecord) {
   // Only trust Stage (Open/Closed). Custom Status.Name labels false-positive "lost"/"archiv"
-  // and were marking open simPRO leads as Lost in NeXa.
+  // and were marking open simPRO leads as Lost in Blake.
   return normaliseText(firstString(record, ["Stage", "Stage.Name"]));
 }
 
@@ -2411,7 +2411,7 @@ async function processLead(record: UnknownRecord, mode: SimproSyncMode): Promise
     return operation(
       "leads",
       "create",
-      `Create NeXa lead for ${mapped.customerName}: ${mapped.description}.${scheduleNote}`,
+      `Create Blake lead for ${mapped.customerName}: ${mapped.description}.${scheduleNote}`,
       { simproId, simproName: mapped.description, detail: mapped.address },
     );
   }
@@ -2509,7 +2509,7 @@ export function resolveSimproSyncConflict(input: {
   const current = run.operations[index]!;
   if (current.action !== "conflict") throw new Error("That sync row is no longer a conflict.");
 
-  const actor = input.actor?.trim() || "NeXa user";
+  const actor = input.actor?.trim() || "Blake user";
 
   if (input.action === "skip") {
     const next: SimproSyncOperation = {
@@ -2530,12 +2530,12 @@ export function resolveSimproSyncConflict(input: {
 
   if (input.action === "link") {
     const nexaId = input.nexaId?.trim() || current.candidates?.[0]?.nexaId;
-    if (!nexaId) throw new Error("Pick a NeXa record to link this simPRO conflict to.");
+    if (!nexaId) throw new Error("Pick a Blake record to link this simPRO conflict to.");
     if (!current.simproId) throw new Error("This conflict has no simPRO ID to link.");
 
     if (current.entity === "clients") {
       const client = getClients().find((row) => row.id === nexaId);
-      if (!client) throw new Error("Selected NeXa customer was not found.");
+      if (!client) throw new Error("Selected Blake customer was not found.");
       saveLink({
         nexaType: "clients",
         nexaId: client.id,
@@ -2569,7 +2569,7 @@ export function resolveSimproSyncConflict(input: {
     }
 
     const site = getClientSites().find((row) => row.id === nexaId);
-    if (!site) throw new Error("Selected NeXa site was not found.");
+    if (!site) throw new Error("Selected Blake site was not found.");
     saveLink({
       nexaType: "sites",
       nexaId: site.id,
@@ -2637,7 +2637,7 @@ export function resolveSimproSyncConflict(input: {
       action: "create",
       nexaId: client.id,
       nexaRef: client.accountReference,
-      summary: `Created NeXa customer ${client.name} from conflict.`,
+      summary: `Created Blake customer ${client.name} from conflict.`,
     };
     run.operations[index] = next;
     recomputeTotals(run);
@@ -2691,7 +2691,7 @@ export function resolveSimproSyncConflict(input: {
     action: "create",
     nexaId: site.id,
     nexaRef: site.name,
-    summary: `Created NeXa site ${site.name} from conflict.`,
+    summary: `Created Blake site ${site.name} from conflict.`,
   };
   run.operations[index] = next;
   recomputeTotals(run);
@@ -2740,7 +2740,7 @@ export async function runSimproImport(options: {
     mode: options.mode,
     startedAt: new Date().toISOString(),
     finishedAt: new Date().toISOString(),
-    actor: options.actor?.trim() || "NeXa user",
+    actor: options.actor?.trim() || "Blake user",
     entities: selectedEntities,
     totals: {
       fetched: 0,
@@ -2858,20 +2858,10 @@ export function queueSimproWebhookEvent(payload: unknown, headers: Headers): Sim
   return clone(event);
 }
 
-export function isValidWebhookSecret(headers: Headers) {
-  const expected = process.env.SIMPRO_WEBHOOK_SECRET?.trim();
-  if (!expected) return true;
-
-  const headerSecret =
-    headers.get("x-simpro-secret") ||
-    headers.get("x-nexa-simpro-secret") ||
-    headers.get("x-webhook-secret") ||
-    headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  return headerSecret === expected;
-}
+export { isValidWebhookSecret } from "@/lib/simpro-webhook-auth";
 
 /**
- * Remove NeXa jobs/quotes that were created from simPRO imports so a clean re-import can run.
+ * Remove Blake jobs/quotes that were created from simPRO imports so a clean re-import can run.
  * Does not delete customers/sites (those stay linked).
  * Also clears ALL job/quote sync + entity links (including orphans left by directory deletes).
  */

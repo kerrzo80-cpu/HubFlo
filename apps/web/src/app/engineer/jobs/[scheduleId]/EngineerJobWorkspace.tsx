@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   AlertTriangle,
   Camera,
@@ -17,6 +17,7 @@ import {
   XCircle,
 } from "lucide-react";
 import type { EngineerCostCentreOption, EngineerScheduleItem } from "@/lib/engineer-data";
+import { FileDropZone } from "@/components/FileDropZone";
 import { isoDateToUk, toDateInputValue, toUkDateDisplay } from "@/lib/uk-date";
 import type {
   EngineerJobWorkflow,
@@ -75,12 +76,12 @@ function checklistTitle(costCentre: string) {
 function checklistHelp(costCentre: string) {
   const normalised = costCentre.toLowerCase();
   if (/service/.test(normalised) && /boiler/.test(normalised)) {
-    return "Fill each stop/go item — answers populate the Gas service record on this job in NeXa Core. Required items block Complete.";
+    return "Fill each stop/go item — answers populate the Gas service record on this job in Blake Core. Required items block Complete.";
   }
   if (/replace|replacement|install|boiler change/.test(normalised)) {
-    return "Boiler replacement stop/go. Evidence writes straight into NeXa Core on the cost centre before handover.";
+    return "Boiler replacement stop/go. Evidence writes straight into Blake Core on the cost centre before handover.";
   }
-  return "This checklist is driven by the cost centre type. Evidence writes into NeXa Core; required items block completion.";
+  return "This checklist is driven by the cost centre type. Evidence writes into Blake Core; required items block completion.";
 }
 
 function statusCopy(status: EngineerJobWorkflow["requirements"][number]["status"]) {
@@ -98,7 +99,6 @@ function hashToTab(hash: string): EngineerTab | null {
 }
 
 export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspaceProps) {
-  const photoInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<EngineerTab>("checklist");
   const [workflow, setWorkflow] = useState<EngineerJobWorkflow>(() => initialWorkflow(job));
   const [notice, setNotice] = useState("");
@@ -288,7 +288,7 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
         photoName: draft.photoName,
         evidence: draft,
       },
-      "Evidence saved — NeXa Core gas/service form updated.",
+      "Evidence saved — Ayla Core gas/service form updated.",
     );
     if (saved) {
       setDraftByRequirement((current) => {
@@ -299,9 +299,8 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
     }
   }
 
-  async function uploadPhotos(event: ChangeEvent<HTMLInputElement>) {
-    const fileNames = Array.from(event.target.files ?? []).map((file) => file.name);
-    event.target.value = "";
+  async function uploadPhotoFiles(files: File[]) {
+    const fileNames = files.map((file) => file.name);
     if (!fileNames.length) return;
     await runWorkflowAction(
       "add_photos",
@@ -530,17 +529,18 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
                             />
                           ) : null}
                           {evidenceType === "Photo" ? (
-                            <input
-                              type="file"
+                            <FileDropZone
                               accept="image/*"
-                              onChange={(event) => {
-                                const file = event.target.files?.[0];
+                              capture="environment"
+                              compact
+                              label={draft.photoName ? "Replace photo (drop or click)" : "Drop photo or click"}
+                              onFiles={(picked) => {
+                                const file = picked[0];
                                 if (!file) return;
                                 setDraftByRequirement((current) => ({
                                   ...current,
                                   [requirement.id]: { ...current[requirement.id], photoName: file.name },
                                 }));
-                                event.target.value = "";
                               }}
                             />
                           ) : null}
@@ -553,7 +553,7 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
                       <strong>{statusCopy(requirement.status)}</strong>
                       {requirement.status === "missing" ? (
                         <button type="button" onClick={() => void markRequirementDone(requirement.id)} disabled={isSaving}>
-                          {evidenceType === "Checkbox" ? "Mark complete" : "Save to NeXa"}
+                          {evidenceType === "Checkbox" ? "Mark complete" : "Save to Blake"}
                         </button>
                       ) : null}
                     </div>
@@ -665,11 +665,15 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
               ))}
             </div>
             <div className="engineer-upload-row">
-              <button className="engineer-primary-action" type="button" onClick={() => photoInputRef.current?.click()} disabled={isSaving}>
-                <Camera size={17} />
-                Upload photos
-              </button>
-              <input ref={photoInputRef} type="file" accept="image/*" capture="environment" multiple onChange={(event) => void uploadPhotos(event)} hidden />
+              <FileDropZone
+                accept="image/*"
+                capture="environment"
+                multiple
+                disabled={isSaving}
+                compact
+                label="Drop photos or click"
+                onFiles={(files) => void uploadPhotoFiles(files)}
+              />
               <span>{workflow.photos.length} photo{workflow.photos.length === 1 ? "" : "s"} held against this job</span>
             </div>
             {workflow.photos.length ? (

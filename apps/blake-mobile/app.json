@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Blake in Your Pocket",
+    "slug": "blake-in-your-pocket",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "nexa-blake",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.nexa.blakepocket"
+    },
+    "android": {
+      "package": "com.nexa.blakepocket"
+    },
+    "plugins": [
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Blake to hear your questions and instructions."
+        }
+      ],
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true,
+          "faceIDPermission": "Allow Blake to securely unlock your NeXa session."
+        }
+      ]
+    ],
+    "extra": {
+      "nexaApiUrl": "https://nexa-live.onrender.com"
+    }
+  }
+}

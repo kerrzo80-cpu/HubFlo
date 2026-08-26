@@ -12,6 +12,8 @@ import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import { appendAuditEvent } from "@/lib/people-data";
 import { clearSimproLinksForNexaRecord } from "@/lib/simpro-sync";
+import { getHubDetailState } from "@/lib/hub-detail-store";
+import { jobInvoiceReviewComplete } from "@/lib/job-invoice-review";
 
 const defaultJobScheduleDurationMinutes = 60;
 
@@ -123,6 +125,16 @@ export async function PATCH(
   const current = getJob(id);
   if (!current) {
     return NextResponse.json({ error: "Job not found" }, { status: 404 });
+  }
+
+  if (
+    body.status === "Ready to invoice" &&
+    !jobInvoiceReviewComplete(getHubDetailState().jobReviews?.[id])
+  ) {
+    return NextResponse.json(
+      { error: "Chris, Commercial and Carol must all approve this job before it can move to Ready to invoice." },
+      { status: 409 },
+    );
   }
 
   const nextManager = body.manager ?? current.manager;

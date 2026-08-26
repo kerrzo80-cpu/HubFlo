@@ -8,6 +8,7 @@ import {
 } from "@/lib/engineer-flow";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { createJob, getJob, updateJob, type Job } from "@/lib/workflow-data";
+import { useDemoSeedData } from "@/lib/workspace-mode";
 
 /** Bump to force-clear Field/Core evidence + engineer workflow for this trial. */
 export const GAS_CERT_TRIAL_RESET_TOKEN = "chris-lawson-boiler-v1";
@@ -270,6 +271,7 @@ let lastResetToken: string | null = null;
 
 /** Idempotent: Core job + Boiler servicing CC for Chris Lawson; resets checklist when token bumps. */
 export function ensureGasCertTrialInCore() {
+  if (!useDemoSeedData()) return getJob(GAS_CERT_TRIAL.jobId) ?? null;
   const tokenChanged = lastResetToken !== GAS_CERT_TRIAL_RESET_TOKEN;
   if (ensured && !tokenChanged) return getJob(GAS_CERT_TRIAL.jobId) ?? null;
   ensureClientAndSite();

@@ -31,7 +31,7 @@ describe("Blake operator permissions", () => {
     assert.deepEqual(listPermittedBlakeCapabilities(access()), []);
   });
 
-  it("uses the existing NeXa lead and quote permissions", () => {
+  it("uses the existing Blake lead and quote permissions", () => {
     assert.deepEqual(
       listPermittedBlakeCapabilities(access({ canCreateLead: true, canCreateQuote: true })),
       ["create_lead", "update_lead", "create_quote", "update_quote"],

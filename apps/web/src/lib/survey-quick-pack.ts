@@ -40,6 +40,7 @@ import {
   updateSurvey,
 } from "@/lib/survey-estimator-store";
 import { getHubDetailState } from "@/lib/hub-detail-store";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export type QuickCostCentreMaterial = {
   description: string;
@@ -497,7 +498,7 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
   };
 
   const prompt = [
-    "You are Blake building a NeXa estimating pack for UK plumbing and heating.",
+    "You are Ayla building a Blake estimating pack for UK plumbing and heating.",
     "From the works description, Blake answers already given, and evidence metadata, propose cost centres.",
     "Each cost centre needs name, jobDescription, trade, materials[{description,quantity,unit}], labour[{description,hours,trade}].",
     "Materials are for a supplier RFQ: itemise specific products a merchant can price.",
@@ -515,7 +516,7 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
   ].join("\n");
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await openAiFetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,

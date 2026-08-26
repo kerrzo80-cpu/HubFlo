@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const actor = request.headers.get(employeeHeaderName) || "NeXa admin";
+  const actor = request.headers.get(employeeHeaderName) || "Blake admin";
   try {
     const result = await runSimproDiscovery(actor);
     return NextResponse.json({

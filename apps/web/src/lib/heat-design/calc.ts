@@ -1,3 +1,5 @@
+import { applySoftGuidePricesToKit } from "@/lib/ai-soft-guide-prices";
+
 import {
   buildKitLines,
   ceilingTypes,
@@ -11,6 +13,7 @@ import {
   wallTypes,
   type RadiatorCatalogueItem,
 } from "./catalogue";
+import { buildBlakeAncillariesKit } from "./blake-kit";
 import { numberFromInput } from "./calc-number";
 import {
   exteriorPerimeter,
@@ -20,16 +23,23 @@ import {
   roomWallExterior,
   syncRoomFromPolygon,
 } from "./geometry";
+import { isUfhCircuitPipe } from "./pipe-sizing";
 import { heatingSystemOptions } from "./systems";
 import type {
   HeatDesignProject,
+  HeatDesignRevision,
   HeatDesignRoom,
   HeatPumpOption,
   RoomHeatLossResult,
   SystemDesignResult,
 } from "./types";
 
-export { numberFromInput, isDecimalDraft } from "./calc-number";
+export {
+  numberFromInput,
+  isDecimalDraft,
+  isSignedDecimalDraft,
+  clampDesignExternalTemp,
+} from "./calc-number";
 
 function selectedOption<T extends { id: string }>(items: readonly T[], id: string, fallbackIndex = 0) {
   return items.find((item) => item.id === id) ?? items[fallbackIndex];
@@ -283,7 +293,22 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
     heatingSystemOptions.find((item) => item.id === "opt-ashp");
   const systemKind = chosenSystem?.kind ?? "ashp";
 
-  const kit = buildKitLines({
+  const emitterMode = project.emitterMode ?? project.heatingLayout?.emitterMode ?? "radiators";
+  const layoutPipes = project.heatingLayout?.pipes ?? [];
+  let ufhLoopRunM = 0;
+  let copperPipeRunM = 0;
+  for (const pipe of layoutPipes) {
+    let len = 0;
+    for (let i = 1; i < pipe.points.length; i += 1) {
+      const a = pipe.points[i - 1]!;
+      const b = pipe.points[i]!;
+      len += Math.hypot(b.x - a.x, b.y - a.y);
+    }
+    if (isUfhCircuitPipe(pipe)) ufhLoopRunM += len;
+    else copperPipeRunM += len;
+  }
+  const measuredCopperM = copperPipeRunM;
+  const baseKit = buildKitLines({
     systemKind,
     systemLabel: chosenSystem?.label,
     pump: systemKind === "ashp" || systemKind === "hybrid" ? selectedPump : null,
@@ -294,12 +319,29 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
     floorAreaM2: totalFloorArea,
     exteriorWallAreaM2: totalExteriorWallArea,
     openingCount,
-    pipeRunM: Math.round(totalFloorArea * 1.15 + project.rooms.length * 4),
+    pipeRunM: Math.round(
+      measuredCopperM > 1 ? measuredCopperM : totalFloorArea * 1.15 + project.rooms.length * 4,
+    ),
+    ufhLoopRunM: Math.round(ufhLoopRunM),
     wallConstructionLabel: primaryWall ? `${primaryWall.label} (U=${primaryWall.uValue})` : undefined,
     radiatorLines,
-    emitterMode: project.emitterMode ?? project.heatingLayout?.emitterMode ?? "radiators",
+    emitterMode,
     designLoadKw,
   });
+  // Soft guides only here — full rate-library / OpenAI budget pricing is server-side
+  // (blake-budget-prices). Do not import SQLite-backed modules into this client path.
+  const blakeKit = applySoftGuidePricesToKit(
+    project.blakeProposal?.kitLines?.length
+      ? project.blakeProposal.kitLines
+      : buildBlakeAncillariesKit({
+          systemKind,
+          emitterMode,
+          layout: project.heatingLayout,
+          roomCount: project.rooms.length,
+          floorAreaM2: totalFloorArea,
+        }),
+  );
+  const kit = [...baseKit, ...blakeKit];
   const kitTotal = kit.reduce((sum, line) => sum + line.qty * line.unitCost, 0);
   const materialsComplete =
     materialsNotes.length === 0 &&
@@ -345,6 +387,34 @@ export function wattsLabel(value: number) {
   return `${Math.round(value).toLocaleString("en-GB")} W`;
 }
 
+function normaliseRevisions(revisions: HeatDesignProject["revisions"]): HeatDesignRevision[] {
+  if (!Array.isArray(revisions)) return [];
+  return revisions
+    .filter((revision): revision is HeatDesignRevision => {
+      return (
+        revision != null &&
+        typeof revision.id === "string" &&
+        revision.id.trim().length > 0 &&
+        typeof revision.at === "string" &&
+        revision.at.trim().length > 0 &&
+        typeof revision.summary === "string" &&
+        revision.summary.trim().length > 0
+      );
+    })
+    .map((revision) => ({
+      id: revision.id.trim(),
+      at: revision.at.trim(),
+      actor: typeof revision.actor === "string" && revision.actor.trim() ? revision.actor.trim() : undefined,
+      summary: revision.summary.trim(),
+      snapshotHash:
+        typeof revision.snapshotHash === "string" && revision.snapshotHash.trim()
+          ? revision.snapshotHash.trim()
+          : undefined,
+    }))
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .slice(0, 50);
+}
+
 /** Migrate older localStorage projects missing plan / kit fields. */
 export function normaliseProject(project: HeatDesignProject): HeatDesignProject {
   return {
@@ -354,6 +424,7 @@ export function normaliseProject(project: HeatDesignProject): HeatDesignProject 
     outdoorUnitDistanceM: project.outdoorUnitDistanceM || 3,
     nearestNeighbourDistanceM: project.nearestNeighbourDistanceM || 8,
     kitExtras: project.kitExtras ?? [],
+    blakeProposal: project.blakeProposal ?? null,
     activeFloor: project.activeFloor ?? "ground",
     selectedWallConstructionIds: project.selectedWallConstructionIds ?? ["cav-mw-100-wp"],
     primaryWallConstructionId: project.primaryWallConstructionId ?? "cav-mw-100-wp",
@@ -364,10 +435,15 @@ export function normaliseProject(project: HeatDesignProject): HeatDesignProject 
         : ["opt-ashp", "opt-gas", "opt-oil"],
     chosenSystemId: project.chosenSystemId,
     emitterMode: project.emitterMode ?? project.heatingLayout?.emitterMode ?? "radiators",
+    planUnderlay: project.planUnderlay ?? null,
     linkedJobId: project.linkedJobId,
     linkedJobRef: project.linkedJobRef,
     linkedQuoteId: project.linkedQuoteId,
     linkedQuoteRef: project.linkedQuoteRef,
+    linkedTenderId: project.linkedTenderId,
+    linkedTenderRef: project.linkedTenderRef,
+    linkedTakeoffId: project.linkedTakeoffId,
+    linkedTakeoffRef: project.linkedTakeoffRef,
     heatingLayout: project.heatingLayout
       ? {
           ...project.heatingLayout,
@@ -376,6 +452,7 @@ export function normaliseProject(project: HeatDesignProject): HeatDesignProject 
             project.heatingLayout.emitterMode ?? project.emitterMode ?? "radiators",
         }
       : null,
+    revisions: normaliseRevisions(project.revisions),
     rooms: (project.rooms ?? []).map((room, index) => {
       const exteriorFlags = room.exteriorFlags ?? defaultExteriorFlags(room.exteriorWalls ?? 2);
       const polygon =

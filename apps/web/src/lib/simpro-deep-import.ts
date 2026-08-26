@@ -1,5 +1,5 @@
 /**
- * Deep Simpro pull — full quote/job hierarchy + schedules + invoices into NeXa hub state.
+ * Deep Simpro pull — full quote/job hierarchy + schedules + invoices into Blake hub state.
  * Called from Two-way sync Apply after header create/link.
  */
 
@@ -37,7 +37,7 @@ export type DeepImportResult = {
   stats?: HierarchyStats;
   scheduleCount?: number;
   detail?: string;
-  /** Full simPRO record after section/cost-centre hydration — used to patch NeXa headers. */
+  /** Full simPRO record after section/cost-centre hydration — used to patch Blake headers. */
   record?: UnknownRecord;
 };
 
@@ -846,8 +846,8 @@ function centresFromHub(jobId: string): MappedJobCostCentre[] {
 }
 
 /**
- * Pull simPRO diary schedules into NeXa planner for every linked job.
- * Use when you only need schedules (jobs already exist in NeXa).
+ * Pull simPRO diary schedules into Blake planner for every linked job.
+ * Use when you only need schedules (jobs already exist in Blake).
  */
 export async function pullSchedulesForLinkedJobs(input?: {
   preview?: boolean;
@@ -881,7 +881,7 @@ export async function pullSchedulesForLinkedJobs(input?: {
   if (!linkedJobs.length) {
     operations.push({
       action: "skip",
-      summary: "No NeXa jobs linked to simPRO yet. Import jobs first, then pull schedules.",
+      summary: "No Blake jobs linked to simPRO yet. Import jobs first, then pull schedules.",
     });
     return { operations, scheduleCount: 0, jobCount: 0 };
   }

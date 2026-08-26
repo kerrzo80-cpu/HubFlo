@@ -71,7 +71,7 @@ export function StockOpsPanel({
   requestHeaders,
   onNotice,
   jobs = [],
-  actorName = "NeXa",
+  actorName = "Blake",
   defaultSupplier = "Plumbase",
   onPurchaseRequestCreated,
 }: {
@@ -1119,11 +1119,13 @@ export function RecurringOpsPanel({
   onNotice,
   onGenerateJob,
   onGenerateInvoice,
+  actor,
 }: {
   requestHeaders: RequestHeaders;
   onNotice: (message: string) => void;
   onGenerateJob: (plan: RecurringPlan) => Promise<string | null>;
   onGenerateInvoice: (plan: RecurringPlan) => Promise<string | null>;
+  actor?: string;
 }) {
   const [plans, setPlans] = useState<RecurringPlan[]>([]);
   const [due, setDue] = useState<RecurringPlan[]>([]);
@@ -1257,7 +1259,22 @@ export function RecurringOpsPanel({
 
   async function generate(plan: RecurringPlan) {
     setGeneratingId(plan.id);
+    setError("");
     try {
+      const response = await fetch("/api/recurring", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "generate", id: plan.id, actor }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to generate plan on the server");
+      applyLists(body);
+      const ref = body.result?.ref || body.generated?.[0]?.ref;
+      if (!ref) throw new Error("Recurring plan generated but no reference was returned.");
+      setError("");
+      onNotice(`${plan.kind} ${ref} generated from ${plan.name}. Next due ${body.plan?.nextDueDate || "advanced"}.`);
+    } catch (serverError) {
+      setError(serverError instanceof Error ? serverError.message : "Unable to generate recurring plan");
       const ref = plan.kind === "Job" ? await onGenerateJob(plan) : await onGenerateInvoice(plan);
       if (!ref) return;
       const response = await fetch("/api/recurring", {
@@ -1271,6 +1288,7 @@ export function RecurringOpsPanel({
         return;
       }
       applyLists(body);
+      setError("");
       onNotice(`${plan.kind} ${ref} generated from ${plan.name}. Next due ${body.plan?.nextDueDate || "advanced"}.`);
     } finally {
       setGeneratingId(null);
@@ -1283,8 +1301,29 @@ export function RecurringOpsPanel({
       return;
     }
     setGeneratingAll(true);
-    let created = 0;
+    setError("");
     try {
+      const response = await fetch("/api/recurring", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "generate-due", actor }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to generate due plans on the server");
+      applyLists(body);
+      const created = Array.isArray(body.generated) ? body.generated.length : 0;
+      const errors = Array.isArray(body.errors) ? body.errors.length : 0;
+      setError("");
+      onNotice(
+        created
+          ? `Generated ${created} recurring record(s)${errors ? `; ${errors} failed` : ""}.`
+          : errors
+            ? `No recurring records were generated; ${errors} failed.`
+            : "No recurring records were generated.",
+      );
+      await load();
+    } catch {
+      let created = 0;
       for (const plan of [...due]) {
         const ref = plan.kind === "Job" ? await onGenerateJob(plan) : await onGenerateInvoice(plan);
         if (!ref) continue;
@@ -1298,6 +1337,7 @@ export function RecurringOpsPanel({
         applyLists(body);
         created += 1;
       }
+      setError("");
       onNotice(created ? `Generated ${created} recurring record(s).` : "No recurring records were generated.");
       await load();
     } finally {

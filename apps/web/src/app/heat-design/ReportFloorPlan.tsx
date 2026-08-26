@@ -7,6 +7,7 @@ import {
   polygonBounds,
   roomPolygon,
   roomWallExterior,
+  type FloorLevel,
   type HeatDesignRoom,
   type HeatingSystemLayout,
 } from "@/lib/heat-design";
@@ -19,10 +20,12 @@ export function ReportFloorPlan({
   rooms,
   title,
   layout,
+  floorLevel,
 }: {
   rooms: HeatDesignRoom[];
   title?: string;
   layout?: HeatingSystemLayout | null;
+  floorLevel?: FloorLevel;
 }) {
   let minX = 0;
   let minY = 0;
@@ -35,7 +38,7 @@ export function ReportFloorPlan({
     maxX = Math.max(maxX, box.maxX);
     maxY = Math.max(maxY, box.maxY);
   }
-  const floor = rooms[0]?.floorLevel ?? "ground";
+  const floor = floorLevel ?? rooms[0]?.floorLevel ?? "ground";
   const plants = (layout?.plants ?? []).filter((plant) => (plant.floorLevel ?? "ground") === floor);
   const pipes = (layout?.pipes ?? []).filter((pipe) => (pipe.floorLevel ?? "ground") === floor);
   const emitters = (layout?.emitters ?? []).filter((item) => (item.floorLevel ?? "ground") === floor);
@@ -76,7 +79,15 @@ export function ReportFloorPlan({
   return (
     <div className="hd-report-plan">
       {title ? <h4>{title}</h4> : null}
-      <svg viewBox={`0 0 ${width} ${height}`} width="100%" role="img" aria-label="Floor plan drawing">
+      <div className="hd-report-plan-frame">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          width="100%"
+          height="100%"
+          preserveAspectRatio="xMidYMid meet"
+          role="img"
+          aria-label="Floor plan drawing"
+        >
         <rect x={0} y={0} width={width} height={height} fill="#f3f4f6" />
         {rooms.map((room) => {
           const polygon = roomPolygon(room);
@@ -203,11 +214,17 @@ export function ReportFloorPlan({
             </g>
           );
         })}
-      </svg>
+        </svg>
+      </div>
       {layout ? (
         <p className="hd-report-plan-key">
-          Heating design overlay: plant, {layout.emitterMode === "ufh" ? "UFH" : layout.emitterMode === "radiators" ? "radiators" : "radiators / UFH"}{" "}
-          and pipework for the chosen system. Flow red · return blue · primary brand blue · refrigerant purple.
+          Overlay: plant,{" "}
+          {layout.emitterMode === "ufh"
+            ? "UFH"
+            : layout.emitterMode === "radiators"
+              ? "radiators"
+              : "radiators / UFH"}{" "}
+          and pipework. Flow red · return blue · primary teal · refrigerant purple.
         </p>
       ) : null}
     </div>

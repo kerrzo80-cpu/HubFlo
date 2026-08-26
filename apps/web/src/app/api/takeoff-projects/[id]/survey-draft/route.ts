@@ -18,6 +18,7 @@ import {
   type TakeoffPipeRun,
   type TakeoffProject,
 } from "@/lib/takeoff-data";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export const runtime = "nodejs";
 
@@ -575,7 +576,7 @@ async function runOpenAiSurveyDraft(project: TakeoffProject, actor: string, apiK
     throw new SurveyDraftInputError("OpenAI is connected, but no AI-ready survey files are stored. Re-upload the notes/photos, then run AI draft quote again.");
   }
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await openAiFetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -588,7 +589,7 @@ async function runOpenAiSurveyDraft(project: TakeoffProject, actor: string, apiK
           role: "developer",
           content: [{
             type: "input_text",
-            text: "You are a UK plumbing and heating estimating assistant for NeXa. Turn site survey notes/photos into a conservative draft quote for office review. Never present uncertain photo-based quantities as final measurements. Put uncertainty into riskFlags and questions.",
+            text: "You are a UK plumbing and heating estimating assistant for Blake. Turn site survey notes/photos into a conservative draft quote for office review. Never present uncertain photo-based quantities as final measurements. Put uncertainty into riskFlags and questions.",
           }],
         },
         {
@@ -642,7 +643,7 @@ export async function POST(
 
   const body = await parseJsonRequestBody<SurveyDraftPayload>(request);
   const { id } = await params;
-  const actor = body?.actor?.trim() || request.headers.get(employeeHeaderName) || "NeXa Survey quote";
+  const actor = body?.actor?.trim() || request.headers.get(employeeHeaderName) || "Blake Survey quote";
   const openAiConfig = getTakeoffOpenAiConfig();
   const project = getTakeoffProject(id);
 

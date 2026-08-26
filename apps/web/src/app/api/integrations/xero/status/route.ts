@@ -5,9 +5,9 @@ import { getXeroAuthStatus } from "@/lib/xero-auth";
 
 export async function GET(request: Request) {
   const access = getAccessProfileFromHeaders(request.headers);
-  if (!access.showFinance && !access.canEditInvoice) {
+  if (!access.showFinance && !access.canEditInvoice && !access.canCustomize) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  return NextResponse.json(getXeroAuthStatus());
+  return NextResponse.json(getXeroAuthStatus(request));
 }
