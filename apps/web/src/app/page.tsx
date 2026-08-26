@@ -64,6 +64,14 @@ import {
 import { checkInvoiceReadiness, type InvoiceReadinessInput } from "@hubflo/domain";
 import type { Job, PurchaseRequest, PurchaseStatus, Quote, QuoteStatus } from "@/lib/workflow-data";
 import {
+  listPendingInvoiceAdjustments,
+  listSupplierCreditNotes,
+  listSupplierInvoiceDocuments,
+  poAlreadyHasApprovedInvoice,
+  purchaseRequestNetInvoicedCost,
+  purchaseRequestThreeWayMatch as purchaseRequestThreeWayMatchFromLib,
+} from "@/lib/purchase-invoice-flow";
+import {
   businessImportLabels,
   businessImportTemplateHeaders,
   importNumber,
@@ -7589,47 +7597,11 @@ function purchaseRequestOrderedCost(request: PurchaseRequest) {
 }
 
 function purchaseRequestInvoicedCost(request: PurchaseRequest) {
-  if (typeof request.supplierInvoiceAmount === "number" && Number.isFinite(request.supplierInvoiceAmount)) {
-    return Math.max(0, request.supplierInvoiceAmount);
-  }
-  if (request.invoiceReceivedAt || request.invoiceFileName) {
-    if (typeof request.actualCost === "number" && Number.isFinite(request.actualCost)) {
-      return Math.max(0, request.actualCost);
-    }
-  }
-  return null;
+  return purchaseRequestNetInvoicedCost(request);
 }
 
 function purchaseRequestThreeWayMatch(request: PurchaseRequest) {
-  const ordered = purchaseRequestOrderedCost(request);
-  const received = purchaseRequestActualCost(request);
-  const invoiced = purchaseRequestInvoicedCost(request);
-  const receiptPercent = purchaseRequestReceiptPercent(request);
-  const tolerance = Math.max(0.02, ordered * 0.01);
-  const receivedVsOrdered = Math.abs(received - ordered);
-  const invoicedVsOrdered = invoiced === null ? null : Math.abs(invoiced - ordered);
-  const invoicedVsReceived = invoiced === null ? null : Math.abs(invoiced - received);
-
-  let status: "Matched" | "Variance" | "Incomplete" = "Incomplete";
-  if (receiptPercent >= 100 && invoiced !== null) {
-    status =
-      receivedVsOrdered <= tolerance &&
-      (invoicedVsOrdered ?? Number.POSITIVE_INFINITY) <= tolerance &&
-      (invoicedVsReceived ?? Number.POSITIVE_INFINITY) <= tolerance
-        ? "Matched"
-        : "Variance";
-  }
-
-  return {
-    ordered,
-    received,
-    invoiced,
-    receiptPercent,
-    status,
-    orderedVsReceived: received - ordered,
-    orderedVsInvoiced: invoiced === null ? null : invoiced - ordered,
-    receivedVsInvoiced: invoiced === null ? null : invoiced - received,
-  };
+  return purchaseRequestThreeWayMatchFromLib(request);
 }
 
 function purchaseRequestTone(request: PurchaseRequest) {
@@ -8091,7 +8063,22 @@ export default function Dashboard() {
     model?: string;
   }>>([]);
   const [pendingInvoiceChaseId, setPendingInvoiceChaseId] = useState<string | null>(null);
-  const [poSupplierInvoiceDraft, setPoSupplierInvoiceDraft] = useState({ amount: "", reference: "" });
+  const [poSupplierInvoiceDraft, setPoSupplierInvoiceDraft] = useState({
+    amount: "",
+    reference: "",
+    fileName: "",
+    proposedDescription: "",
+    proposedQuantity: "1",
+    proposedCost: "",
+  });
+  const [poSupplierInvoiceFile, setPoSupplierInvoiceFile] = useState<File | null>(null);
+  const [poSupplierCreditDraft, setPoSupplierCreditDraft] = useState({
+    amount: "",
+    reference: "",
+    fileName: "",
+  });
+  const [poSupplierCreditFile, setPoSupplierCreditFile] = useState<File | null>(null);
+  const [poSupplierDocSaving, setPoSupplierDocSaving] = useState(false);
   const [poSupplierPaymentDraft, setPoSupplierPaymentDraft] = useState({ amount: "", method: "Bank transfer", reference: "" });
   const [stockIssueCostByJobRef, setStockIssueCostByJobRef] = useState<Record<string, number>>({});
   const [retentionReleaseAmountDraft, setRetentionReleaseAmountDraft] = useState("");
@@ -8469,20 +8456,42 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!selectedPurchaseOrder) {
-      setPoSupplierInvoiceDraft({ amount: "", reference: "" });
+      setPoSupplierInvoiceDraft({
+        amount: "",
+        reference: "",
+        fileName: "",
+        proposedDescription: "",
+        proposedQuantity: "1",
+        proposedCost: "",
+      });
+      setPoSupplierInvoiceFile(null);
+      setPoSupplierCreditDraft({ amount: "", reference: "", fileName: "" });
+      setPoSupplierCreditFile(null);
       setPoSupplierPaymentDraft({ amount: "", method: "Bank transfer", reference: "" });
       return;
     }
-    setPoSupplierInvoiceDraft({
-      amount:
-        selectedPurchaseOrder.supplierInvoiceAmount !== undefined
-          ? String(selectedPurchaseOrder.supplierInvoiceAmount)
-          : selectedPurchaseOrder.actualCost !== undefined
-            ? String(selectedPurchaseOrder.actualCost)
-            : "",
-      reference: selectedPurchaseOrder.supplierInvoiceRef || selectedPurchaseOrder.invoiceFileName || "",
-    });
+    const hasInvoice = poAlreadyHasApprovedInvoice(selectedPurchaseOrder);
     const match = purchaseRequestThreeWayMatch(selectedPurchaseOrder);
+    // Prefill amount only for the first invoice; later uploads start blank.
+    setPoSupplierInvoiceDraft({
+      amount: hasInvoice
+        ? ""
+        : selectedPurchaseOrder.supplierInvoiceAmount !== undefined
+          ? String(selectedPurchaseOrder.supplierInvoiceAmount)
+          : match.ordered
+            ? String(match.ordered)
+            : selectedPurchaseOrder.actualCost !== undefined
+              ? String(selectedPurchaseOrder.actualCost)
+              : "",
+      reference: hasInvoice ? "" : selectedPurchaseOrder.supplierInvoiceRef || "",
+      fileName: "",
+      proposedDescription: "",
+      proposedQuantity: "1",
+      proposedCost: "",
+    });
+    setPoSupplierInvoiceFile(null);
+    setPoSupplierCreditDraft({ amount: "", reference: "", fileName: "" });
+    setPoSupplierCreditFile(null);
     const remaining = Math.max(0, (match.invoiced ?? match.ordered) - (selectedPurchaseOrder.supplierPaidAmount ?? 0));
     setPoSupplierPaymentDraft({
       amount: remaining > 0 ? remaining.toFixed(2) : "",
@@ -8495,6 +8504,7 @@ export default function Dashboard() {
     selectedPurchaseOrder?.supplierInvoiceRef,
     selectedPurchaseOrder?.actualCost,
     selectedPurchaseOrder?.invoiceFileName,
+    selectedPurchaseOrder?.supplierInvoiceDocuments,
     selectedPurchaseOrder?.supplierPaidAmount,
     selectedPurchaseOrder?.supplierPayments,
   ]);
@@ -28456,6 +28466,223 @@ export default function Dashboard() {
     }
   }
 
+  function applyUpdatedPurchaseRequest(updated: PurchaseRequest) {
+    setPurchaseRequests((current) =>
+      current.map((request) => (request.id === updated.id ? updated : request)),
+    );
+  }
+
+  async function submitPoSupplierInvoice() {
+    if (!selectedPurchaseOrder) return;
+    const amount = Number(poSupplierInvoiceDraft.amount);
+    if (!Number.isFinite(amount) || amount < 0) {
+      showNotice("Enter a valid supplier invoice amount.");
+      return;
+    }
+    const requiresSecondInvoiceFields = poAlreadyHasApprovedInvoice(selectedPurchaseOrder);
+    const proposedDescription = poSupplierInvoiceDraft.proposedDescription.trim();
+    const proposedCost = Number(poSupplierInvoiceDraft.proposedCost);
+    const proposedQuantity = Number(poSupplierInvoiceDraft.proposedQuantity) || 1;
+    const proposedLines =
+      requiresSecondInvoiceFields && proposedDescription
+        ? [
+            {
+              description: proposedDescription,
+              quantity: Math.max(0, proposedQuantity),
+              actualCost: Number.isFinite(proposedCost) && proposedCost >= 0 ? proposedCost : amount,
+            },
+          ]
+        : [];
+
+    setPoSupplierDocSaving(true);
+    try {
+      const endpoint = `/api/purchase-requests/${selectedPurchaseOrder.id}/supplier-docs`;
+      let response: Response;
+      if (poSupplierInvoiceFile) {
+        const body = new FormData();
+        body.set("kind", "invoice");
+        body.set("amount", String(amount));
+        body.set("reference", poSupplierInvoiceDraft.reference.trim());
+        body.set("fileName", poSupplierInvoiceDraft.fileName.trim() || poSupplierInvoiceFile.name);
+        body.set("proposedLines", JSON.stringify(proposedLines));
+        body.append("file", poSupplierInvoiceFile);
+        response = await fetch(endpoint, { method: "POST", headers: { ...requestHeaders }, body });
+      } else {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: { ...requestHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "save_invoice",
+            amount,
+            reference: poSupplierInvoiceDraft.reference.trim() || undefined,
+            fileName:
+              poSupplierInvoiceDraft.fileName.trim() ||
+              poSupplierInvoiceDraft.reference.trim() ||
+              `${selectedPurchaseOrder.poNumber || selectedPurchaseOrder.id} supplier invoice`,
+            proposedLines,
+          }),
+        });
+      }
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        requiresApproval?: boolean;
+        purchaseRequest?: PurchaseRequest;
+      };
+      if (!response.ok || !payload.purchaseRequest) {
+        throw new Error(payload.error || "Unable to save supplier invoice.");
+      }
+      applyUpdatedPurchaseRequest(payload.purchaseRequest);
+      showNotice(
+        payload.requiresApproval
+          ? `${selectedPurchaseOrder.poNumber || "PO"}: second supplier invoice queued for approval.`
+          : `${selectedPurchaseOrder.poNumber || "PO"} supplier invoice ${currency(amount)} saved for three-way match.`,
+      );
+      setPoSupplierInvoiceFile(null);
+      setPoSupplierInvoiceDraft((current) => ({
+        ...current,
+        amount: "",
+        reference: "",
+        fileName: "",
+        proposedDescription: "",
+        proposedQuantity: "1",
+        proposedCost: "",
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to save supplier invoice.";
+      showNotice(message);
+      setSectionError(message);
+    } finally {
+      setPoSupplierDocSaving(false);
+    }
+  }
+
+  async function decidePoInvoiceAdjustment(adjustmentId: string, decision: "approve" | "reject") {
+    if (!selectedPurchaseOrder) return;
+    if (decision === "approve" && !access.canApprovePurchase) {
+      showNotice("Your role cannot approve PO invoice adjustments.");
+      return;
+    }
+    setPoSupplierDocSaving(true);
+    try {
+      const response = await fetch(`/api/purchase-requests/${selectedPurchaseOrder.id}/supplier-docs`, {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: decision === "approve" ? "approve_adjustment" : "reject_adjustment",
+          adjustmentId,
+        }),
+      });
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        purchaseRequest?: PurchaseRequest;
+      };
+      if (!response.ok || !payload.purchaseRequest) {
+        throw new Error(payload.error || "Unable to update invoice approval.");
+      }
+      applyUpdatedPurchaseRequest(payload.purchaseRequest);
+      showNotice(
+        decision === "approve"
+          ? `${selectedPurchaseOrder.poNumber || "PO"}: second invoice approved — items/costs updated.`
+          : `${selectedPurchaseOrder.poNumber || "PO"}: second invoice rejected.`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to update invoice approval.";
+      showNotice(message);
+      setSectionError(message);
+    } finally {
+      setPoSupplierDocSaving(false);
+    }
+  }
+
+  async function submitPoSupplierCredit() {
+    if (!selectedPurchaseOrder) return;
+    const amount = Number(poSupplierCreditDraft.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      showNotice("Enter a credit note amount greater than zero.");
+      return;
+    }
+    setPoSupplierDocSaving(true);
+    try {
+      const endpoint = `/api/purchase-requests/${selectedPurchaseOrder.id}/supplier-docs`;
+      let response: Response;
+      if (poSupplierCreditFile) {
+        const body = new FormData();
+        body.set("kind", "credit");
+        body.set("amount", String(amount));
+        body.set("reference", poSupplierCreditDraft.reference.trim());
+        body.set("fileName", poSupplierCreditDraft.fileName.trim() || poSupplierCreditFile.name);
+        body.set("applyNow", "true");
+        body.append("file", poSupplierCreditFile);
+        response = await fetch(endpoint, { method: "POST", headers: { ...requestHeaders }, body });
+      } else {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: { ...requestHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "save_credit",
+            amount,
+            reference: poSupplierCreditDraft.reference.trim() || undefined,
+            fileName:
+              poSupplierCreditDraft.fileName.trim() ||
+              poSupplierCreditDraft.reference.trim() ||
+              `${selectedPurchaseOrder.poNumber || selectedPurchaseOrder.id} credit note`,
+            applyNow: true,
+          }),
+        });
+      }
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        purchaseRequest?: PurchaseRequest;
+      };
+      if (!response.ok || !payload.purchaseRequest) {
+        throw new Error(payload.error || "Unable to apply supplier credit note.");
+      }
+      applyUpdatedPurchaseRequest(payload.purchaseRequest);
+      showNotice(
+        `${selectedPurchaseOrder.poNumber || "PO"}: supplier credit ${currency(amount)} applied — PO and job costs reduced.`,
+      );
+      setPoSupplierCreditFile(null);
+      setPoSupplierCreditDraft({ amount: "", reference: "", fileName: "" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to apply supplier credit note.";
+      showNotice(message);
+      setSectionError(message);
+    } finally {
+      setPoSupplierDocSaving(false);
+    }
+  }
+
+  async function applyPoSupplierCredit(creditId: string) {
+    if (!selectedPurchaseOrder) return;
+    setPoSupplierDocSaving(true);
+    try {
+      const response = await fetch(`/api/purchase-requests/${selectedPurchaseOrder.id}/supplier-docs`, {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "apply_credit", creditId }),
+      });
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        purchaseRequest?: PurchaseRequest;
+      };
+      if (!response.ok || !payload.purchaseRequest) {
+        throw new Error(payload.error || "Unable to apply credit note.");
+      }
+      applyUpdatedPurchaseRequest(payload.purchaseRequest);
+      showNotice(`${selectedPurchaseOrder.poNumber || "PO"}: credit note applied.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to apply credit note.";
+      showNotice(message);
+      setSectionError(message);
+    } finally {
+      setPoSupplierDocSaving(false);
+    }
+  }
+
   async function markPurchaseRequestStatus(id: string, status: PurchaseStatus) {
     if (status === "Approved") {
       const request = purchaseRequests.find((item) => item.id === id);
@@ -32899,6 +33126,12 @@ export default function Dashboard() {
                     const match = purchaseRequestThreeWayMatch(selectedPurchaseOrder);
                     const tone =
                       match.status === "Matched" ? "green" : match.status === "Variance" ? "red" : "amber";
+                    const invoiceDocs = listSupplierInvoiceDocuments(selectedPurchaseOrder);
+                    const pendingAdjustments = listPendingInvoiceAdjustments(selectedPurchaseOrder).filter(
+                      (item) => item.status === "Awaiting approval",
+                    );
+                    const creditNotes = listSupplierCreditNotes(selectedPurchaseOrder);
+                    const needsSecondInvoiceApproval = poAlreadyHasApprovedInvoice(selectedPurchaseOrder);
                     return (
                       <section className="accounts-handoff-panel" style={{ marginTop: "1rem" }}>
                         <header>
@@ -32912,7 +33145,7 @@ export default function Dashboard() {
                           <div><span>Ordered</span><strong>{currency(match.ordered)}</strong></div>
                           <div><span>Received into stock</span><strong>{currency(match.received)}</strong></div>
                           <div>
-                            <span>Supplier invoice</span>
+                            <span>Supplier invoice (net)</span>
                             <strong>{match.invoiced === null ? "Not entered" : currency(match.invoiced)}</strong>
                           </div>
                           <div>
@@ -32920,7 +33153,7 @@ export default function Dashboard() {
                             <strong>{match.receiptPercent}%</strong>
                           </div>
                           <label className="accounts-payment-amount">
-                            <span>Supplier invoice amount</span>
+                            <span>{needsSecondInvoiceApproval ? "Additional invoice amount" : "Supplier invoice amount"}</span>
                             <input
                               type="number"
                               min="0"
@@ -32943,6 +33176,80 @@ export default function Dashboard() {
                               aria-label="Supplier invoice reference"
                             />
                           </label>
+                          <label className="accounts-payment-amount">
+                            <span>Upload invoice file</span>
+                            <input
+                              type="file"
+                              accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*"
+                              onChange={(event) => {
+                                const file = event.target.files?.[0] ?? null;
+                                setPoSupplierInvoiceFile(file);
+                                if (file) {
+                                  setPoSupplierInvoiceDraft((current) => ({
+                                    ...current,
+                                    fileName: current.fileName || file.name,
+                                  }));
+                                }
+                              }}
+                              aria-label="Upload supplier invoice file"
+                            />
+                            <small>
+                              {poSupplierInvoiceFile
+                                ? poSupplierInvoiceFile.name
+                                : "PDF or image (optional if amount/ref only)"}
+                            </small>
+                          </label>
+                          {needsSecondInvoiceApproval ? (
+                            <>
+                              <label className="accounts-payment-amount">
+                                <span>Extra line description (if missing on PO)</span>
+                                <input
+                                  value={poSupplierInvoiceDraft.proposedDescription}
+                                  onChange={(event) =>
+                                    setPoSupplierInvoiceDraft((current) => ({
+                                      ...current,
+                                      proposedDescription: event.target.value,
+                                    }))
+                                  }
+                                  placeholder="e.g. Extra gasket pack"
+                                  aria-label="Proposed additional PO line description"
+                                />
+                              </label>
+                              <label className="accounts-payment-amount">
+                                <span>Extra line qty</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={poSupplierInvoiceDraft.proposedQuantity}
+                                  onChange={(event) =>
+                                    setPoSupplierInvoiceDraft((current) => ({
+                                      ...current,
+                                      proposedQuantity: event.target.value,
+                                    }))
+                                  }
+                                  aria-label="Proposed additional PO line quantity"
+                                />
+                              </label>
+                              <label className="accounts-payment-amount">
+                                <span>Extra line cost £</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={poSupplierInvoiceDraft.proposedCost}
+                                  onChange={(event) =>
+                                    setPoSupplierInvoiceDraft((current) => ({
+                                      ...current,
+                                      proposedCost: event.target.value,
+                                    }))
+                                  }
+                                  placeholder="Defaults to invoice amount"
+                                  aria-label="Proposed additional PO line cost"
+                                />
+                              </label>
+                            </>
+                          ) : null}
                           <div>
                             <span>Supplier payment</span>
                             <strong>
@@ -33004,6 +33311,174 @@ export default function Dashboard() {
                             />
                           </label>
                         </div>
+
+                        {invoiceDocs.length ? (
+                          <div className="ops-table" style={{ marginTop: "0.75rem" }}>
+                            <div className="ops-table-head">
+                              <span>Invoice</span>
+                              <span>Amount</span>
+                              <span>Status</span>
+                              <span>File</span>
+                            </div>
+                            {invoiceDocs.map((doc) => (
+                              <div className="ops-table-row" key={doc.id}>
+                                <span>{doc.reference || doc.fileName}</span>
+                                <strong>{currency(doc.amount)}</strong>
+                                <span>{doc.status}</span>
+                                <span>
+                                  {doc.fileUrl ? (
+                                    <a href={doc.fileUrl} target="_blank" rel="noreferrer">
+                                      {doc.fileName}
+                                    </a>
+                                  ) : (
+                                    doc.fileName
+                                  )}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {pendingAdjustments.length ? (
+                          <div style={{ marginTop: "0.85rem" }}>
+                            <span className="permission-heading">Awaiting approval</span>
+                            <p style={{ margin: "0.25rem 0 0.5rem", color: "var(--muted, #5b6472)" }}>
+                              A second supplier invoice was uploaded against a receipted PO. Approve to add items/costs, or reject.
+                            </p>
+                            {pendingAdjustments.map((adjustment) => (
+                              <div
+                                key={adjustment.id}
+                                className="ops-table"
+                                style={{ marginBottom: "0.5rem", border: "1px solid rgba(185, 28, 28, 0.25)", borderRadius: 8, padding: "0.65rem" }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap" }}>
+                                  <div>
+                                    <strong>{currency(adjustment.proposedInvoiceAmount)}</strong>
+                                    <span style={{ marginLeft: "0.5rem" }}>
+                                      {adjustment.proposedInvoiceRef || "Second invoice"}
+                                    </span>
+                                    <div style={{ fontSize: "0.85rem", marginTop: "0.2rem" }}>{adjustment.reason}</div>
+                                    {adjustment.proposedLines.length ? (
+                                      <ul style={{ margin: "0.35rem 0 0", paddingLeft: "1.1rem" }}>
+                                        {adjustment.proposedLines.map((line) => (
+                                          <li key={line.id}>
+                                            {line.description} · qty {line.quantity} · {currency(line.actualCost)}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    ) : null}
+                                  </div>
+                                  <div style={{ display: "flex", gap: "0.4rem", alignItems: "flex-start" }}>
+                                    <button
+                                      className="secondary-button"
+                                      type="button"
+                                      disabled={poSupplierDocSaving || !access.canApprovePurchase}
+                                      onClick={() => void decidePoInvoiceAdjustment(adjustment.id, "approve")}
+                                    >
+                                      Approve
+                                    </button>
+                                    <button
+                                      className="secondary-button"
+                                      type="button"
+                                      disabled={poSupplierDocSaving}
+                                      onClick={() => void decidePoInvoiceAdjustment(adjustment.id, "reject")}
+                                    >
+                                      Reject
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        <div style={{ marginTop: "0.85rem" }}>
+                          <span className="permission-heading">Supplier credit note</span>
+                          <p style={{ margin: "0.25rem 0 0.5rem", color: "var(--muted, #5b6472)" }}>
+                            Upload a credit to reduce PO line costs and the job&apos;s actual cost.
+                          </p>
+                          <div className="accounts-handoff-grid">
+                            <label className="accounts-payment-amount">
+                              <span>Credit amount</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={poSupplierCreditDraft.amount}
+                                onChange={(event) =>
+                                  setPoSupplierCreditDraft((current) => ({ ...current, amount: event.target.value }))
+                                }
+                                aria-label="Supplier credit note amount"
+                              />
+                            </label>
+                            <label className="accounts-payment-amount">
+                              <span>Credit ref</span>
+                              <input
+                                value={poSupplierCreditDraft.reference}
+                                onChange={(event) =>
+                                  setPoSupplierCreditDraft((current) => ({ ...current, reference: event.target.value }))
+                                }
+                                placeholder="CN / credit note"
+                                aria-label="Supplier credit note reference"
+                              />
+                            </label>
+                            <label className="accounts-payment-amount">
+                              <span>Upload credit file</span>
+                              <input
+                                type="file"
+                                accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*"
+                                onChange={(event) => {
+                                  const file = event.target.files?.[0] ?? null;
+                                  setPoSupplierCreditFile(file);
+                                  if (file) {
+                                    setPoSupplierCreditDraft((current) => ({
+                                      ...current,
+                                      fileName: current.fileName || file.name,
+                                    }));
+                                  }
+                                }}
+                                aria-label="Upload supplier credit note file"
+                              />
+                              <small>{poSupplierCreditFile ? poSupplierCreditFile.name : "PDF or image (optional)"}</small>
+                            </label>
+                          </div>
+                          {creditNotes.length ? (
+                            <div className="ops-table" style={{ marginTop: "0.75rem" }}>
+                              <div className="ops-table-head">
+                                <span>Credit</span>
+                                <span>Amount</span>
+                                <span>Status</span>
+                                <span>Action</span>
+                              </div>
+                              {creditNotes.map((note) => (
+                                <div className="ops-table-row" key={note.id}>
+                                  <span>{note.reference || note.fileName}</span>
+                                  <strong>{currency(note.creditAmount)}</strong>
+                                  <span>{note.status}</span>
+                                  <span>
+                                    {note.status === "Pending apply" || note.status === "Uploaded" ? (
+                                      <button
+                                        className="secondary-button"
+                                        type="button"
+                                        disabled={poSupplierDocSaving}
+                                        onClick={() => void applyPoSupplierCredit(note.id)}
+                                      >
+                                        Apply
+                                      </button>
+                                    ) : note.fileUrl ? (
+                                      <a href={note.fileUrl} target="_blank" rel="noreferrer">
+                                        View
+                                      </a>
+                                    ) : (
+                                      "—"
+                                    )}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+
                         {(selectedPurchaseOrder.supplierPayments || []).length ? (
                           <div className="ops-table" style={{ marginTop: "0.75rem" }}>
                             <div className="ops-table-head"><span>Date</span><span>Amount</span><span>Method</span><span>Reference</span></div>
@@ -33019,43 +33494,37 @@ export default function Dashboard() {
                         ) : null}
                         <footer>
                           <small>
-                            {match.status === "Matched"
-                              ? "Ordered, received and supplier invoice amounts agree within 1%."
-                              : match.status === "Variance"
-                                ? `Variance — received ${currency(match.orderedVsReceived)} vs order` +
-                                  (match.orderedVsInvoiced === null
-                                    ? "."
-                                    : ` · invoice ${currency(match.orderedVsInvoiced)} vs order.`)
-                                : "Enter the supplier invoice amount after goods receipt to complete the match."}
+                            {pendingAdjustments.length
+                              ? "Second invoice awaiting approval — PO is disputed until decided."
+                              : match.status === "Matched"
+                                ? "Ordered, received and net supplier invoice amounts agree within 1%."
+                                : match.status === "Variance"
+                                  ? `Variance — received ${currency(match.orderedVsReceived)} vs order` +
+                                    (match.orderedVsInvoiced === null
+                                      ? "."
+                                      : ` · invoice ${currency(match.orderedVsInvoiced)} vs order.`)
+                                  : "Upload the supplier invoice after goods receipt to complete the match."}
                           </small>
                           <div>
                             <button
                               className="secondary-button"
                               type="button"
-                              onClick={() => {
-                                const amount = Number(poSupplierInvoiceDraft.amount);
-                                if (!Number.isFinite(amount) || amount < 0) {
-                                  showNotice("Enter a valid supplier invoice amount.");
-                                  return;
-                                }
-                                void patchPurchaseRequest(
-                                  selectedPurchaseOrder.id,
-                                  {
-                                    supplierInvoiceAmount: amount,
-                                    supplierInvoiceRef: poSupplierInvoiceDraft.reference.trim() || undefined,
-                                    invoiceFileName:
-                                      selectedPurchaseOrder.invoiceFileName ||
-                                      poSupplierInvoiceDraft.reference.trim() ||
-                                      `${selectedPurchaseOrder.poNumber || selectedPurchaseOrder.id} supplier invoice`,
-                                    invoiceReceivedAt:
-                                      selectedPurchaseOrder.invoiceReceivedAt || workflowTimestamp(),
-                                    actualCost: selectedPurchaseOrder.actualCost ?? amount,
-                                  },
-                                  `${selectedPurchaseOrder.poNumber || "PO"} supplier invoice ${currency(amount)} saved for three-way match.`,
-                                );
-                              }}
+                              disabled={poSupplierDocSaving}
+                              onClick={() => void submitPoSupplierInvoice()}
                             >
-                              Save supplier invoice
+                              {poSupplierDocSaving
+                                ? "Saving…"
+                                : needsSecondInvoiceApproval
+                                  ? "Submit second invoice"
+                                  : "Save supplier invoice"}
+                            </button>
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              disabled={poSupplierDocSaving}
+                              onClick={() => void submitPoSupplierCredit()}
+                            >
+                              Apply credit note
                             </button>
                             <button
                               className="secondary-button"

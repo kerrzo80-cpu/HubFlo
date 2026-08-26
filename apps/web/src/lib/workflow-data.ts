@@ -89,6 +89,98 @@ export interface Quote {
   createdAt?: string;
 }
 
+export interface PurchaseOrderLine {
+  id: string;
+  description: string;
+  quantity: number;
+  estimatedCost: number;
+  actualCost?: number;
+  receivedPercent: number;
+  catalogItemId?: string;
+  sku?: string;
+}
+
+export type SupplierInvoiceDocumentStatus =
+  | "Draft"
+  | "Matched"
+  | "Variance"
+  | "Pending approval"
+  | "Approved"
+  | "Rejected"
+  | "Superseded";
+
+export type SupplierInvoiceDocument = {
+  id: string;
+  amount: number;
+  reference?: string;
+  fileName: string;
+  documentId?: string;
+  fileUrl?: string;
+  mimeType?: string;
+  uploadedAt: string;
+  uploadedBy?: string;
+  status: SupplierInvoiceDocumentStatus;
+  isPrimary?: boolean;
+  notes?: string;
+};
+
+export type PendingInvoiceAdjustmentLine = {
+  id: string;
+  purchaseOrderLineId?: string;
+  description: string;
+  quantity: number;
+  actualCost: number;
+  estimatedCost?: number;
+  catalogItemId?: string;
+  sku?: string;
+};
+
+export type PendingInvoiceAdjustment = {
+  id: string;
+  createdAt: string;
+  createdBy: string;
+  reason: string;
+  status: "Awaiting approval" | "Approved" | "Rejected" | "Cancelled";
+  invoiceDocumentId: string;
+  proposedInvoiceAmount: number;
+  proposedInvoiceRef?: string;
+  proposedLines: PendingInvoiceAdjustmentLine[];
+  baseline: {
+    ordered: number;
+    received: number;
+    invoiced: number | null;
+    matchStatus: "Matched" | "Variance" | "Incomplete";
+  };
+  decidedAt?: string;
+  decidedBy?: string;
+  decisionNote?: string;
+};
+
+export type SupplierCreditNoteLine = {
+  id: string;
+  purchaseOrderLineId?: string;
+  description: string;
+  creditAmount: number;
+  quantityRemoved?: number;
+  removeLine?: boolean;
+};
+
+export type SupplierCreditNote = {
+  id: string;
+  creditAmount: number;
+  reference?: string;
+  fileName: string;
+  documentId?: string;
+  fileUrl?: string;
+  uploadedAt: string;
+  uploadedBy?: string;
+  status: "Uploaded" | "Pending apply" | "Applied" | "Voided";
+  lines: SupplierCreditNoteLine[];
+  linkedInvoiceDocumentId?: string;
+  appliedAt?: string;
+  appliedBy?: string;
+};
+
 export interface PurchaseRequest {
   id: string;
   jobId: string;
@@ -111,6 +203,12 @@ export interface PurchaseRequest {
   invoiceReceivedAt?: string;
   supplierInvoiceAmount?: number;
   supplierInvoiceRef?: string;
+  /** Uploaded supplier invoices (PDF/image) with amount + approval status. */
+  supplierInvoiceDocuments?: SupplierInvoiceDocument[];
+  /** Second invoices awaiting office approval after goods receipt. */
+  pendingInvoiceAdjustments?: PendingInvoiceAdjustment[];
+  /** Supplier credit notes that reduce PO / job cost when applied. */
+  supplierCreditNotes?: SupplierCreditNote[];
   receivedAt?: string;
   updatedAt?: string;
   /** ISO date (YYYY-MM-DD) when status last changed — used for Field day alerts. */
@@ -136,17 +234,6 @@ export interface PurchaseRequest {
     reconciled?: boolean;
   }>;
   xeroPaymentsCheckedAt?: string;
-}
-
-export interface PurchaseOrderLine {
-  id: string;
-  description: string;
-  quantity: number;
-  estimatedCost: number;
-  actualCost?: number;
-  receivedPercent: number;
-  catalogItemId?: string;
-  sku?: string;
 }
 
 export interface WorkflowStore {
@@ -818,6 +905,9 @@ export function createPurchaseRequest(
     invoiceReceivedAt: payload.invoiceReceivedAt,
     supplierInvoiceAmount: payload.supplierInvoiceAmount,
     supplierInvoiceRef: payload.supplierInvoiceRef,
+    supplierInvoiceDocuments: payload.supplierInvoiceDocuments,
+    pendingInvoiceAdjustments: payload.pendingInvoiceAdjustments,
+    supplierCreditNotes: payload.supplierCreditNotes,
     receivedAt: payload.receivedAt,
     xeroBillId: payload.xeroBillId,
     xeroBillNumber: payload.xeroBillNumber,
