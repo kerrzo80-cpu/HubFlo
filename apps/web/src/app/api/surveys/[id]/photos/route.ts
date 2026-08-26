@@ -11,8 +11,8 @@ import { getSurvey, upsertSurveyItem } from "@/lib/survey-estimator-store";
 
 export const runtime = "nodejs";
 
-const maxEvidenceBytes = 100 * 1024 * 1024;
-const maxRequestBytes = 120 * 1024 * 1024;
+const maxEvidenceBytes = 25 * 1024 * 1024;
+const maxRequestBytes = 30 * 1024 * 1024;
 const photoCategories: SurveyPhotoCategory[] = [
   "Room overview",
   "Existing condition",

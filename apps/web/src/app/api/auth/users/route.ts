@@ -38,7 +38,7 @@ export async function POST(request: Request) {
       action: "created user account",
       recordType: "employee",
       recordId: user.employeeId || user.id,
-      summary: `${actor.name} created the ${user.role} NeXa account for ${user.name}.`,
+      summary: `${actor.name} created the ${user.role} Blake account for ${user.name}.`,
       source: "authentication",
       importance: "high",
     });

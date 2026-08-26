@@ -1,0 +1,52 @@
+# NeXa staging environment (example — do not commit real secrets)
+
+NODE_VERSION=24.14.0
+NODE_OPTIONS=--max-old-space-size=2048
+NEXT_PUBLIC_APP_URL=https://nexa-staging.example.com
+
+NEXA_WORKSPACE_MODE=live
+NEXA_AUTH_MODE=users
+NEXA_ADMIN_NAME=
+NEXA_ADMIN_USERNAME=
+NEXA_ADMIN_EMPLOYEE_ID=
+NEXA_ADMIN_PASSWORD=
+
+# Postgres (Lightsail managed / RDS)
+DATABASE_URL=postgresql://nexa:CHANGE_ME@YOUR_LIGHTSAIL_PG_HOST:5432/nexa_staging
+
+# Transitional: leave blank once Postgres is primary
+NEXA_STORE_PATH=
+NEXA_STORE_DIR=/var/nexa/runtime
+
+# S3
+AWS_REGION=eu-west-2
+NEXA_FILES_BUCKET=nexa-staging-files-CHANGE_ME
+NEXA_FILES_PREFIX=pilot-ewg
+
+# AI — env only on staging/live
+OPENAI_API_KEY=
+NEXA_OPENAI_API_KEY=
+NEXA_ASSISTANT_OPENAI_MODEL=gpt-4.1-mini
+NEXA_TAKEOFF_OPENAI_MODEL=gpt-4.1-mini
+NEXA_FIELD_OPENAI_MODEL=gpt-4.1-mini
+NEXA_SURVEY_OPENAI_MODEL=gpt-4.1-mini
+NEXA_VISION_OPENAI_MODEL=gpt-4.1-mini
+
+# Integrations (fail-closed — must be set)
+SIMPRO_WEBHOOK_SECRET=
+HUBFLO_INTEGRATION_TOKEN=
+NEXA_IMPORT_TICK_SECRET=
+SIMPRO_BASE_URL=
+SIMPRO_COMPANY_ID=
+SIMPRO_CLIENT_ID=
+SIMPRO_CLIENT_SECRET=
+SIMPRO_REFRESH_TOKEN=
+
+XERO_CLIENT_ID=
+XERO_CLIENT_SECRET=
+XERO_REDIRECT_URI=https://nexa-staging.example.com/api/integrations/xero/callback
+
+WHATSAPP_ACCESS_TOKEN=
+WHATSAPP_PHONE_NUMBER_ID=
+WHATSAPP_VERIFY_TOKEN=
+WHATSAPP_WEBHOOK_SECRET=

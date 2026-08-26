@@ -1,3 +1,13 @@
+import { createHash, randomBytes } from "node:crypto";
+
+import {
+  getAccountingProvider,
+  nexaPublicOrigin,
+  resolveXeroAppCredentials,
+  saveAccountingProviderConfig,
+  XERO_LIVE_CALLBACK_URI,
+  XERO_PILOT_CALLBACK_URI,
+} from "@/lib/accounting-provider-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
 type XeroAuthStore = {
@@ -5,6 +15,9 @@ type XeroAuthStore = {
   refreshToken?: string;
   accessTokenExpiresAt?: string;
   tenantId?: string;
+  tenantName?: string;
+  oauthState?: string;
+  codeVerifier?: string;
   updatedAt?: string;
 };
 
@@ -20,16 +33,83 @@ export type XeroAuthStatus = {
   hasRefreshToken: boolean;
   hasAccessToken: boolean;
   accessTokenExpiresAt?: string;
-  authUrl?: string;
   checkedAt: string;
+  credentialSource: "env" | "setup" | "none";
+  provider: "none" | "xero" | "quickbooks" | "sage";
+  canConnect: boolean;
+  redirectUri?: string;
+  redirectUrisToRegister: string[];
+  tenantName?: string;
+  officeMessage?: string;
 };
 
 const STORE = "nexa-xero-auth-v1";
 const tokenStore = loadServerStore<XeroAuthStore>(STORE, {});
+const XERO_AUTHORIZE_URL = "https://login.xero.com/identity/connect/authorize";
+const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
+/** Force a fresh Xero login + consent so a demo.xero.com browser session is not reused. */
+const XERO_AUTHORIZE_PROMPT = "login consent";
+const XERO_REQUIRED_SCOPES = [
+  "offline_access",
+  "accounting.invoices",
+  "accounting.payments",
+  "accounting.contacts",
+  "accounting.settings",
+] as const;
+const XERO_ALLOWED_SCOPES = new Set<string>(XERO_REQUIRED_SCOPES);
+const XERO_DEFAULT_SCOPES = XERO_REQUIRED_SCOPES.join(" ");
+const XERO_SCOPE_TRANSLATIONS: Record<string, readonly string[]> = {
+  "accounting.transactions": ["accounting.invoices", "accounting.payments"],
+};
+
+export const XERO_OFFICE_CONNECT_COPY =
+  "Click Connect Xero. You’ll sign in to Xero and approve NeXa for your organisation. You don’t need a Xero developer account. NeXa never asks for your Xero password.";
+
+export const XERO_MISSING_CREDENTIALS_MESSAGE =
+  "NeXa’s Xero app is not set up on this server yet. You don’t need a developer account — you only sign in to Xero and approve NeXa. Ask the person who hosts NeXa to set XERO_CLIENT_ID and XERO_CLIENT_SECRET on Render (nexa-pilot and nexa-live, one shared NeXa Web App), then click Connect Xero again.";
+
+export const XERO_UNAUTHORIZED_CLIENT_MESSAGE =
+  "Xero did not recognise NeXa’s app on this server (unknown or disabled Client ID). You still don’t need a developer account. Ask the person who hosts NeXa to check XERO_CLIENT_ID / XERO_CLIENT_SECRET on Render — they must be the enabled NeXa Web App, not a draft or Custom Connection — then try Connect Xero again.";
+
+type XeroConnectionRow = {
+  tenantId?: string;
+  tenantName?: string;
+  authEventId?: string;
+  updatedDateUtc?: string;
+  createdDateUtc?: string;
+};
 
 function persistTokenStore() {
   tokenStore.updatedAt = new Date().toISOString();
   writeServerStore(STORE, tokenStore);
+}
+
+function authenticationEventIdFromAccessToken(accessToken: string) {
+  const payload = accessToken.split(".")[1];
+  if (!payload) return "";
+  try {
+    const json = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
+    return typeof json.authentication_event_id === "string" ? json.authentication_event_id : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Prefer the organisation from this OAuth event over a previously stored demo tenant. */
+export function pickXeroTenantFromConnections(connections: XeroConnectionRow[], accessToken: string) {
+  const withId = connections.filter((row) => Boolean(row.tenantId?.trim()));
+  const eventId = authenticationEventIdFromAccessToken(accessToken);
+  const fromThisAuth = eventId ? withId.filter((row) => row.authEventId === eventId) : [];
+  const pool = fromThisAuth.length ? fromThisAuth : withId;
+  const newest = [...pool].sort((a, b) => {
+    const aAt = Date.parse(a.updatedDateUtc || a.createdDateUtc || "") || 0;
+    const bAt = Date.parse(b.updatedDateUtc || b.createdDateUtc || "") || 0;
+    return bAt - aAt;
+  })[0];
+  return {
+    tenantId: newest?.tenantId?.trim() || "",
+    tenantName: newest?.tenantName?.trim() || "",
+  };
 }
 
 function env(name: string) {
@@ -37,34 +117,67 @@ function env(name: string) {
 }
 
 function scopes() {
-  return (
-    env("XERO_SCOPES") ||
-    "openid profile email offline_access accounting.transactions accounting.contacts accounting.settings.read"
+  const configured = env("XERO_SCOPES");
+  if (!configured) return XERO_DEFAULT_SCOPES;
+  const requested = configured.split(/\s+/).map((scope) => scope.trim()).filter(Boolean);
+  const translated = requested.flatMap((scope) => XERO_SCOPE_TRANSLATIONS[scope] || [scope]);
+  const filtered = translated.filter(
+    (scope, index) => XERO_ALLOWED_SCOPES.has(scope) && translated.indexOf(scope) === index,
   );
+  const hasAllRequiredScopes = XERO_REQUIRED_SCOPES.every((scope) => filtered.includes(scope));
+  return hasAllRequiredScopes ? filtered.join(" ") : XERO_DEFAULT_SCOPES;
 }
 
-export function getXeroAuthStatus(): XeroAuthStatus {
-  const clientId = env("XERO_CLIENT_ID");
-  const clientSecret = env("XERO_CLIENT_SECRET");
+function base64Url(buffer: Buffer) {
+  return buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function createPkce() {
+  const verifier = base64Url(randomBytes(32));
+  const challenge = base64Url(createHash("sha256").update(verifier).digest());
+  return { verifier, challenge };
+}
+
+export function xeroRedirectUrisToRegister() {
+  return [XERO_PILOT_CALLBACK_URI, XERO_LIVE_CALLBACK_URI];
+}
+
+export function getXeroOfficeMessage(appReady = resolveXeroAppCredentials().ready) {
+  return appReady ? XERO_OFFICE_CONNECT_COPY : XERO_MISSING_CREDENTIALS_MESSAGE;
+}
+
+export function officeMessageForXeroOAuthError(error: string, description?: string) {
+  const code = error.trim().toLowerCase();
+  const detail = `${description || ""} ${error}`.toLowerCase();
+  if (code === "unauthorized_client" || detail.includes("unknown client") || detail.includes("client not enabled")) {
+    return XERO_UNAUTHORIZED_CLIENT_MESSAGE;
+  }
+  if (code === "access_denied") {
+    return "Xero connect was cancelled. Click Connect Xero again when you are ready to approve NeXa.";
+  }
+  return (description || error || "Xero connect failed.").trim();
+}
+
+export function getXeroAuthStatus(request?: Request): XeroAuthStatus {
+  const app = resolveXeroAppCredentials(request);
+  const provider = getAccountingProvider();
   const tenantId = env("XERO_TENANT_ID") || tokenStore.tenantId || "";
-  const redirectUri = env("XERO_REDIRECT_URI");
   const staticToken = env("XERO_ACCESS_TOKEN");
   const missing: string[] = [];
-  if (!clientId) missing.push("XERO_CLIENT_ID");
-  if (!clientSecret) missing.push("XERO_CLIENT_SECRET");
-  if (!tenantId) missing.push("XERO_TENANT_ID");
+
+  if (!app.clientId) missing.push("Platform XERO_CLIENT_ID on Render");
+  if (!app.clientSecret) missing.push("Platform XERO_CLIENT_SECRET on Render");
+  if (!app.redirectUri) missing.push("Xero redirect URI");
 
   const hasRefreshToken = Boolean(tokenStore.refreshToken?.trim());
   const hasAccessToken = Boolean(tokenStore.accessToken?.trim() || staticToken);
-  const oauthReady = Boolean(clientId && clientSecret && redirectUri);
-  if (!redirectUri && (clientId || clientSecret)) missing.push("XERO_REDIRECT_URI");
 
   let mode: XeroConnectionMode = "csv-only";
-  if (hasRefreshToken || (oauthReady && tokenStore.accessToken && !staticToken)) mode = "oauth";
+  if (hasRefreshToken || (app.ready && tokenStore.accessToken && !staticToken)) mode = "oauth";
   else if (staticToken && tenantId) mode = "static-token";
-  else if (!clientId && !clientSecret && !tenantId && !staticToken) mode = "csv-only";
+  else if (!app.clientId && !app.clientSecret && !tenantId && !staticToken) mode = "csv-only";
+  else if (!app.ready && !hasRefreshToken && !staticToken) mode = "missing";
 
-  // Live API ready when we have a tenant plus OAuth refresh or a static access token.
   const configured = Boolean(tenantId && (hasRefreshToken || staticToken));
   const detectedEnvKeys = Object.keys(process.env)
     .filter((key) => key.startsWith("XERO_"))
@@ -73,17 +186,21 @@ export function getXeroAuthStatus(): XeroAuthStatus {
   return {
     configured,
     mode,
-    missing,
+    missing: configured ? [] : missing,
     detectedEnvKeys,
     tenantIdPresent: Boolean(tenantId),
-    redirectUriPresent: Boolean(redirectUri),
+    redirectUriPresent: Boolean(app.redirectUri),
     hasRefreshToken,
     hasAccessToken,
     accessTokenExpiresAt: tokenStore.accessTokenExpiresAt,
-    authUrl: oauthReady
-      ? `https://login.xero.com/identity/connect/authorize?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes())}&state=nexa-xero`
-      : undefined,
     checkedAt: new Date().toISOString(),
+    credentialSource: app.source,
+    provider,
+    canConnect: Boolean(app.ready),
+    redirectUri: app.redirectUri,
+    redirectUrisToRegister: xeroRedirectUrisToRegister(),
+    tenantName: tokenStore.tenantName,
+    officeMessage: getXeroOfficeMessage(app.ready),
   };
 }
 
@@ -91,37 +208,79 @@ export function getStoredXeroTenantId() {
   return env("XERO_TENANT_ID") || tokenStore.tenantId || "";
 }
 
+export function clearXeroConnection() {
+  tokenStore.accessToken = undefined;
+  tokenStore.refreshToken = undefined;
+  tokenStore.accessTokenExpiresAt = undefined;
+  tokenStore.tenantId = undefined;
+  tokenStore.tenantName = undefined;
+  tokenStore.oauthState = undefined;
+  tokenStore.codeVerifier = undefined;
+  persistTokenStore();
+}
+
+export function startXeroAuthorization(request?: Request) {
+  const app = resolveXeroAppCredentials(request);
+  if (!app.ready) {
+    throw new Error(XERO_MISSING_CREDENTIALS_MESSAGE);
+  }
+
+  const { verifier, challenge } = createPkce();
+  const state = base64Url(randomBytes(24));
+  tokenStore.oauthState = state;
+  tokenStore.codeVerifier = verifier;
+  persistTokenStore();
+
+  const url = new URL(XERO_AUTHORIZE_URL);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("client_id", app.clientId);
+  url.searchParams.set("redirect_uri", app.redirectUri);
+  url.searchParams.set("scope", scopes());
+  url.searchParams.set("state", state);
+  url.searchParams.set("code_challenge", challenge);
+  url.searchParams.set("code_challenge_method", "S256");
+  url.searchParams.set("prompt", XERO_AUTHORIZE_PROMPT);
+  return { authUrl: url.toString(), redirectUri: app.redirectUri, state };
+}
+
+async function xeroTokenRequest(body: URLSearchParams, request?: Request) {
+  const app = resolveXeroAppCredentials(request);
+  const response = await fetch(XERO_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${app.clientId}:${app.clientSecret}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: body.toString(),
+  });
+  const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  return { response, json };
+}
+
 async function refreshAccessToken() {
-  const clientId = env("XERO_CLIENT_ID");
-  const clientSecret = env("XERO_CLIENT_SECRET");
+  const app = resolveXeroAppCredentials();
   const refreshToken = tokenStore.refreshToken?.trim();
-  if (!clientId || !clientSecret || !refreshToken) {
+  if (!app.clientId || !app.clientSecret || !refreshToken) {
     return null;
   }
 
-  const response = await fetch("https://identity.xero.com/connect/token", {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
+  const { response, json } = await xeroTokenRequest(
+    new URLSearchParams({
       grant_type: "refresh_token",
       refresh_token: refreshToken,
-    }).toString(),
-  });
-  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    }),
+  );
   if (!response.ok) {
     const message =
-      (typeof body.error_description === "string" && body.error_description) ||
-      (typeof body.error === "string" && body.error) ||
+      (typeof json.error_description === "string" && json.error_description) ||
+      (typeof json.error === "string" && json.error) ||
       `Xero token refresh failed (${response.status}).`;
     throw new Error(message);
   }
 
-  const accessToken = typeof body.access_token === "string" ? body.access_token : "";
-  const nextRefresh = typeof body.refresh_token === "string" ? body.refresh_token : refreshToken;
-  const expiresIn = typeof body.expires_in === "number" ? body.expires_in : 1800;
+  const accessToken = typeof json.access_token === "string" ? json.access_token : "";
+  const nextRefresh = typeof json.refresh_token === "string" ? json.refresh_token : refreshToken;
+  const expiresIn = typeof json.expires_in === "number" ? json.expires_in : 1800;
   if (!accessToken) throw new Error("Xero refresh did not return an access token.");
 
   tokenStore.accessToken = accessToken;
@@ -147,64 +306,81 @@ export async function resolveXeroAccessToken() {
   return env("XERO_ACCESS_TOKEN") || tokenStore.accessToken || "";
 }
 
-export async function exchangeXeroAuthorizationCode(code: string, tenantIdHint?: string) {
-  const clientId = env("XERO_CLIENT_ID");
-  const clientSecret = env("XERO_CLIENT_SECRET");
-  const redirectUri = env("XERO_REDIRECT_URI");
-  if (!clientId || !clientSecret || !redirectUri) {
-    throw new Error("Xero OAuth needs XERO_CLIENT_ID, XERO_CLIENT_SECRET and XERO_REDIRECT_URI.");
+export async function exchangeXeroAuthorizationCode(
+  code: string,
+  options?: { tenantIdHint?: string; state?: string; request?: Request },
+) {
+  const app = resolveXeroAppCredentials(options?.request);
+  if (!app.ready) {
+    throw new Error(XERO_MISSING_CREDENTIALS_MESSAGE);
   }
   if (!code.trim()) throw new Error("Missing Xero authorisation code.");
-
-  const response = await fetch("https://identity.xero.com/connect/token", {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      grant_type: "authorization_code",
-      code: code.trim(),
-      redirect_uri: redirectUri,
-    }).toString(),
-  });
-  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!response.ok) {
-    throw new Error(
-      (typeof body.error_description === "string" && body.error_description) ||
-        (typeof body.error === "string" && body.error) ||
-        `Xero code exchange failed (${response.status}).`,
-    );
+  if (tokenStore.oauthState && options?.state && options.state !== tokenStore.oauthState) {
+    throw new Error("Xero connect state did not match. Click Connect Xero and try again.");
   }
 
-  const accessToken = typeof body.access_token === "string" ? body.access_token : "";
-  const refreshToken = typeof body.refresh_token === "string" ? body.refresh_token : "";
-  const expiresIn = typeof body.expires_in === "number" ? body.expires_in : 1800;
+  const tokenBody = new URLSearchParams({
+    grant_type: "authorization_code",
+    code: code.trim(),
+    redirect_uri: app.redirectUri,
+  });
+  if (tokenStore.codeVerifier) tokenBody.set("code_verifier", tokenStore.codeVerifier);
+
+  const { response, json } = await xeroTokenRequest(tokenBody, options?.request);
+  if (!response.ok) {
+    const errorCode = typeof json.error === "string" ? json.error : "";
+    const description =
+      (typeof json.error_description === "string" && json.error_description) ||
+      errorCode ||
+      `Xero code exchange failed (${response.status}).`;
+    throw new Error(officeMessageForXeroOAuthError(errorCode || "error", description));
+  }
+
+  const accessToken = typeof json.access_token === "string" ? json.access_token : "";
+  const refreshToken = typeof json.refresh_token === "string" ? json.refresh_token : "";
+  const expiresIn = typeof json.expires_in === "number" ? json.expires_in : 1800;
   if (!accessToken) throw new Error("Xero did not return an access token.");
 
   tokenStore.accessToken = accessToken;
   if (refreshToken) tokenStore.refreshToken = refreshToken;
   tokenStore.accessTokenExpiresAt = new Date(Date.now() + Math.max(expiresIn - 60, 60) * 1000).toISOString();
+  tokenStore.oauthState = undefined;
+  tokenStore.codeVerifier = undefined;
 
-  // Discover tenant if not already set
-  let tenantId = env("XERO_TENANT_ID") || tenantIdHint || tokenStore.tenantId || "";
-  if (!tenantId) {
-    try {
-      const connections = await fetch("https://api.xero.com/connections", {
-        headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
-      });
-      const list = (await connections.json().catch(() => [])) as Array<{ tenantId?: string }>;
-      tenantId = list.find((row) => row.tenantId)?.tenantId || "";
-    } catch {
-      tenantId = "";
-    }
+  let tenantId = "";
+  let tenantName = "";
+  try {
+    const connections = await fetch("https://api.xero.com/connections", {
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+    });
+    const list = (await connections.json().catch(() => [])) as XeroConnectionRow[];
+    const chosen = pickXeroTenantFromConnections(Array.isArray(list) ? list : [], accessToken);
+    tenantId = chosen.tenantId;
+    tenantName = chosen.tenantName;
+  } catch {
+    // fall through to hints / previously stored tenant
   }
-  if (tenantId) tokenStore.tenantId = tenantId;
+  tenantId = tenantId || options?.tenantIdHint || env("XERO_TENANT_ID") || tokenStore.tenantId || "";
+  tenantName = tenantName || tokenStore.tenantName || "";
+  if (!tenantId) {
+    persistTokenStore();
+    throw new Error(
+      "Xero signed in but did not return an organisation. On the Xero consent screen, choose the company to connect, then try Connect Xero again.",
+    );
+  }
+  tokenStore.tenantId = tenantId;
+  if (tenantName) tokenStore.tenantName = tenantName;
   persistTokenStore();
+  saveAccountingProviderConfig({ provider: "xero" });
 
   return {
     accessToken,
     tenantId,
+    tenantName,
     hasRefreshToken: Boolean(tokenStore.refreshToken),
   };
+}
+
+export function xeroCallbackAppOrigin(request: Request) {
+  return nexaPublicOrigin(request);
 }

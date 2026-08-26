@@ -14,6 +14,10 @@ type CreateSitePayload = {
   nextVisit?: string;
   vatTreatment?: ClientSite["vatTreatment"];
   vatRateOverride?: string;
+  cis?: boolean;
+  retentionPercent?: string;
+  retentionCapAmount?: string;
+  mainContractorDiscountPercent?: string;
   actor?: string;
 };
 
@@ -59,10 +63,14 @@ export async function POST(request: Request) {
     nextVisit: payload.nextVisit?.trim() || "To be scheduled",
     vatTreatment: payload.vatTreatment,
     vatRateOverride: payload.vatRateOverride?.trim() || "",
+    cis: typeof payload.cis === "boolean" ? payload.cis : undefined,
+    retentionPercent: payload.retentionPercent?.trim() || undefined,
+    retentionCapAmount: payload.retentionCapAmount?.trim() || undefined,
+    mainContractorDiscountPercent: payload.mainContractorDiscountPercent?.trim() || undefined,
   });
 
   const auditEvent = appendAuditEvent({
-    actor: payload.actor?.trim() || "NeXa user",
+    actor: payload.actor?.trim() || "Blake user",
     action: "created",
     recordType: "site",
     recordId: site.id,

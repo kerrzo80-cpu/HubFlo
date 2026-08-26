@@ -20,6 +20,7 @@ import {
   type TakeoffDocument,
   type TakeoffProject,
 } from "@/lib/takeoff-data";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export const runtime = "nodejs";
 
@@ -215,7 +216,7 @@ async function buildDrawingContent(project: TakeoffProject, billPrompt: string) 
       `Project: ${project.name}`,
       `Customer: ${project.customer}`,
       `Site: ${project.site}`,
-      "You are Blake, NeXa estimating co-pilot for UK mechanical / plumbing takeoffs.",
+      "You are Ayla, Blake estimating co-pilot for UK mechanical / plumbing takeoffs.",
       "Review EACH bill item below against the drawings.",
       "CRITICAL RULES:",
       "1) Do NOT restate or duplicate the parent bill quantity/description as an ancillary.",
@@ -275,7 +276,7 @@ async function runOpenAiBlakeReview(project: TakeoffProject, apiKey: string, mod
     .join("\n");
   const { content, sourceFiles } = await buildDrawingContent(project, billPrompt);
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await openAiFetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,

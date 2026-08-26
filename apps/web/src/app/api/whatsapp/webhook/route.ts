@@ -82,7 +82,7 @@ export async function POST(request: Request) {
           subject: match.job ? `WhatsApp reply · ${match.job.ref}` : "WhatsApp reply",
           body: text,
           from: contactName ? `${contactName} (${from})` : from,
-          to: value?.metadata?.display_phone_number || "NeXa WhatsApp",
+          to: value?.metadata?.display_phone_number || "Blake WhatsApp",
           messageId: typeof message.id === "string" ? message.id : undefined,
           status: "Received",
         });

@@ -17,6 +17,7 @@ type PushBody = {
   /** Existing quote id, or omit / empty to create a new quote */
   quoteId?: string;
   createNew?: boolean;
+  projectId?: string;
   customerName?: string;
   projectName?: string;
   address?: string;
@@ -25,6 +26,11 @@ type PushBody = {
   emitterMode?: string;
   markupPercent?: number;
   kit: KitLine[];
+  coveragePercent?: number;
+  designLoadKw?: number;
+  capacityAtFlowKw?: number;
+  emitterShortfallCount?: number;
+  force?: boolean;
 };
 
 export async function POST(request: Request) {
@@ -39,6 +45,18 @@ export async function POST(request: Request) {
   const body = await parseJsonRequestBody<PushBody>(request);
   if (!body?.kit?.length) {
     return NextResponse.json({ error: "No kit materials to push." }, { status: 400 });
+  }
+
+  const { assertHeatDesignExportable } = await import("@/lib/commercial-safeguards");
+  const heatGate = assertHeatDesignExportable({
+    coveragePercent: body.coveragePercent,
+    designLoadKw: body.designLoadKw,
+    capacityAtFlowKw: body.capacityAtFlowKw,
+    emitterShortfallCount: body.emitterShortfallCount,
+    force: body.force,
+  });
+  if (heatGate) {
+    return NextResponse.json({ error: heatGate, code: "HEAT_DESIGN_UNSAFE" }, { status: 422 });
   }
 
   const { actor } = surveyRequestContext(request);
@@ -85,9 +103,14 @@ export async function POST(request: Request) {
       value: sellTotal,
       next: "Review heat-design materials cost centre and send quote",
       due,
+      metadata: body.projectId ? { heatDesignProjectId: body.projectId } : undefined,
     });
   } else {
     const nextValue = Math.max(0, Math.round((quote.value - previousSell + sellTotal) * 100) / 100);
+    const metadata = { ...(quote.metadata ?? {}) };
+    if (body.projectId) {
+      metadata.heatDesignProjectId = body.projectId;
+    }
     quote = updateQuote(quote.id, {
       customer: body.customerName || quote.customer,
       description: quote.description?.includes("Heat design")
@@ -96,6 +119,7 @@ export async function POST(request: Request) {
       owner: actor,
       value: nextValue,
       next: "Review heat-design materials cost centre and send quote",
+      metadata,
     })!;
   }
 

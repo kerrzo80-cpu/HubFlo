@@ -8,7 +8,7 @@ export const tenantHeaderName = "x-hubflo-tenant-id";
 export function surveyRequestContext(request: Request) {
   return {
     access: getAccessProfileFromHeaders(request.headers),
-    actor: request.headers.get(employeeHeaderName)?.trim() || "NeXa user",
+    actor: request.headers.get(employeeHeaderName)?.trim() || "Blake user",
     tenantId: request.headers.get(tenantHeaderName)?.trim() || "pilot-ewg",
   };
 }

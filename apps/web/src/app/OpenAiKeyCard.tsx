@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, KeyRound, Loader2, Sparkles, Trash2, TriangleAlert } from "lucide-react";
+import { Check, KeyRound, Loader2, Trash2, TriangleAlert } from "lucide-react";
+import { BuddyCharacter } from "@/lib/BuddyCharacter";
 
 type OpenAiStatus = {
   connected: boolean;
@@ -49,7 +50,7 @@ export function OpenAiKeyCard() {
       }
       if (data) setStatus(data);
       setKeyDraft("");
-      setMessage("OpenAI connected — Blake is now live across NeXa.");
+      setMessage("OpenAI connected — Ayla is now live across Core, Field, Survey and Takeoff.");
     } catch {
       setError("Network error while saving the key.");
     } finally {
@@ -79,23 +80,27 @@ export function OpenAiKeyCard() {
   const fromEnv = status?.source === "env";
 
   return (
-    <section className="ai-key-card">
-      <div className="ai-key-card__glow" aria-hidden />
+    <section className={`ai-key-card ${connected ? "is-live" : "is-waiting"}`}>
       <header className="ai-key-card__head">
-        <span className="ai-key-card__badge">
-          <Sparkles size={18} />
+        <span className="ai-key-card__badge" aria-hidden>
+          <BuddyCharacter
+            mood={connected ? "good" : "alert"}
+            size="md"
+            interactive={false}
+            title="Ayla"
+          />
         </span>
         <div>
-          <span className="ai-key-card__eyebrow">Integrations</span>
-          <h2>NeXa AI · OpenAI</h2>
+          <span className="ai-key-card__eyebrow">Ayla AI backbone</span>
+          <h2>Ayla AI · OpenAI</h2>
           <p>
-            One key powers Blake everywhere — Takeoff extraction, Survey packs, the Field “Ask Blake” chat and the
-            NeXa Assistant.
+            One key powers Ayla across the stack — Core assistant, Survey packs, Field Ask Ayla, Heat Design and
+            Takeoff.
           </p>
         </div>
         <span className={`ai-key-card__status ${connected ? "is-on" : "is-off"}`}>
           {connected ? <Check size={14} /> : <TriangleAlert size={14} />}
-          {connected ? "Connected" : "Not connected"}
+          {connected ? "Ayla live" : "Not connected"}
         </span>
       </header>
 
@@ -107,7 +112,7 @@ export function OpenAiKeyCard() {
           </p>
         ) : (
           <p className="ai-key-card__note">
-            Paste an OpenAI API key to switch NeXa AI on instantly — no redeploy required. Stored securely in your
+            Paste an OpenAI API key to switch Ayla AI on instantly — no redeploy required. Stored securely in your
             workspace and never shown again.
           </p>
         )}
@@ -132,8 +137,12 @@ export function OpenAiKeyCard() {
             disabled={busy || keyDraft.trim().length < 8}
             onClick={save}
           >
-            {busy ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
-            {status?.hasInAppKey ? "Update key" : "Connect"}
+            {busy ? (
+              <Loader2 size={16} className="spin" />
+            ) : (
+              <BuddyCharacter mood="thinking" size="sm" interactive={false} title="Ayla" />
+            )}
+            {status?.hasInAppKey ? "Update key" : "Connect Ayla"}
           </button>
         </div>
 

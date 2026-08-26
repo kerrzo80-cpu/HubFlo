@@ -4,3 +4,4 @@ export * from "./survey-estimator";
 export * from "./surveyor-brain";
 export * from "./estimate-generation";
 export * from "./simpro-sanitize";
+export * from "./blake-core";

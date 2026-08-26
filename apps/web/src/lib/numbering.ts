@@ -67,35 +67,11 @@ export function referenceNumber(value: string | undefined | null) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-/** Highest reference number first (newest issued number at the top). */
+/** Highest reference number first (latest issued number at the top). */
 export function compareReferenceDesc(left?: string | null, right?: string | null) {
   const byNumber = referenceNumber(right) - referenceNumber(left);
   if (byNumber !== 0) return byNumber;
   return String(right ?? "").localeCompare(String(left ?? ""), undefined, { numeric: true, sensitivity: "base" });
-}
-
-/** @deprecated Use compareReferenceDesc — kept as an alias for directory newest-first. */
-export function compareNewestRecord(
-  left: { ref?: string | null; date?: string | null; externalId?: string | null },
-  right: { ref?: string | null; date?: string | null; externalId?: string | null },
-) {
-  return compareReferenceDesc(left.ref, right.ref);
-}
-
-export function sortableDateValue(value?: string | null) {
-  if (!value) return null;
-  const text = String(value).trim();
-  if (!text) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return `${text}T00:00:00.000Z`;
-  if (/^\d{4}-\d{2}-\d{2}[T\s]/.test(text)) {
-    const time = Date.parse(text);
-    return Number.isFinite(time) ? new Date(time).toISOString() : null;
-  }
-  if (/^\d{1,2} [A-Za-z]{3,9} \d{4}/.test(text)) {
-    const time = Date.parse(text);
-    return Number.isFinite(time) ? new Date(time).toISOString() : null;
-  }
-  return null;
 }
 
 export function nextReferenceNumber(

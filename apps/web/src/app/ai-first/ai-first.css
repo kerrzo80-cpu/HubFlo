@@ -1313,3 +1313,233 @@
     opacity: 1;
   }
 }
+
+/* ——— Live AI spine (real handoff) ——— */
+.ai-spine-live {
+  display: grid;
+  gap: 0.85rem;
+  margin: 0 0 1.25rem;
+  padding: 1.15rem 1.25rem 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.96) 0%, rgba(231, 236, 239, 0.9) 100%);
+  box-shadow: var(--shadow-soft);
+  animation: af-panel-in 0.45s ease both;
+}
+
+.ai-spine-live > header .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.35rem;
+  color: var(--verdigris);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ai-spine-live > header h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+}
+
+.ai-spine-live > header p {
+  margin: 0.35rem 0 0;
+  color: var(--steel);
+  line-height: 1.45;
+}
+
+.ai-spine-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.ai-spine-live label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--slate-soft);
+}
+
+.ai-spine-live input,
+.ai-spine-live textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  font-weight: 500;
+  background: var(--white);
+  color: var(--ink);
+}
+
+.ai-spine-notes {
+  display: grid;
+}
+
+.ai-spine-check {
+  display: flex !important;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
+.ai-spine-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.ai-spine-actions .primary {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.65rem 1.1rem;
+  background: var(--gradient-bind);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ai-spine-actions .primary:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.ai-spine-actions .ghost {
+  color: var(--slate-soft);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.ai-spine-error {
+  margin: 0;
+  color: var(--risk);
+  font-weight: 600;
+}
+
+.ai-spine-result {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  background: #fff;
+}
+
+.ai-spine-badge {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--verdigris);
+}
+
+.ai-spine-result .muted {
+  margin: 0;
+  color: var(--steel);
+  font-size: 0.85rem;
+}
+
+.ai-spine-steps {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.ai-spine-steps li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: #f7fafb;
+}
+
+.ai-spine-steps li[data-status="next"] {
+  border-color: color-mix(in srgb, var(--verdigris) 45%, var(--line));
+  background: color-mix(in srgb, var(--verdigris) 8%, #fff);
+}
+
+.ai-spine-steps li div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.ai-spine-steps li span {
+  color: var(--steel);
+  font-size: 0.82rem;
+}
+
+.ai-spine-steps a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+  color: var(--brass);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.ai-spine-qs {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--steel);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 700px) {
+  .ai-spine-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Premium polish pass — spine micro-motion */
+.ai-spine-live {
+  position: relative;
+  overflow: hidden;
+}
+
+.ai-spine-live::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 120%;
+  height: 3px;
+  background: linear-gradient(90deg, var(--verdigris), var(--brass-light), transparent);
+  opacity: 0.85;
+}
+
+.ai-spine-actions .primary {
+  transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 160ms ease;
+  box-shadow: 0 10px 22px rgba(94, 74, 36, 0.18);
+}
+
+.ai-spine-actions .primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(94, 74, 36, 0.22);
+}
+
+.ai-spine-steps li {
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.ai-spine-steps li:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(32, 42, 54, 0.06);
+}
+
+.ai-spine-result {
+  animation: af-panel-in 0.4s ease both;
+}

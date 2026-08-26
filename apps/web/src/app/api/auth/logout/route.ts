@@ -15,7 +15,7 @@ export async function POST(request: Request) {
       action: "signed out",
       recordType: "employee",
       recordId: user.employeeId || user.id,
-      summary: `${user.name} signed out of NeXa.`,
+      summary: `${user.name} signed out of Blake.`,
       source: "authentication",
       importance: "normal",
     });

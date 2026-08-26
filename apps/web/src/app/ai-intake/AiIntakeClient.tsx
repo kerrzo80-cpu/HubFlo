@@ -88,7 +88,7 @@ const requestHeaders: HeadersInit = {
   "x-hubflo-role": "Office",
 };
 
-const surveyors = ["Brian Kerr", "Errol Watson", "James Walsh"];
+const surveyors: string[] = [];
 const sources: LeadSource[] = ["Phone call", "Email", "Website", "Referral", "Checkatrade"];
 
 const recordModeOptions: Array<{ id: RecordMode; label: string; hint: string }> = [
@@ -134,15 +134,15 @@ function modeFromSearch(): RecordMode | null {
 
 function blakeOpener(mode: RecordMode | null) {
   if (mode === "quote") {
-    return "Hi — I’m Blake. We’re creating a quote (no lead). In a sentence, what is the work?";
+    return "Hi — I’m Ayla. We’re creating a quote (no lead). In a sentence, what is the work?";
   }
   if (mode === "job") {
-    return "Hi — I’m Blake. We’re creating a job directly. In a sentence, what is the work?";
+    return "Hi — I’m Ayla. We’re creating a job directly. In a sentence, what is the work?";
   }
   if (mode === "lead") {
-    return "Hi — I’m Blake. In a sentence, what is this lead for?";
+    return "Hi — I’m Ayla. In a sentence, what is this lead for?";
   }
-  return "Hi — I’m Blake. Are we creating a Lead, a Quote, or a Job?";
+  return "Hi — I’m Ayla. Are we creating a Lead, a Quote, or a Job?";
 }
 
 function modeLabel(mode: RecordMode | null) {
@@ -160,10 +160,10 @@ function stageCopy(mode: RecordMode | null) {
       titleDone: "Quote saved",
       lede: "Describe the work in your own words, pick the customer (existing or new), then the site address for this job.",
       detailsLabel: "quote details",
-      saveLabel: "Save quote into NeXa",
+      saveLabel: "Save quote into Blake",
       classicHref: "/?view=quote-create",
       classicLabel: "Use classic form instead",
-      completeMessage: "Quote details are complete. Confirm and I’ll save a Draft quote into NeXa Core.",
+      completeMessage: "Quote details are complete. Confirm and I’ll save a Draft quote into Blake Core.",
       fillMessage: "I’ve filled the remaining details. Confirm when ready to save the quote.",
       flowHighlight: "Quote" as const,
     };
@@ -176,10 +176,10 @@ function stageCopy(mode: RecordMode | null) {
       titleDone: "Job saved",
       lede: "Describe the work in your own words, pick the customer (existing or new), then the site address for this job.",
       detailsLabel: "job details",
-      saveLabel: "Save job into NeXa",
+      saveLabel: "Save job into Blake",
       classicHref: "/?view=job-create",
       classicLabel: "Use classic form instead",
-      completeMessage: "Job details are complete. Confirm and I’ll create the job in NeXa Core.",
+      completeMessage: "Job details are complete. Confirm and I’ll create the job in Blake Core.",
       fillMessage: "I’ve filled the remaining details. Confirm when ready to save the job.",
       flowHighlight: "Job" as const,
     };
@@ -191,10 +191,10 @@ function stageCopy(mode: RecordMode | null) {
     titleDone: "Lead saved",
     lede: "Describe the work in your own words, then customer / site / phone / email. Survey detail comes after the visit.",
     detailsLabel: "lead details",
-    saveLabel: "Save lead into NeXa",
+    saveLabel: "Save lead into Blake",
     classicHref: "/?view=lead-create",
     classicLabel: "Use classic form instead",
-    completeMessage: "Lead details are complete. Book the surveyor and I’ll save this into NeXa Core.",
+    completeMessage: "Lead details are complete. Book the surveyor and I’ll save this into Blake Core.",
     fillMessage: "I’ve filled the remaining lead details. Book the surveyor when ready.",
     flowHighlight: "Lead" as const,
   };
@@ -223,7 +223,7 @@ export function AiIntakeClient() {
     { role: "ai", text: blakeOpener(null) },
   ]);
   const [source, setSource] = useState<LeadSource>("Phone call");
-  const [surveyor, setSurveyor] = useState(surveyors[0] || "Brian Kerr");
+  const [surveyor, setSurveyor] = useState("");
   const [surveyDate, setSurveyDate] = useState("");
   const [surveyTime, setSurveyTime] = useState("09:30");
   const [bookSurvey, setBookSurvey] = useState(true);
@@ -301,7 +301,7 @@ export function AiIntakeClient() {
           setAddressMatches(matches);
           setAddressMeta(body?.meta || null);
           if (body?.incomplete) {
-            setAddressHint("Keep typing the full postcode (e.g. AB15 4YE) and Blake will list the street.");
+            setAddressHint("Keep typing the full postcode (e.g. AB15 4YE) and Ayla will list the street.");
           } else if (matches.length === 0 && body?.meta?.postcode) {
             setAddressHint(
               `Postcode ${body.meta.postcode}${body.meta.town ? ` (${body.meta.town})` : ""} is valid — type the house number and street, or try again.`,
@@ -583,7 +583,7 @@ export function AiIntakeClient() {
         phone: phone || undefined,
         email: email || undefined,
         primaryContact: name.trim(),
-        source: `Blake AI ${modeLabel(recordMode).toLowerCase()} intake`,
+        source: `Ayla AI ${modeLabel(recordMode).toLowerCase()} intake`,
         actor: "Carol",
         serviceLine: workType.trim() || "New work",
         status: "Prospect",
@@ -629,7 +629,7 @@ export function AiIntakeClient() {
         email: fieldValue(fields, "email"),
         notes: selectedClient
           ? `Existing client ${selectedClient.name}; new site via Blake`
-          : "Captured via Blake AI intake",
+          : "Captured via Ayla AI intake",
       },
     };
 
@@ -673,7 +673,7 @@ export function AiIntakeClient() {
     setSavedRef(result.lead.ref);
     setSavedKind("lead");
     setPhase("done");
-    showToast(`${result.lead.ref} saved — Blake handed it to Core`);
+    showToast(`${result.lead.ref} saved — Ayla handed it to Core`);
     window.setTimeout(() => {
       window.location.assign(`/?lead=${encodeURIComponent(result.lead!.id)}`);
     }, 900);
@@ -703,7 +703,7 @@ export function AiIntakeClient() {
     setSavedRef(result.ref || result.id);
     setSavedKind("quote");
     setPhase("done");
-    showToast(`${result.ref || "Quote"} saved — Blake handed it to Core`);
+    showToast(`${result.ref || "Quote"} saved — Ayla handed it to Core`);
     window.setTimeout(() => {
       window.location.assign(`/?quote=${encodeURIComponent(result.id!)}`);
     }, 900);
@@ -734,7 +734,7 @@ export function AiIntakeClient() {
     setSavedRef(result.ref || result.id);
     setSavedKind("job");
     setPhase("done");
-    showToast(`${result.ref || "Job"} saved — Blake handed it to Core`);
+    showToast(`${result.ref || "Job"} saved — Ayla handed it to Core`);
     window.setTimeout(() => {
       window.location.assign(`/?job=${encodeURIComponent(result.id!)}`);
     }, 900);
@@ -778,7 +778,7 @@ export function AiIntakeClient() {
       await saveLead(name, address);
     } catch (err) {
       setPhase("book");
-      setError(err instanceof Error ? err.message : "NeXa could not be reached. Check you are signed in and try again.");
+      setError(err instanceof Error ? err.message : "Blake could not be reached. Check you are signed in and try again.");
     }
   }
 
@@ -795,19 +795,19 @@ export function AiIntakeClient() {
 
   const brandSubtitle =
     recordMode === "quote"
-      ? "Blake AI intake · creates a real quote in Core"
+      ? "Ayla AI intake · creates a real quote in Core"
       : recordMode === "job"
-        ? "Blake AI intake · creates a real job in Core"
-        : "Blake AI intake · creates a real lead in Core";
+        ? "Ayla AI intake · creates a real job in Core"
+        : "Ayla AI intake · creates a real lead in Core";
 
   return (
     <div className="ai-first-root">
       <div className="ai-first-shell">
         <header className="ai-first-topbar">
           <div className="ai-first-brand">
-            <img src="/brand/nexa-command-mark.svg" alt="NeXa" />
+            <img src="/brand/blake-mark.svg" alt="blake." />
             <div className="ai-first-brand-copy">
-              <strong>NeXa</strong>
+              <strong>Ayla</strong>
               <span>{brandSubtitle}</span>
             </div>
           </div>
@@ -819,7 +819,7 @@ export function AiIntakeClient() {
           </div>
         </header>
 
-        <div className="ai-flow-strip" aria-label="NeXa operating flow">
+        <div className="ai-flow-strip" aria-label="Blake operating flow">
           {(
             [
               "Lead",
@@ -840,7 +840,7 @@ export function AiIntakeClient() {
 
         <main className="ai-first-stage">
           <section className="ai-first-panel">
-            <p className="ai-first-eyebrow">Blake · Live NeXa intake</p>
+            <p className="ai-first-eyebrow">Ayla · Live Blake intake</p>
             <div className="ai-header-row">
               <div>
                 <h1 className="ai-first-title">{pageTitle}</h1>
@@ -879,7 +879,7 @@ export function AiIntakeClient() {
                   </p>
                   <h3 style={{ marginTop: 0 }}>What is the work?</h3>
                   <p className="ai-summary">
-                    Type it in your own words — Blake won’t force boiler / bathroom chips. There are too many variants for static options.
+                    Type it in your own words — Ayla won’t force boiler / bathroom chips. There are too many variants for static options.
                   </p>
                   <div className="ai-prompt-shell" style={{ marginTop: 10 }}>
                     <textarea
@@ -933,7 +933,7 @@ export function AiIntakeClient() {
                       <span />
                       <span />
                     </div>
-                    Blake is setting up the intake…
+                    Ayla is setting up the intake…
                   </div>
                 )}
               </>
@@ -975,7 +975,7 @@ export function AiIntakeClient() {
 
                 <div className="ai-split">
                   <div className="ai-section">
-                    <h3>Blake</h3>
+                    <h3>Ayla</h3>
                     <div className="ai-chat">
                       {conversation.map((message, index) => (
                         <div key={`${message.role}-${index}`} className={`ai-bubble ${message.role}`}>
@@ -1020,7 +1020,7 @@ export function AiIntakeClient() {
                           />
                           {customerBusy ? (
                             <p className="ai-summary" style={{ margin: "0 0 8px" }}>
-                              Blake is searching clients…
+                              Ayla is searching clients…
                             </p>
                           ) : null}
                           {customerMatches.length > 0 ? (
@@ -1104,7 +1104,7 @@ export function AiIntakeClient() {
                           Site address
                         </h3>
                         <p className="ai-summary">
-                          Enter the postcode. Blake looks up UK addresses on the internet and offers matches to select
+                          Enter the postcode. Ayla looks up UK addresses on the internet and offers matches to select
                           {selectedClient
                             ? ` — this becomes a new site on ${selectedClient.name}, not their billing address`
                             : ""}
@@ -1128,7 +1128,7 @@ export function AiIntakeClient() {
                           />
                           {addressBusy ? (
                             <p className="ai-summary" style={{ margin: "0 0 8px" }}>
-                              Blake is searching addresses…
+                              Ayla is searching addresses…
                             </p>
                           ) : null}
                           {!addressBusy && addressHint ? (
@@ -1269,7 +1269,7 @@ export function AiIntakeClient() {
                                 </>
                               ) : (
                                 <>
-                                  Blake will create the customer/site if needed, then save the{" "}
+                                  Ayla will create the customer/site if needed, then save the{" "}
                                   {modeLabel(recordMode).toLowerCase()} for{" "}
                                   <strong>{fieldValue(fields, "customer") || customerName}</strong> at{" "}
                                   <strong>{siteAddress}</strong>.

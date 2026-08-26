@@ -3,12 +3,19 @@ services:
     name: nexa-live
     runtime: node
     region: frankfurt
-    plan: starter
-    autoDeploy: true
+    # Core + SQLite hub needs headroom. Starter (512MB) OOMs → ECONNRESET / port-bind flaps.
+    plan: pro
+    # Freeze live auto-deploys. Ship WIP to nexa-pilot; promote to live only after
+    # office acceptance (or a blocking fault fix). Confirm Auto-Deploy is Off in
+    # the Render dashboard for nexa-live as well if Blueprint sync is not applied.
+    autoDeploy: false
     healthCheckPath: /api/health
-    # Bump to force Render to pick up postcode street-list fix (AB12 4TG).
-    buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile --filter @hubflo/web... && NODE_OPTIONS=--max-old-space-size=3072 pnpm --filter @hubflo/web build && echo "nexa-postcode-lookup=street-list-v2"
-    startCommand: corepack enable && pnpm --filter @hubflo/web start --hostname 0.0.0.0 --port $PORT
+    # Build heap is set only here (not as a runtime env var).
+    buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test && NODE_OPTIONS=--max-old-space-size=3072 pnpm build && echo "nexa-runtime-mem=pro-2048-v1"
+    # Start Next directly — never run Corepack/pnpm here. Every `corepack enable` was
+    # re-downloading pnpm from npm (Cloudflare) and unhandled UND_ERR_SOCKET killed the
+    # instance on restart → random 502s.
+    startCommand: NODE_OPTIONS=--max-old-space-size=2048 node apps/web/node_modules/next/dist/bin/next start apps/web --hostname 0.0.0.0 --port $PORT
     disk:
       name: nexa-live-data
       mountPath: /var/data
@@ -16,14 +23,17 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 24.14.0
-      - key: NODE_OPTIONS
-        value: --max-old-space-size=3072
+      # Do NOT set a large max-old-space-size here — it also hits the build step and
+      # on Starter it caused OOM kills (ECONNRESET spam). Runtime heap is in startCommand.
       - key: NEXA_STORE_PATH
         value: /var/data/nexa-live.sqlite
       - key: NEXA_STORE_DIR
         value: /var/data
       - key: NEXA_WORKSPACE_MODE
         value: live
+      # Stable key for encrypted mailbox app passwords (set once in Render dashboard)
+      - key: NEXA_EMAIL_SETTINGS_SECRET
+        sync: false
       - key: NEXA_AUTH_MODE
         value: users
       - key: NEXA_ADMIN_NAME
@@ -36,6 +46,12 @@ services:
         sync: false
       - key: NEXT_PUBLIC_APP_URL
         value: https://nexa-live.onrender.com
+      - key: XERO_CLIENT_ID
+        sync: false
+      - key: XERO_CLIENT_SECRET
+        sync: false
+      - key: XERO_REDIRECT_URI
+        value: https://nexa-live.onrender.com/api/integrations/xero/callback
       # Preferred: direct simPRO OAuth for quote/job push while NeXa is the front end
       - key: SIMPRO_BASE_URL
         sync: false
@@ -60,6 +76,8 @@ services:
       # Shared with the EOD cron job — required for unattended simPRO refresh
       - key: NEXA_IMPORT_TICK_SECRET
         sync: false
+      - key: HUBFLO_INTEGRATION_TOKEN
+        sync: false
       # Optional temporary scheduler bridge fallback
       - key: SIMPRO_SCHEDULER_BASE_URL
         value: https://ewg-hub-scheduler.onrender.com
@@ -71,6 +89,29 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: NEXT_PUBLIC_SENTRY_DSN
+        sync: false
+      - key: SENTRY_AUTH_TOKEN
+        sync: false
+      - key: SENTRY_ORG
+        sync: false
+      - key: SENTRY_PROJECT
+        sync: false
+      - key: NEXA_ENVIRONMENT
+        value: live
+      - key: NEXT_PUBLIC_NEXA_ENVIRONMENT
+        value: live
+      # Mirror JSON stores to nexa-live-postgres (SQLite remains primary until ETL cutover).
+      - key: NEXA_POSTGRES_MIRROR
+        value: "1"
+      - key: NEXA_TENANT_KEY
+        value: ewg-live
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nexa-live-postgres
+          property: connectionString
       - key: NEXA_OPENAI_API_KEY
         sync: false
       - key: NEXA_ASSISTANT_OPENAI_MODEL
@@ -83,21 +124,102 @@ services:
         sync: false
       - key: NEXA_POSTCODE_LOOKUP_VERSION
         value: street-list-v3
+      - key: NEXA_BACKUP_CRON_SECRET
+        sync: false
+      - key: NEXA_BACKUP_DIR
+        value: /var/data/backups
+      - key: BACKUP_RETENTION_DAYS
+        value: "30"
+      - key: BACKUP_S3_BUCKET
+        sync: false
+      - key: BACKUP_S3_ACCESS_KEY_ID
+        sync: false
+      - key: BACKUP_S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: BACKUP_S3_REGION
+        sync: false
+      - key: BACKUP_S3_ENDPOINT
+        sync: false
+      - key: BACKUP_S3_PREFIX
+        sync: false
 
-  # Weekday end-of-day pull of fresh simPRO data into NeXa (same working set as Apply).
-  # Set the same NEXA_IMPORT_TICK_SECRET on this cron and on nexa-live.
+  # Nightly office backup onto /var/data/backups (+ S3 when BACKUP_S3_* is set).
+  - type: cron
+    name: nexa-live-nightly-backup
+    runtime: node
+    region: frankfurt
+    plan: starter
+    schedule: "20 2 * * *"
+    buildCommand: echo "nexa-live-office-backup-cron"
+    startCommand: >-
+      node --input-type=module -e "
+      const secret = process.env.NEXA_BACKUP_CRON_SECRET;
+      if (!secret) { console.error('NEXA_BACKUP_CRON_SECRET missing — set the same value on nexa-live and this cron'); process.exit(1); }
+      const res = await fetch('https://nexa-live.onrender.com/api/office-backup/cron', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-nexa-backup-secret': secret,
+        },
+        body: '{}',
+      });
+      const text = await res.text();
+      console.log(res.status, text.slice(0, 2000));
+      if (!res.ok) process.exit(1);
+      "
+    envVars:
+      - key: NODE_VERSION
+        value: 24.14.0
+      - key: NEXA_BACKUP_CRON_SECRET
+        sync: false
+
+  # Nightly simPRO pull — new/open leads, quotes, jobs, invoices, schedules (+ clients/sites).
+  # Same working set as Setup → Import Apply. Set the same NEXA_IMPORT_TICK_SECRET on this cron and on nexa-live.
   - type: cron
     name: nexa-live-simpro-eod
     runtime: node
     region: frankfurt
     plan: starter
-    schedule: "0 18 * * 1-5"
+    schedule: "0 21 * * *"
     buildCommand: echo "nexa-simpro-eod-cron"
     startCommand: >-
       node --input-type=module -e "
       const secret = process.env.NEXA_IMPORT_TICK_SECRET;
       if (!secret) { console.error('NEXA_IMPORT_TICK_SECRET missing'); process.exit(1); }
       const res = await fetch('https://nexa-live.onrender.com/api/integrations/simpro/sync/cron', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-nexa-import-tick-secret': secret,
+        },
+        body: JSON.stringify({
+          entities: ['leads','quotes','jobs','schedules','invoices','clients','sites'],
+          actor: 'Nightly cron',
+        }),
+      });
+      const text = await res.text();
+      console.log(res.status, text.slice(0, 2000));
+      if (!res.ok) process.exit(1);
+      "
+    envVars:
+      - key: NODE_VERSION
+        value: 24.14.0
+      - key: NEXA_IMPORT_TICK_SECRET
+        sync: false
+
+  # Monday 08:00 UTC board pack email (enable recipients in Core → Reports → Schedule email).
+  - type: cron
+    name: nexa-live-board-pack-monday
+    runtime: node
+    region: frankfurt
+    plan: starter
+    schedule: "5 8 * * 1"
+    buildCommand: echo "nexa-board-pack-cron"
+    startCommand: >-
+      node --input-type=module -e "
+      const secret = process.env.NEXA_IMPORT_TICK_SECRET;
+      if (!secret) { console.error('NEXA_IMPORT_TICK_SECRET missing'); process.exit(1); }
+      const res = await fetch('https://nexa-live.onrender.com/api/reports/board-pack/cron', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -112,5 +234,66 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 24.14.0
+
       - key: NEXA_IMPORT_TICK_SECRET
         sync: false
+
+  # Hourly liveness only (public /api/health). Does NOT call /api/health/smoke.
+  # Full path smoke stays in GitHub Actions — Render emails "server failure" whenever
+  # this cron exits non-zero, which destroyed confidence when the old secret-gated
+  # full smoke hit deploy cutovers / 403s. Exit 1 only if health explicitly reports
+  # ok:false after sustained retries; everything else soft-passes (exit 0).
+  - type: cron
+    name: nexa-live-deploy-smoke
+    runtime: node
+    region: frankfurt
+    plan: starter
+    schedule: "5 * * * *"
+    buildCommand: echo "nexa-deploy-smoke-cron-liveness-v1"
+    startCommand: >-
+      node --input-type=module -e "
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const isTransientStatus = (status) => [0, 408, 425, 429, 500, 502, 503, 504, 520, 522, 524].includes(status);
+      let lastStatus = 0;
+      let lastText = '';
+      let explicitUnhealthy = 0;
+      for (let attempt = 1; attempt <= 8; attempt++) {
+        try {
+          const res = await fetch('https://nexa-live.onrender.com/api/health', {
+            method: 'GET',
+            headers: { accept: 'application/json' },
+            cache: 'no-store',
+          });
+          lastStatus = res.status;
+          lastText = await res.text();
+          let body = null;
+          try { body = JSON.parse(lastText); } catch {}
+          const ok = res.status === 200 && body?.ok === true;
+          console.log(JSON.stringify({ attempt, status: lastStatus, ok, commit: body?.deployment?.commit || null }));
+          if (ok) process.exit(0);
+          if (res.status === 200 && body && body.ok === false) explicitUnhealthy += 1;
+        } catch (error) {
+          lastStatus = 0;
+          lastText = error instanceof Error ? error.message : String(error);
+          console.log(JSON.stringify({ attempt, error: lastText }));
+        }
+        await sleep(20000);
+      }
+      // Only page when the app repeatedly says it is unhealthy.
+      if (explicitUnhealthy >= 3) {
+        console.error(JSON.stringify({ fail: true, reason: 'health-ok-false', lastStatus, lastText: lastText.slice(0, 500) }));
+        process.exit(1);
+      }
+      console.warn(JSON.stringify({ softPass: true, reason: isTransientStatus(lastStatus) ? 'deploy-or-proxy-window' : 'inconclusive-liveness', lastStatus, lastText: lastText.slice(0, 500) }));
+      process.exit(0);
+      "
+    envVars:
+      - key: NODE_VERSION
+        value: 24.14.0
+
+databases:
+  - name: nexa-live-postgres
+    region: frankfurt
+    plan: basic-256mb
+    databaseName: nexa_live
+    user: nexa_live

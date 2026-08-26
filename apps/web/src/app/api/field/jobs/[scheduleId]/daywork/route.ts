@@ -28,6 +28,8 @@ import { activateDayworkWorkflow, clearDayworkWorkflowMode } from "@/lib/enginee
 import { getDayworkSheetFromStore, listDayworkSheetsFromStore } from "@/lib/daywork-sheets-store";
 import { createDayworkAccountPdf, dayworkPdfFilename } from "@/lib/daywork-pdf";
 import { sendEmailMessage } from "@/lib/email-integration-store";
+import { displayCompanyName } from "@/lib/branding";
+import { getHubDetailState } from "@/lib/hub-detail-store";
 import { recordDayworkWriteAttempt } from "@/lib/daywork-write-log";
 import { getJobs } from "@/lib/workflow-data";
 import { toUkDateDisplay } from "@/lib/uk-date";
@@ -196,7 +198,7 @@ export async function POST(request: Request, { params }: Params) {
           `Total hours: ${hours}`,
           "",
           "Kind regards,",
-          "Errol Watson Group",
+          displayCompanyName(getHubDetailState().businessSettings),
         ].join("\n"),
         attachments: [
           {

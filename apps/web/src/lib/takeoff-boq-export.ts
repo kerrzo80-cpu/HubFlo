@@ -156,7 +156,7 @@ export function buildTakeoffBoqXlsx(args: {
   <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
 </Types>`;
 
-  const meta = `NeXa Takeoff BOQ · ${args.reference} · ${args.projectName} · ${args.trade}`;
+  const meta = `Blake Takeoff BOQ · ${args.reference} · ${args.projectName} · ${args.trade}`;
 
   return zipStore([
     { name: "[Content_Types].xml", data: Buffer.from(contentTypes, "utf8") },
@@ -195,7 +195,7 @@ export async function buildMarkedUpPdf(args: {
       color: rgb(0.05, 0.18, 0.12),
       opacity: 0.88,
     });
-    page.drawText("NeXa Takeoff markup", {
+    page.drawText("Blake Takeoff markup", {
       x: 36,
       y: height - 42,
       size: 12,

@@ -6,8 +6,12 @@ import { resetLeadStore } from "@/lib/lead-store";
 import { resetWorkflowAuditEvents } from "@/lib/people-data";
 import { resetTakeoffStore } from "@/lib/takeoff-data";
 import { resetWorkflowStore } from "@/lib/workflow-data";
+import { getWorkspaceMode } from "@/lib/workspace-mode";
 
 export async function POST(request: Request) {
+  if (getWorkspaceMode() === "live") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const access = getAccessProfileFromHeaders(request.headers);
   if (!access.canCreateLead || !access.canCreateQuote || !access.canCreateJob || !access.canEditInvoice) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

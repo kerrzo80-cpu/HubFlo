@@ -268,9 +268,9 @@ async function planOperatorAction(
             content: [{
               type: "input_text",
               text: [
-                "You are Blake's NeXa write-action planner.",
+                "You are Ayla's Blake write-action planner.",
                 `The logged-in user is authorised for only these write capabilities: ${allowed.join(", ")}.`,
-                "Select one authorised capability only when the user wants NeXa changed. Otherwise return none.",
+                "Select one authorised capability only when the user wants Blake changed. Otherwise return none.",
                 "Extract only facts explicitly supplied by the user or clearly established in the recent conversation. Never invent record references, names, addresses, descriptions, dates or money values.",
                 "Do not treat staff diary booking/scheduling as these capabilities; return none because the existing scheduler handler owns that workflow.",
                 "create_quote defaults to Draft. create_job safely defaults status, health, value, next and due when omitted.",
@@ -374,7 +374,7 @@ function createPending(plan: OperatorPlan, actor: { id: string; name: string }) 
 
 function confirmationResponse(pending: PendingOperatorAction): NexaAssistantResponse {
   return {
-    reply: `${pending.summary}\n\nReady to make this change in NeXa. Confirm?`,
+    reply: `${pending.summary}\n\nReady to make this change in Blake. Confirm?`,
     intent: { action: "chat" },
     action: {
       id: pending.id,
@@ -396,7 +396,7 @@ function audit(actor: string, action: string, recordType: string, recordId: stri
     recordType,
     recordId,
     summary,
-    source: "Blake",
+    source: "Ayla",
     importance: "high",
   });
 }
@@ -406,7 +406,7 @@ function executePending(pending: PendingOperatorAction, access: AccessProfile) {
     return {
       ok: false as const,
       status: 403,
-      reply: `Your current NeXa role is not allowed to ${humanCapability(pending.capability)}. Nothing was changed.`,
+      reply: `Your current Blake role is not allowed to ${humanCapability(pending.capability)}. Nothing was changed.`,
     };
   }
   const f = pending.fields;
@@ -554,14 +554,14 @@ export async function handleBlakeOperatorMessage(
   }
   if (pending && isCancellation(message)) {
     removePending(pending.id);
-    return { reply: "Cancelled — I have not changed anything in NeXa.", intent: { action: "chat" }, aiUsed: false };
+    return { reply: "Cancelled — I have not changed anything in Blake.", intent: { action: "chat" }, aiUsed: false };
   }
 
   if (!looksLikeOperatorConversation(message, history)) return null;
   const plan = await planOperatorAction(message, history, access);
   if (!plan || plan.action === "none") return null;
   if (!permissionAllows(access, plan.action)) {
-    return { reply: `Your current NeXa role does not allow me to ${humanCapability(plan.action)}.`, intent: { action: "chat" }, aiUsed: true };
+    return { reply: `Your current Blake role does not allow me to ${humanCapability(plan.action)}.`, intent: { action: "chat" }, aiUsed: true };
   }
 
   const missing = requiredMissing(plan);
@@ -576,13 +576,13 @@ export async function handleBlakeOperatorMessage(
     return { reply: `What would you like me to change on ${plan.targetRef}?`, intent: { action: "chat" }, aiUsed: true };
   }
   if (plan.action === "update_lead" && !findLeadByRef(plan.targetRef)) {
-    return { reply: `I cannot find ${plan.targetRef} in the current NeXa leads. Check the reference and I’ll try again.`, intent: { action: "chat" }, aiUsed: true };
+    return { reply: `I cannot find ${plan.targetRef} in the current Blake leads. Check the reference and I’ll try again.`, intent: { action: "chat" }, aiUsed: true };
   }
   if (plan.action === "update_quote" && !findQuoteByRef(plan.targetRef)) {
-    return { reply: `I cannot find ${plan.targetRef} in the current NeXa quotes. Check the reference and I’ll try again.`, intent: { action: "chat" }, aiUsed: true };
+    return { reply: `I cannot find ${plan.targetRef} in the current Blake quotes. Check the reference and I’ll try again.`, intent: { action: "chat" }, aiUsed: true };
   }
   if (plan.action === "update_job" && !findJobByRef(plan.targetRef)) {
-    return { reply: `I cannot find ${plan.targetRef} in the current NeXa jobs. Check the reference and I’ll try again.`, intent: { action: "chat" }, aiUsed: true };
+    return { reply: `I cannot find ${plan.targetRef} in the current Blake jobs. Check the reference and I’ll try again.`, intent: { action: "chat" }, aiUsed: true };
   }
 
   return confirmationResponse(createPending(plan, actor));

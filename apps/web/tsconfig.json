@@ -3,6 +3,8 @@
   "compilerOptions": {
     "jsx": "preserve",
     "incremental": true,
+    "noUncheckedIndexedAccess": false,
+    "allowImportingTsExtensions": true,
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./src/*"]
@@ -14,5 +16,5 @@
     "**/*.tsx",
     ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "**/*.test.ts", "**/*.test.tsx"]
 }

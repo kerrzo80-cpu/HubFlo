@@ -9,9 +9,14 @@ import {
 } from "@/lib/workflow-data";
 import { getLeads, type LeadRecord } from "@/lib/lead-store";
 import { getAccessProfileFromHeaders } from "@/lib/access";
+import { getAuthenticatedUser } from "@/lib/auth-request";
 import { parseJsonRequestBody } from "@/lib/http";
+import { recordLockErrorResponse } from "@/lib/record-lock-http";
+import { assertRecordLockForWrite } from "@/lib/record-edit-locks";
 import { appendAuditEvent } from "@/lib/people-data";
 import { clearSimproLinksForNexaRecord } from "@/lib/simpro-sync";
+import { getHubDetailState } from "@/lib/hub-detail-store";
+import { jobInvoiceReviewComplete } from "@/lib/job-invoice-review";
 
 const defaultJobScheduleDurationMinutes = 60;
 
@@ -125,6 +130,16 @@ export async function PATCH(
     return NextResponse.json({ error: "Job not found" }, { status: 404 });
   }
 
+  if (
+    body.status === "Ready to invoice" &&
+    !jobInvoiceReviewComplete(getHubDetailState().jobReviews?.[id])
+  ) {
+    return NextResponse.json(
+      { error: "Chris, Commercial and Carol must all approve this job before it can move to Ready to invoice." },
+      { status: 409 },
+    );
+  }
+
   const nextManager = body.manager ?? current.manager;
   const nextDate = body.scheduledDate ?? current.scheduledDate;
   const nextTime = body.scheduledTime ?? current.scheduledTime;
@@ -146,43 +161,53 @@ export async function PATCH(
     }
   }
 
-  const isBeingScheduled = Boolean(nextManager && nextDate && nextTime);
-  const shouldEnterActiveWorkflow = isBeingScheduled && ["Pending", "Scheduled"].includes(current.status);
-  const updated = updateJob(id, {
-    ...body,
-    status: body.status ?? (shouldEnterActiveWorkflow ? "In progress" : current.status),
-    next: body.next ?? (shouldEnterActiveWorkflow ? "Complete scheduled work" : current.next),
-  });
-  if (!updated) {
-    return NextResponse.json({ error: "Job not found" }, { status: 404 });
-  }
+  const authUser = getAuthenticatedUser(request);
+  try {
+    if (authUser) {
+      assertRecordLockForWrite({ recordType: "job", recordId: id, userId: authUser.id });
+    }
+    const isBeingScheduled = Boolean(nextManager && nextDate && nextTime);
+    const shouldEnterActiveWorkflow = isBeingScheduled && ["Pending", "Scheduled"].includes(current.status);
+    const updated = updateJob(id, {
+      ...body,
+      status: body.status ?? (shouldEnterActiveWorkflow ? "In progress" : current.status),
+      next: body.next ?? (shouldEnterActiveWorkflow ? "Complete scheduled work" : current.next),
+    });
+    if (!updated) {
+      return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    }
 
-  if (
-    updated.manager !== current.manager ||
-    updated.scheduledDate !== current.scheduledDate ||
-    updated.scheduledTime !== current.scheduledTime
-  ) {
-    appendAuditEvent({
-      actor: "HubFlo user",
-      action: "scheduled",
-      recordType: "job",
-      recordId: updated.id,
-      summary: `${updated.ref} scheduled to ${updated.manager} on ${updated.scheduledDate} at ${updated.scheduledTime}.`,
-      source: "job planner",
-      importance: "high",
-    });
-  } else if (updated.status !== current.status) {
-    appendAuditEvent({
-      actor: "HubFlo user",
-      action: "status changed",
-      recordType: "job",
-      recordId: updated.id,
-      summary: `${updated.ref} changed from ${current.status} to ${updated.status}.`,
-      source: "job workflow",
-      importance: "normal",
-    });
+    if (
+      updated.manager !== current.manager ||
+      updated.scheduledDate !== current.scheduledDate ||
+      updated.scheduledTime !== current.scheduledTime
+    ) {
+      appendAuditEvent({
+        actor: "HubFlo user",
+        action: "scheduled",
+        recordType: "job",
+        recordId: updated.id,
+        summary: `${updated.ref} scheduled to ${updated.manager} on ${updated.scheduledDate} at ${updated.scheduledTime}.`,
+        source: "job planner",
+        importance: "high",
+      });
+    } else if (updated.status !== current.status) {
+      appendAuditEvent({
+        actor: "HubFlo user",
+        action: "status changed",
+        recordType: "job",
+        recordId: updated.id,
+        summary: `${updated.ref} changed from ${current.status} to ${updated.status}.`,
+        source: "job workflow",
+        importance: "normal",
+      });
+    }
+    return NextResponse.json(updated);
+  } catch (error) {
+    const locked = recordLockErrorResponse(error);
+    if (locked) return locked;
+    throw error;
   }
-  return NextResponse.json(updated);
 }
 
 export async function DELETE(

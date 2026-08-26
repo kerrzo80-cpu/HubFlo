@@ -2,9 +2,14 @@ import { NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { employeeHeaderName } from "@/lib/access";
+import { getHubDetailState } from "@/lib/hub-detail-store";
 import { getLead, getLeads, removeLead, type LeadPatchPayload, type LeadRecord, updateLead } from "@/lib/lead-store";
 import { getJobs, type Job } from "@/lib/workflow-data";
+import { getAuthenticatedUser } from "@/lib/auth-request";
 import { parseJsonRequestBody } from "@/lib/http";
+import { recordLockErrorResponse } from "@/lib/record-lock-http";
+import { assertRecordLockForWrite } from "@/lib/record-edit-locks";
+import { assertLeadSurveyAgainstPlans, type HubScheduleAssignment } from "@/lib/schedule-clash";
 
 type LeadSurveyBooking = {
   leadId: string;
@@ -68,16 +73,29 @@ function leadSurveyClashErrorPayload(booking: LeadSurveyBooking, leads: LeadReco
     return {
       conflict: true,
       conflictLeadRef: clash.ref,
+      code: "SCHEDULE_CLASH",
       message: `${booking.surveyor} already has ${clash.ref} at ${clash.surveyTime} for ${clash.customerName}.`,
     };
   }
   const jobClash = findLeadOverlappingJob(booking, jobs);
-  if (!jobClash) return null;
-  return {
-    conflict: true,
-    conflictJobRef: jobClash.ref,
-    message: `${booking.surveyor} already has ${jobClash.ref} at ${jobClash.scheduledTime || "time"} for ${jobClash.customer}.`,
-  };
+  if (jobClash) {
+    return {
+      conflict: true,
+      conflictJobRef: jobClash.ref,
+      code: "SCHEDULE_CLASH",
+      message: `${booking.surveyor} already has ${jobClash.ref} at ${jobClash.scheduledTime || "time"} for ${jobClash.customer}.`,
+    };
+  }
+  const plans = (getHubDetailState().jobSchedulePlans || {}) as Record<string, HubScheduleAssignment[]>;
+  const planClash = assertLeadSurveyAgainstPlans(booking, plans, leads);
+  if (planClash) {
+    return {
+      conflict: true,
+      code: "SCHEDULE_CLASH",
+      message: planClash,
+    };
+  }
+  return null;
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -117,23 +135,33 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     }
   }
 
-  const updated = updateLead(
-    leadId,
-    {
-      status: payload.status,
-      lostReason: payload.lostReason,
-      surveyor: payload.surveyor,
-      surveyDate: payload.surveyDate,
-      surveyTime: payload.surveyTime,
-      siteId: payload.siteId,
-      next: payload.next,
-    },
-    actor,
-  );
-  if (!updated) {
-    return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+  const authUser = getAuthenticatedUser(request);
+  try {
+    if (authUser) {
+      assertRecordLockForWrite({ recordType: "lead", recordId: leadId, userId: authUser.id });
+    }
+    const updated = updateLead(
+      leadId,
+      {
+        status: payload.status,
+        lostReason: payload.lostReason,
+        surveyor: payload.surveyor,
+        surveyDate: payload.surveyDate,
+        surveyTime: payload.surveyTime,
+        siteId: payload.siteId,
+        next: payload.next,
+      },
+      actor,
+    );
+    if (!updated) {
+      return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+    }
+    return NextResponse.json(updated);
+  } catch (error) {
+    const locked = recordLockErrorResponse(error);
+    if (locked) return locked;
+    throw error;
   }
-  return NextResponse.json(updated);
 }
 
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {

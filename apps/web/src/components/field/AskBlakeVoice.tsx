@@ -31,14 +31,14 @@ type AskBlakeVoiceProps = {
 const SPEECH_LEVEL = 0.04;
 
 /**
- * Push-to-talk only: Start → speak → I’m done → Blake answers once.
+ * Push-to-talk only: Start → speak → I’m done → Ayla answers once.
  * Continuous auto-listen loops are too unreliable on iPhone Safari.
  */
 export function AskBlakeVoice({
   job = null,
-  apiPath = "/api/field/ask-blake",
-  speakPath = "/api/field/ask-blake/speak",
-  transcribePath = "/api/field/ask-blake/transcribe",
+  apiPath = "/api/field/ask-ayla",
+  speakPath = "/api/field/ask-ayla/speak",
+  transcribePath = "/api/field/ask-ayla/transcribe",
   openaiConnected = null,
 }: AskBlakeVoiceProps) {
   const [supported, setSupported] = useState(true);
@@ -129,7 +129,7 @@ export function AskBlakeVoice({
       });
     } catch {
       recordingRef.current = false;
-      setError("Allow the microphone for Ask Blake, then try again.");
+      setError("Allow the microphone for Ask Ayla, then try again.");
       setState("error");
       stopMicStream(micStreamRef.current);
       micStreamRef.current = null;
@@ -141,7 +141,7 @@ export function AskBlakeVoice({
     recordingRef.current = false;
     stopLevelMonitor();
     setState("thinking");
-    setHint("Blake is catching that…");
+    setHint("Ayla is catching that…");
 
     const recorder = recorderRef.current;
     recorderRef.current = null;
@@ -175,7 +175,7 @@ export function AskBlakeVoice({
 
   async function askBlake(transcript: string) {
     setState("thinking");
-    setHint("Blake is thinking…");
+    setHint("Ayla is thinking…");
     const history = historyRef.current.slice(-10);
     historyRef.current = [...history, { role: "user", text: transcript }];
 
@@ -204,10 +204,10 @@ export function AskBlakeVoice({
       try {
         body = raw ? JSON.parse(raw) as typeof body : {};
       } catch {
-        throw new Error(raw.trim() || "Blake couldn’t reply.");
+        throw new Error(raw.trim() || "Ayla couldn’t reply.");
       }
       if (!response.ok || !body.reply?.trim()) {
-        throw new Error(body.error || raw.trim() || "Blake couldn’t reply.");
+        throw new Error(body.error || raw.trim() || "Ayla couldn’t reply.");
       }
 
       const reply = body.reply.trim();
@@ -216,7 +216,7 @@ export function AskBlakeVoice({
       if (body.warning) setError(body.warning);
 
       setState("speaking");
-      setHint("Blake is talking…");
+      setHint("Ayla is talking…");
       try {
         stopSpeakRef.current = await speakBlakeReply(reply, {
           speakPath,
@@ -235,7 +235,7 @@ export function AskBlakeVoice({
       setError(
         aborted
           ? "Blake took too long — check signal and try again."
-          : askError instanceof Error ? askError.message : "Blake couldn’t reply.",
+          : askError instanceof Error ? askError.message : "Ayla couldn’t reply.",
       );
       setState("error");
       setHint("Try again, or use Type / photos.");
@@ -267,16 +267,16 @@ export function AskBlakeVoice({
 
   const levelPercent = Math.round(Math.min(1, level) * 100);
   const statusLabel =
-    state === "listening" ? "Recording — talk to Blake"
-      : state === "thinking" ? "Blake is thinking…"
+    state === "listening" ? "Recording — talk to Ayla"
+      : state === "thinking" ? "Ayla is thinking…"
         : state === "speaking" ? "Blake is talking"
-          : state === "unsupported" ? "This phone can’t record for Ask Blake"
+          : state === "unsupported" ? "This phone can’t record for Ask Ayla"
             : state === "error" ? "Try again, or use Type / photos"
               : "Push to talk";
 
   if (!supported) {
     return (
-      <section className="ask-blake-voice" aria-label="Talk to Blake">
+      <section className="ask-blake-voice" aria-label="Talk to Ayla">
         <div className="ask-blake-voice-stage is-unsupported">
           <BlakeCharacter mood="alert" size="hero" />
           <p className="ask-blake-voice-status">Talk isn’t available on this phone</p>
@@ -288,7 +288,7 @@ export function AskBlakeVoice({
 
   if (openaiConnected === false) {
     return (
-      <section className="ask-blake-voice" aria-label="Talk to Blake">
+      <section className="ask-blake-voice" aria-label="Talk to Ayla">
         <div className="ask-blake-voice-stage is-unsupported">
           <BlakeCharacter mood="alert" size="hero" />
           <p className="ask-blake-voice-status">Talk needs OpenAI on this pilot</p>
@@ -301,7 +301,7 @@ export function AskBlakeVoice({
   }
 
   return (
-    <section className="ask-blake-voice" aria-label="Talk to Blake">
+    <section className="ask-blake-voice" aria-label="Talk to Ayla">
       <div className={`ask-blake-voice-stage is-${state}${hearing ? " is-hearing" : ""}`}>
         <BlakeCharacter mood={mood} size="hero" />
         <p className="ask-blake-voice-status">{statusLabel}</p>

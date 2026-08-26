@@ -3,6 +3,7 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Camera, ImagePlus, SendHorizontal, Video, X } from "lucide-react";
 import { BlakeCharacter } from "@/components/field/BlakeCharacter";
+import { FileDropZone } from "@/components/FileDropZone";
 import {
   ASK_BLAKE_MAX_PHOTOS,
   type AskBlakeJobContext,
@@ -25,18 +26,18 @@ type AttachmentKind = "photo" | "video";
 type PendingAttachment = {
   kind: AttachmentKind;
   previewUrl: string;
-  /** JPEG data URL for Blake (photos compressed; videos = still frame). */
+  /** JPEG data URL for Ayla (photos compressed; videos = still frame). */
   imageDataUrl: string;
   label: string;
 };
 
-export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: AskBlakeChatProps) {
+export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-ayla" }: AskBlakeChatProps) {
   const [messages, setMessages] = useState<AskBlakeMessage[]>([
     {
       role: "assistant",
       text: job?.jobRef
         ? `Ask me anything about ${job.jobRef}${job.costCentre ? ` · ${job.costCentre}` : ""}. Describe the fault or attach photos / a short video.`
-        : "Ask Blake — describe the fault, or attach site photos or a short video. I’ll give likely cause, checks and next steps.",
+        : "Ask Ayla — describe the fault, or attach site photos or a short video. I’ll give likely cause, checks and next steps.",
     },
   ]);
   const [draft, setDraft] = useState("");
@@ -46,9 +47,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const libraryRef = useRef<HTMLInputElement | null>(null);
   const cameraRef = useRef<HTMLInputElement | null>(null);
-  const videoRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -60,7 +59,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
     abortRef.current?.abort();
   }, []);
 
-  async function onPickImages(fileList: FileList | null) {
+  async function onPickImages(fileList: FileList | File[] | null) {
     const files = fileList ? Array.from(fileList) : [];
     if (!files.length) return;
 
@@ -107,8 +106,8 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
     }
   }
 
-  async function onPickVideo(fileList: FileList | null) {
-    const file = fileList?.[0];
+  async function onPickVideo(fileList: FileList | File[] | null) {
+    const file = fileList ? Array.from(fileList)[0] : undefined;
     if (!file) return;
 
     const remaining = ASK_BLAKE_MAX_PHOTOS - attachments.length;
@@ -210,7 +209,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
         signal: controller.signal,
         body: JSON.stringify({
           message: hasVideo
-            ? `${userText}\n\n(Note: a site video was attached — Blake is reviewing a still frame from it.)`
+            ? `${userText}\n\n(Note: a site video was attached — Ayla is reviewing a still frame from it.)`
             : userText,
           imageDataUrls: compressed,
           history: nextHistory.slice(-10),
@@ -228,12 +227,12 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
         body = raw ? JSON.parse(raw) as typeof body : {};
       } catch {
         if (!response.ok) {
-          throw new Error(raw.trim() || "Ask Blake could not reply.");
+          throw new Error(raw.trim() || "Ask Ayla could not reply.");
         }
-        throw new Error("Ask Blake returned a bad response.");
+        throw new Error("Ask Ayla returned a bad response.");
       }
-      if (!response.ok) throw new Error(body.error || raw.trim() || "Ask Blake could not reply.");
-      if (!body.reply?.trim()) throw new Error("Ask Blake returned an empty reply.");
+      if (!response.ok) throw new Error(body.error || raw.trim() || "Ask Ayla could not reply.");
+      if (!body.reply?.trim()) throw new Error("Ask Ayla returned an empty reply.");
       setMessages((current) => [...current, { role: "assistant", text: body.reply!.trim() }]);
       if (body.warning) setWarning(body.warning);
       for (const item of attached) {
@@ -246,7 +245,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
       setError(
         aborted
           ? "That took too long — usually big photos. Try again with 1 photo, or describe it in text."
-          : sendError instanceof Error ? sendError.message : "Ask Blake could not reply.",
+          : sendError instanceof Error ? sendError.message : "Ask Ayla could not reply.",
       );
       setMessages((current) => current.slice(0, -1));
       setDraft(trimmed);
@@ -264,19 +263,33 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
   }
 
   const canAddMore = attachments.length < ASK_BLAKE_MAX_PHOTOS;
+  const lastAssistantIndex = (() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i]?.role === "assistant") return i;
+    }
+    return -1;
+  })();
 
   return (
-    <section className="ask-blake" aria-label="Ask Blake">
+    <section className="ask-ayla ask-blake" aria-label="Ask Ayla">
       <div className="ask-blake-thread">
         {messages.map((message, index) => (
           <div
             key={`${message.role}-${index}`}
-            className={`ask-blake-bubble ${message.role === "assistant" ? "is-blake" : "is-user"}`}
+            className={`ask-blake-bubble ${message.role === "assistant" ? "is-ayla is-blake" : "is-user"}`}
           >
             {message.role === "assistant" ? (
               <span className="ask-blake-avatar">
                 <BlakeCharacter
-                  mood={index === 0 ? "idle" : "good"}
+                  mood={
+                    error && index === lastAssistantIndex
+                      ? "alert"
+                      : index === 0
+                        ? "idle"
+                        : index === lastAssistantIndex
+                          ? "good"
+                          : "guide"
+                  }
                   size="sm"
                 />
               </span>
@@ -294,12 +307,12 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
           </div>
         ))}
         {busy ? (
-          <div className="ask-blake-bubble is-blake">
+          <div className="ask-blake-bubble is-ayla is-blake">
             <span className="ask-blake-avatar">
               <BlakeCharacter mood="thinking" size="sm" />
             </span>
             <div>
-              <p className="muted">Blake is checking that…</p>
+              <p className="muted">Ayla is checking that…</p>
               <button type="button" className="ask-blake-cancel" onClick={cancelBusy}>
                 Cancel
               </button>
@@ -311,7 +324,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
 
       {warning ? <div className="feedback">{warning}</div> : null}
       {error ? <div className="feedback error">{error}</div> : null}
-      {preparingMedia ? <div className="feedback">Preparing media for Blake…</div> : null}
+      {preparingMedia ? <div className="feedback">Preparing media for Ayla…</div> : null}
 
       {attachments.length ? (
         <div className="ask-blake-preview-row" aria-label="Attached media">
@@ -337,17 +350,6 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
 
       <form className="ask-blake-composer" onSubmit={onSubmit}>
         <input
-          ref={libraryRef}
-          type="file"
-          accept="image/*,.heic,.heif"
-          multiple
-          hidden
-          onChange={(event) => {
-            void onPickImages(event.target.files);
-            event.currentTarget.value = "";
-          }}
-        />
-        <input
           ref={cameraRef}
           type="file"
           accept="image/*"
@@ -358,28 +360,20 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
             event.currentTarget.value = "";
           }}
         />
-        <input
-          ref={videoRef}
-          type="file"
-          accept="video/*,.mp4,.mov,.webm,.m4v"
-          capture="environment"
-          hidden
-          onChange={(event) => {
-            void onPickVideo(event.target.files);
-            event.currentTarget.value = "";
-          }}
-        />
         <div className="ask-blake-attach">
-          <button
-            type="button"
-            className="ask-blake-icon-btn"
-            aria-label="Upload photos"
-            title="Upload photos"
-            onClick={() => libraryRef.current?.click()}
+          <FileDropZone
+            accept="image/*,.heic,.heif"
+            multiple
             disabled={busy || preparingMedia || !canAddMore}
+            compact
+            className="ask-blake-drop"
+            label="Drop photos"
+            onFiles={(files) => void onPickImages(files)}
           >
-            <ImagePlus size={18} />
-          </button>
+            <span className="ask-blake-icon-btn" aria-hidden>
+              <ImagePlus size={18} />
+            </span>
+          </FileDropZone>
           <button
             type="button"
             className="ask-blake-icon-btn"
@@ -390,21 +384,24 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
           >
             <Camera size={18} />
           </button>
-          <button
-            type="button"
-            className="ask-blake-icon-btn"
-            aria-label="Attach video"
-            title="Attach video"
-            onClick={() => videoRef.current?.click()}
+          <FileDropZone
+            accept="video/*,.mp4,.mov,.webm,.m4v"
+            capture="environment"
             disabled={busy || preparingMedia || !canAddMore}
+            compact
+            className="ask-blake-drop"
+            label="Drop video"
+            onFiles={(files) => void onPickVideo(files)}
           >
-            <Video size={18} />
-          </button>
+            <span className="ask-blake-icon-btn" aria-hidden>
+              <Video size={18} />
+            </span>
+          </FileDropZone>
         </div>
         <textarea
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder={job ? "Ask about this job…" : "Ask Blake…"}
+          placeholder={job ? "Ask about this job…" : "Ask Ayla…"}
           rows={2}
           disabled={busy || preparingMedia}
         />

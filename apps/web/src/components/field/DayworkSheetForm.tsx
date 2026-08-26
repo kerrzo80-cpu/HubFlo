@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SignaturePad } from "@/components/SignaturePad";
 import {
   DAYWORK_TRADE_OPTIONS,
@@ -17,6 +17,13 @@ import {
   type DayworkLineItem,
   type DayworkSheetDraft,
 } from "@/lib/daywork-account-form";
+import {
+  enqueueOutboxItem,
+  findDeadOutboxForJob,
+  isBrowserOnline,
+  isOfflineOrNetworkError,
+  subscribeOutbox,
+} from "@/lib/field/offline-outbox";
 import { isoDateToUk, toUkDateDisplay, toUkDateTimeDisplay, ukDateToIso } from "@/lib/uk-date";
 
 type Props = {
@@ -28,7 +35,7 @@ type Props = {
   engineerName: string;
   initialRecord?: DayworkAccountRecord | null;
   requestHeaders?: HeadersInit;
-  onSaved?: (record: DayworkAccountRecord) => void;
+  onSaved?: (record: DayworkAccountRecord, context?: { offline?: boolean }) => void;
   onCancel?: () => void;
   /**
    * Force locked view. Field sheets auto-lock after dual sign-off / submit to Core.
@@ -36,6 +43,8 @@ type Props = {
    */
   locked?: boolean;
 };
+
+const FIELD_OFFLINE_NOTICE = "Saved offline — will sync when online";
 
 function updateRow<T>(rows: T[], index: number, patch: Partial<T>): T[] {
   return rows.map((row, i) => (i === index ? { ...row, ...patch } : row));
@@ -81,13 +90,36 @@ export function DayworkSheetForm({
   const [submittedRecord, setSubmittedRecord] = useState<DayworkAccountRecord | null>(
     isDayworkSubmittedToCore(initialRecord) ? initialRecord || null : null,
   );
+  /** Offline queue accepted the sheet but Core has not confirmed yet — stay editable if sync dies. */
+  const [awaitingOfflineSync, setAwaitingOfflineSync] = useState(false);
+  const [offlineSyncFailed, setOfflineSyncFailed] = useState(false);
   const errorRef = useRef<HTMLDivElement | null>(null);
 
   const saveViaCore = !scheduleId && Boolean(jobId);
-  // Field: lock after submit. Core office edit stays open unless locked is forced.
+  // Field: lock only after Core confirms (or office force-lock). Offline queue must not permanently lock.
   const locked =
     lockedProp === true ||
-    (Boolean(scheduleId) && (isDayworkSubmittedToCore(submittedRecord) || isDayworkSubmittedToCore(initialRecord)));
+    (Boolean(scheduleId) &&
+      !awaitingOfflineSync &&
+      !offlineSyncFailed &&
+      (isDayworkSubmittedToCore(submittedRecord) || isDayworkSubmittedToCore(initialRecord)));
+
+  useEffect(() => {
+    if (!scheduleId && !jobId) return;
+    const targetId = jobId || scheduleId || "";
+    const refreshDead = () => {
+      const dead = findDeadOutboxForJob(targetId, "daywork");
+      if (dead.length) {
+        setOfflineSyncFailed(true);
+        setAwaitingOfflineSync(false);
+        setNotice(
+          `Offline Daywork failed to sync: ${dead[0]?.lastError || "unknown error"}. Fix and Save again, or clear failed sync from the Field header.`,
+        );
+      }
+    };
+    refreshDead();
+    return subscribeOutbox(() => refreshDead());
+  }, [jobId, scheduleId]);
 
   const totalHours = useMemo(
     () =>
@@ -142,17 +174,52 @@ export function DayworkSheetForm({
     setSaving(true);
     setError("");
     setNotice("");
+    const record = dayworkRecordFromDraft(draft, saveViaCore ? "core" : "engineer-app");
+    const endpoint = scheduleId
+      ? `/api/field/jobs/${encodeURIComponent(scheduleId)}/daywork`
+      : `/api/jobs/${encodeURIComponent(jobId!)}/daywork`;
+    const requestBody = {
+      action: "save",
+      record,
+      createdBy: engineerName,
+      ...(costCentreId ? { costCentreId } : {}),
+    };
+    const queueOfflineDaywork = () => {
+      if (!scheduleId) return false;
+      enqueueOutboxItem({
+        kind: "daywork",
+        jobId: jobId || scheduleId,
+        path: endpoint,
+        method: "POST",
+        body: requestBody,
+      });
+      setSubmittedRecord(record);
+      setAwaitingOfflineSync(true);
+      setOfflineSyncFailed(false);
+      setDraft(
+        dayworkDraftFromRecord(record, {
+          labourName: engineerName,
+          labourTrade: "Plumber",
+          clientEmail: draft.clientEmail,
+        }),
+      );
+      setNotice(
+        `${FIELD_OFFLINE_NOTICE} Sheet stays editable until Core confirms the sync.`,
+      );
+      onSaved?.(record, { offline: true });
+      return true;
+    };
     try {
+      if (scheduleId && !isBrowserOnline()) {
+        queueOfflineDaywork();
+        return;
+      }
       // /api/health is public — it never proves the session. Use /api/auth/me.
       const sessionCheck = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" });
       if (sessionCheck.status === 401) {
         throw new Error("Not signed in — open /login on this same site, sign in, then Save and finish again.");
       }
 
-      const record = dayworkRecordFromDraft(draft, saveViaCore ? "core" : "engineer-app");
-      const endpoint = scheduleId
-        ? `/api/field/jobs/${encodeURIComponent(scheduleId)}/daywork`
-        : `/api/jobs/${encodeURIComponent(jobId!)}/daywork`;
       const response = await fetch(endpoint, {
         method: "POST",
         credentials: "include",
@@ -161,12 +228,7 @@ export function DayworkSheetForm({
           "Content-Type": "application/json",
           ...(requestHeaders || {}),
         },
-        body: JSON.stringify({
-          action: "save",
-          record,
-          createdBy: engineerName,
-          ...(costCentreId ? { costCentreId } : {}),
-        }),
+        body: JSON.stringify(requestBody),
       });
       const body = (await response.json().catch(() => ({}))) as {
         error?: string;
@@ -206,6 +268,8 @@ export function DayworkSheetForm({
       }
       const saved = body.record || record;
       setSubmittedRecord(saved);
+      setAwaitingOfflineSync(false);
+      setOfflineSyncFailed(false);
       setDraft(
         dayworkDraftFromRecord(saved, {
           labourName: engineerName,
@@ -230,6 +294,9 @@ export function DayworkSheetForm({
       );
       onSaved?.(saved);
     } catch (saveError) {
+      if (scheduleId && isOfflineOrNetworkError(saveError) && queueOfflineDaywork()) {
+        return;
+      }
       showFailure(saveError instanceof Error ? saveError.message : "Could not save daywork sheet.");
     } finally {
       setSaving(false);

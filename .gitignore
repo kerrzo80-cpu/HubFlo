@@ -24,3 +24,14 @@ coverage
 **/*.xcodeproj/project.xcworkspace/
 **/*.xcodeproj/xcuserdata/
 *.xcuserstate
+
+# macOS Finder duplicate copies ("file 2.ts", "page 3.tsx", etc.)
+* 2.*
+* 3.*
+* 4.*
+* 5.*
+render 2.yaml
+render 3.yaml
+render 4.yaml
+render 5.yaml
+tmp/

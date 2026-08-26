@@ -1,27 +1,37 @@
 "use client";
 
-import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Camera,
   CheckCircle2,
+  ChevronRight,
   ClipboardCheck,
-  FileUp,
   Layers,
   MapPin,
   MessageCircle,
   PackagePlus,
   Phone,
   ShoppingCart,
-  Video,
   Wrench,
 } from "lucide-react";
+import { BlakeCharacter } from "@/components/field/BlakeCharacter";
+import { FileDropZone } from "@/components/FileDropZone";
 import { ProgrammeBoard } from "@/components/field/ProgrammeBoard";
 import { DayworkSheetForm } from "@/components/field/DayworkSheetForm";
+import { DomesticStopGoPanel } from "@/components/field/DomesticStopGoPanel";
+import { isDomesticStopGoCostCentre } from "@/lib/domestic-stop-go/cost-centres";
 import { useNexaClient } from "@/lib/field/nexa";
 import { toggleMockRequirement } from "@/lib/field/nexa/mock-data";
+import { readFieldJobPack, saveFieldJobPack } from "@/lib/field/field-job-pack-cache";
+import {
+  enqueueOutboxItem,
+  isBrowserOnline,
+  isOfflineOrNetworkError,
+  type OutboxItemKind,
+} from "@/lib/field/offline-outbox";
 import {
   dayworkSheetListLabel,
   formatFieldDayworkEvidenceSummary,
@@ -31,6 +41,7 @@ import {
   sortDayworkSheetsByNumber,
   type DayworkAccountRecord,
 } from "@/lib/daywork-account-form";
+import { prepareFieldUploadFile, prepareFieldUploadFiles } from "@/lib/field/field-photo-client";
 import { formatDuration, mapsUrl } from "@/lib/field/format";
 import { fieldPath } from "@/lib/field/routes";
 import type {
@@ -57,6 +68,7 @@ type FieldWorkflowPoRequest = {
   poNumber?: string;
   supplier: string;
   note: string;
+  jobRef?: string;
   costCentreName?: string;
   createdBy: string;
   createdAt: string;
@@ -77,6 +89,42 @@ type FieldWorkflowState = {
   outcome: FieldWorkflowOutcome | null;
 };
 
+const FIELD_OFFLINE_NOTICE = "Saved offline — will sync when online";
+
+const WORKFLOW_OUTBOX_KIND: Record<
+  "add_photos" | "add_note" | "request_po" | "set_outcome",
+  OutboxItemKind
+> = {
+  add_photos: "photo",
+  add_note: "note",
+  request_po: "po",
+  set_outcome: "outcome",
+};
+
+function applyCachedJobPack(
+  pack: ReturnType<typeof readFieldJobPack>,
+  setters: {
+    setJob: (value: FieldScheduleItem | null | ((current: FieldScheduleItem | null) => FieldScheduleItem | null)) => void;
+    setWorkflow: (value: FieldWorkflowState | ((current: FieldWorkflowState) => FieldWorkflowState)) => void;
+    setDayworkSheets: (value: FieldDayworkSheet[] | ((current: FieldDayworkSheet[]) => FieldDayworkSheet[])) => void;
+    setError: (value: string) => void;
+    setNotice: (value: string) => void;
+  },
+) {
+  if (!pack) return false;
+  setters.setJob(pack.job);
+  setters.setWorkflow({
+    photos: pack.workflow.photos as FieldAttachment[],
+    notes: pack.workflow.notes as FieldWorkflowNote[],
+    poRequests: pack.workflow.poRequests as FieldWorkflowPoRequest[],
+    outcome: pack.workflow.outcome as FieldWorkflowOutcome | null,
+  });
+  setters.setDayworkSheets(pack.dayworkSheets as FieldDayworkSheet[]);
+  setters.setError("");
+  setters.setNotice("Showing saved copy — changes will sync when you are back online.");
+  return true;
+}
+
 function requirementsLookLikeDaywork(requirements: FieldRequirement[]) {
   return requirements.some((item) => isDayworkRequirement(item));
 }
@@ -87,6 +135,9 @@ type DraftValue = {
   text?: string;
   numberValue?: string;
   photoName?: string;
+  photoContentBase64?: string;
+  photoMimeType?: string;
+  photoPreviewUrl?: string;
 };
 
 function evidenceTypeOf(item: FieldRequirement): FieldEvidenceType {
@@ -160,13 +211,6 @@ function doneSummary(item: FieldRequirement) {
   return parts.join(" · ");
 }
 
-function attachmentKindFromFile(file: File): FieldAttachment["type"] {
-  const lower = `${file.type} ${file.name}`.toLowerCase();
-  if (lower.includes("video") || /\.(mp4|mov|webm|m4v)$/i.test(file.name)) return "Video";
-  if (lower.includes("pdf") || /\.(pdf|docx?|xlsx?|txt)$/i.test(file.name)) return "PDF";
-  return "Photo";
-}
-
 function outcomeToJobStatus(status: FieldWorkflowOutcome["status"]): FieldJobStatus | null {
   if (status === "Complete") return "Complete";
   if (status === "Needs parts") return "Needs parts";
@@ -210,9 +254,11 @@ export default function JobDetailPage() {
   >([]);
   const [poNote, setPoNote] = useState("");
   const [outcomeNote, setOutcomeNote] = useState("");
-  const photoInputRef = useRef<HTMLInputElement | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const videoInputRef = useRef<HTMLInputElement | null>(null);
+  const [stopGoComplete, setStopGoComplete] = useState(false);
+
+  const stopGoEnabled = Boolean(
+    job && isDomesticStopGoCostCentre(job.costCentreTemplate || job.costCentre),
+  );
 
   const orderedDayworkSheets = useMemo(() => {
     if (!job?.jobId) return dayworkSheets;
@@ -226,12 +272,13 @@ export default function JobDetailPage() {
 
   const canComplete = useMemo(() => {
     if (!job) return false;
+    if (stopGoEnabled) return stopGoComplete;
     // Daywork sheets never gate job Complete — including Handover signature steps
     // whose stage is not "Daywork" but whose stepId/id is daywork-scoped.
     return !job.requirements.some(
       (item) => item.status === "missing" && !isDayworkRequirement(item),
     );
-  }, [job]);
+  }, [job, stopGoComplete, stopGoEnabled]);
 
   const filteredSuppliers = useMemo(() => {
     const query = poSupplierQuery.trim().toLowerCase();
@@ -293,10 +340,26 @@ export default function JobDetailPage() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
+      const hydrateFromCache = () => {
+        if (cancelled) return false;
+        return applyCachedJobPack(readFieldJobPack(params.scheduleId), {
+          setJob,
+          setWorkflow,
+          setDayworkSheets,
+          setError,
+          setNotice,
+        });
+      };
+
+      if (!isBrowserOnline()) {
+        if (hydrateFromCache()) return;
+      }
+
       try {
         const item = await client.getJob(params.scheduleId);
         if (cancelled) return;
         if (!item) {
+          if (hydrateFromCache()) return;
           setError("Job not found on the schedule.");
           return;
         }
@@ -313,6 +376,7 @@ export default function JobDetailPage() {
           );
           let serverChecklistMode: "job" | "daywork" = "job";
           let serverDayworkCostCentreId = "";
+          let loadedRequirements = item.requirements;
           if (response.ok) {
             const body = (await response.json()) as {
               requirements?: FieldRequirement[];
@@ -320,6 +384,7 @@ export default function JobDetailPage() {
               dayworkCostCentreId?: string | null;
             };
             if (!cancelled && body.requirements?.length) {
+              loadedRequirements = body.requirements;
               setJob({ ...item, requirements: body.requirements });
             }
             if (body.checklistMode === "daywork" || requirementsLookLikeDaywork(body.requirements || [])) {
@@ -341,6 +406,12 @@ export default function JobDetailPage() {
             }
           }
 
+          let loadedWorkflow: FieldWorkflowState = {
+            photos: [],
+            notes: [],
+            poRequests: [],
+            outcome: null,
+          };
           const workflowResponse = await fetch(
             `/api/field/jobs/${encodeURIComponent(item.scheduleId)}/workflow`,
             { credentials: "include", cache: "no-store" },
@@ -348,17 +419,28 @@ export default function JobDetailPage() {
           if (workflowResponse.ok) {
             const body = (await workflowResponse.json()) as FieldWorkflowState;
             if (!cancelled) {
-              setWorkflow({
+              loadedWorkflow = {
                 photos: body.photos ?? [],
                 notes: body.notes ?? [],
                 poRequests: body.poRequests ?? [],
                 outcome: body.outcome ?? null,
-              });
+              };
+              setWorkflow(loadedWorkflow);
               const mapped = body.outcome ? outcomeToJobStatus(body.outcome.status) : null;
               if (mapped) {
                 setJob((current) => (current ? { ...current, status: mapped } : current));
               }
             }
+          }
+
+          if (!cancelled) {
+            saveFieldJobPack({
+              scheduleId: item.scheduleId,
+              job: { ...item, requirements: loadedRequirements },
+              workflow: loadedWorkflow,
+              dayworkSheets: listedDayworkSheets,
+              savedAt: new Date().toISOString(),
+            });
           }
 
           // Only auto-reopen an in-progress Daywork. Submitted sheets stay as Daywork 1/2/3 labels.
@@ -388,6 +470,7 @@ export default function JobDetailPage() {
         }
       } catch (loadError) {
         if (!cancelled) {
+          if (hydrateFromCache()) return;
           setError(loadError instanceof Error ? loadError.message : "Could not load job.");
         }
       }
@@ -411,15 +494,125 @@ export default function JobDetailPage() {
     setWorkflowBusy(true);
     setError("");
     setNotice("");
+    const path = `/api/field/jobs/${encodeURIComponent(job.scheduleId)}/workflow`;
+    const requestBody = {
+      action,
+      payload: { ...payload, createdBy: job.engineerName },
+    };
+    const queueOfflineWorkflow = () => {
+      enqueueOutboxItem({
+        kind: WORKFLOW_OUTBOX_KIND[action],
+        jobId: job.jobId || job.scheduleId,
+        path,
+        method: "POST",
+        body: requestBody,
+      });
+
+      if (action === "add_photos") {
+        const files = Array.isArray(payload.files)
+          ? (payload.files as Array<{
+              name?: string;
+              type?: FieldAttachment["type"];
+              contentBase64?: string;
+              mimeType?: string;
+              size?: number;
+            }>)
+          : [];
+        const uploadedAt = "Pending sync";
+        const offlinePhotos = files.map((file, index): FieldAttachment => {
+          const mimeType = String(file.mimeType || "image/jpeg");
+          const contentBase64 = String(file.contentBase64 || "");
+          return {
+            id: `offline-photo-${Date.now()}-${index}`,
+            name: String(file.name || `Upload ${index + 1}`),
+            type: file.type || "Photo",
+            uploadedBy: job.engineerName,
+            uploadedAt,
+            mimeType,
+            size: file.size,
+            url: contentBase64 ? `data:${mimeType};base64,${contentBase64}` : undefined,
+          };
+        });
+        if (offlinePhotos.length) {
+          setWorkflow((current) => ({
+            ...current,
+            photos: [...offlinePhotos, ...current.photos],
+          }));
+          setJob((current) =>
+            current
+              ? {
+                  ...current,
+                  photos: [
+                    ...offlinePhotos.filter((photo) => photo.type === "Photo" || photo.type === "Video"),
+                    ...current.photos,
+                  ],
+                }
+              : current,
+          );
+        }
+      }
+
+      if (action === "add_note") {
+        const offlineNote: FieldWorkflowNote = {
+          id: `offline-note-${Date.now()}`,
+          text: String(payload.text || ""),
+          visibility: String(payload.visibility || "Office review"),
+          createdBy: job.engineerName,
+          createdAt: "Pending sync",
+        };
+        setWorkflow((current) => ({
+          ...current,
+          notes: [offlineNote, ...current.notes],
+        }));
+      }
+
+      if (action === "request_po") {
+        const offlinePo: FieldWorkflowPoRequest = {
+          id: `offline-po-${Date.now()}`,
+          supplier: String(payload.supplier || ""),
+          note: String(payload.note || ""),
+          jobRef: String(payload.jobRef || job.jobRef),
+          costCentreName: String(payload.costCentreName || job.costCentre),
+          createdBy: job.engineerName,
+          createdAt: "Pending sync",
+          status: "Office review",
+        };
+        setWorkflow((current) => ({
+          ...current,
+          poRequests: [offlinePo, ...current.poRequests],
+        }));
+      }
+
+      if (action === "set_outcome") {
+        const status = payload.status as FieldWorkflowOutcome["status"];
+        const offlineOutcome: FieldWorkflowOutcome = {
+          status,
+          note: String(payload.note || ""),
+          createdBy: job.engineerName,
+          createdAt: "Pending sync",
+        };
+        setWorkflow((current) => ({
+          ...current,
+          outcome: offlineOutcome,
+        }));
+        const mapped = outcomeToJobStatus(status);
+        if (mapped) {
+          setJob((current) => (current ? { ...current, status: mapped } : current));
+        }
+      }
+
+      setNotice(FIELD_OFFLINE_NOTICE);
+      return true;
+    };
     try {
-      const response = await fetch(`/api/field/jobs/${encodeURIComponent(job.scheduleId)}/workflow`, {
+      if (!isBrowserOnline()) {
+        return queueOfflineWorkflow();
+      }
+      const response = await fetch(path, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action,
-          payload: { ...payload, createdBy: job.engineerName },
-        }),
+        body: JSON.stringify(requestBody),
       });
       const body = (await response.json().catch(() => ({}))) as FieldWorkflowState & { error?: string };
       if (!response.ok) throw new Error(body.error || "Could not update job.");
@@ -449,6 +642,9 @@ export default function JobDetailPage() {
       setNotice(successMessage);
       return true;
     } catch (workflowError) {
+      if (isOfflineOrNetworkError(workflowError)) {
+        return queueOfflineWorkflow();
+      }
       setError(workflowError instanceof Error ? workflowError.message : "Could not update job.");
       return false;
     } finally {
@@ -456,19 +652,26 @@ export default function JobDetailPage() {
     }
   }
 
-  async function uploadMedia(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []);
-    event.target.value = "";
+  async function uploadMediaFiles(files: File[]) {
     if (!files.length) return;
-    const mapped = files.slice(0, 10).map((file) => ({
-      name: file.name,
-      type: attachmentKindFromFile(file),
-    }));
-    await runWorkflowAction(
-      "add_photos",
-      { files: mapped },
-      `${mapped.length} file${mapped.length === 1 ? "" : "s"} sent to office.`,
-    );
+    setWorkflowBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const mapped = await prepareFieldUploadFiles(files);
+      const withBytes = mapped.filter((file) => file.contentBase64).length;
+      await runWorkflowAction(
+        "add_photos",
+        { files: mapped },
+        withBytes
+          ? `${mapped.length} file${mapped.length === 1 ? "" : "s"} synced to Core.`
+          : `${mapped.length} file${mapped.length === 1 ? "" : "s"} queued.`,
+      );
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Could not prepare those files.");
+    } finally {
+      setWorkflowBusy(false);
+    }
   }
 
   async function submitNote(event: FormEvent) {
@@ -749,9 +952,15 @@ export default function JobDetailPage() {
         const restored = await backToJobChecklist({ quiet: true });
         if (restored) requirements = restored;
       }
-      const blocked = requirements.some((item) => item.status === "missing" && !isDayworkRequirement(item));
+      const blocked = stopGoEnabled
+        ? !stopGoComplete
+        : requirements.some((item) => item.status === "missing" && !isDayworkRequirement(item));
       if (blocked) {
-        setError("Cannot mark complete yet. Finish required checklist items first.");
+        setError(
+          stopGoEnabled
+            ? "Cannot mark complete yet. Finish the mandatory stop/go record first."
+            : "Cannot mark complete yet. Finish required checklist items first.",
+        );
         setTab("checklist");
         return;
       }
@@ -759,7 +968,11 @@ export default function JobDetailPage() {
     await runWorkflowAction(
       "set_outcome",
       { status, note: outcomeNote },
-      status === "Needs parts" ? "Marked awaiting parts — office notified." : `${status} sent to office.`,
+      status === "Needs parts"
+        ? "Marked awaiting parts — office notified."
+        : status === "Complete"
+          ? "Marked complete — office passaround next, then invoice."
+          : `${status} sent to office.`,
     );
   }
 
@@ -829,6 +1042,7 @@ export default function JobDetailPage() {
         text: normalizedDraft.text,
         numberValue: normalizedDraft.numberValue,
         photoName: normalizedDraft.photoName,
+        photoUrl: normalizedDraft.photoPreviewUrl,
         capturedAt: new Date().toISOString(),
       };
       setJob({
@@ -839,28 +1053,68 @@ export default function JobDetailPage() {
             : item,
         ),
       });
+      const path = `/api/field/jobs/${encodeURIComponent(job.scheduleId)}/requirements`;
+      const requestBody = {
+        requirementId,
+        text: normalizedDraft.text,
+        numberValue: normalizedDraft.numberValue,
+        photoName: normalizedDraft.photoName,
+        photoContentBase64: normalizedDraft.photoContentBase64,
+        photoMimeType: normalizedDraft.photoMimeType,
+        createdBy: job.engineerName,
+      };
+      const queueOfflineRequirement = () => {
+        enqueueOutboxItem({
+          kind: "checklist",
+          jobId: job.jobId || job.scheduleId,
+          path,
+          method: "POST",
+          body: requestBody,
+        });
+        setDraftByRequirement((current) => {
+          const next = { ...current };
+          delete next[requirementId];
+          return next;
+        });
+        setEditingId("");
+        setNotice(FIELD_OFFLINE_NOTICE);
+      };
       try {
-        const response = await fetch(
-          `/api/field/jobs/${encodeURIComponent(job.scheduleId)}/requirements`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              requirementId,
-              text: normalizedDraft.text,
-              numberValue: normalizedDraft.numberValue,
-              photoName: normalizedDraft.photoName,
-              createdBy: job.engineerName,
-            }),
-          },
-        );
+        if (!isBrowserOnline()) {
+          queueOfflineRequirement();
+          return;
+        }
+        const response = await fetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        });
         if (!response.ok) {
           const failed = (await response.json().catch(() => ({}))) as { error?: string };
           throw new Error(failed.error || "Could not save checklist item.");
         }
-        const body = (await response.json()) as { requirements?: FieldRequirement[] };
+        const body = (await response.json()) as {
+          requirements?: FieldRequirement[];
+          photos?: FieldAttachment[];
+        };
         if (body.requirements) {
-          setJob((current) => (current ? { ...current, requirements: body.requirements! } : current));
+          setJob((current) =>
+            current
+              ? {
+                  ...current,
+                  requirements: body.requirements!,
+                  photos: body.photos?.length
+                    ? [
+                        ...body.photos.filter((photo) => photo.type === "Photo" || photo.type === "Video"),
+                        ...current.photos.filter((photo) => !(body.photos ?? []).some((item) => item.id === photo.id)),
+                      ]
+                    : current.photos,
+                }
+              : current,
+          );
+        }
+        if (body.photos?.length) {
+          setWorkflow((current) => ({ ...current, photos: body.photos! }));
         }
         setDraftByRequirement((current) => {
           const next = { ...current };
@@ -868,8 +1122,14 @@ export default function JobDetailPage() {
           return next;
         });
         setEditingId("");
-        setNotice("Saved.");
+        setNotice(
+          normalizedDraft.photoContentBase64 ? "Saved — photo synced to Core." : "Saved.",
+        );
       } catch (saveError) {
+        if (isOfflineOrNetworkError(saveError)) {
+          queueOfflineRequirement();
+          return;
+        }
         setJob(job);
         setError(saveError instanceof Error ? saveError.message : "Could not save checklist item.");
       } finally {
@@ -1106,8 +1366,16 @@ export default function JobDetailPage() {
         ) : null}
       </div>
 
-      <Link href={fieldPath(`/ask?job=${encodeURIComponent(job.scheduleId)}`)} className="field-ask-blake-link">
-        Ask Blake about this job
+      <Link
+        href={fieldPath(`/ask?job=${encodeURIComponent(job.scheduleId)}`)}
+        className="field-blake-row"
+      >
+        <BlakeCharacter mood="guide" size="md" />
+        <span className="field-blake-row-copy">
+          <strong>Ask Ayla</strong>
+          <small>Fault diagnosis, checks and next steps for this job</small>
+        </span>
+        <ChevronRight size={18} aria-hidden className="field-blake-row-chevron" />
       </Link>
 
       <div className="site-block">
@@ -1174,7 +1442,7 @@ export default function JobDetailPage() {
               initialRecord={dayworkRecord}
               locked={isDayworkSubmittedToCore(dayworkRecord)}
               onCancel={() => void backToJobChecklist()}
-              onSaved={(record) => {
+              onSaved={(record, context) => {
                 setDayworkRecord(record);
                 setDayworkSheets((current) => {
                   const costCentreId = dayworkCostCentreId || `${job.jobId}-daywork-account`;
@@ -1185,11 +1453,20 @@ export default function JobDetailPage() {
                   ];
                 });
                 setNotice(
-                  isDayworkSubmittedToCore(record)
+                  context?.offline
+                    ? FIELD_OFFLINE_NOTICE
+                    : isDayworkSubmittedToCore(record)
                     ? "Submitted to Core and locked on Field. Office can edit in Core → Variations → Daywork account. Tap New Daywork sheet for another."
                     : "Saved to Core — open this job → Cost centres → Variations → Daywork account.",
                 );
               }}
+            />
+          ) : stopGoEnabled ? (
+            <DomesticStopGoPanel
+              scheduleId={job.scheduleId}
+              jobId={job.jobId}
+              engineerName={job.engineerName}
+              onStatus={(_status, complete) => setStopGoComplete(complete)}
             />
           ) : (
             <>
@@ -1337,21 +1614,60 @@ export default function JobDetailPage() {
                           {evidenceType === "Photo" ? (
                             <label className="check-field">
                               <span>Photo</span>
-                              <input
-                                type="file"
+                              <FileDropZone
                                 accept="image/*"
                                 capture="environment"
-                                onChange={(event) => {
-                                  const file = event.target.files?.[0];
+                                disabled={Boolean(savingId)}
+                                compact
+                                label={draft.photoName ? "Replace photo (drop or click)" : "Drop photo or click"}
+                                onFiles={(picked) => {
+                                  const file = picked[0];
                                   if (!file) return;
-                                  setDraftByRequirement((current) => ({
-                                    ...current,
-                                    [item.id]: { ...current[item.id], photoName: file.name },
-                                  }));
-                                  event.target.value = "";
+                                  void (async () => {
+                                    try {
+                                      setError("");
+                                      const prepared = await prepareFieldUploadFile(file);
+                                      setDraftByRequirement((current) => ({
+                                        ...current,
+                                        [item.id]: {
+                                          ...current[item.id],
+                                          photoName: prepared.name,
+                                          photoContentBase64: prepared.contentBase64,
+                                          photoMimeType: prepared.mimeType,
+                                          photoPreviewUrl: `data:${prepared.mimeType};base64,${prepared.contentBase64}`,
+                                        },
+                                      }));
+                                    } catch (prepareError) {
+                                      setError(
+                                        prepareError instanceof Error
+                                          ? prepareError.message
+                                          : "Could not prepare that photo.",
+                                      );
+                                    }
+                                  })();
                                 }}
                               />
-                              {draft.photoName ? <small>Selected: {draft.photoName}</small> : null}
+                              {draft.photoPreviewUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={draft.photoPreviewUrl}
+                                  alt={draft.photoName || "Checklist photo"}
+                                  style={{
+                                    display: "block",
+                                    marginTop: 8,
+                                    maxHeight: 120,
+                                    maxWidth: "100%",
+                                    objectFit: "cover",
+                                    borderRadius: 10,
+                                  }}
+                                />
+                              ) : null}
+                              {draft.photoName ? (
+                                <small>
+                                  {draft.photoContentBase64 ? "Ready to sync: " : "Selected: "}
+                                  {draft.photoName}
+                                </small>
+                              ) : null}
                             </label>
                           ) : null}
                           {evidenceType === "Checkbox" ? (
@@ -1385,55 +1701,31 @@ export default function JobDetailPage() {
       {tab === "photos" ? (
         <div className="stack">
           <div className="field-upload-row">
-            <button
-              type="button"
-              className="primary-btn"
-              disabled={workflowBusy}
-              onClick={() => photoInputRef.current?.click()}
-            >
-              <Camera size={17} /> Photos
-            </button>
-            <button
-              type="button"
-              className="ghost-btn"
-              disabled={workflowBusy}
-              onClick={() => videoInputRef.current?.click()}
-            >
-              <Video size={17} /> Video
-            </button>
-            <button
-              type="button"
-              className="ghost-btn"
-              disabled={workflowBusy}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <FileUp size={17} /> Files
-            </button>
-            <input
-              ref={photoInputRef}
-              type="file"
+            <FileDropZone
               accept="image/*"
               capture="environment"
               multiple
-              hidden
-              onChange={(event) => void uploadMedia(event)}
+              disabled={workflowBusy}
+              compact
+              label="Drop photos or click"
+              onFiles={(files) => void uploadMediaFiles(files)}
             />
-            <input
-              ref={videoInputRef}
-              type="file"
+            <FileDropZone
               accept="video/*,.mp4,.mov,.webm,.m4v"
               capture="environment"
               multiple
-              hidden
-              onChange={(event) => void uploadMedia(event)}
+              disabled={workflowBusy}
+              compact
+              label="Drop video or click"
+              onFiles={(files) => void uploadMediaFiles(files)}
             />
-            <input
-              ref={fileInputRef}
-              type="file"
+            <FileDropZone
               accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,application/pdf"
               multiple
-              hidden
-              onChange={(event) => void uploadMedia(event)}
+              disabled={workflowBusy}
+              compact
+              label="Drop files or click"
+              onFiles={(files) => void uploadMediaFiles(files)}
             />
           </div>
 
@@ -1441,11 +1733,35 @@ export default function JobDetailPage() {
             <div className="file-list">
               {photos.map((photo) => (
                 <div className="file-row" key={photo.id}>
-                  <span>{photo.type}</span>
-                  <strong>{photo.name}</strong>
-                  <small className="muted">
-                    {photo.uploadedBy} · {photo.uploadedAt}
-                  </small>
+                  {photo.url && (photo.type === "Photo" || photo.mimeType?.startsWith("image/")) ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={photo.url}
+                      alt={photo.name}
+                      style={{
+                        width: 56,
+                        height: 56,
+                        objectFit: "cover",
+                        borderRadius: 10,
+                        flex: "0 0 auto",
+                        background: "#e8f1f5",
+                      }}
+                    />
+                  ) : (
+                    <span>{photo.type}</span>
+                  )}
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <strong>{photo.name}</strong>
+                    <small className="muted" style={{ display: "block" }}>
+                      {photo.uploadedBy} · {photo.uploadedAt}
+                      {photo.url && !photo.url.startsWith("data:") ? " · synced" : photo.url ? " · pending sync" : ""}
+                    </small>
+                  </div>
+                  {photo.url && !photo.url.startsWith("data:") ? (
+                    <a className="ghost-btn" href={photo.url} target="_blank" rel="noreferrer">
+                      Open
+                    </a>
+                  ) : null}
                 </div>
               ))}
             </div>
