@@ -4,18 +4,18 @@ services:
     runtime: node
     region: frankfurt
     # Core + SQLite hub needs headroom. Starter (512MB) OOMs → ECONNRESET / port-bind flaps.
-    plan: standard
+    plan: pro
     # Freeze live auto-deploys. Ship WIP to nexa-pilot; promote to live only after
     # office acceptance (or a blocking fault fix). Confirm Auto-Deploy is Off in
     # the Render dashboard for nexa-live as well if Blueprint sync is not applied.
     autoDeploy: false
     healthCheckPath: /api/health
     # Build heap is set only here (not as a runtime env var).
-    buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test && NODE_OPTIONS=--max-old-space-size=3072 pnpm build && echo "nexa-runtime-mem=standard-1536-v1"
+    buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test && NODE_OPTIONS=--max-old-space-size=3072 pnpm build && echo "nexa-runtime-mem=pro-2048-v1"
     # Start Next directly — never run Corepack/pnpm here. Every `corepack enable` was
     # re-downloading pnpm from npm (Cloudflare) and unhandled UND_ERR_SOCKET killed the
     # instance on restart → random 502s.
-    startCommand: NODE_OPTIONS=--max-old-space-size=1536 node apps/web/node_modules/next/dist/bin/next start apps/web --hostname 0.0.0.0 --port $PORT
+    startCommand: NODE_OPTIONS=--max-old-space-size=2048 node apps/web/node_modules/next/dist/bin/next start apps/web --hostname 0.0.0.0 --port $PORT
     disk:
       name: nexa-live-data
       mountPath: /var/data

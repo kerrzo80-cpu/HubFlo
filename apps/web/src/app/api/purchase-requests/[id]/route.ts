@@ -8,7 +8,10 @@ import {
   type PurchaseStatus,
 } from "@/lib/workflow-data";
 import { getAccessProfileFromHeaders } from "@/lib/access";
+import { getAuthenticatedUser } from "@/lib/auth-request";
 import { parseJsonRequestBody } from "@/lib/http";
+import { recordLockErrorResponse } from "@/lib/record-lock-http";
+import { assertRecordLockForWrite } from "@/lib/record-edit-locks";
 import { appendAuditEvent } from "@/lib/people-data";
 
 export async function DELETE(
@@ -53,32 +56,42 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const updated = Object.keys(payload).length === 1 && payload.status
-    ? updatePurchaseRequestStatus(id, payload.status as Exclude<PurchaseStatus, "Requested">)
-    : updatePurchaseRequest(id, payload);
-  if (!updated) {
-    return NextResponse.json({ error: "Purchase request not found" }, { status: 404 });
-  }
+  const authUser = getAuthenticatedUser(request);
+  try {
+    if (authUser) {
+      assertRecordLockForWrite({ recordType: "po", recordId: id, userId: authUser.id });
+    }
+    const updated = Object.keys(payload).length === 1 && payload.status
+      ? updatePurchaseRequestStatus(id, payload.status as Exclude<PurchaseStatus, "Requested">)
+      : updatePurchaseRequest(id, payload);
+    if (!updated) {
+      return NextResponse.json({ error: "Purchase request not found" }, { status: 404 });
+    }
 
-  const action =
-    updated.status === "Received"
-      ? "received"
-      : updated.status === "Part received"
-        ? "part received"
-        : updated.status === "Approved"
-          ? "approved"
-          : "updated";
-  appendAuditEvent({
-    actor: "HubFlo user",
-    action,
-    recordType: "purchase order",
-    recordId: updated.id,
-    summary:
+    const action =
       updated.status === "Received"
-        ? `${updated.poNumber} supplier invoice received against ${updated.jobRef} / ${updated.costCentreName || "unassigned cost centre"} at £${(updated.actualCost ?? 0).toFixed(2)}.`
-        : `${updated.poNumber || "Purchase request"} ${action} for ${updated.jobRef} / ${updated.costCentreName || "unassigned cost centre"}.`,
-    source: "purchase orders",
-    importance: ["Received", "Approved", "Disputed"].includes(updated.status) ? "high" : "normal",
-  });
-  return NextResponse.json(updated);
+        ? "received"
+        : updated.status === "Part received"
+          ? "part received"
+          : updated.status === "Approved"
+            ? "approved"
+            : "updated";
+    appendAuditEvent({
+      actor: "HubFlo user",
+      action,
+      recordType: "purchase order",
+      recordId: updated.id,
+      summary:
+        updated.status === "Received"
+          ? `${updated.poNumber} supplier invoice received against ${updated.jobRef} / ${updated.costCentreName || "unassigned cost centre"} at £${(updated.actualCost ?? 0).toFixed(2)}.`
+          : `${updated.poNumber || "Purchase request"} ${action} for ${updated.jobRef} / ${updated.costCentreName || "unassigned cost centre"}.`,
+      source: "purchase orders",
+      importance: ["Received", "Approved", "Disputed"].includes(updated.status) ? "high" : "normal",
+    });
+    return NextResponse.json(updated);
+  } catch (error) {
+    const locked = recordLockErrorResponse(error);
+    if (locked) return locked;
+    throw error;
+  }
 }

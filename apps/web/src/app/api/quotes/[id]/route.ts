@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
+import { getAuthenticatedUser } from "@/lib/auth-request";
 import { parseJsonRequestBody } from "@/lib/http";
+import { recordLockErrorResponse } from "@/lib/record-lock-http";
+import { assertRecordLockForWrite } from "@/lib/record-edit-locks";
 import { assertQuoteStatusTransition, getQuotes, removeQuote, updateQuote, type Quote } from "@/lib/workflow-data";
 import { clearSimproLinksForNexaRecord } from "@/lib/simpro-sync";
 
@@ -31,12 +34,22 @@ export async function PATCH(
     }
   }
 
-  const updated = updateQuote(id, body);
-  if (!updated) {
-    return NextResponse.json({ error: "Quote not found" }, { status: 404 });
-  }
+  const authUser = getAuthenticatedUser(request);
+  try {
+    if (authUser) {
+      assertRecordLockForWrite({ recordType: "quote", recordId: id, userId: authUser.id });
+    }
+    const updated = updateQuote(id, body);
+    if (!updated) {
+      return NextResponse.json({ error: "Quote not found" }, { status: 404 });
+    }
 
-  return NextResponse.json(updated);
+    return NextResponse.json(updated);
+  } catch (error) {
+    const locked = recordLockErrorResponse(error);
+    if (locked) return locked;
+    throw error;
+  }
 }
 
 export async function DELETE(

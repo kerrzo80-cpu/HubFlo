@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
+import { getAuthenticatedUser } from "@/lib/auth-request";
 import { ensureGasCertTrialInCore } from "@/lib/gas-cert-trial-core";
 import { ensureDomesticStopGoSeed } from "@/lib/domestic-stop-go/seed";
 import { reconcileDayworkVariationsFromEvidence } from "@/lib/engineer-flow";
@@ -11,6 +12,8 @@ import { parseJsonRequestBody } from "@/lib/http";
 import { stripDayworkBlobsForPoll } from "@/lib/daywork-poll-strip";
 import { sanitizeHubStateForClient } from "@/lib/hub-state-sanitize";
 import { getLeads } from "@/lib/lead-store";
+import { assertRecordLockForWrite, type RecordLockType } from "@/lib/record-edit-locks";
+import { recordLockErrorResponse } from "@/lib/record-lock-http";
 import {
   assertNoHubScheduleClashes,
   leadSurveysToAssignments,
@@ -48,9 +51,24 @@ export async function PUT(request: Request) {
   }
 
   try {
-    const payload = await parseJsonRequestBody<HubDetailState>(request);
-    if (!payload || typeof payload !== "object") {
+    const raw = await parseJsonRequestBody<
+      HubDetailState & { recordLockContext?: { recordType: RecordLockType; recordId: string } }
+    >(request);
+    if (!raw || typeof raw !== "object") {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    const recordLockContext = raw.recordLockContext;
+    const payload: HubDetailState = { ...raw };
+    delete (payload as { recordLockContext?: unknown }).recordLockContext;
+
+    const authUser = getAuthenticatedUser(request);
+    if (authUser && recordLockContext?.recordId) {
+      assertRecordLockForWrite({
+        recordType: recordLockContext.recordType,
+        recordId: recordLockContext.recordId,
+        userId: authUser.id,
+      });
     }
 
     // Collapse tender BoQ dumps in the inbound payload before merge/clone.
@@ -90,6 +108,8 @@ export async function PUT(request: Request) {
       updatedAt: saved.updatedAt || new Date().toISOString(),
     });
   } catch (error) {
+    const locked = recordLockErrorResponse(error);
+    if (locked) return locked;
     const message = error instanceof Error ? error.message : "Hub save failed";
     const oom = /heap|out of memory|ENOMEM|allocation/i.test(message);
     return NextResponse.json(

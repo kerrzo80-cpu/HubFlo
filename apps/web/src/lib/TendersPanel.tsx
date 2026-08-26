@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 
 import { FileDropZone } from "@/components/FileDropZone";
+import { RecordEditLockBanner } from "@/components/RecordEditLockBanner";
+import { useRecordEditLock } from "@/hooks/useRecordEditLock";
 import { TenderAiTakeoffPanel } from "@/lib/TenderAiTakeoffPanel";
 import {
   isTenderDocumentKind,
@@ -203,6 +205,10 @@ export function TendersPanel({
     () => tenders.find((tender) => tender.id === selectedId) ?? null,
     [selectedId, tenders],
   );
+  const recordEditLock = useRecordEditLock(
+    selectedId ? { recordType: "tender", recordId: selectedId } : null,
+  );
+  const postActionInFlightRef = useRef(false);
 
   const documentFolders = selected?.documentFolders || [];
   const folderOptions = useMemo(() => listFolderOptions(documentFolders), [documentFolders]);
@@ -374,6 +380,19 @@ export function TendersPanel({
   }, [selectedId, selected?.status, selected?.convertedJobId]);
 
   async function postAction(body: Record<string, unknown>) {
+    const action = String(body.action || "");
+    if (postActionInFlightRef.current) {
+      return;
+    }
+    if (recordEditLock.readOnly && action && action !== "get") {
+      onNotice(
+        recordEditLock.holderName
+          ? `${recordEditLock.holderName} is editing this tender — you are read-only.`
+          : "This tender is read-only while someone else is editing.",
+      );
+      throw new Error("read-only");
+    }
+    postActionInFlightRef.current = true;
     setSaving(true);
     try {
       const response = await fetch("/api/tenders", {
@@ -383,6 +402,8 @@ export function TendersPanel({
       });
       const payload = (await response.json()) as {
         error?: string;
+        code?: string;
+        holderName?: string;
         tenders?: Tender[];
         tender?: Tender;
         sheetKey?: string;
@@ -399,7 +420,16 @@ export function TendersPanel({
         copied?: number;
         skipped?: number;
       };
-      if (!response.ok) throw new Error(payload.error || "Request failed");
+      if (!response.ok) {
+        if (response.status === 409 && payload.code === "RECORD_LOCKED") {
+          throw new Error(
+            payload.holderName
+              ? `${payload.holderName} is editing this tender.`
+              : payload.error || "Tender is locked.",
+          );
+        }
+        throw new Error(payload.error || "Request failed");
+      }
       const editor = payload.tender;
       const editorIncludesBoq =
         Boolean(editor?.id) &&
@@ -434,6 +464,7 @@ export function TendersPanel({
       if (editor?.id) setSelectedId(editor.id);
       return payload;
     } finally {
+      postActionInFlightRef.current = false;
       setSaving(false);
     }
   }
@@ -1485,6 +1516,7 @@ export function TendersPanel({
 
     return (
       <section className="tenders-workspace" aria-label="Tender record">
+        <RecordEditLockBanner lock={recordEditLock} />
         <div className="tenders-toolbar">
           <button type="button" className="secondary-button" onClick={() => setSelectedId(null)}>
             <ArrowLeft size={15} />

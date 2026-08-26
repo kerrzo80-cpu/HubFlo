@@ -17,6 +17,8 @@ import {
 import { createPortal } from "react-dom";
 import { CorePanelSkeleton } from "@/components/CorePanelSkeleton";
 import { FileDropZone } from "@/components/FileDropZone";
+import { RecordEditLockBanner } from "@/components/RecordEditLockBanner";
+import { activeRecordFromHomeView, useRecordEditLock } from "@/hooks/useRecordEditLock";
 import { downloadBlob } from "@/lib/download-blob";
 import {
   buildPayrollExportRows,
@@ -9048,6 +9050,9 @@ export default function CoreApp() {
   const pendingInvoiceSaveRef = useRef(false);
   const quoteCostCentresRef = useRef<Record<string, QuoteCostCentre[]>>({});
   const savedRecordFingerprintRef = useRef("");
+  /** Prevents double-click / overlapping manual record saves. */
+  const recordSaveInFlightRef = useRef(false);
+  const recordEditLockReadOnlyRef = useRef(false);
   const [costCentreInputDrafts, setCostCentreInputDrafts] = useState<Record<string, string>>({});
 
   const activeEmployee = useMemo(
@@ -9636,6 +9641,33 @@ export default function CoreApp() {
     selectedLead,
     selectedQuote,
   ]);
+
+  const activeRecordForLock = useMemo(
+    () =>
+      activeRecordFromHomeView({
+        homeView,
+        selectedLeadId,
+        selectedQuoteId,
+        selectedJobId,
+        selectedInvoiceId,
+        selectedPurchaseRequestId,
+        selectedTenderId: blakeOpenTender?.id ?? null,
+      }),
+    [
+      blakeOpenTender?.id,
+      homeView,
+      selectedInvoiceId,
+      selectedJobId,
+      selectedLeadId,
+      selectedPurchaseRequestId,
+      selectedQuoteId,
+    ],
+  );
+  const recordEditLock = useRecordEditLock(activeRecordForLock);
+
+  useEffect(() => {
+    recordEditLockReadOnlyRef.current = recordEditLock.readOnly;
+  }, [recordEditLock.readOnly]);
 
   useEffect(() => {
     if (!hasHydratedLocalData || !hasLoadedHubDetailState) return;
@@ -11941,12 +11973,17 @@ export default function CoreApp() {
 
   function saveHubDetailStateWithInvoices(nextInvoices: Invoice[], failureMessage = "Could not save invoices to the shared workspace, so local fallback is being used.") {
     if (!hasLoadedHubDetailState) return;
+    if (recordEditLockReadOnlyRef.current && homeView === "invoice-record" && selectedInvoiceId) return;
     pendingInvoiceSaveRef.current = true;
     fetch("/api/hub-state", {
       method: "PUT",
       headers: { ...requestHeaders, "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify({ ...buildHubDetailStatePayload(), invoices: nextInvoices }),
+      body: JSON.stringify({
+        ...buildHubDetailStatePayload(),
+        invoices: nextInvoices,
+        ...(activeRecordForLock ? { recordLockContext: activeRecordForLock } : {}),
+      }),
     })
       .then((response) => {
         if (response.status === 401) {
@@ -12186,7 +12223,13 @@ export default function CoreApp() {
       if (Date.now() < hubAutosaveHoldUntilRef.current) {
         return;
       }
-      const payload = buildHubDetailStatePayload();
+      if (recordEditLockReadOnlyRef.current && activeRecordFingerprint) {
+        return;
+      }
+      const payload = {
+        ...buildHubDetailStatePayload(),
+        ...(activeRecordForLock ? { recordLockContext: activeRecordForLock } : {}),
+      };
       // Background autosave must not flip the Save button to "Saving…" — that state
       // was getting stuck when rapid Setup edits aborted in-flight requests.
 
@@ -20706,6 +20749,18 @@ export default function CoreApp() {
       showNotice("Open a lead, quote, job or invoice before saving.");
       return false;
     }
+    if (recordEditLock.readOnly) {
+      showNotice(
+        recordEditLock.holderName
+          ? `${recordEditLock.holderName} is editing this record — you are read-only.`
+          : "This record is read-only while someone else is editing.",
+      );
+      return false;
+    }
+    if (recordSaveInFlightRef.current) {
+      return false;
+    }
+    recordSaveInFlightRef.current = true;
 
     setRecordSaveStatus("saving");
     try {
@@ -20725,7 +20780,13 @@ export default function CoreApp() {
           headers: { ...requestHeaders, "Content-Type": "application/json" },
           body: JSON.stringify(selectedQuote),
         });
-        if (!response.ok) throw new Error("The quote record could not be saved.");
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as { error?: string; code?: string; holderName?: string } | null;
+          if (response.status === 409 && body?.code === "RECORD_LOCKED") {
+            throw new Error(body.holderName ? `${body.holderName} is editing this quote.` : body.error || "Quote is locked.");
+          }
+          throw new Error("The quote record could not be saved.");
+        }
         const updated = (await response.json()) as Quote;
         setQuotes((current) => current.map((quote) => (quote.id === updated.id ? updated : quote)));
       } else if ((homeView === "job-record" || homeView === "cost-centre-record") && selectedJob) {
@@ -20734,7 +20795,13 @@ export default function CoreApp() {
           headers: { ...requestHeaders, "Content-Type": "application/json" },
           body: JSON.stringify(selectedJob),
         });
-        if (!response.ok) throw new Error("The job record could not be saved.");
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as { error?: string; code?: string; holderName?: string } | null;
+          if (response.status === 409 && body?.code === "RECORD_LOCKED") {
+            throw new Error(body.holderName ? `${body.holderName} is editing this job.` : body.error || "Job is locked.");
+          }
+          throw new Error("The job record could not be saved.");
+        }
         const updated = (await response.json()) as Job;
         setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
       }
@@ -20743,9 +20810,18 @@ export default function CoreApp() {
         method: "PUT",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify(buildHubDetailStatePayload()),
+        body: JSON.stringify({
+          ...buildHubDetailStatePayload(),
+          ...(activeRecordForLock ? { recordLockContext: activeRecordForLock } : {}),
+        }),
       });
-      if (!response.ok) throw new Error("The shared NeXa record details could not be saved.");
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string; code?: string; holderName?: string } | null;
+        if (response.status === 409 && body?.code === "RECORD_LOCKED") {
+          throw new Error(body.holderName ? `${body.holderName} is editing this record.` : body.error || "Record is locked.");
+        }
+        throw new Error("The shared NeXa record details could not be saved.");
+      }
 
       savedRecordFingerprintRef.current = activeRecordFingerprint;
       setRecordSaveStatus("saved");
@@ -20758,6 +20834,8 @@ export default function CoreApp() {
       setSectionError(message);
       showNotice(message);
       return false;
+    } finally {
+      recordSaveInFlightRef.current = false;
     }
   }
 
@@ -20909,7 +20987,10 @@ export default function CoreApp() {
   }
 
   function renderRecordSaveControls(mode: "record" | "nested" = "record") {
-    const statusLabel = recordSaveStatus === "saving"
+    const readOnly = recordEditLock.readOnly;
+    const statusLabel = readOnly
+      ? "Read-only — another user is editing"
+      : recordSaveStatus === "saving"
       ? "Saving..."
       : recordSaveStatus === "unsaved"
         ? "Unsaved changes"
@@ -20934,10 +21015,13 @@ export default function CoreApp() {
     };
     return (
       <div className="record-save-controls">
-        <span className="record-autosave-pill" title="NeXa keeps saving while you work">
-          Auto-save on
+        <span
+          className="record-autosave-pill"
+          title={readOnly ? "Auto-save paused while you view in read-only mode" : "NeXa keeps saving while you work"}
+        >
+          {readOnly ? "Read-only" : "Auto-save on"}
         </span>
-        <span className={`record-save-status ${recordSaveStatus}`} aria-live="polite">
+        <span className={`record-save-status ${readOnly ? "unsaved" : recordSaveStatus}`} aria-live="polite">
           {statusLabel}
         </span>
         <button
@@ -20954,8 +21038,8 @@ export default function CoreApp() {
           className="primary-button record-finish-button"
           type="button"
           aria-label="Save and finish"
-          title="Save and close this record"
-          disabled={recordSaveStatus === "saving"}
+          title={readOnly ? "Another user is editing this record" : "Save and close this record"}
+          disabled={readOnly || recordSaveStatus === "saving"}
           onClick={() => {
             if (mode === "nested") finishNested();
             else void saveAndFinishRecord();
@@ -31750,12 +31834,20 @@ export default function CoreApp() {
           | {
               message?: string;
               error?: string;
+              code?: string;
+              holderName?: string;
             }
           | null;
+        const lockedMessage =
+          response.status === 409 && body?.code === "RECORD_LOCKED"
+            ? body.holderName
+              ? `${body.holderName} is editing this lead.`
+              : body.error || "Lead is locked."
+            : body?.error || body?.message || "Unable to save lead update right now.";
         return {
           ok: false,
           status: response.status,
-          error: body?.error || body?.message || "Unable to save lead update right now.",
+          error: lockedMessage,
         };
       }
       return { ok: true, lead: (await response.json()) as Lead };
@@ -37506,6 +37598,7 @@ export default function CoreApp() {
               });
               return (
                 <section className="quote-record-shell purchase-order-record-shell">
+                  <RecordEditLockBanner lock={recordEditLock} />
                   <div className="quote-record-banner">
                     <div>
                       <span className="employee-record-eyebrow">Purchase order</span>
@@ -38276,6 +38369,7 @@ export default function CoreApp() {
               <div className="record-with-timeline">
               <div className="record-with-timeline-main">
               <section className="quote-record-shell">
+                <RecordEditLockBanner lock={recordEditLock} />
                 <div className="quote-record-banner">
                   <div>
                     <span className="employee-record-eyebrow">Quote setup</span>
@@ -41395,6 +41489,7 @@ export default function CoreApp() {
               <div className="record-with-timeline">
               <div className="record-with-timeline-main">
               <section className="quote-record-shell">
+                <RecordEditLockBanner lock={recordEditLock} />
                 <div className="quote-record-banner">
                   <div>
                     <span className="employee-record-eyebrow">Job record</span>
@@ -45394,6 +45489,7 @@ export default function CoreApp() {
               <div className="record-with-timeline">
               <div className="record-with-timeline-main">
               <section className="quote-record-shell">
+                <RecordEditLockBanner lock={recordEditLock} />
                 <div className="quote-record-banner">
                   <div>
                     <span className="employee-record-eyebrow">{invoiceClaimTypeLabel(selectedInvoice.claimType, selectedInvoice.claimPercent)}</span>
@@ -46378,6 +46474,7 @@ export default function CoreApp() {
               <div className="record-with-timeline">
               <div className="record-with-timeline-main">
               <section className="lead-record-shell">
+                <RecordEditLockBanner lock={recordEditLock} />
                 <div className="client-record-banner">
                   <div>
                     <span className="employee-record-eyebrow">Lead enquiry</span>

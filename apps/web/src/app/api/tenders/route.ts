@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
+import { getAuthenticatedUser } from "@/lib/auth-request";
 import { parseJsonRequestBody } from "@/lib/http";
+import { assertRecordLockForWrite } from "@/lib/record-edit-locks";
+import { recordLockErrorResponse } from "@/lib/record-lock-http";
 import {
   addBoqMeasuredLine,
   addBoqSheetTab,
@@ -47,6 +50,35 @@ function canView(access: ReturnType<typeof getAccessProfileFromHeaders>) {
 
 function canEdit(access: ReturnType<typeof getAccessProfileFromHeaders>) {
   return access.canCreateQuote || access.canEditJobs || access.showFinance || access.canCustomize;
+}
+
+const TENDER_LOCK_ACTIONS = new Set([
+  "update",
+  "delete",
+  "import-boq",
+  "clear-boq",
+  "update-boq-line",
+  "add-boq-line",
+  "delete-boq-lines",
+  "add-boq-sheet",
+  "rename-boq-sheet",
+  "delete-boq-sheet",
+  "move-boq-lines",
+  "move-boq-lines-to-section",
+  "merge-boq-lines",
+  "delete-document",
+  "create-document-folder",
+  "delete-document-folder",
+  "move-document",
+  "submit",
+  "convert-won",
+  "rebuild-job-cost-centres",
+  "sync-job-documents",
+]);
+
+function assertTenderWriteLock(action: string | undefined, tenderId: string | undefined, userId: string) {
+  if (!action || !tenderId || !TENDER_LOCK_ACTIONS.has(action)) return;
+  assertRecordLockForWrite({ recordType: "tender", recordId: tenderId, userId });
 }
 
 /** Always strip BoQ dumps from list payloads — full Bills OOMed Render. */
@@ -140,6 +172,11 @@ export async function POST(request: NextRequest) {
   }>(request);
 
   try {
+    const authUser = getAuthenticatedUser(request);
+    if (authUser) {
+      assertTenderWriteLock(body?.action, body?.id, authUser.id);
+    }
+
     if (body?.action === "get") {
       if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
       const tender = getTender(body.id);
@@ -425,6 +462,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (error) {
+    const locked = recordLockErrorResponse(error);
+    if (locked) return locked;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to update tender" },
       { status: 400 },
