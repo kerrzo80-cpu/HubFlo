@@ -34672,7 +34672,7 @@ export default function CoreApp() {
             <header>
               <div>
                 <span className={`buddy-mark mood-${buddyMood}`}>
-                  <BuddyCharacter mood={buddyMood} size="md" />
+                  <BuddyCharacter mood={buddyMood} size="lg" />
                 </span>
                 <div>
                   <strong>Ayla</strong>
@@ -34689,7 +34689,7 @@ export default function CoreApp() {
                           ? "Checking the job over"
                           : buddyMood === "good"
                             ? "All good — Ayla’s on it"
-                            : "Chat naturally · connected to your authorised Blake workspace"}
+                            : "Chat naturally · connected to your authorised Ayla workspace"}
                   </small>
                 </div>
               </div>
@@ -35234,7 +35234,7 @@ export default function CoreApp() {
               title="Chat with Ayla"
               data-tooltip="Ask Ayla"
             >
-              <BuddyCharacter mood={buddyMood} size="md" className="buddy-launcher-mascot" />
+              <BuddyCharacter mood={buddyMood} size="lg" className="buddy-launcher-mascot" />
               <span className="buddy-launcher-label">Ask Ayla</span>
               {buddyAlertCount > 0 ? (
                 <em className="buddy-launcher-badge" aria-hidden>

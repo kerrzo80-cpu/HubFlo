@@ -2908,7 +2908,7 @@ export function TendersPanel({
       <div className="record-folder-grid register-kpi-grid">
         <article className="record-folder-card blue">
           <span>Live tenders</span>
-          <strong>{tenders.filter((t) => !["Won", "Lost"].includes(t.status)).length}</strong>
+          <strong>{tenders.filter((t) => !["Won", "Lost", "Sent"].includes(t.status)).length}</strong>
         </article>
         <article className="record-folder-card green">
           <span>Pipeline value</span>
