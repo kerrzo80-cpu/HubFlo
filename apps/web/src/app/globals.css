@@ -2558,7 +2558,14 @@ kbd {
 .context-blake-launcher .buddy-launcher-mascot.blake-character.size-md,
 .context-blake-launcher .buddy-launcher-mascot.blake-character.size-lg,
 .context-blake-launcher .buddy-launcher-mascot.blake-character {
-  width: 88px;
+  width: 120px;
+}
+
+.context-blake-launcher .buddy-launcher-mascot.blake-character .blake-pose,
+.context-blake-launcher .buddy-launcher-mascot.blake-character .ayla-pose {
+  /* Soft tinted shadows read as blue fringe on the navy rail — keep cut-out clean */
+  filter: none;
+  image-rendering: auto;
 }
 
 .context-blake-launcher .buddy-launcher-label {
@@ -2759,7 +2766,8 @@ kbd {
 
 .blake-character .blake-pose {
   display: block;
-  filter: drop-shadow(0 8px 14px rgba(17, 52, 68, 0.16));
+  /* Soft contact shadow only — avoid coloured halo on brand blues */
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.18));
   height: 100%;
   object-fit: contain;
   width: 100%;
