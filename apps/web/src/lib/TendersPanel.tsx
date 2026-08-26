@@ -382,7 +382,7 @@ export function TendersPanel({
   async function postAction(body: Record<string, unknown>) {
     const action = String(body.action || "");
     if (postActionInFlightRef.current) {
-      return;
+      throw new Error("Request already in progress");
     }
     if (recordEditLock.readOnly && action && action !== "get") {
       onNotice(
