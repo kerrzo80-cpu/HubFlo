@@ -1,8 +1,9 @@
 "use client";
 
-import { ArrowLeft, Check, Menu, MessageSquare, MoreHorizontal, Pencil, Plus, Send, Trash2, X } from "lucide-react";
+import { ArrowLeft, Bug, Check, Lightbulb, Menu, MessageSquare, MoreHorizontal, Pencil, Plus, Send, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { ASSISTANT_ASK, ASSISTANT_NAME } from "@/lib/product-brand";
 import styles from "./blake.module.css";
 
 type MessageAction = { id: string; title: string; detail: string; confirmLabel: string; kind: string };
@@ -17,7 +18,7 @@ type Message = {
 type Chat = { id: string; title: string; createdAt: string; updatedAt: string; messages: Message[] };
 type AssistantResponse = { reply?: string; error?: string; aiUsed?: boolean; action?: MessageAction };
 
-const WELCOME = "I’m Blake. Ask me anything about your authorised NeXa workspace, or think something through with me just as you would in ChatGPT.";
+const WELCOME = `I’m ${ASSISTANT_NAME}. Ask me anything about your authorised NeXa workspace, or think something through with me. You can also report a problem or suggest an improvement.`;
 
 export default function BlakeChatPage() {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -55,12 +56,12 @@ export default function BlakeChatPage() {
     try {
       const response = await fetch("/api/blake/chats", { credentials: "include" });
       const payload = await response.json() as { chats?: Chat[]; error?: string };
-      if (!response.ok) throw new Error(payload.error || "Could not load your Blake chats.");
+      if (!response.ok) throw new Error(payload.error || `Could not load your ${ASSISTANT_NAME} chats.`);
       const loaded = payload.chats || [];
       setChats(loaded);
       if (loaded[0]) setActiveId(loaded[0].id);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not load your Blake chats.");
+      setError(caught instanceof Error ? caught.message : `Could not load your ${ASSISTANT_NAME} chats.`);
     } finally {
       setLoading(false);
     }
@@ -130,6 +131,31 @@ export default function BlakeChatPage() {
     return payload.chat;
   }
 
+  async function startFeedback(kind: "problem" | "improvement") {
+    const draftPrefix = kind === "problem" ? "Report a problem: " : "Suggest an improvement: ";
+    const guide =
+      kind === "problem"
+        ? "Tell me what’s wrong (and where you are if it helps). I’ll draft a Faults entry for you to confirm."
+        : "What should NeXa do better? I’ll log it as an improvement for you to confirm.";
+    setDraft(draftPrefix);
+    setError("");
+    try {
+      const chat = await ensureActiveChat();
+      const guideMessage: Message = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        text: guide,
+        createdAt: new Date().toISOString(),
+      };
+      const next = { ...chat, messages: [...chat.messages, guideMessage] };
+      setChats((current) => current.map((item) => (item.id === chat.id ? next : item)));
+      await persist(next);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not start feedback.");
+    }
+    window.setTimeout(() => composerRef.current?.focus(), 0);
+  }
+
   async function sendMessage() {
     const text = draft.trim();
     if (!text || busy) return;
@@ -150,7 +176,7 @@ export default function BlakeChatPage() {
           message: text,
           history: chat.messages.slice(-30).map((message) => ({ role: message.role, text: message.text })),
           sourceRoute: "/blake",
-          sourcePage: "Blake chat",
+          sourcePage: ASSISTANT_ASK,
           channel: "web_text",
           conversationId: chat.id,
         }),
@@ -166,7 +192,7 @@ export default function BlakeChatPage() {
       };
       await persist({ ...withUser, messages: [...withUser.messages, assistantMessage] });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Blake could not complete that request.");
+      setError(caught instanceof Error ? caught.message : `${ASSISTANT_NAME} could not complete that request.`);
     } finally {
       setBusy(false);
     }
@@ -206,7 +232,7 @@ export default function BlakeChatPage() {
           <button className={styles.mobileClose} onClick={() => setSidebarOpen(false)} aria-label="Close chats"><X size={19} /></button>
         </div>
         <button className={styles.newChat} onClick={() => void newChat()}><Plus size={18} /> New chat</button>
-        <nav className={styles.chatList} aria-label="Your Blake chats">
+        <nav className={styles.chatList} aria-label={`${ASSISTANT_NAME} chats`}>
           {chats.map((chat) => (
             <div className={`${styles.chatRow} ${active?.id === chat.id ? styles.activeChat : ""}`} key={chat.id}>
               <button className={styles.chatSelect} onClick={() => { setActiveId(chat.id); setSidebarOpen(false); }}>
@@ -223,7 +249,7 @@ export default function BlakeChatPage() {
             </div>
           ))}
         </nav>
-        <p className={styles.permissionNote}>Chats are private to your profile. Blake only uses the NeXa areas your role can access.</p>
+        <p className={styles.permissionNote}>Chats are private to your profile. {ASSISTANT_NAME} only uses the NeXa areas your role can access.</p>
       </aside>
 
       {sidebarOpen ? <button className={styles.backdrop} onClick={() => setSidebarOpen(false)} aria-label="Close chats" /> : null}
@@ -231,7 +257,7 @@ export default function BlakeChatPage() {
       <section className={styles.workspace}>
         <header className={styles.header}>
           <button className={styles.mobileMenu} onClick={() => setSidebarOpen(true)} aria-label="Open chats"><Menu size={20} /></button>
-          <div><strong>Blake</strong><span>{active?.title || "New conversation"}</span></div>
+          <div><strong>{ASSISTANT_ASK}</strong><span>{active?.title || "New conversation"}</span></div>
           <span className={styles.status}><i /> Connected to NeXa</span>
         </header>
 
@@ -239,20 +265,24 @@ export default function BlakeChatPage() {
           {loading ? <p className={styles.loading}>Loading your chats…</p> : null}
           {!loading && !active?.messages.length ? (
             <div className={styles.empty}>
-              <div className={styles.blakeMark}>B</div>
+              <div className={styles.blakeMark}>A</div>
               <h1>What can I help with?</h1>
               <p>{WELCOME}</p>
               <div className={styles.prompts}>
-                <button onClick={() => setDraft("Which jobs currently have the tightest margins?")}>Jobs with tight margins</button>
-                <button onClick={() => setDraft("Show me this month’s sales and compare them with last month.")}>Compare monthly sales</button>
-                <button onClick={() => setDraft("Which invoices are overdue and need chasing?")}>Overdue invoices</button>
-                <button onClick={() => setDraft("Who is available next Tuesday?")}>Check availability</button>
+                <button type="button" onClick={() => void startFeedback("problem")}>
+                  <Bug size={16} /> Report a problem
+                </button>
+                <button type="button" onClick={() => void startFeedback("improvement")}>
+                  <Lightbulb size={16} /> Suggest an improvement
+                </button>
+                <button type="button" onClick={() => setDraft("Which jobs currently have the tightest margins?")}>Jobs with tight margins</button>
+                <button type="button" onClick={() => setDraft("Which invoices are overdue and need chasing?")}>Overdue invoices</button>
               </div>
             </div>
           ) : null}
           {active?.messages.map((message) => (
             <article className={`${styles.message} ${message.role === "user" ? styles.userMessage : styles.assistantMessage}`} key={message.id}>
-              {message.role === "assistant" ? <div className={styles.avatar}>B</div> : null}
+              {message.role === "assistant" ? <div className={styles.avatar}>A</div> : null}
               <div className={styles.messageBody}>
                 <p>{message.text}</p>
                 {message.action ? (
@@ -265,25 +295,33 @@ export default function BlakeChatPage() {
               </div>
             </article>
           ))}
-          {busy ? <div className={`${styles.message} ${styles.assistantMessage}`}><div className={styles.avatar}>B</div><p className={styles.thinking}>Blake is working across NeXa…</p></div> : null}
+          {busy ? <div className={`${styles.message} ${styles.assistantMessage}`}><div className={styles.avatar}>A</div><p className={styles.thinking}>{ASSISTANT_NAME} is working across NeXa…</p></div> : null}
           <div ref={endRef} />
         </div>
 
         <div className={styles.composerWrap}>
           {error ? <div className={styles.error}>{error}<button onClick={() => setError("")}><X size={15} /></button></div> : null}
+          <div className={styles.feedbackChips} aria-label="Feedback actions">
+            <button type="button" className={styles.feedbackChip} disabled={busy} onClick={() => void startFeedback("problem")}>
+              <Bug size={14} /> Report a problem
+            </button>
+            <button type="button" className={styles.feedbackChip} disabled={busy} onClick={() => void startFeedback("improvement")}>
+              <Lightbulb size={14} /> Suggest an improvement
+            </button>
+          </div>
           <form className={styles.composer} onSubmit={(event) => { event.preventDefault(); void sendMessage(); }}>
             <textarea
               ref={composerRef}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }}
-              placeholder="Message Blake"
-              aria-label="Message Blake"
+              placeholder={`Message ${ASSISTANT_NAME}`}
+              aria-label={`Message ${ASSISTANT_NAME}`}
               rows={1}
             />
             <button type="submit" disabled={!draft.trim() || busy} aria-label="Send"><Send size={19} /></button>
           </form>
-          <small>Blake can read only what your NeXa role permits. Operational and commercial changes require confirmation.</small>
+          <small>{ASSISTANT_NAME} can read only what your NeXa role permits. Operational and commercial changes require confirmation.</small>
         </div>
       </section>
     </main>

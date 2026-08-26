@@ -32,8 +32,12 @@
 .empty h1 { margin: 0; font-size: 30px; letter-spacing: 0; }
 .empty > p { max-width: 620px; margin: 12px auto 26px; color: #607782; font-size: 16px; line-height: 1.6; }
 .prompts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.prompts button { min-height: 52px; padding: 12px 16px; border: 1px solid #cfdee4; border-radius: 7px; background: white; color: #24424f; font: inherit; text-align: left; cursor: pointer; }
+.prompts button { min-height: 52px; padding: 12px 16px; border: 1px solid #cfdee4; border-radius: 7px; background: white; color: #24424f; font: inherit; text-align: left; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
 .prompts button:hover { border-color: #54a8c5; background: #f1f9fb; }
+.feedbackChips { display: flex; flex-wrap: wrap; gap: 8px; max-width: 860px; margin: 0 auto 10px; }
+.feedbackChip { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 6px 12px; border: 1px solid #cfdee4; border-radius: 999px; background: white; color: #24424f; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.feedbackChip:hover { border-color: #54a8c5; background: #f1f9fb; }
+.feedbackChip:disabled { opacity: 0.55; cursor: default; }
 .message { display: flex; gap: 14px; max-width: 860px; margin: 0 auto 28px; }
 .avatar { width: 32px; height: 32px; font-size: 14px; }
 .messageBody { min-width: 0; max-width: min(760px, 85%); }
