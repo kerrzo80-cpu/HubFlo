@@ -5,8 +5,8 @@ import { handleNexaAssistantMessage } from "./nexa-assistant";
 import { writeServerStore } from "./server-store";
 import { upsertTender } from "./tenders-data";
 
-describe("Ask Blake on an open tender", () => {
-  it("offers to write Blake budget prices after a QS-style price request", async () => {
+describe("Ask Ayla on an open tender", () => {
+  it("offers to write Ayla budget prices after a QS-style price request", async () => {
     writeServerStore("nexa-tenders-v1", { tenders: [] });
     const tender = upsertTender({
       id: "tender-blake-ask-slice",
@@ -42,6 +42,6 @@ describe("Ask Blake on an open tender", () => {
     assert.equal(result.action?.kind, "confirm_budget_prices");
     assert.match(result.reply, /Douneside House Health Club/);
     assert.match(result.reply, /1 still blank|Fill 1 blank/i);
-    assert.match(result.action?.confirmLabel || "", /Apply Blake budget prices/);
+    assert.match(result.action?.confirmLabel || "", /Apply Ayla budget prices/);
   });
 });
