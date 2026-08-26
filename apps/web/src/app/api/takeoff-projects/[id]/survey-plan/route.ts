@@ -14,6 +14,7 @@ import {
   type TakeoffSurveyStopGoItem,
   type TakeoffSurveyWorkflow,
 } from "@/lib/takeoff-data";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export const runtime = "nodejs";
 
@@ -253,7 +254,7 @@ function inferSurveyType(scope: string) {
 }
 
 async function runOpenAiSurveyPlan(project: TakeoffProject, workflow: TakeoffSurveyWorkflow, apiKey: string, model: string) {
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await openAiFetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -267,7 +268,7 @@ async function runOpenAiSurveyPlan(project: TakeoffProject, workflow: TakeoffSur
           content: [{
             type: "input_text",
             text: [
-              "You are a UK plumbing and heating survey manager for NeXa.",
+              "You are a UK plumbing and heating survey manager for Blake.",
               "Create a dynamic conversational site-survey interview for office-reviewed quotes, not a fixed checklist.",
               "First identify the item/system and the work type, then ask questions that change from those facts.",
               "Examples: radiator like-for-like asks isolation valves, drain-down, TRVs, inhibitor and system type; radiator relocation asks new location, pipe runs, floor type, route and heat loss.",
@@ -363,7 +364,7 @@ export async function POST(
   }
 
   const payload = await parseJsonRequestBody<SurveyPlanPayload>(request);
-  const actor = payload?.actor?.trim() || request.headers.get(employeeHeaderName) || "NeXa surveyor";
+  const actor = payload?.actor?.trim() || request.headers.get(employeeHeaderName) || "Blake surveyor";
   const chatScope = latestSurveyScope(project);
   const baseWorkflow = createDefaultTakeoffSurveyWorkflow({
     ...(project.surveyWorkflow ?? {}),

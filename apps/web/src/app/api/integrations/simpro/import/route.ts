@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
   }>(request)) ?? {};
 
   const mode: SimproImportMode = body.mode === "full" || body.mode === "incremental" ? body.mode : "preview";
-  const actor = request.headers.get(employeeHeaderName) || "NeXa admin";
+  const actor = request.headers.get(employeeHeaderName) || "Blake admin";
 
   try {
     const run = createSimproImportRun({

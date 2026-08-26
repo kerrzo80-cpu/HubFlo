@@ -9,7 +9,7 @@ import {
 } from "@/lib/people-data";
 import { getHubDetailState } from "@/lib/hub-detail-store";
 import { compareReferenceDesc, numberedReference } from "@/lib/numbering";
-import { loadServerStore, writeServerStore } from "@/lib/server-store";
+import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
 import { useDemoSeedData } from "@/lib/workspace-mode";
 
 export type LeadSource = "Phone call" | "Checkatrade" | "Email" | "Website" | "Referral";
@@ -156,6 +156,10 @@ function persistLeadStore() {
 }
 
 function getStore(): LeadStoreState {
+  const persisted = readServerStoreSnapshot("lead-store") as LeadStoreState | null;
+  if (persisted && Array.isArray(persisted.leads)) {
+    leadStore.leads = clone(persisted.leads);
+  }
   return leadStore;
 }
 

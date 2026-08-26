@@ -44,12 +44,13 @@ export async function POST(request: NextRequest) {
       toLocationId?: string;
       jobRef?: string;
       poNumber?: string;
+      receiptKey?: string;
       note?: string;
     };
     receipt?: Parameters<typeof receivePurchaseIntoStock>[0];
   }>(request);
 
-  const actor = request.headers.get(employeeHeaderName) || "NeXa";
+  const actor = request.headers.get(employeeHeaderName) || "Blake";
 
   try {
     if (body?.action === "upsert-item" && body.item) {

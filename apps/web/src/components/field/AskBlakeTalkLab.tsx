@@ -27,10 +27,10 @@ const FRAME_QUALITY = 0.62;
 
 /**
  * ChatGPT-style hands-free call via OpenAI Realtime WebRTC.
- * Optional live camera frames so Blake can see the job while you talk.
+ * Optional live camera frames so Ayla can see the job while you talk.
  */
 export function AskBlakeTalkLab({
-  realtimePath = "/api/field/ask-blake/realtime-session",
+  realtimePath = "/api/field/ask-ayla/realtime-session",
   variant = "lab",
 }: AskBlakeTalkLabProps) {
   const isLab = variant === "lab";
@@ -81,7 +81,7 @@ export function AskBlakeTalkLab({
       && typeof RTCPeerConnection !== "undefined";
     setSupported(ok);
     if (!ok) setState("unsupported");
-    note(isLab ? `Talk lab ${buildTag}` : `Ask Blake live ${buildTag}`);
+    note(isLab ? `Talk lab ${buildTag}` : `Ask Ayla live ${buildTag}`);
     return () => {
       void stopCall();
     };
@@ -180,7 +180,7 @@ export function AskBlakeTalkLab({
         ],
       },
     });
-    note("Sent live camera frame to Blake.");
+    note("Sent live camera frame to Ayla.");
   }
 
   function startFrameLoop() {
@@ -205,7 +205,7 @@ export function AskBlakeTalkLab({
         await videoRef.current.play().catch(() => undefined);
       }
       setCameraOn(true);
-      note("Camera on — Blake gets live frames while you talk.");
+      note("Camera on — Ayla gets live frames while you talk.");
       if (activeRef.current && dcRef.current?.readyState === "open") {
         startFrameLoop();
       }
@@ -325,7 +325,7 @@ export function AskBlakeTalkLab({
           setHint("Hearing you…");
         }
         if (type === "input_audio_buffer.speech_stopped") {
-          setHint("Blake is answering…");
+          setHint("Ayla is answering…");
         }
         if (type === "error") {
           const message = payload.error?.message || "Realtime error";
@@ -352,7 +352,7 @@ export function AskBlakeTalkLab({
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
       note("WebRTC connected.");
       setState("live");
-      setHint(`Call live · ${BLAKE_VOICE_ACCENT_LABELS[accentRef.current]} — optional camera so Blake can see.`);
+      setHint(`Call live · ${BLAKE_VOICE_ACCENT_LABELS[accentRef.current]} — optional camera so Ayla can see.`);
     } catch (startError) {
       const message = startError instanceof Error ? startError.message : "Couldn’t start call.";
       setError(message);
@@ -395,12 +395,12 @@ export function AskBlakeTalkLab({
             : state === "connecting" ? "Connecting…"
               : state === "unsupported" ? "This phone can’t run live call"
                 : state === "error" ? "Call issue"
-                  : "Talk with Blake"}
+                  : "Talk with Ayla"}
         </p>
         <p className="ask-blake-voice-hint muted">{hint}</p>
         {isLab ? <p className="talk-lab-build muted">Build {buildTag}</p> : null}
 
-        <div className="blake-voice-picker" role="group" aria-label="Blake voice accent">
+        <div className="blake-voice-picker" role="group" aria-label="Ayla voice accent">
           {BLAKE_VOICE_ACCENTS.map((option) => (
             <button
               key={option}
@@ -419,7 +419,7 @@ export function AskBlakeTalkLab({
           <video ref={videoRef} className="talk-lab-video" playsInline muted autoPlay />
           <canvas ref={canvasRef} className="talk-lab-canvas" aria-hidden="true" />
           {!cameraOn ? (
-            <p className="talk-lab-video-placeholder muted">Camera off — turn on so Blake can see the job</p>
+            <p className="talk-lab-video-placeholder muted">Camera off — turn on so Ayla can see the job</p>
           ) : null}
         </div>
 
@@ -459,7 +459,7 @@ export function AskBlakeTalkLab({
       </div>
 
       <p className="ask-blake-voice-hint muted">
-        Speak, pause, Blake answers, keep talking — both hands free. Turn camera on so Blake can see the job.
+        Speak, pause, Ayla answers, keep talking — both hands free. Turn camera on so Ayla can see the job.
       </p>
 
       {isLab ? (

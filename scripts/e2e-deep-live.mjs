@@ -229,7 +229,7 @@ async function main() {
     await sleep(800);
 
     // Add-ons
-    for (const route of ["/takeoff", "/survey/guided"]) {
+    for (const route of ["/takeoff", "/survey"]) {
       await page.goto(`${BASE}${route}`, { waitUntil: "domcontentloaded", timeout: 90000 });
       await sleep(1500);
       await shot(page, `addon-${route.replace(/\W+/g, "_")}`);

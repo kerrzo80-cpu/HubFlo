@@ -1,5 +1,5 @@
 /**
- * Phase B — durable Simpro ↔ NeXa entity links.
+ * Phase B — durable Simpro ↔ Blake entity links.
  * Unique on (tenantKey, companyId, entityType, externalId).
  * Additive to the shallow sync link store in simpro-sync.ts.
  */

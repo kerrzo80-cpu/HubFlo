@@ -1,11 +1,52 @@
 import { appendAuditEvent, getClients } from "@/lib/people-data";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
+import { displayCompanyName } from "@/lib/branding";
+import { classifyFaultReportSync } from "@/lib/faults-ai";
+import { createFaultIssue } from "@/lib/faults-data";
+import { guessModuleFromRoute, type FaultPriority, type FaultType } from "@/lib/faults-types";
 import { getLeads } from "@/lib/lead-store";
 import { resolveOpenAiApiKey } from "@/lib/openai-env";
 import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
 import { pushJobToSimpro } from "@/lib/simpro-bridge";
 import { getJobs, getQuotes, updateJob, type Job } from "@/lib/workflow-data";
+import { getTender } from "@/lib/tenders-data";
 import type { Employee, Weekday } from "@/lib/access";
+import type { AccessProfile } from "@/lib/access";
+import { getAccessProfile } from "@/lib/access";
+import { previousCalendarMonth } from "@hubflo/domain";
+import { blakeCore } from "@/lib/blake-core";
+import type { BlakeExecutionContext } from "@/lib/blake-core/types";
+import {
+  formatBudgetPriceOffer,
+  formatOpenRecordBrief,
+  looksLikeFillRates,
+  looksLikeOpenRecordQs,
+  looksLikeRefreshRates,
+  resolveOpenRecord,
+  type BlakeOpenRecord,
+  type BlakeScreenContext,
+} from "@/lib/blake-open-record";
+import {
+  BLAKE_FILE_DUMP_LIMIT,
+  looksLikeLastScanQuestion,
+  lineOutOfBlakeScope,
+  parseBlakeScopeInstruction,
+  type BlakeTradeScope,
+} from "@/lib/blake-trade-scope";
+import {
+  appendBlakeRecordMessages,
+  blakeRecordKey,
+  loadBlakeMemoryForScreen,
+  patchBlakeRecordScope,
+  recordBlakeRejectedCodes,
+} from "@/lib/blake-record-memory";
+import {
+  continueCreateLeadCustomerChoice,
+  handleCreateLeadWorkflow,
+  hasActiveCreateLeadWorkflow,
+  shouldContinueCreateLeadWorkflow,
+} from "@/lib/blake-create-lead-workflow";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 type ScheduleAssignment = {
   id: string;
@@ -23,7 +64,7 @@ type ScheduleAssignment = {
 };
 
 type AssistantIntent = {
-  action: "availability" | "book" | "help" | "chat";
+  action: "availability" | "book" | "help" | "chat" | "report_fault" | "suggest_improvement" | "create_lead";
   employeeName?: string;
   dateText?: string;
   dateIso?: string;
@@ -32,9 +73,15 @@ type AssistantIntent = {
   costCentreName?: string;
   startTime?: string;
   durationHours?: number;
+  faultTitle?: string;
+  faultDescription?: string;
+  faultModule?: string;
+  faultType?: FaultType;
+  faultPriority?: FaultPriority;
 };
 
 type PendingBooking = {
+  kind?: "booking";
   id: string;
   createdAt: string;
   expiresAt: string;
@@ -52,7 +99,37 @@ type PendingBooking = {
   durationHours: number;
 };
 
-type PendingStore = { actions: PendingBooking[] };
+type PendingFaultReport = {
+  kind: "fault_report";
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  actorId: string;
+  actorName: string;
+  title: string;
+  description: string;
+  originalDescription: string;
+  module: string;
+  type: FaultType;
+  priority: FaultPriority;
+  sourceRoute?: string;
+  sourcePage?: string;
+};
+
+type PendingBudgetPrices = {
+  kind: "budget_prices";
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  actorId: string;
+  actorName: string;
+  tenderId: string;
+  tenderName: string;
+  forceRefresh: boolean;
+  lineIds?: string[];
+};
+
+type PendingStore = { actions: Array<PendingBooking | PendingFaultReport | PendingBudgetPrices> };
 
 export type BlakeHistoryMessage = {
   role: "assistant" | "user";
@@ -83,7 +160,7 @@ export type NexaAssistantResponse = {
   intent: AssistantIntent;
   action?: {
     id: string;
-    kind: "confirm_booking";
+    kind: "confirm_booking" | "confirm_fault_report" | "confirm_budget_prices" | "confirm_create_lead";
     title: string;
     detail: string;
     confirmLabel: string;
@@ -94,8 +171,29 @@ export type NexaAssistantResponse = {
     weekday?: string;
     workingHours?: string;
     bookings?: Array<{ startTime: string; endTime: string; label: string }>;
+    faultReference?: string;
+    resultCard?: BlakeResultCard;
   };
   aiUsed: boolean;
+  storedMessages?: Array<{ role: "assistant" | "user"; text: string }>;
+};
+
+export type BlakeResultCard = {
+  kind: "management_report" | "invoice_summary";
+  title: string;
+  subtitle?: string;
+  metrics: Array<{
+    label: string;
+    value: string;
+    tone?: "default" | "positive" | "warning" | "danger";
+  }>;
+  rows?: Array<{
+    id: string;
+    primary: string;
+    secondary: string;
+    value?: string;
+    status?: string;
+  }>;
 };
 
 const pendingStore = loadServerStore<PendingStore>("nexa-assistant-actions", { actions: [] });
@@ -239,9 +337,25 @@ function looksLikeScheduling(message: string) {
     || Boolean(parseDuration(message));
 }
 
+function looksLikeFaultReport(message: string) {
+  // Keep this tight — broad matching was sucking normal chat into the fault AI path.
+  return /\b(report (a )?(fault|bug|problem|issue)|add a fault|log a fault|suggest( an)? improvement|raise a (fault|bug|ticket)|faults? & improvements?)\b/i.test(
+    message,
+  );
+}
+
 function deterministicIntent(message: string, employees: Employee[], now = new Date()): AssistantIntent {
   const date = parseDate(message, now);
   const lower = message.toLowerCase();
+  if (looksLikeFaultReport(message) && !looksLikeScheduling(message)) {
+    const improvement = /\b(improvement|enhance|feature|suggest)\b/i.test(message);
+    return {
+      action: improvement ? "suggest_improvement" : "report_fault",
+      faultDescription: message,
+      faultModule: guessModuleFromRoute(undefined, message),
+      faultType: improvement ? "improvement" : "fault",
+    };
+  }
   const scheduling = looksLikeScheduling(message);
   return {
     action: !scheduling
@@ -269,7 +383,7 @@ async function aiIntent(message: string, employees: Employee[], now: Date): Prom
     || process.env.NEXA_TAKEOFF_OPENAI_MODEL?.trim()
     || "gpt-4.1-mini";
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await openAiFetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -279,7 +393,7 @@ async function aiIntent(message: string, employees: Employee[], now: Date): Prom
             role: "system",
             content: [{
               type: "input_text",
-              text: `Extract a Blake scheduling intent when the user is asking about diaries or bookings. Otherwise use action "chat". Today is ${now.toISOString().slice(0, 10)}. UK date order is day/month/year. Employees: ${employees.map((employee) => employee.name).join(", ")}. Never silently repair a weekday/date mismatch.`,
+              text: `Extract a Blake intent. Use report_fault or suggest_improvement when the user wants to log a NeXa product fault/improvement. Use scheduling actions only for diaries/bookings. Otherwise use action "chat". Today is ${now.toISOString().slice(0, 10)}. UK date order is day/month/year. Employees: ${employees.map((employee) => employee.name).join(", ")}. Never silently repair a weekday/date mismatch.`,
             }],
           },
           { role: "user", content: [{ type: "input_text", text: message }] },
@@ -293,7 +407,10 @@ async function aiIntent(message: string, employees: Employee[], now: Date): Prom
               type: "object",
               additionalProperties: false,
               properties: {
-                action: { type: "string", enum: ["availability", "book", "help", "chat"] },
+                action: {
+                  type: "string",
+                  enum: ["availability", "book", "help", "chat", "report_fault", "suggest_improvement"],
+                },
                 employeeName: { type: ["string", "null"] },
                 dateText: { type: ["string", "null"] },
                 dateIso: { type: ["string", "null"] },
@@ -302,8 +419,20 @@ async function aiIntent(message: string, employees: Employee[], now: Date): Prom
                 costCentreName: { type: ["string", "null"] },
                 startTime: { type: ["string", "null"] },
                 durationHours: { type: ["number", "null"] },
+                faultDescription: { type: ["string", "null"] },
               },
-              required: ["action", "employeeName", "dateText", "dateIso", "weekday", "jobRef", "costCentreName", "startTime", "durationHours"],
+              required: [
+                "action",
+                "employeeName",
+                "dateText",
+                "dateIso",
+                "weekday",
+                "jobRef",
+                "costCentreName",
+                "startTime",
+                "durationHours",
+                "faultDescription",
+              ],
             },
           },
         },
@@ -326,6 +455,7 @@ async function aiIntent(message: string, employees: Employee[], now: Date): Prom
       costCentreName: typeof parsed.costCentreName === "string" ? parsed.costCentreName : undefined,
       startTime: typeof parsed.startTime === "string" ? parsed.startTime : undefined,
       durationHours: typeof parsed.durationHours === "number" ? parsed.durationHours : undefined,
+      faultDescription: typeof parsed.faultDescription === "string" ? parsed.faultDescription : undefined,
     };
   } catch {
     return null;
@@ -448,30 +578,31 @@ function deterministicBusinessReply(message: string): string | null {
   const context = buildWorkspaceContext();
 
   if (/\b(hello|hi|hey|good (morning|afternoon|evening))\b/i.test(message)) {
-    return `Hi — I'm Blake, your NeXa business assistant. I can check the diary, quote pipeline, jobs and follow-ups using live NeXa data. What do you need?`;
+    return `Hi — I'm Ayla, your Blake business assistant. I can check the diary, quote pipeline, jobs, tenders and follow-ups using live Blake data. What do you need?`;
   }
 
   if (/\b(help|what can you)\b/i.test(message)) {
     return [
-      "I can help with live NeXa questions such as:",
+      "I can help with live Blake questions such as:",
       "• When is an engineer available?",
       "• Which quotes need follow-up?",
       "• Which jobs are open or unscheduled?",
       "• Which jobs are over their labour allowance?",
+      "• Open a tender or job and ask me to walk through the BoQ, or “price this bill” (rate library + Blake guides — confirm before I write rates).",
       "• Draft a booking — I will always ask you to confirm before writing the diary.",
     ].join("\n");
   }
 
   if (/\b(quote|quotation).*(follow|outstanding|pipeline|not followed)|follow.?up.*quote/i.test(lower)
     || /\bwhich quotes\b/i.test(lower)) {
-    if (!context.quoteFollowUps.length) return "There are no draft or sent quotes waiting for follow-up in NeXa right now.";
+    if (!context.quoteFollowUps.length) return "There are no draft or sent quotes waiting for follow-up in Blake right now.";
     return `Quotes needing attention:\n${context.quoteFollowUps
       .map((quote) => `• ${quote.ref} · ${quote.customer} · ${quote.status} · ${currency(quote.value)} · ${quote.next || quote.due}`)
       .join("\n")}`;
   }
 
   if (/\bunscheduled|not (been )?allocated|no (labour|schedule)|which jobs.*(free|open)/i.test(lower)) {
-    if (!context.unscheduledJobs.length) return "Every open job currently has a scheduled date in NeXa.";
+    if (!context.unscheduledJobs.length) return "Every open job currently has a scheduled date in Blake.";
     return `Open jobs without a scheduled date:\n${context.unscheduledJobs
       .map((job) => `• ${job.ref} · ${job.customer} · ${job.description}`)
       .join("\n")}`;
@@ -506,6 +637,9 @@ async function conversationalReply(
   history: BlakeHistoryMessage[],
   actorName: string,
   buddyContext?: BuddyClientContext,
+  openRecord?: BlakeOpenRecord,
+  extras?: { scope?: BlakeTradeScope; lastScanSummary?: string },
+  coreContext?: BlakeExecutionContext,
 ): Promise<{ reply: string; aiUsed: boolean }> {
   const deterministic = deterministicBusinessReply(message);
   const apiKey = resolveOpenAiApiKey();
@@ -521,56 +655,72 @@ async function conversationalReply(
     || process.env.NEXA_TAKEOFF_OPENAI_MODEL?.trim()
     || "gpt-4.1-mini";
   const context = buildWorkspaceContext();
-  const recentHistory = history.slice(-12).map((item) => ({
+  const recentHistory = history.slice(-16).map((item) => ({
     role: item.role === "assistant" ? "assistant" : "user",
     content: item.text,
   }));
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        temperature: 0.2,
-        messages: [
-          {
-            role: "system",
-            content: [
-              "You are Blake, the NeXa business assistant for Errol Watson Group field-service operations.",
-              "Answer using only the supplied NeXa workspace JSON, Blake learning notes, and the conversation.",
-              "If the data does not contain the answer, say what is missing. Never invent bookings, values, customers or availability.",
-              "Do not change schedules, quote values, variations or invoices yourself. Suggest and ask the user to confirm operational changes.",
-              "When the user asks how to do something in NeXa, give a short numbered walkthrough.",
-              "Use Blake learning notes (habits, repeated misses, quote watch) to personalise advice — evolve with how this team works.",
-              "Keep answers concise, plain English, and useful for a commercial manager.",
-              `The current user is ${actorName}.`,
-              buddyContext ? `Blake learning notes JSON:\n${JSON.stringify(buddyContext)}` : "",
-              `Live NeXa workspace JSON:\n${JSON.stringify(context)}`,
-            ].filter(Boolean).join("\n"),
-          },
-          ...recentHistory,
-          { role: "user", content: message },
-        ],
-      }),
-    });
-    if (!response.ok) {
-      return {
-        reply: deterministic ?? "Blake could not reach the AI service just now. Try a more specific NeXa question about quotes, jobs or the diary.",
-        aiUsed: false,
+    const system = [
+      `You are Blake, the universal AI operating layer inside NeXa for ${displayCompanyName(getHubDetailState().businessSettings)}.`,
+      "Talk naturally like a capable ChatGPT colleague. Understand follow-up questions from conversation; do not force users into forms or repeat questions they have answered.",
+      "Use the available NeXa tools whenever live records, figures, reports, invoices, profitability, customers or schedules are needed. Do not guess live facts from general knowledge.",
+      "Explain tool results in clear business English and answer the actual question. If records lack reliable cost data, say so explicitly rather than presenting a false margin.",
+      "Read actions may run immediately. Never claim a write happened unless a confirmed NeXa capability reports success; explain that operational writes require confirmation.",
+      "If the user is looking at a tender, job or takeoff, discuss that record first. Honour scope instructions and preserve conversational context.",
+      "Be useful beyond database lookups too: reason, draft, compare, explain and advise as ChatGPT would, while keeping NeXa facts grounded.",
+      BLAKE_FILE_DUMP_LIMIT,
+      `Today is ${new Date().toISOString().slice(0, 10)} and UK date order applies. The current user is ${actorName}.`,
+      buddyContext ? `Working preferences:\n${JSON.stringify(buddyContext)}` : "",
+      openRecord && (openRecord.tender || openRecord.job || openRecord.takeoff) ? `Open record:\n${JSON.stringify(openRecord)}` : "",
+      extras?.scope ? `Confirmed scope:\n${JSON.stringify(extras.scope)}` : "",
+      extras?.lastScanSummary ? `Last drawing scan:\n${extras.lastScanSummary}` : "",
+      `Compact workspace orientation (use tools for detailed facts):\n${JSON.stringify(context.summary)}`,
+    ].filter(Boolean).join("\n");
+    const messages: Array<Record<string, unknown>> = [
+      { role: "system", content: system },
+      ...recentHistory,
+      { role: "user", content: message },
+    ];
+    const definitions = coreContext
+      ? blakeCore.definitions().filter((item) => item.mode === "read" && item.requiredPermissions.every((permission) => coreContext.access[permission as keyof AccessProfile] === true))
+      : [];
+    const tools = definitions.map((item) => ({
+      type: "function",
+      function: { name: item.name, description: item.description, parameters: item.inputSchema },
+    }));
+
+    for (let turn = 0; turn < 5; turn += 1) {
+      const response = await openAiFetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model, temperature: 0.2, messages, tools: tools.length ? tools : undefined, tool_choice: tools.length ? "auto" : undefined }),
+      });
+      if (!response.ok) return { reply: deterministic ?? "Blake could not reach the AI service just now. No Blake data was changed.", aiUsed: false };
+      const body = await response.json() as {
+        choices?: Array<{ message?: { role?: string; content?: string | null; tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }> } }>;
       };
+      const assistant = body.choices?.[0]?.message;
+      if (!assistant) return { reply: deterministic ?? "I could not form a reply from the live workspace.", aiUsed: false };
+      const calls = assistant.tool_calls ?? [];
+      if (!calls.length) {
+        const reply = assistant.content?.trim();
+        return { reply: reply || deterministic || "I could not form a reply from the live workspace.", aiUsed: Boolean(reply) };
+      }
+      messages.push({ role: "assistant", content: assistant.content ?? null, tool_calls: calls });
+      for (const call of calls) {
+        let input: unknown = {};
+        try { input = JSON.parse(call.function.arguments || "{}"); } catch { input = {}; }
+        const result = coreContext
+          ? await blakeCore.execute(call.function.name, input, coreContext)
+          : { ok: false, error: { message: "No trusted Blake context is available." } };
+        messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
+      }
     }
-    const body = await response.json() as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const reply = body.choices?.[0]?.message?.content?.trim();
-    if (!reply) {
-      return { reply: deterministic ?? "I could not form a reply from the live workspace.", aiUsed: false };
-    }
-    return { reply, aiUsed: true };
+    return { reply: "I reached the tool-call limit for that request. Nothing was changed; please narrow the question slightly.", aiUsed: true };
   } catch {
     return {
-      reply: deterministic ?? "Blake hit a temporary error talking to the AI service. Your NeXa data was not changed.",
+      reply: deterministic ?? "Blake hit a temporary error talking to the AI service. Your Blake data was not changed.",
       aiUsed: false,
     };
   }
@@ -728,29 +878,387 @@ async function handleSchedulingMessage(
   };
 }
 
-export async function handleNexaAssistantMessage(
+async function handleFaultReportMessage(
   message: string,
   actor: { id: string; name: string },
+  options: { sourceRoute?: string; sourcePage?: string } = {},
+): Promise<NexaAssistantResponse> {
+  // Keep this local/heuristic so "Report a problem" never waits on OpenAI
+  // (live was timing out / 502ing while classifying).
+  const classified = classifyFaultReportSync({
+    description: message,
+    sourceRoute: options.sourceRoute,
+    sourcePage: options.sourcePage,
+  });
+  refreshPendingStore();
+  const pending: PendingFaultReport = {
+    kind: "fault_report",
+    id: `fault-pending-${crypto.randomUUID()}`,
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+    actorId: actor.id,
+    actorName: actor.name,
+    title: classified.title,
+    description: classified.aiDescription || message,
+    originalDescription: message,
+    module: classified.module,
+    type: classified.type,
+    priority: classified.priority,
+    sourceRoute: options.sourceRoute,
+    sourcePage: options.sourcePage,
+  };
+  pendingStore.actions = [pending, ...pendingStore.actions];
+  persistPendingStore();
+  return {
+    reply: [
+      "I can add this to Faults & Improvements.",
+      "",
+      `${classified.title}`,
+      `${classified.module} · ${classified.type.replace("_", " ")} · ${classified.priority} priority`,
+      "",
+      "Original wording is kept. Confirm to create the NX reference.",
+    ].join("\n"),
+    intent: {
+      action: classified.type === "improvement" || classified.type === "new_feature" ? "suggest_improvement" : "report_fault",
+      faultTitle: classified.title,
+      faultDescription: message,
+      faultModule: classified.module,
+      faultType: classified.type,
+      faultPriority: classified.priority,
+    },
+    action: {
+      id: pending.id,
+      kind: "confirm_fault_report",
+      title: classified.title,
+      detail: `${classified.module} · ${classified.type} · ${classified.priority}`,
+      confirmLabel: "Add to Faults",
+    },
+    aiUsed: false,
+  };
+}
+
+function offerBudgetPrices(
+  record: BlakeOpenRecord,
+  actor: { id: string; name: string },
+  message: string,
+  now: Date,
+  scope?: BlakeTradeScope,
+): NexaAssistantResponse {
+  const forceRefresh = looksLikeRefreshRates(message);
+  const offer = formatBudgetPriceOffer(record, forceRefresh);
+  if (!offer.canApply || !record.tender) {
+    return { reply: offer.reply, intent: { action: "chat" }, aiUsed: false };
+  }
+
+  const tender = getTender(record.tender.id);
+  const lineIds = tender
+    ? tender.boqLines
+      .filter((line) => line.kind === "measured")
+      .filter((line) => !lineOutOfBlakeScope(line.description, line.section, scope))
+      .map((line) => line.id)
+    : undefined;
+  const skipped = tender && lineIds
+    ? tender.boqLines.filter((line) => line.kind === "measured").length - lineIds.length
+    : 0;
+  const scopeNote = skipped > 0
+    ? `\nLeaving ${skipped} electrical / ventilation / out-of-scope line(s) blank — you told me that is not our trade.`
+    : scope?.notes?.length
+      ? `\nScope: ${scope.notes.slice(-2).join(" ")}`
+      : "";
+
+  refreshPendingStore();
+  const pending: PendingBudgetPrices = {
+    kind: "budget_prices",
+    id: `assistant-action-${crypto.randomUUID()}`,
+    createdAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 15 * 60 * 1000).toISOString(),
+    actorId: actor.id,
+    actorName: actor.name,
+    tenderId: record.tender.id,
+    tenderName: record.tender.name,
+    forceRefresh,
+    lineIds: lineIds?.length ? lineIds : undefined,
+  };
+  pendingStore.actions = [pending, ...pendingStore.actions.filter((action) => action.id !== pending.id)];
+  persistPendingStore();
+
+  return {
+    reply: `${offer.reply}${scopeNote}\nGuide rates only — not a firm tender. Confirm and I’ll write them onto this bill.`,
+    intent: { action: "chat" },
+    action: {
+      id: pending.id,
+      kind: "confirm_budget_prices",
+      title: forceRefresh ? `Refresh guides · ${record.tender.name}` : `Price BoQ · ${record.tender.name}`,
+      detail: skipped > 0 ? `${offer.detail} · skip ${skipped} out of scope` : offer.detail,
+      confirmLabel: forceRefresh ? "Refresh Blake budget prices" : "Apply Blake budget prices",
+    },
+    aiUsed: false,
+  };
+}
+
+function chatKeysForScreen(screen?: BlakeScreenContext, openRecord?: BlakeOpenRecord): string[] {
+  const keys = [
+    screen?.takeoffId ? blakeRecordKey("takeoff", screen.takeoffId) : "",
+    openRecord?.takeoff?.id ? blakeRecordKey("takeoff", openRecord.takeoff.id) : "",
+    screen?.tenderId ? blakeRecordKey("tender", screen.tenderId) : "",
+    openRecord?.tender?.id ? blakeRecordKey("tender", openRecord.tender.id) : "",
+    screen?.jobId ? blakeRecordKey("job", screen.jobId) : "",
+    openRecord?.job?.id ? blakeRecordKey("job", openRecord.job.id) : "",
+  ].filter(Boolean);
+  return [...new Set(keys)];
+}
+
+function persistChatTurn(keys: string[], role: "user" | "assistant", text: string) {
+  for (const key of keys) {
+    appendBlakeRecordMessages(key, [{ role, text }]);
+  }
+}
+
+export async function handleNexaAssistantMessage(
+  message: string,
+  actor: { id: string; name: string; tenantId?: string; canCreateLead?: boolean; access?: AccessProfile; channel?: "web_text" | "web_voice" | "mobile_text" | "mobile_voice" },
   options: {
     history?: BlakeHistoryMessage[];
     buddyContext?: BuddyClientContext;
+    screenContext?: BlakeScreenContext;
     now?: Date;
+    sourceRoute?: string;
+    sourcePage?: string;
+    conversationId?: string;
   } = {},
 ): Promise<NexaAssistantResponse> {
   const now = options.now ?? new Date();
-  const history = options.history ?? [];
   const hubState = getHubDetailState();
   const employees = (hubState.employees ?? []) as Employee[];
+  const leadContext = {
+    actorId: actor.id,
+    actorName: actor.name,
+    tenantId: actor.tenantId ?? "default",
+    canCreateLead: actor.canCreateLead === true,
+    workflowRunId: "pending",
+    conversationId: options.conversationId,
+  };
+  if (hasActiveCreateLeadWorkflow(leadContext) && shouldContinueCreateLeadWorkflow(message, leadContext)) {
+    const choice = await continueCreateLeadCustomerChoice(message, leadContext);
+    const workflow = choice ?? await handleCreateLeadWorkflow(message, leadContext);
+    if (workflow) return { ...workflow, intent: { action: "create_lead" } } as NexaAssistantResponse;
+  }
+  if (/\b(create|start|add|new)\b.*\blead\b|\bnew lead\b/i.test(message)) {
+    if (!leadContext.canCreateLead) {
+      return { reply: "You don't have permission to create leads.", intent: { action: "create_lead" }, aiUsed: false };
+    }
+    const workflow = await handleCreateLeadWorkflow(message, leadContext, true);
+    if (workflow) return { ...workflow, intent: { action: "create_lead" } } as NexaAssistantResponse;
+  }
+  const coreAccess = actor.access ?? getAccessProfile("Read-only", { canCreateLead: actor.canCreateLead === true });
+  const coreContext = {
+    actor: { id: actor.id, name: actor.name, tenantId: actor.tenantId ?? "default", channel: actor.channel ?? "web_text" },
+    access: coreAccess,
+  };
+  if (/\b(profit\s*(?:and|&)?\s*loss|p\s*&\s*l|management report|sales|turnover)\b/i.test(message) && /\blast month\b/i.test(message)) {
+    const period = previousCalendarMonth(now);
+    const result = await blakeCore.execute<{
+      revenue: number; directCost: number; grossProfit: number; grossMarginPercent: number;
+      acceptedQuoteValue: number; invoicesIssued: number; jobsCompleted: number; basis: string;
+    }>("build_management_report", period, coreContext);
+    if (!result.ok || !result.data) return { reply: result.error?.message || "Blake could not build that report.", intent: { action: "chat" }, aiUsed: false };
+    const report = result.data;
+    return {
+      reply: [
+        `Management report · ${formatUkDate(period.from)} to ${formatUkDate(period.to)}`,
+        `• Revenue: ${currency(report.revenue)}`,
+        `• Direct cost: ${currency(report.directCost)}`,
+        `• Gross profit: ${currency(report.grossProfit)} (${report.grossMarginPercent}%)`,
+        `• Accepted quote value: ${currency(report.acceptedQuoteValue)}`,
+        `• ${report.invoicesIssued} invoices issued · ${report.jobsCompleted} jobs completed`,
+        report.basis,
+      ].join("\n"),
+      intent: { action: "chat" },
+      data: {
+        resultCard: {
+          kind: "management_report",
+          title: "Management report",
+          subtitle: `${formatUkDate(period.from)} to ${formatUkDate(period.to)}`,
+          metrics: [
+            { label: "Revenue", value: currency(report.revenue) },
+            { label: "Gross profit", value: currency(report.grossProfit), tone: report.grossProfit >= 0 ? "positive" : "danger" },
+            { label: "Gross margin", value: `${report.grossMarginPercent}%`, tone: report.grossMarginPercent >= 0 ? "positive" : "danger" },
+            { label: "Accepted quotes", value: currency(report.acceptedQuoteValue) },
+          ],
+        },
+      },
+      aiUsed: false,
+    };
+  }
+  const invoiceReadRequest = /\b(show|list|find|which|what|how much|total|owed|owing|outstanding|overdue|unpaid|paid)\b/i.test(message)
+    && /\b(invoice|invoices|owed|owing|outstanding|overdue|debtors)\b/i.test(message);
+  if (invoiceReadRequest) {
+    const lower = message.toLowerCase();
+    const status: "all" | "unpaid" | "overdue" | "paid" = /\boverdue\b/.test(lower)
+      ? "overdue"
+      : /\b(unpaid|owed|owing|outstanding|debtors)\b/.test(lower)
+        ? "unpaid"
+        : /\bpaid\b/.test(lower)
+          ? "paid"
+          : "all";
+    const customerMatch = message.match(/\b(?:for|customer)\s+(.+?)(?:[?.]|$)/i);
+    const customer = customerMatch?.[1]?.trim();
+    const result = await blakeCore.execute<{
+      count: number;
+      total: number;
+      owed: number;
+      rows: Array<{ id: string; ref: string; customer: string; title: string; status: string; issuedDate: string; dueDate: string; total: number; owed: number }>;
+    }>("list_invoices", { status, customer, asAt: now.toISOString().slice(0, 10), limit: 20 }, coreContext);
+    if (!result.ok || !result.data) {
+      return { reply: result.error?.message || "Blake could not read the invoices.", intent: { action: "chat" }, aiUsed: false };
+    }
+    const invoices = result.data;
+    const statusLabel = status === "all" ? "invoices" : `${status} invoices`;
+    return {
+      reply: invoices.count
+        ? `I found ${invoices.count} ${statusLabel}${customer ? ` for ${customer}` : ""}. Their total value is ${currency(invoices.total)}${status === "paid" ? "." : ` and ${currency(invoices.owed)} remains owed.`}`
+        : `I could not find any ${statusLabel}${customer ? ` for ${customer}` : ""}.`,
+      intent: { action: "chat" },
+      data: {
+        resultCard: {
+          kind: "invoice_summary",
+          title: status === "all" ? "Invoices" : `${status[0].toUpperCase()}${status.slice(1)} invoices`,
+          subtitle: customer || `${invoices.count} record${invoices.count === 1 ? "" : "s"}`,
+          metrics: [
+            { label: "Invoices", value: String(invoices.count) },
+            { label: "Total value", value: currency(invoices.total) },
+            { label: "Amount owed", value: currency(invoices.owed), tone: invoices.owed > 0 ? "warning" : "positive" },
+          ],
+          rows: invoices.rows.map((invoice) => ({
+            id: invoice.id || invoice.ref,
+            primary: `${invoice.ref} · ${invoice.customer}`,
+            secondary: [invoice.title, invoice.dueDate ? `Due ${formatUkDate(invoice.dueDate)}` : ""].filter(Boolean).join(" · "),
+            value: currency(status === "paid" ? invoice.total : invoice.owed || invoice.total),
+            status: invoice.status,
+          })),
+        },
+      },
+      aiUsed: false,
+    };
+  }
+  if (/\b(booked in|on the system|find|search|look up|do we have)\b/i.test(message) && actor.access?.showCore) {
+    const query = message
+      .replace(/\b(is|are|do we have|booked in|on the system|find|search|look up|please|can you|for me)\b/gi, " ")
+      .replace(/[?.,]/g, " ").replace(/\s+/g, " ").trim();
+    if (query.length >= 3) {
+      const result = await blakeCore.execute<{ matches: Array<{ type: string; ref?: string; title: string; detail: string; status?: string }> }>("search_nexa_records", { query, limit: 10 }, coreContext);
+      if (result.ok && result.data) {
+        return {
+          reply: result.data.matches.length
+            ? `I found ${result.data.matches.length} matching NeXa record(s):\n${result.data.matches.map((item) => `• ${item.type}${item.ref ? ` ${item.ref}` : ""} · ${item.title} · ${item.detail}${item.status ? ` · ${item.status}` : ""}`).join("\n")}`
+            : `I could not find a NeXa client, site, lead, quote, job or invoice matching “${query}”.`,
+          intent: { action: "chat" }, aiUsed: false,
+        };
+      }
+    }
+  }
   const deterministic = deterministicIntent(message, employees, now);
+  const openRecord = resolveOpenRecord(options.screenContext, message);
+  const chatKeys = chatKeysForScreen(options.screenContext, openRecord);
+  const memory = loadBlakeMemoryForScreen({
+    tenderId: options.screenContext?.tenderId || openRecord.tender?.id,
+    jobId: options.screenContext?.jobId || openRecord.job?.id,
+    takeoffId: options.screenContext?.takeoffId || openRecord.takeoff?.id,
+  });
+  const parsed = parseBlakeScopeInstruction(message, memory.scope);
+  if (parsed.changed && chatKeys.length) {
+    for (const key of chatKeys) patchBlakeRecordScope(key, parsed.scope);
+  }
+  if (parsed.rejectedHints.length && chatKeys.length) {
+    for (const key of chatKeys) recordBlakeRejectedCodes(key, parsed.rejectedHints);
+  }
+  const storedHistory = memory.messages.map((item) => ({ role: item.role, text: item.text }));
+  const history = (options.history?.length ? options.history : storedHistory).slice(-16);
+
+  if (
+    deterministic.action === "report_fault"
+    || deterministic.action === "suggest_improvement"
+    || looksLikeFaultReport(message)
+  ) {
+    return handleFaultReportMessage(message, actor, {
+      sourceRoute: options.sourceRoute,
+      sourcePage: options.sourcePage,
+    });
+  }
+
+  persistChatTurn(chatKeys, "user", message);
+
+  const finish = (result: NexaAssistantResponse): NexaAssistantResponse => {
+    persistChatTurn(chatKeys, "assistant", result.reply);
+    return {
+      ...result,
+      storedMessages: chatKeys[0]
+        ? loadBlakeMemoryForScreen({
+            takeoffId: options.screenContext?.takeoffId || openRecord.takeoff?.id,
+            tenderId: options.screenContext?.tenderId || openRecord.tender?.id,
+            jobId: options.screenContext?.jobId || openRecord.job?.id,
+          }).messages.map((item) => ({ role: item.role, text: item.text }))
+        : undefined,
+    };
+  };
+
+  if (looksLikeLastScanQuestion(message)) {
+    return finish({
+      reply: memory.lastScanSummary
+        ? `${memory.lastScanSummary}\nYou can type “ignore electrical” or “only pipework and sanitary” and I’ll use that on the next scan. Guide figures only — not a firm tender.`
+        : "I have not scanned this drawing in this chat yet. On Takeoff pick the Draw-as layer (Hot & cold / Heating / Waste), then Find CAD plumbing on this sheet.",
+      intent: { action: "chat" },
+      aiUsed: false,
+    });
+  }
+
+  if (looksLikeFillRates(message)) {
+    return finish(offerBudgetPrices(openRecord, actor, message, now, parsed.scope));
+  }
+
+  if (looksLikeOpenRecordQs(message) && (openRecord.tender || openRecord.job || openRecord.takeoff)) {
+    const chat = await conversationalReply(
+      message,
+      history,
+      actor.name,
+      options.buddyContext,
+      openRecord,
+      { scope: parsed.scope, lastScanSummary: memory.lastScanSummary },
+      coreContext,
+    );
+    return finish({
+      reply: chat.aiUsed ? chat.reply : `${formatOpenRecordBrief(openRecord)}\n\nYou can keep chatting: “ignore electrical”, “we don’t do ventilation”, “price the plumbing bill only”. Confirm before I write guide rates.`,
+      intent: { action: "chat" },
+      aiUsed: chat.aiUsed,
+    });
+  }
+
+  const ai = await aiIntent(message, employees, now);
+  const intent = ai ?? deterministic;
+
+  if (intent.action === "report_fault" || intent.action === "suggest_improvement") {
+    return handleFaultReportMessage(message, actor, {
+      sourceRoute: options.sourceRoute,
+      sourcePage: options.sourcePage,
+    });
+  }
 
   if (deterministic.action === "chat" || (!deterministic.employeeName && deterministic.action !== "book")) {
     if (deterministic.action === "chat" || !looksLikeScheduling(message)) {
-      const chat = await conversationalReply(message, history, actor.name, options.buddyContext);
-      return {
+      const chat = await conversationalReply(
+        message,
+        history,
+        actor.name,
+        options.buddyContext,
+        openRecord.tender || openRecord.job || openRecord.takeoff ? openRecord : undefined,
+        { scope: parsed.scope, lastScanSummary: memory.lastScanSummary },
+        coreContext,
+      );
+      return finish({
         reply: chat.reply,
         intent: { action: "chat" },
         aiUsed: chat.aiUsed,
-      };
+      });
     }
   }
 
@@ -761,15 +1269,90 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
   refreshPendingStore();
   const action = pendingStore.actions.find((item) => item.id === actionId);
   if (!action || action.actorId !== actor.id) {
-    return { ok: false as const, status: 404, reply: "That booking request has expired. Ask Blake to check the slot again." };
+    return { ok: false as const, status: 404, reply: "That request has expired. Ask Blake again." };
   }
-  const employee = ((getHubDetailState().employees ?? []) as Employee[]).find((item) => item.id === action.employeeId);
-  const job = getJobs().find((item) => item.id === action.jobId);
+
+  if (action.kind === "budget_prices") {
+    const { applyBlakeBudgetPricesToTender } = await import("@/lib/tenders-data");
+    try {
+      const { tender, priced } = await applyBlakeBudgetPricesToTender(action.tenderId, {
+        forceRefresh: action.forceRefresh,
+        lineIds: action.lineIds,
+      });
+      pendingStore.actions = pendingStore.actions.filter((item) => item.id !== action.id);
+      persistPendingStore();
+      appendAuditEvent({
+        actor: actor.name,
+        action: "tender.blake_budget_prices",
+        recordType: "tender",
+        recordId: tender.id,
+        summary: action.forceRefresh
+          ? `Blake Ask confirmed refresh · ${priced.targetedCount} selected · ${priced.blakeFilled} Blake · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`
+          : `Blake Ask confirmed budget prices · ${priced.targetedCount} selected · ${priced.blakeFilled} Blake · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`,
+        source: "Blake",
+        importance: "high",
+      });
+      const left = priced.leftBlank
+        ? `${priced.leftBlank} line(s) left blank because Blake was not sure — those are not free work.`
+        : "No measured lines were left blank this pass.";
+      return {
+        ok: true as const,
+        status: 200,
+        reply: [
+          `Guide rates written to ${tender.name}.`,
+          `FoT / priced BoQ: £${priced.budgetTotal.toFixed(2)} · ${priced.libraryFilled} library · ${priced.blakeFilled} Blake.`,
+          left,
+          "Amend on Tenders → Bill before you submit. Specialist plant still wants a supplier RFQ.",
+        ].join("\n"),
+        tenderId: tender.id,
+      };
+    } catch (error) {
+      return {
+        ok: false as const,
+        status: 409,
+        reply: error instanceof Error ? error.message : "Unable to apply Blake budget prices.",
+      };
+    }
+  }
+
+  if (action.kind === "fault_report") {
+    const issue = createFaultIssue({
+      title: action.title,
+      description: action.originalDescription,
+      aiDescription: action.description,
+      module: action.module,
+      type: action.type,
+      priority: action.priority,
+      reporterId: actor.id,
+      reporterName: actor.name,
+      sourceRoute: action.sourceRoute,
+      sourcePage: action.sourcePage,
+      status: "inbox",
+    });
+    pendingStore.actions = pendingStore.actions.filter((item) => item.id !== action.id);
+    persistPendingStore();
+    return {
+      ok: true as const,
+      status: 200,
+      reply: [
+        `Added as ${issue.reference}`,
+        issue.module,
+        issue.type === "fault" ? "Fault" : issue.type.replace("_", " "),
+        `${issue.priority} priority`,
+      ].join("\n"),
+      faultReference: issue.reference,
+      issueId: issue.id,
+    };
+  }
+
+  const booking = action as PendingBooking;
+  const employee = ((getHubDetailState().employees ?? []) as Employee[]).find((item) => item.id === booking.employeeId);
+  const job = getJobs().find((item) => item.id === booking.jobId);
   if (!employee || !job) {
     return { ok: false as const, status: 409, reply: "The employee or job has changed. No booking was created." };
   }
-  const currentBookings = scheduleForEmployee(employee, action.date);
-  const clash = currentBookings.find((booking) => overlap(action.startTime, action.endTime, booking.startTime, booking.endTime));
+  const currentBookings = scheduleForEmployee(employee, booking.date);
+  const clash = currentBookings.find((item) => overlap(booking.startTime, booking.endTime, item.startTime, item.endTime));
   if (clash) {
     return { ok: false as const, status: 409, reply: `The slot is no longer free; it now clashes with ${clash.label}.` };
   }
@@ -779,15 +1362,15 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
   const assignment: ScheduleAssignment = {
     id: `${job.id}-assistant-${crypto.randomUUID()}`,
     jobId: job.id,
-    costCentreId: action.costCentreId,
-    costCentreName: action.costCentreName,
+    costCentreId: booking.costCentreId,
+    costCentreName: booking.costCentreName,
     employeeId: employee.id,
     employeeName: employee.name,
-    startDate: action.date,
-    startTime: action.startTime,
-    endDate: action.date,
-    endTime: action.endTime,
-    plannedHours: action.durationHours,
+    startDate: booking.date,
+    startTime: booking.startTime,
+    endDate: booking.date,
+    endTime: booking.endTime,
+    plannedHours: booking.durationHours,
     notes: `Scheduled by Blake for ${actor.name}.`,
   };
   const nextPlans = {
@@ -799,22 +1382,22 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
   saveHubDetailState({ ...hubState, jobSchedulePlans: nextPlans });
   updateJob(job.id, {
     manager: employee.name,
-    scheduledDate: action.date,
-    scheduledTime: action.startTime,
-    scheduledDurationHours: action.durationHours,
+    scheduledDate: booking.date,
+    scheduledTime: booking.startTime,
+    scheduledDurationHours: booking.durationHours,
     status: ["Pending", "Scheduled"].includes(job.status) ? "In progress" : job.status,
-    next: `${employee.name} booked to ${action.costCentreName} on ${formatUkDate(action.date)}.`,
+    next: `${employee.name} booked to ${booking.costCentreName} on ${formatUkDate(booking.date)}.`,
   });
   appendAuditEvent({
     actor: actor.name,
     action: "scheduled by Blake",
     recordType: "job",
     recordId: job.id,
-    summary: `${employee.name} assigned to ${action.costCentreName} on ${formatUkDate(action.date)} from ${action.startTime} to ${action.endTime}.`,
+    summary: `${employee.name} assigned to ${booking.costCentreName} on ${formatUkDate(booking.date)} from ${booking.startTime} to ${booking.endTime}.`,
     source: "Blake",
     importance: "high",
   });
-  pendingStore.actions = pendingStore.actions.filter((item) => item.id !== action.id);
+  pendingStore.actions = pendingStore.actions.filter((item) => item.id !== booking.id);
   persistPendingStore();
 
   const simpro = await pushJobToSimpro(job.id, {
@@ -830,7 +1413,7 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
   return {
     ok: true as const,
     status: 200,
-    reply: `${employee.name} is booked to ${job.ref}, ${action.costCentreName}, on ${formatUkDate(action.date)} from ${action.startTime} to ${action.endTime}.${simproNote}`,
+    reply: `${employee.name} is booked to ${job.ref}, ${booking.costCentreName}, on ${formatUkDate(booking.date)} from ${booking.startTime} to ${booking.endTime}.${simproNote}`,
     assignment,
     jobId: job.id,
   };

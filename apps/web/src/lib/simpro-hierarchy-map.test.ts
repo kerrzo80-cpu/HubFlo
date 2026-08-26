@@ -230,7 +230,7 @@ describe("simpro hierarchy map", () => {
     assert.match(centres[0]?.engineerDescription || "", /Engineer: isolate/);
   });
 
-  it("keeps simPRO sell when present and applies NeXa markup only when sell is missing", () => {
+  it("keeps simPRO sell when present and applies Blake markup only when sell is missing", () => {
     const { centres } = mapSimproQuoteCostCentres(
       {
         ID: 1,
@@ -296,12 +296,12 @@ describe("simpro hierarchy map", () => {
     assert.equal(fitting?.unitCost, 8); // reverse from simPRO sell/markup when BasePrice missing
     assert.equal(fitting?.unitSell, 10);
     assert.equal(valve?.unitCost, 20);
-    assert.equal(valve?.unitSell, 26); // no sell → NeXa 30% markup
+    assert.equal(valve?.unitSell, 26); // no sell → Blake 30% markup
     assert.equal(labour?.unitCost, 35);
     assert.equal(labour?.unitSell, 55);
   });
 
-  it("rejects mirrored CostPrice===SellPrice and backs out cost via NeXa markup", () => {
+  it("rejects mirrored CostPrice===SellPrice and backs out cost via Blake markup", () => {
     const { centres } = mapSimproQuoteCostCentres(
       {
         ID: 1,
@@ -374,7 +374,7 @@ describe("simpro hierarchy map", () => {
     assert.equal(line?.unitSell, 160);
   });
 
-  it("backs out cost from sell via NeXa markup when BasePrice is missing", () => {
+  it("backs out cost from sell via Blake markup when BasePrice is missing", () => {
     const { centres } = mapSimproQuoteCostCentres(
       {
         ID: 1,
@@ -405,7 +405,7 @@ describe("simpro hierarchy map", () => {
       { materialMarkupPercent: 30, labourMarkupPercent: 30 },
     );
     const line = centres[0]?.lines[0];
-    // No BasePrice — back out cost from sell using NeXa default markup so cost ≠ charge.
+    // No BasePrice — back out cost from sell using Blake default markup so cost ≠ charge.
     assert.equal(line?.unitSell, 40);
     assert.equal(line?.unitCost, Math.round((40 / 1.3) * 100) / 100);
   });

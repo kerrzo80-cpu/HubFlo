@@ -28,6 +28,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (estimate.materialLines.some((line) => line.status === "TBC" && !line.notes.trim())) {
     return NextResponse.json({ error: "Review TBC materials before pushing the estimate into a quote." }, { status: 422 });
   }
+  const { assertMaterialsPricedForPush } = await import("@/lib/commercial-safeguards");
+  const priceGate = assertMaterialsPricedForPush(
+    estimate.materialLines.map((line) => ({
+      description: line.description,
+      quantity: line.quantity,
+      unitCost: line.unitCost,
+      status: line.status,
+      supplierRequired: line.status === "Supplier RFQ",
+    })),
+  );
+  if (priceGate) {
+    return NextResponse.json({ error: priceGate }, { status: 422 });
+  }
 
   const materialSell = (line: (typeof estimate.materialLines)[number]) => (line.unitCost || 0) * (1 + line.markupPercent / 100);
   const totalSell = estimate.materialLines.reduce((sum, line) => sum + materialSell(line) * line.quantity, 0)
@@ -52,16 +65,26 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     clientDescription: estimate.scopeOfWorks.filter((scope) => scope.toLowerCase().includes(name.toLowerCase())).join("\n") || estimate.scopeOfWorks.join("\n"),
     engineerDescription: estimate.scopeOfWorks.join("\n"),
     lines: [
-      ...estimate.materialLines.filter((line) => line.costCentre === name).map((line) => ({
-        id: line.id,
-        catalogItemId: "",
-        description: line.description,
-        quantity: line.quantity,
-        unitCost: line.unitCost || 0,
-        unitSell: materialSell(line),
-        supplierRequired: line.status === "Supplier RFQ" || line.unitCost === undefined,
-        rateSource: "manual" as const,
-      })),
+      ...estimate.materialLines.filter((line) => line.costCentre === name).map((line) => {
+        const isRfq = line.status === "Supplier RFQ" || line.unitCost === undefined;
+        const pricingState =
+          line.pricingState
+          || (isRfq ? "rfq" as const : line.unitCost && line.unitCost > 0 ? "firm" as const : "rfq" as const);
+        return {
+          id: line.id,
+          catalogItemId: "",
+          description: line.description,
+          quantity: line.quantity,
+          unitCost: line.unitCost || 0,
+          unitSell: materialSell(line),
+          supplierRequired: isRfq || pricingState !== "firm",
+          rateSource: "manual" as const,
+          pricingState,
+          pricingSource: line.pricingSource || (pricingState === "firm" ? "manual" : "supplier"),
+          pricingNote: line.pricingNote,
+          pricedAt: line.pricedAt || (pricingState === "firm" ? new Date().toISOString() : undefined),
+        };
+      }),
       ...estimate.labourLines.filter((line) => line.costCentre === name).map((line) => ({
         id: line.id,
         catalogItemId: "",
@@ -88,7 +111,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     recordType: "quote",
     recordId: quote.id,
     summary: `${estimate.reference} created ${costCentres.length} itemised cost centre(s) in ${quote.ref}${unpricedCount ? ` · ${unpricedCount} supplier RFQ line(s) at £0 provisional` : ""}.`,
-    source: "NeXa Estimator",
+    source: "Blake Estimator",
     importance: "normal",
   });
   return NextResponse.json({ estimate: recorded.value, quote, costCentres, unpricedCount }, { status: 200 });

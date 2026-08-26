@@ -2,11 +2,15 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { ChevronRight } from "lucide-react";
+import { BlakeCharacter } from "@/components/field/BlakeCharacter";
 import { DayPicker } from "@/components/field/DayPicker";
 import { JobCard } from "@/components/field/JobCard";
+import { useBrand } from "@/components/BrandProvider";
 import { useNexaClient } from "@/lib/field/nexa";
 import { formatDuration, isoDate, todayLabel } from "@/lib/field/format";
 import { fieldPath } from "@/lib/field/routes";
+import { TRAINER_APP_NAME } from "@/lib/product-brand";
 import type { FieldScheduleItem } from "@/lib/field/types";
 
 type FieldAlert = {
@@ -40,6 +44,7 @@ function writeSeenAlertIds(ids: string[]) {
 }
 
 export default function MyDayPage() {
+  const brand = useBrand();
   const client = useNexaClient();
   const [selectedDate, setSelectedDate] = useState(isoDate);
   const [jobs, setJobs] = useState<FieldScheduleItem[]>([]);
@@ -140,6 +145,22 @@ export default function MyDayPage() {
             ? `${jobs.length} job${jobs.length === 1 ? "" : "s"} · ${formatDuration(totalHours)} booked`
             : "No jobs booked"}
         </p>
+        <p style={{ marginTop: 10 }}>
+          <a
+            className="field-next-job"
+            href={`/api/dispatch/run-sheet?date=${encodeURIComponent(selectedDate)}`}
+            target="_blank"
+            rel="noreferrer"
+            style={{ display: "inline-flex", marginTop: 0 }}
+          >
+            <span>Dispatch</span>
+            <strong>
+              {jobs.length
+                ? `Print run sheet · ${jobs.length} job${jobs.length === 1 ? "" : "s"} · 20m travel`
+                : "Print run sheet · no jobs today"}
+            </strong>
+          </a>
+        </p>
       </header>
 
       <DayPicker
@@ -178,8 +199,8 @@ export default function MyDayPage() {
       ) : null}
 
       <Link href="/train" className="field-next-job" style={{ marginTop: 10 }}>
-        <span>Blake Trainer</span>
-        <strong>Voice training · approved NeXa materials only</strong>
+        <span>{TRAINER_APP_NAME}</span>
+        <strong>Voice training · approved Blake materials only</strong>
       </Link>
 
       {error ? <div className="feedback error">{error}</div> : null}

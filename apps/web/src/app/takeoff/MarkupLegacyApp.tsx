@@ -31,8 +31,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { useBrand } from "@/components/BrandProvider";
-import { resolveBrandLogoUrl } from "@/lib/branding";
 import { roleHeaderName } from "@/lib/access";
 import { BuddyCharacter } from "@/lib/BuddyCharacter";
 import type { BlakeBoqReviewDraft } from "@/lib/blake-boq-review";
@@ -76,7 +74,7 @@ import {
   togglePackageChild,
 } from "@/lib/takeoff-markup-packages";
 import { sanitizeRemovalSectionTakeoffMaterials } from "@/lib/takeoff-removal-materials";
-import TakeoffModeNav from "./TakeoffModeNav";
+import TakeoffChrome from "./TakeoffChrome";
 import "./takeoff-skill.css";
 
 type TakeoffTab = "intake" | "markup" | "surveyor" | "survey" | "rooms" | "heat" | "runs" | "boq" | "review";
@@ -156,6 +154,19 @@ const tabs: Array<{ key: TakeoffTab; label: string; icon: LucideIcon }> = [
 const requestHeaders: HeadersInit = {
   [roleHeaderName]: "Office",
 };
+
+async function takeoffApiFetch(input: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers || {});
+  for (const [key, value] of Object.entries(requestHeaders)) {
+    if (!headers.has(key) && typeof value === "string") headers.set(key, value);
+  }
+  const response = await fetch(input, { ...init, credentials: "same-origin", headers });
+  if (response.status === 401 && typeof window !== "undefined") {
+    const next = `${window.location.pathname}${window.location.search}`;
+    window.location.assign(`/login?next=${encodeURIComponent(next || "/takeoff")}`);
+  }
+  return response;
+}
 
 const blankNewProject: NewProjectDraft = {
   name: "",
@@ -303,40 +314,40 @@ const markupToolGroups: Array<{
     label: "Heating",
     serviceIds: ["Heating flow", "Heating return", "UFH"],
     pipeToolIds: ["cu-15", "cu-22", "cu-28", "cu-35", "hep-15", "hep-22", "hep-28", "hep-35", "ufh-16"],
-    symbolKeywords: ["elbow", "bend", "tee", "coupling", "reducer", "union", "air vent", "trv", "lockshield", "radiator", "zone", "motorised", "pump", "bypass", "balancing", "relief", "expansion", "drain cock"],
-    plantKeywords: ["boiler", "radiator", "cylinder", "ufh", "manifold", "pump", "vessel", "thermostat", "sensor", "heat", "flue", "tank", "valve", "separator", "isolator", "controller"],
+    symbolKeywords: ["elbow", "bend", "tee", "coupling", "reducer", "union", "air vent", "trv", "lockshield", "radiator", "zone", "motorised", "pump", "bypass", "balancing", "relief", "expansion", "drain cock", "magnetic", "filling", "gauge", "actuator"],
+    plantKeywords: ["boiler", "radiator", "cylinder", "ufh", "manifold", "pump", "vessel", "thermostat", "sensor", "heat", "flue", "tank", "valve", "separator", "isolator", "controller", "condensate", "magnetic filter"],
   },
   {
     id: "hot-cold",
     label: "Hot & cold",
     serviceIds: ["Hot water", "Cold water"],
     pipeToolIds: ["cu-15", "cu-22", "cu-28", "hep-15", "hep-22", "hep-28"],
-    symbolKeywords: ["elbow", "bend", "tee", "coupling", "reducer", "union", "cap", "valve", "stopcock", "isolation", "check", "non-return", "backflow", "pressure reducing", "mixing", "service valve", "tap"],
-    plantKeywords: ["water main", "tap", "mixer", "basin", "bath", "shower", "sink", "cylinder", "water tank"],
+    symbolKeywords: ["elbow", "bend", "tee", "coupling", "reducer", "union", "cap", "valve", "stopcock", "isolation", "check", "non-return", "backflow", "pressure reducing", "mixing", "service valve", "tap", "tmv", "flexi", "double check", "prv", "ball", "gate"],
+    plantKeywords: ["water main", "tap", "mixer", "basin", "bath", "shower", "sink", "cylinder", "water tank", "expansion", "booster"],
   },
   {
     id: "sanitary",
     label: "Sanitary ware",
     serviceIds: ["Hot water", "Cold water", "Waste", "Soil", "Condensate"],
     pipeToolIds: ["cu-15", "cu-22", "hep-15", "hep-22", "waste-32", "waste-40", "waste-50", "soil-110"],
-    symbolKeywords: ["trap", "bend", "wye", "branch", "coupling", "reducer", "valve", "isolation", "check", "tap", "mixer", "waste", "soil", "drain", "tundish"],
-    plantKeywords: ["wc", "toilet", "basin", "bath", "shower", "sink", "tap", "mixer", "sanitary", "soil stack", "waste trap", "tundish", "bidet"],
+    symbolKeywords: ["trap", "bottle", "bend", "wye", "branch", "coupling", "reducer", "valve", "isolation", "check", "tap", "mixer", "waste", "soil", "drain", "tundish", "gulley", "gully", "rodding", "pan connector", "air admittance"],
+    plantKeywords: ["wc", "toilet", "basin", "bath", "shower", "sink", "tap", "mixer", "sanitary", "soil stack", "waste trap", "tundish", "bidet", "bottle trap", "gulley"],
   },
   {
     id: "waste-soil",
     label: "Waste / soil",
     serviceIds: ["Waste", "Soil", "Condensate"],
     pipeToolIds: ["waste-32", "waste-40", "waste-50", "soil-110"],
-    symbolKeywords: ["trap", "bend", "wye", "branch", "coupling", "reducer", "air admittance", "waste", "soil", "drain", "tundish", "cap"],
-    plantKeywords: ["wc", "toilet", "basin", "bath", "shower", "sink", "soil stack", "waste trap", "tundish", "drain"],
+    symbolKeywords: ["trap", "bottle", "bend", "wye", "branch", "coupling", "reducer", "air admittance", "waste", "soil", "drain", "tundish", "cap", "gulley", "gully", "rodding", "pan connector", "boss"],
+    plantKeywords: ["wc", "toilet", "basin", "bath", "shower", "sink", "soil stack", "waste trap", "tundish", "drain", "gulley", "bottle trap"],
   },
   {
     id: "gas",
     label: "Gas",
     serviceIds: ["Gas"],
     pipeToolIds: ["gas", "cu-15", "cu-22", "cu-28"],
-    symbolKeywords: ["gas", "isolation", "shut-off", "shutoff", "valve", "meter", "pressure test"],
-    plantKeywords: ["gas boiler", "gas meter", "boiler flue"],
+    symbolKeywords: ["gas", "isolation", "shut-off", "shutoff", "valve", "meter", "pressure test", "cock"],
+    plantKeywords: ["gas boiler", "gas meter", "boiler flue", "gas cock"],
   },
   {
     id: "plant-fixtures",
@@ -344,7 +355,7 @@ const markupToolGroups: Array<{
     serviceIds: ["Other"],
     pipeToolIds: [],
     symbolKeywords: [],
-    plantKeywords: ["boiler", "cylinder", "radiator", "wc", "toilet", "basin", "bath", "shower", "tap", "sink", "pump", "tank", "vessel", "manifold", "sensor", "thermostat"],
+    plantKeywords: ["boiler", "cylinder", "radiator", "wc", "toilet", "basin", "bath", "shower", "tap", "sink", "pump", "tank", "vessel", "manifold", "sensor", "thermostat", "flue", "condensate", "magnetic", "filling"],
   },
 ];
 
@@ -451,12 +462,17 @@ const markupFittingTools: Array<{ kind: TakeoffMarkupSymbolKind; category: Takeo
   { kind: "Bend", category: "Fitting" },
   { kind: "P-trap", category: "Fitting" },
   { kind: "S-trap", category: "Fitting" },
+  { kind: "Bottle trap", category: "Fitting" },
   { kind: "Basin trap", category: "Fitting" },
   { kind: "Bath trap", category: "Fitting" },
   { kind: "Shower trap", category: "Fitting" },
   { kind: "Sink trap", category: "Fitting" },
   { kind: "WC pan connector", category: "Fitting" },
   { kind: "Flexible tap connector", category: "Fitting" },
+  { kind: "Flexi connector", category: "Fitting" },
+  { kind: "Rodding eye", category: "Fitting" },
+  { kind: "Gulley", category: "Fitting" },
+  { kind: "Yard gulley", category: "Fitting" },
   { kind: "Radiator tail", category: "Fitting" },
   { kind: "Flange", category: "Fitting" },
   { kind: "Flange coupling", category: "Fitting" },
@@ -574,6 +590,9 @@ const markupFittingTools: Array<{ kind: TakeoffMarkupSymbolKind; category: Takeo
   { kind: "Pressure test valve", category: "Valve" },
   { kind: "Discharge valve", category: "Valve" },
   { kind: "Spillover valve", category: "Valve" },
+  { kind: "Filling loop", category: "Valve" },
+  { kind: "Magnetic filter", category: "Valve" },
+  { kind: "Gas cock", category: "Valve" },
 ];
 
 const markupPlantTools: Array<{ kind: TakeoffMarkupSymbolKind; category: TakeoffMarkupSymbolCategory }> = [
@@ -600,6 +619,10 @@ const markupPlantTools: Array<{ kind: TakeoffMarkupSymbolKind; category: Takeoff
   { kind: "ASHP", category: "Plant" },
   { kind: "UFH manifold", category: "Plant" },
   { kind: "Pump", category: "Plant" },
+  { kind: "Circulating pump", category: "Plant" },
+  { kind: "Condensate pump", category: "Plant" },
+  { kind: "Condensate trap", category: "Plant" },
+  { kind: "Booster pump", category: "Plant" },
   { kind: "Expansion vessel", category: "Plant" },
   { kind: "Pressure vessel", category: "Plant" },
   { kind: "Gas meter", category: "Plant" },
@@ -608,10 +631,12 @@ const markupPlantTools: Array<{ kind: TakeoffMarkupSymbolKind; category: Takeoff
   { kind: "Tundish", category: "Plant" },
   { kind: "Expansion tank", category: "Plant" },
   { kind: "Manifold", category: "Plant" },
+  { kind: "Manifold actuator", category: "Plant" },
   { kind: "Radiator panel", category: "Plant" },
   { kind: "Cylinder thermostat", category: "Plant" },
   { kind: "Pipe diverter", category: "Plant" },
   { kind: "Boiler flue", category: "Plant" },
+  { kind: "Flue terminal", category: "Plant" },
   { kind: "Flow temperature sensor", category: "Plant" },
   { kind: "Return temperature sensor", category: "Plant" },
   { kind: "Floor sensor", category: "Plant" },
@@ -1100,7 +1125,15 @@ function normaliseMarkupSymbolCostCentre(symbol: Pick<TakeoffMarkupSymbol, "cate
 
 function markupCostCentreSection(
   kind: "pipe" | "symbol",
-  details: { service: string; category?: TakeoffMarkupSymbolCategory; kind?: string; floor?: string; flat?: string; drawingDocumentId?: string },
+  details: {
+    service: string;
+    category?: TakeoffMarkupSymbolCategory;
+    kind?: string;
+    floor?: string;
+    flat?: string;
+    drawingDocumentId?: string;
+    layerId?: string;
+  },
   documents: TakeoffDocument[] = [],
   options?: { showDrawing?: boolean },
 ) {
@@ -1109,8 +1142,13 @@ function markupCostCentreSection(
     documents,
     { showDrawing: options?.showDrawing ?? false },
   );
-  const section = kind === "pipe" ? normaliseMarkupServiceCentre(details.service as TakeoffMarkupService)
+  const layerSection = normaliseMarkupLayerId(details.layerId)
+    ? markupLayerLabel(details.layerId)
+    : null;
+  const guessed = kind === "pipe"
+    ? normaliseMarkupServiceCentre(details.service as TakeoffMarkupService)
     : normaliseMarkupSymbolCostCentre(details as Pick<TakeoffMarkupSymbol, "category" | "kind" | "service">);
+  const section = layerSection || guessed;
   return `${locationLabel} / ${section}`;
 }
 
@@ -1370,6 +1408,7 @@ function summariseServicesMarkup(
         floor: pipe.floor,
         flat: pipe.flat,
         drawingDocumentId: pipe.drawingDocumentId,
+        layerId: markupLayerIdForPipe(pipe),
       },
       documents,
       options,
@@ -1412,6 +1451,7 @@ function summariseServicesMarkup(
         floor: symbol.floor,
         flat: symbol.flat,
         drawingDocumentId: symbol.drawingDocumentId,
+        layerId: markupLayerIdForSymbol(symbol),
       },
       documents,
       options,
@@ -2188,7 +2228,6 @@ function mergeImportedRooms(existingRooms: TakeoffRoom[], importedRooms: Takeoff
 }
 
 export default function TakeoffPage() {
-  const brand = useBrand();
   const [projects, setProjects] = useState<TakeoffProject[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [clientSites, setClientSites] = useState<ClientSite[]>([]);
@@ -2802,7 +2841,7 @@ const filteredMarkupPlantTools = useMemo(() => {
   const markupSyncLabel = (() => {
     if (!markupOfflineDraftSavedAt) return "";
     if (markupSyncStatus === "saving") return "Saving markup...";
-    if (markupSyncStatus === "saved") return "Saved to NeXa";
+    if (markupSyncStatus === "saved") return "Saved to Blake";
     if (markupSyncStatus === "offline") return "Saved offline";
     if (markupSyncStatus === "queued") return "Offline draft waiting to sync";
     if (markupSyncStatus === "error") return "Markup sync needs retry";
@@ -2969,11 +3008,11 @@ const filteredMarkupPlantTools = useMemo(() => {
     setError("");
     try {
       const [projectResponse, quoteResponse, siteResponse] = await Promise.all([
-        fetch("/api/takeoff-projects", { headers: requestHeaders }),
-        fetch("/api/quotes", { headers: requestHeaders }),
-        fetch("/api/client-sites", { headers: requestHeaders }),
+        takeoffApiFetch("/api/takeoff-projects", { headers: requestHeaders }),
+        takeoffApiFetch("/api/quotes", { headers: requestHeaders }),
+        takeoffApiFetch("/api/client-sites", { headers: requestHeaders }),
       ]);
-      const aiResponse = await fetch("/api/takeoff-ai/status", { headers: requestHeaders });
+      const aiResponse = await takeoffApiFetch("/api/takeoff-ai/status", { headers: requestHeaders });
 
       if (!projectResponse.ok) throw new Error("Unable to load Takeoff projects");
       if (!quoteResponse.ok) throw new Error("Unable to load quotes");
@@ -3221,7 +3260,7 @@ const filteredMarkupPlantTools = useMemo(() => {
     }
 
     try {
-      const response = await fetch(`/api/takeoff-projects/${projectId}`, {
+      const response = await takeoffApiFetch(`/api/takeoff-projects/${projectId}`, {
         method: "PATCH",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify(patch),
@@ -3250,7 +3289,7 @@ const filteredMarkupPlantTools = useMemo(() => {
       if (patch.servicesMarkup) {
         const savedAt = writeMarkupOfflineDraft(projectId, patch.servicesMarkup, {
           pendingSync: false,
-          reason: "Markup synced to NeXa",
+          reason: "Markup synced to Blake",
         });
         if (savedAt) setMarkupOfflineDraftSavedAt(savedAt);
         setMarkupPendingSyncProjectId((current) => (current === projectId ? "" : current));
@@ -3308,7 +3347,7 @@ const filteredMarkupPlantTools = useMemo(() => {
       servicesMarkup: draftMarkup,
       materialAllowances: quantityPatch.materialAllowances,
       supplierRequests: quantityPatch.supplierRequests,
-    }, "Offline markup draft synced to NeXa.");
+    }, "Offline markup draft synced to Blake.");
   }
 
   function currentServicesMarkupSnapshot() {
@@ -5623,7 +5662,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   ) {
     const backgroundSvg = exportBackgroundDataUrl
       ? `<image href="${escapeSvgText(exportBackgroundDataUrl)}" x="0" y="0" width="${markupCanvasWidth}" height="${markupCanvasHeight}" preserveAspectRatio="none" opacity="0.9" />`
-      : `<rect x="0" y="0" width="${markupCanvasWidth}" height="${markupCanvasHeight}" fill="#ffffff" /><text x="28" y="42" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#607084">${escapeSvgText(markupSelectedDrawing?.fileName ?? "Drawing source saved in NeXa")}</text>`;
+      : `<rect x="0" y="0" width="${markupCanvasWidth}" height="${markupCanvasHeight}" fill="#ffffff" /><text x="28" y="42" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#607084">${escapeSvgText(markupSelectedDrawing?.fileName ?? "Drawing source saved in Blake")}</text>`;
     const pipeSvg = snapshot.pipes.map((pipe) => {
       const points = pipe.points.map((point) => `${point.x},${point.y}`).join(" ");
       const colour = escapeSvgText(markupPipeColour(pipe.material, pipe.diameter, pipe.service));
@@ -5669,7 +5708,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     let saved: TakeoffProject | null = null;
     let snapshotDocument: TakeoffDocument | null = null;
     try {
-      const uploadResponse = await fetch(`/api/takeoff-projects/${selectedProject.id}/documents`, {
+      const uploadResponse = await takeoffApiFetch(`/api/takeoff-projects/${selectedProject.id}/documents`, {
         method: "POST",
         headers: requestHeaders,
         body: formData,
@@ -5713,12 +5752,12 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     }
 
     try {
-      const response = await fetch(`/api/takeoff-projects/${selectedProject.id}/marked-drawing`, {
+      const response = await takeoffApiFetch(`/api/takeoff-projects/${selectedProject.id}/marked-drawing`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
           documentId: snapshotDocument.id,
-          actor: "NeXa Takeoff",
+          actor: "Blake Takeoff",
         }),
       });
       if (!response.ok) {
@@ -5793,7 +5832,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     setError("");
     const linkedQuote = quotes.find((quote) => quote.id === newProject.linkedQuoteId);
     try {
-      const response = await fetch("/api/takeoff-projects", {
+      const response = await takeoffApiFetch("/api/takeoff-projects", {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -5825,7 +5864,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
     setError("");
     try {
-      const response = await fetch(`/api/takeoff-projects/${encodeURIComponent(projectId)}`, {
+      const response = await takeoffApiFetch(`/api/takeoff-projects/${encodeURIComponent(projectId)}`, {
         method: "DELETE",
         headers: requestHeaders,
       });
@@ -5852,7 +5891,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     setIsSavingAiKey(true);
     setError("");
     try {
-      const response = await fetch("/api/takeoff-ai/config", {
+      const response = await takeoffApiFetch("/api/takeoff-ai/config", {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -5892,7 +5931,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       year: "numeric",
     })}`;
     try {
-      const response = await fetch("/api/takeoff-projects", {
+      const response = await takeoffApiFetch("/api/takeoff-projects", {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ name: fallbackName }),
@@ -5933,7 +5972,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     setIsUploadingDocs(true);
     setError("");
     try {
-      const response = await fetch(`/api/takeoff-projects/${projectForUpload.id}/documents`, {
+      const response = await takeoffApiFetch(`/api/takeoff-projects/${projectForUpload.id}/documents`, {
         method: "POST",
         headers: requestHeaders,
         body: formData,
@@ -5969,7 +6008,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
             drawingDocumentId: uploadedDrawing.id,
             updatedAt: new Date().toISOString(),
           };
-          const patchResponse = await fetch(`/api/takeoff-projects/${updatedProject.id}`, {
+          const patchResponse = await takeoffApiFetch(`/api/takeoff-projects/${updatedProject.id}`, {
             method: "PATCH",
             headers: { ...requestHeaders, "Content-Type": "application/json" },
             body: JSON.stringify({ servicesMarkup: nextMarkup }),
@@ -5998,7 +6037,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         setActiveTab("boq");
         setBlakeBoqDraft(null);
         setNotice(
-          `${files.length} ${kind.toLowerCase()} file${files.length === 1 ? "" : "s"} uploaded — ${result.importedBoqLines} bill line${result.importedBoqLines === 1 ? "" : "s"} imported. Upload drawings too, then Ask Blake to review bill for clips and hours/metre.`,
+          `${files.length} ${kind.toLowerCase()} file${files.length === 1 ? "" : "s"} uploaded — ${result.importedBoqLines} bill line${result.importedBoqLines === 1 ? "" : "s"} imported. Upload drawings too, then Ask Ayla to review bill for clips and hours/metre.`,
         );
       } else {
         const warning = result.parseWarnings?.slice(0, 2).join(" ") ?? "";
@@ -6057,7 +6096,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     setIsExtracting(true);
     setError("");
     try {
-      const response = await fetch(`/api/takeoff-projects/${selectedProject.id}/extract`, {
+      const response = await takeoffApiFetch(`/api/takeoff-projects/${selectedProject.id}/extract`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ actor: "Office review" }),
@@ -6095,7 +6134,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     if (!selectedProject) return;
     const billCount = selectedProject.materialAllowances.filter((line) => !line.parentMaterialId).length;
     if (!billCount) {
-      setError("Import BOQ Excel lines first, then ask Blake to review each bill item against the drawings.");
+      setError("Import BOQ Excel lines first, then ask Ayla to review each bill item against the drawings.");
       setActiveTab("intake");
       return;
     }
@@ -6103,13 +6142,13 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       document.kind === "Drawing" || document.kind === "Marked-up drawing",
     );
     if (!hasDrawing && aiStatus?.connected) {
-      setNotice("No drawings on this project yet — Blake will still suggest ancillaries/labour from the bill, then refine when drawings are uploaded.");
+      setNotice("No drawings on this project yet — Ayla will still suggest ancillaries/labour from the bill, then refine when drawings are uploaded.");
     }
 
     setIsBlakeReviewing(true);
     setError("");
     try {
-      const response = await fetch(`/api/takeoff-projects/${selectedProject.id}/blake-boq-review`, {
+      const response = await takeoffApiFetch(`/api/takeoff-projects/${selectedProject.id}/blake-boq-review`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ actor: "Blake", apply }),
@@ -6160,7 +6199,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     setIsSurveyDrafting(true);
     setError("");
     try {
-      const response = await fetch(`/api/takeoff-projects/${selectedProject.id}/survey-draft`, {
+      const response = await takeoffApiFetch(`/api/takeoff-projects/${selectedProject.id}/survey-draft`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ actor: "Office survey review" }),
@@ -6240,7 +6279,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     setIsGeneratingSurveyPlan(true);
     setError("");
     try {
-      const response = await fetch(`/api/takeoff-projects/${selectedProject.id}/survey-plan`, {
+      const response = await takeoffApiFetch(`/api/takeoff-projects/${selectedProject.id}/survey-plan`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -6716,11 +6755,11 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
             approvedBy: "Office review",
           },
         });
-        if (!approvedProject) throw new Error("Unable to approve Takeoff project before pushing into NeXa.");
+        if (!approvedProject) throw new Error("Unable to approve Takeoff project before pushing into Blake.");
         projectToPush = approvedProject;
       }
 
-      const response = await fetch(`/api/takeoff-projects/${projectToPush.id}/push`, {
+      const response = await takeoffApiFetch(`/api/takeoff-projects/${projectToPush.id}/push`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -6737,7 +6776,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       setQuotes((current) => current.map((quote) => (quote.id === result.quote.id ? result.quote : quote)));
       setPushedQuoteLink({
         href: `/?quote=${encodeURIComponent(result.quote.id)}`,
-        label: `Open ${result.quote.ref} in NeXa`,
+        label: `Open ${result.quote.ref} in Blake`,
       });
       setActiveTab("review");
       setNotice(`${result.project.reference} pushed into ${result.quote.ref}: ${result.costCentres?.length ?? 1} cost centre(s) added to the quote.`);
@@ -6755,24 +6794,24 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       className={takeoffAppClassName}
       data-takeoff-mode={takeoffDrawingMode ? "drawing" : "page"}
     >
-      <header className="takeoff-header">
-        <div className="takeoff-brand">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={resolveBrandLogoUrl(brand, "takeoffs")} alt={brand.takeoffsAppName} />
-          <span>{brand.takeoffsAppName}</span>
-        </div>
-        <div className="takeoff-header-actions">
-          <a className="takeoff-ghost-button" href="/">
-            <ArrowLeft size={16} />
-            Core
-          </a>
-          <button className="takeoff-ghost-button" type="button" onClick={() => loadData().catch(() => {})}>
-            <RefreshCw size={16} />
-            Refresh
-          </button>
-        </div>
-      </header>
-      <TakeoffModeNav variant="markup" />
+      <TakeoffChrome
+        subtitle="Draw pipe runs · BoQ handoff"
+        compact={takeoffDrawingMode}
+        status={(
+          <span className={`takeoff-chrome-pill ${aiStatus?.connected ? "on" : ""}`}>
+            <Sparkles size={13} />
+            {aiStatus?.connected ? (aiStatus.model || "Blake ready") : "AI optional"}
+          </span>
+        )}
+        actions={(
+          <>
+            <button className="takeoff-chrome-btn" type="button" onClick={() => loadData().catch(() => {})}>
+              <RefreshCw size={14} />
+              Refresh
+            </button>
+          </>
+        )}
+      />
 
       <div className="takeoff-shell">
         <aside className="takeoff-sidebar">
@@ -6929,54 +6968,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                 </div>
               ) : null}
 
-              <section className="estimate-flow-strip" aria-label="Route design workflow">
-                <a href="/survey">
-                  <span>1</span>
-                  <strong>Survey</strong>
-                  <small>Upload evidence and describe the works</small>
-                </a>
-                <button className={activeTab === "markup" || activeTab === "intake" ? "active" : ""} type="button" onClick={() => setActiveTab("markup")}>
-                  <span>2</span>
-                  <strong>Route design</strong>
-                  <small>Draw pipe runs, place fittings, calibrate scale</small>
-                </button>
-                <button className={activeTab === "boq" ? "active" : ""} type="button" onClick={() => setActiveTab("boq")}>
-                  <span>3</span>
-                  <strong>BoQ / RFQ</strong>
-                  <small>Route lengths + fittings into supplier requests</small>
-                </button>
-                <button className={activeTab === "review" ? "active" : ""} type="button" onClick={() => setActiveTab("review")}>
-                  <span>4</span>
-                  <strong>Handoff</strong>
-                  <small>Review then push to Core quote</small>
-                </button>
-              </section>
-
-              <section className="takeoff-simple-banner">
-                <div>
-                  <Sparkles size={18} />
-                  <span>
-                    <strong>Plumbing route design</strong>
-                    <small>
-                      Calibrate the drawing, draw hot/cold/waste/soil routes, auto-add elbows at bends, then push lengths into the BoQ
-                      {selectedQuote ? ` for ${selectedQuote.ref}` : ""}.
-                    </small>
-                  </span>
-                </div>
-                <div className={`takeoff-ai-status compact ${aiStatus?.connected ? "connected" : "missing"}`}>
-                  <Sparkles size={14} />
-                  <span>
-                    <strong>{aiStatus?.connected ? `AI ready · ${aiStatus.model}` : "AI key missing"}</strong>
-                    <small>
-                      {aiStatus?.connected
-                        ? "Survey packs and AI scan use this connection."
-                        : `Set ${aiStatus?.keyName || "OPENAI_API_KEY"} on Render → nexa-live, then redeploy.`}
-                    </small>
-                  </span>
-                </div>
-              </section>
-
-              <nav className="takeoff-tabs takeoff-tabs-simple" aria-label="Takeoff sections">
+              <nav className="takeoff-tabs takeoff-tabs-simple" aria-label="Route design sections">
                 {tabs.map((tab) => {
                   const Icon = tab.icon;
                   return (
@@ -7373,7 +7365,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         {markupToolMode === "calibrate"
                           ? `Draw a reference line over a known dimension. ${markupCalibrationPickedCount}/2 endpoints selected.`
                           : markupSelectedDrawing
-                            ? `${markupSelectedDrawing.fileName} is locked behind the editable NeXa markup.`
+                            ? `${markupSelectedDrawing.fileName} is locked behind the editable Blake markup.`
                             : "Upload a drawing to use as the locked background."}
                       </span>
                     </div>
@@ -8403,7 +8395,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       <Ruler size={18} />
                       <span>
                         <strong>iPad / iPhone room scan</strong>
-                        <small>Live capture should run through NeXa Field using iOS RoomPlan where the device supports it. This pilot imports the RoomPlan JSON or scan export after capture.</small>
+                        <small>Live capture should run through Blake Field using iOS RoomPlan where the device supports it. This pilot imports the RoomPlan JSON or scan export after capture.</small>
                       </span>
                       <UploadButton
                         kind="LiDAR scan"
@@ -9185,7 +9177,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         onClick={() => runBlakeBoqReview(false)}
                       >
                         <Sparkles size={15} />
-                        {isBlakeReviewing ? "Blake reviewing…" : "Ask Blake to review bill"}
+                        {isBlakeReviewing ? "Blake reviewing…" : "Ask Ayla to review bill"}
                       </button>
                       <button
                         className="takeoff-secondary-button"
@@ -9374,7 +9366,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         </div>
                       ))}
                       {!selectedProject.labourAllowances.length ? (
-                        <p className="takeoff-empty-table-note">Ask Blake to review the bill to draft hours per metre / Nr against each item.</p>
+                        <p className="takeoff-empty-table-note">Ask Ayla to review the bill to draft hours per metre / Nr against each item.</p>
                       ) : null}
                     </div>
                   </article>
@@ -9415,7 +9407,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       <article>
                         <span>Survey evidence</span>
                         <strong>{surveyEvidenceDocuments.length}</strong>
-                        <small>Photos, notes and LiDAR from NeXa Survey</small>
+                        <small>Photos, notes and LiDAR from Blake Survey</small>
                       </article>
                       <article>
                         <span>Office documents</span>

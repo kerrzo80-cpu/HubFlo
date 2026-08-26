@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
-import { appendAuditEvent, removeClientSiteRecord, updateClientSiteRecord } from "@/lib/people-data";
+import { appendAuditEvent, removeClientSiteRecord, updateClientSiteRecord, type ClientSite } from "@/lib/people-data";
 import { getJobs, updateJob } from "@/lib/workflow-data";
 
 function pickString(body: Record<string, unknown> | null, key: string) {
   const value = body?.[key];
   return typeof value === "string" ? value : undefined;
+}
+
+function hasKey(body: Record<string, unknown> | null, key: string) {
+  return Boolean(body && Object.prototype.hasOwnProperty.call(body, key));
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -20,7 +24,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (!body) return NextResponse.json({ error: "Invalid request body." }, { status: 422 });
 
   const relatedJobIds = new Set(getJobs().filter((job) => job.siteId === id).map((job) => job.id));
-  const updated = updateClientSiteRecord(id, {
+  const patch: Partial<ClientSite> = {
     clientId: pickString(body, "clientId"),
     name: pickString(body, "name"),
     address: pickString(body, "address"),
@@ -28,10 +32,58 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     primaryContact: pickString(body, "primaryContact"),
     serviceLine: pickString(body, "serviceLine"),
     nextVisit: pickString(body, "nextVisit"),
-    vatTreatment: pickString(body, "vatTreatment") as never,
-    vatRateOverride: pickString(body, "vatRateOverride"),
     archived: typeof body.archived === "boolean" ? body.archived : undefined,
-  });
+  };
+  const clearKeys: Array<keyof ClientSite> = [];
+
+  if (hasKey(body, "vatTreatment")) {
+    const raw = body.vatTreatment;
+    if (raw === null || raw === "" || raw === "inherit") {
+      clearKeys.push("vatTreatment", "vatRateOverride");
+    } else if (typeof raw === "string") {
+      patch.vatTreatment = raw as ClientSite["vatTreatment"];
+      if (hasKey(body, "vatRateOverride") && typeof body.vatRateOverride === "string") {
+        patch.vatRateOverride = body.vatRateOverride;
+      }
+    }
+  } else if (hasKey(body, "vatRateOverride") && typeof body.vatRateOverride === "string") {
+    patch.vatRateOverride = body.vatRateOverride;
+  }
+
+  // Tri-state CIS: boolean override; null / "inherit" clears to client default.
+  if (hasKey(body, "cis")) {
+    if (body.cis === null || body.cis === "" || body.cis === "inherit") {
+      clearKeys.push("cis");
+    } else if (typeof body.cis === "boolean") {
+      patch.cis = body.cis;
+    }
+  }
+
+  if (hasKey(body, "retentionPercent")) {
+    if (body.retentionPercent === null || body.retentionPercent === "inherit") {
+      clearKeys.push("retentionPercent");
+    } else if (typeof body.retentionPercent === "string") {
+      patch.retentionPercent = body.retentionPercent;
+    }
+  }
+
+  if (hasKey(body, "retentionCapAmount")) {
+    if (body.retentionCapAmount === null || body.retentionCapAmount === "inherit") {
+      clearKeys.push("retentionCapAmount");
+    } else if (typeof body.retentionCapAmount === "string") {
+      patch.retentionCapAmount = body.retentionCapAmount;
+    }
+  }
+
+  if (hasKey(body, "mainContractorDiscountPercent")) {
+    if (body.mainContractorDiscountPercent === null || body.mainContractorDiscountPercent === "inherit") {
+      clearKeys.push("mainContractorDiscountPercent");
+    } else if (typeof body.mainContractorDiscountPercent === "string") {
+      patch.mainContractorDiscountPercent = body.mainContractorDiscountPercent;
+    }
+  }
+
+  const updated = updateClientSiteRecord(id, patch, { clearKeys });
 
   if (!updated) return NextResponse.json({ error: "Site not found." }, { status: 404 });
 
@@ -40,7 +92,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     .filter((job): job is NonNullable<typeof job> => Boolean(job));
 
   appendAuditEvent({
-    actor: typeof body.actor === "string" && body.actor.trim() ? body.actor.trim() : "NeXa user",
+    actor: typeof body.actor === "string" && body.actor.trim() ? body.actor.trim() : "Blake user",
     action: updated.archived ? "archived" : "updated",
     recordType: "site",
     recordId: updated.id,
@@ -67,7 +119,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   if (!deleted) return NextResponse.json({ error: "Site not found." }, { status: 404 });
 
   appendAuditEvent({
-    actor: request.headers.get("x-hub-actor")?.trim() || "NeXa user",
+    actor: request.headers.get("x-hub-actor")?.trim() || "Blake user",
     action: "deleted",
     recordType: "site",
     recordId: id,

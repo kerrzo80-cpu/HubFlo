@@ -1,6 +1,5 @@
-import { getHubDetailState, saveHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
+import { getHubDetailState, saveHubDetailState, purgeDayworkSheetFromHub, type HubDetailState } from "@/lib/hub-detail-store";
 import {
-  deleteDayworkSheetFromStore,
   getDayworkSheetFromStore,
   listDayworkSheetsFromStore,
   writeDayworkSheetSnapshot,
@@ -49,6 +48,8 @@ export type EngineerFlowStepEvidenceValue = {
   text?: string;
   numberValue?: string;
   photoName?: string;
+  photoUrl?: string;
+  photoId?: string;
   capturedAt?: string;
 };
 
@@ -72,7 +73,7 @@ export type EngineerFlowStep = {
   label: string;
   evidence: EngineerFlowEvidence;
   required: boolean;
-  /** Maps into the NeXa gas service / daywork record summary. */
+  /** Maps into the Blake gas service / daywork record summary. */
   formField?: string;
   validation?: EngineerFlowStepValidation;
 };
@@ -1500,12 +1501,14 @@ export function listDayworkSheetsForJob(jobId: string): DayworkSheetSnapshot[] {
 }
 
 /**
- * Discard an unsigned Daywork sheet opened by mistake — removes sheet, evidence,
- * variation event, and additional Daywork cost centres so Mark complete is not blocked.
+ * Remove a Daywork sheet and its linked variation / evidence / extra cost centres.
+ * Field callers should leave `allowSubmitted` false so signed sheets stay locked.
+ * Core office can pass `allowSubmitted: true` to delete a sheet raised in error.
  */
-export function discardUnsignedDayworkSheet(options: {
+export function removeDayworkSheet(options: {
   jobId: string;
   costCentreId: string;
+  allowSubmitted?: boolean;
 }): { discarded: boolean; reason?: string } {
   const costCentreId = options.costCentreId.trim();
   if (!costCentreId) return { discarded: false, reason: "Missing Daywork cost centre." };
@@ -1513,58 +1516,25 @@ export function discardUnsignedDayworkSheet(options: {
   const existing =
     listDayworkSheetsForJob(options.jobId).find((sheet) => sheet.costCentreId === costCentreId) ||
     getDayworkSheetFromStore(options.jobId, costCentreId);
-  if (existing && isDayworkSubmittedToCore(existing)) {
+  if (existing && isDayworkSubmittedToCore(existing) && !options.allowSubmitted) {
     return { discarded: false, reason: "Submitted Daywork sheets cannot be discarded on Field." };
   }
 
-  const hubState = getHubDetailState() as HubDetailState & {
-    flowStepEvidence?: Record<string, EngineerFlowStepEvidenceValue>;
-    dayworkSheets?: Record<string, DayworkSheetSnapshot>;
-  };
-  const sheetKey = dayworkSheetKey(options.jobId, costCentreId);
-  const nextSheets = { ...(hubState.dayworkSheets ?? {}) };
-  delete nextSheets[sheetKey];
-
-  const evidenceStore = { ...(hubState.flowStepEvidence ?? {}) };
-  const completionStore = { ...((hubState.flowStepCompletion ?? {}) as Record<string, boolean>) };
-  const prefix = `${options.jobId}:${costCentreId}:`;
-  for (const key of Object.keys(evidenceStore)) {
-    if (key.startsWith(prefix)) delete evidenceStore[key];
-  }
-  for (const key of Object.keys(completionStore)) {
-    if (key.startsWith(prefix)) delete completionStore[key];
-  }
-
-  const events = Array.isArray(hubState.jobDeliveryEvents)
-    ? ([...hubState.jobDeliveryEvents] as Array<Record<string, unknown>>).filter(
-        (event) => event.id !== `daywork-${options.jobId}-${costCentreId}`,
-      )
-    : [];
-
-  const centresByJob = { ...((hubState.jobCostCentres ?? {}) as Record<string, Array<Record<string, unknown>>>) };
-  const centres = Array.isArray(centresByJob[options.jobId]) ? [...centresByJob[options.jobId]] : [];
-  const primaryId = `${options.jobId}-daywork-account`;
-  // Always drop additional numbered centres; keep the primary centre shell if it exists.
-  const nextCentres =
-    costCentreId === primaryId
-      ? centres
-      : centres.filter((centre) => String(centre.id || "") !== costCentreId);
-  centresByJob[options.jobId] = nextCentres;
-
-  saveHubDetailState({
-    ...hubState,
-    flowStepEvidence: evidenceStore,
-    flowStepCompletion: completionStore,
-    dayworkSheets: nextSheets,
-    jobDeliveryEvents: events,
-    jobCostCentres: centresByJob,
+  purgeDayworkSheetFromHub({
+    jobId: options.jobId,
+    costCentreId,
   });
 
-  try {
-    deleteDayworkSheetFromStore(options.jobId, costCentreId);
-  } catch {
-    // Hub state is the source of truth for Field list; durable store is best-effort.
-  }
-
   return { discarded: true };
+}
+
+/**
+ * Discard an unsigned Daywork sheet opened by mistake — removes sheet, evidence,
+ * variation event, and additional Daywork cost centres so Mark complete is not blocked.
+ */
+export function discardUnsignedDayworkSheet(options: {
+  jobId: string;
+  costCentreId: string;
+}): { discarded: boolean; reason?: string } {
+  return removeDayworkSheet({ ...options, allowSubmitted: false });
 }

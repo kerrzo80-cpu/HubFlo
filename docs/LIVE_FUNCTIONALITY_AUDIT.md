@@ -1,6 +1,6 @@
-# NeXa Live Functionality Standard
+# Blake Live Functionality Standard
 
-NeXa is a live operational product. Every visible control must be in one of these states:
+Blake is a live operational product. Every visible control must be in one of these states:
 
 1. **Working** - reads or writes the shared workspace and reports the real outcome.
 2. **Blocked** - disabled, with the exact missing permission, record or integration prerequisite shown beside it.
@@ -34,7 +34,7 @@ A click that only displays a success-style notice is not a completed workflow.
 - Job-level schedule entries
 - Lead survey appointments
 
-Booking requests require a job, cost centre, date, start time and duration. NeXa returns a
+Booking requests require a job, cost centre, date, start time and duration. Blake returns a
 review action first. Confirming that action writes the assignment to `jobSchedulePlans`,
 updates the job, logs the user action and attempts the configured simPRO schedule push.
 

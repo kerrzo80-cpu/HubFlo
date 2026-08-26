@@ -30,8 +30,15 @@ type CreateClientPayload = {
   nextVisit?: string;
   vatTreatment?: VatTreatment;
   vatRateOverride?: string;
+  cis?: boolean;
+  retentionPercent?: string;
+  retentionCapAmount?: string;
+  mainContractorDiscountPercent?: string;
   siteVatTreatment?: VatTreatment;
   siteVatRateOverride?: string;
+  siteCis?: boolean | null;
+  siteRetentionPercent?: string;
+  siteMainContractorDiscountPercent?: string;
   source?: string;
   actor?: string;
 };
@@ -146,6 +153,10 @@ export async function POST(request: Request) {
     notes: payload.notes?.trim() || `Created from ${payload.source?.trim() || "HubFlo intake"}.`,
     vatTreatment: cleanVatTreatment(payload.vatTreatment),
     vatRateOverride: payload.vatRateOverride?.trim() || "",
+    cis: typeof payload.cis === "boolean" ? payload.cis : undefined,
+    retentionPercent: payload.retentionPercent?.trim() || undefined,
+    retentionCapAmount: payload.retentionCapAmount?.trim() || undefined,
+    mainContractorDiscountPercent: payload.mainContractorDiscountPercent?.trim() || undefined,
   };
 
   const site: ClientSite = {
@@ -159,6 +170,9 @@ export async function POST(request: Request) {
     nextVisit: payload.nextVisit?.trim() || "To be scheduled",
     vatTreatment: cleanVatTreatment(payload.siteVatTreatment ?? payload.vatTreatment),
     vatRateOverride: payload.siteVatRateOverride?.trim() || payload.vatRateOverride?.trim() || "",
+    cis: typeof payload.siteCis === "boolean" ? payload.siteCis : undefined,
+    retentionPercent: payload.siteRetentionPercent?.trim() || undefined,
+    mainContractorDiscountPercent: payload.siteMainContractorDiscountPercent?.trim() || undefined,
   };
 
   addClientRecord(client);

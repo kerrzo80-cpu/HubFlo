@@ -16,9 +16,11 @@ import {
   ensureDayworkVariationCostCentre,
   listDayworkSheetsForJob,
   reconcileDayworkVariationsFromEvidence,
+  removeDayworkSheet,
   saveDayworkSheetToHub,
 } from "@/lib/engineer-flow";
 import { getHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
+import { displayCompanyName } from "@/lib/branding";
 import { type DayworkSheetSnapshot } from "@/lib/daywork-account-form";
 import { findDayworkSheetForJob, getDayworkSheetFromStore, listDayworkSheetsFromStore } from "@/lib/daywork-sheets-store";
 import { createDayworkAccountPdf, dayworkPdfFilename } from "@/lib/daywork-pdf";
@@ -187,7 +189,7 @@ export async function POST(request: Request, { params }: Params) {
           `Total hours: ${String(existing.labourHours || "").trim() || "as recorded"}`,
           "",
           "Kind regards,",
-          "Errol Watson Group",
+          displayCompanyName(getHubDetailState().businessSettings),
         ].join("\n"),
         attachments: [{ filename, content: pdfBytes, contentType: "application/pdf" }],
       });
@@ -212,12 +214,77 @@ export async function POST(request: Request, { params }: Params) {
     }
   }
 
+  if (body.action === "discard" || body.action === "delete") {
+    const costCentreId = body.costCentreId?.trim() || ensureDayworkVariationCostCentre(jobId);
+    const result = removeDayworkSheet({
+      jobId,
+      costCentreId,
+      allowSubmitted: true,
+    });
+    if (!result.discarded) {
+      return NextResponse.json({ error: result.reason || "Could not delete Daywork." }, { status: 400 });
+    }
+    const hubState = getHubDetailState() as HubDetailState & {
+      dayworkSheets?: Record<string, DayworkSheetSnapshot>;
+      flowStepEvidence?: Record<string, unknown>;
+      jobDeliveryEvents?: unknown[];
+      jobCostCentres?: Record<string, unknown[]>;
+    };
+    return NextResponse.json({
+      ok: true,
+      deleted: true,
+      costCentreId,
+      dayworkSheets: hubState.dayworkSheets ?? {},
+      flowStepEvidence: hubState.flowStepEvidence ?? {},
+      jobDeliveryEvents: hubState.jobDeliveryEvents ?? [],
+      jobCostCentres: hubState.jobCostCentres ?? {},
+      sheets: listDayworkSheetsForJob(jobId),
+    });
+  }
+
   if (body.action !== "save") {
-    return NextResponse.json({ error: "Unsupported action. Use action: save or send_copy." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Unsupported action. Use action: save, send_copy, discard, or delete." },
+      { status: 400 },
+    );
   }
 
   const costCentreId =
     body.costCentreId?.trim() || ensureDayworkVariationCostCentre(jobId);
+
+  const existingLocked =
+    getDayworkSheetFromStore(jobId, costCentreId) ||
+    listDayworkSheetsFromStore(jobId).find((sheet) => sheet.costCentreId === costCentreId) ||
+    null;
+  if (isDayworkSubmittedToCore(existingLocked)) {
+    const incoming = body.record || (body.draft ? dayworkRecordFromDraft(body.draft, "core") : null);
+    const clearingSignatures = Boolean(
+      incoming
+      && (
+        !String(incoming.plumberSignature || "").trim()
+        || !String(incoming.clientSignature || "").trim()
+      ),
+    );
+    if (clearingSignatures) {
+      recordDayworkWriteAttempt({
+        at: new Date().toISOString(),
+        source: "core-daywork",
+        jobId,
+        costCentreId,
+        ok: false,
+        error: "locked-signed-immutable",
+        hasSignatures: true,
+      });
+      return NextResponse.json(
+        {
+          error:
+            "This Daywork is signed and locked. Signatures cannot be cleared or overwritten. Create a new Daywork sheet if you need a correction.",
+          locked: true,
+        },
+        { status: 409 },
+      );
+    }
+  }
 
   let record = body.record;
   if (!record && body.draft) {

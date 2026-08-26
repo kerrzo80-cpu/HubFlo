@@ -208,7 +208,7 @@ function persistRefreshTokenToFile(refreshToken: string) {
     mkdirSync(dirname(filePath), { recursive: true });
     writeFileSync(filePath, refreshToken.trim());
   } catch {
-    // Ignore file persistence failures and keep the token in the NeXa store.
+    // Ignore file persistence failures and keep the token in the Blake store.
   }
 }
 

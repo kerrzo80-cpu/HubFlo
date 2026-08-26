@@ -1,4 +1,12 @@
-/** Owner white-label / personalising settings shared across Core, Field, Survey, Takeoffs and Heat Design. */
+/** Owner white-label / personalising settings shared across Core, Field, Survey, Takeoffs, Heat Design and Trainer. */
+
+import {
+  DEFAULT_COMPANY_LOGO_URL,
+  PLATFORM_LOCKUP_LIGHT_URL,
+  PLATFORM_MARK_URL,
+  PLATFORM_NAME,
+  PLATFORM_WORDMARK_DARK_URL,
+} from "@/lib/product-brand";
 
 export type BusinessBrandingSettings = {
   companyName: string;
@@ -22,9 +30,10 @@ export type BusinessBrandingSettings = {
   surveyLogoUrl: string;
   takeoffsLogoUrl: string;
   heatDesignLogoUrl: string;
+  trainerLogoUrl: string;
   portalWelcomeText: string;
   portalAcceptanceText: string;
-  /** When true, NeXa product chrome is hidden — platform feels like the owner brand. */
+  /** When true, Blake product chrome is hidden — platform feels like the owner brand. */
   hidePlatformName: boolean;
   /** Short owner product label used when platform name is shown (e.g. EWG). */
   productName: string;
@@ -33,6 +42,7 @@ export type BusinessBrandingSettings = {
   surveyAppName: string;
   takeoffsAppName: string;
   heatDesignAppName: string;
+  trainerAppName: string;
 };
 
 export type PublicBranding = {
@@ -50,53 +60,84 @@ export type PublicBranding = {
   surveyLogoUrl: string;
   takeoffsLogoUrl: string;
   heatDesignLogoUrl: string;
+  trainerLogoUrl: string;
   coreAppName: string;
   fieldAppName: string;
   surveyAppName: string;
   takeoffsAppName: string;
   heatDesignAppName: string;
+  trainerAppName: string;
   clientPortalBrandLine: string;
 };
 
+/** Product defaults for an empty company. Never bake in Errol Watson Group / EWG logos. */
 export const defaultBusinessBrandingSettings: BusinessBrandingSettings = {
-  companyName: "Errol Watson Group",
-  tradingName: "Errol Watson Group Ltd",
-  workspaceName: "EWG workspace",
-  contactEmail: "office@errolwatsongroup.co.uk",
-  phone: "01224 000000",
-  address: "Aberdeen, Scotland",
-  vatNumber: "GB000000000",
-  companyNumber: "SC000000",
-  defaultFromEmail: "office@errolwatsongroup.co.uk",
+  companyName: "Company",
+  tradingName: "",
+  workspaceName: "",
+  contactEmail: "",
+  phone: "",
+  address: "",
+  vatNumber: "",
+  companyNumber: "",
+  defaultFromEmail: "",
   clientPortalBrandLine: "Control every moving part.",
   brandPrimaryColor: "#157fa8",
   brandAccentColor: "#0f5f7d",
-  logoUrl: "/ewg-logo.png",
-  appIconUrl: "/ewg-logo.png",
+  logoUrl: "",
+  appIconUrl: "",
   coreLogoUrl: "",
   fieldLogoUrl: "",
   surveyLogoUrl: "",
   takeoffsLogoUrl: "",
   heatDesignLogoUrl: "",
-  portalWelcomeText: "Welcome to your Errol Watson Group workspace. Review quotes, jobs and invoices in one place.",
+  trainerLogoUrl: "",
+  portalWelcomeText: "Welcome. Review quotes, jobs and invoices in one place.",
   portalAcceptanceText: "By accepting this quotation online you confirm the scope, price and terms shown.",
-  hidePlatformName: true,
-  productName: "EWG",
-  coreAppName: "EWG Core",
-  fieldAppName: "EWG Field",
-  surveyAppName: "EWG Survey",
-  takeoffsAppName: "EWG Takeoffs",
-  heatDesignAppName: "EWG Heat Design",
+  hidePlatformName: false,
+  productName: "Company",
+  coreAppName: "Core",
+  fieldAppName: "Field",
+  surveyAppName: "Survey",
+  takeoffsAppName: "Takeoffs",
+  heatDesignAppName: "Heat Design",
+  trainerAppName: "Ayla Trainer",
 };
 
-export type BrandAppKey = "core" | "field" | "survey" | "estimator" | "takeoffs" | "heat-design";
+export function displayCompanyName(brand?: { companyName?: string; tradingName?: string } | null) {
+  const trading = String(brand?.tradingName || "").trim();
+  const company = String(brand?.companyName || "").trim();
+  return trading || company || "Company";
+}
+
+/** Fill blank company name from NEXA_COMPANY_NAME. Does not override a saved office name. */
+export function applyEnvCompanyFallback(
+  raw?: Partial<BusinessBrandingSettings> | Record<string, unknown> | null,
+  env: NodeJS.ProcessEnv = process.env,
+): BusinessBrandingSettings {
+  const brand = normalizeBusinessBranding(raw);
+  const envName = env.NEXA_COMPANY_NAME?.trim();
+  if (!envName) return brand;
+  const unset = !brand.companyName.trim() || brand.companyName.trim() === "Company";
+  if (!unset) return brand;
+  return {
+    ...brand,
+    companyName: envName,
+    tradingName: brand.tradingName.trim() || envName,
+    workspaceName: brand.workspaceName.trim() || `${envName} workspace`,
+    productName: brand.productName.trim() === "Company" ? envName : brand.productName,
+  };
+}
+
+export type BrandAppKey = "core" | "field" | "survey" | "estimator" | "takeoffs" | "heat-design" | "trainer";
 
 export type BrandAppLogoField =
   | "coreLogoUrl"
   | "fieldLogoUrl"
   | "surveyLogoUrl"
   | "takeoffsLogoUrl"
-  | "heatDesignLogoUrl";
+  | "heatDesignLogoUrl"
+  | "trainerLogoUrl";
 
 export function brandAppLogoField(app: BrandAppKey): BrandAppLogoField {
   switch (app) {
@@ -111,6 +152,8 @@ export function brandAppLogoField(app: BrandAppKey): BrandAppLogoField {
       return "takeoffsLogoUrl";
     case "heat-design":
       return "heatDesignLogoUrl";
+    case "trainer":
+      return "trainerLogoUrl";
     default:
       return "coreLogoUrl";
   }
@@ -131,19 +174,21 @@ export function normalizeBusinessBranding(raw?: Partial<BusinessBrandingSettings
         : defaultBusinessBrandingSettings.hidePlatformName,
     brandPrimaryColor: String(source.brandPrimaryColor || defaultBusinessBrandingSettings.brandPrimaryColor).trim() || defaultBusinessBrandingSettings.brandPrimaryColor,
     brandAccentColor: String(source.brandAccentColor || defaultBusinessBrandingSettings.brandAccentColor).trim() || defaultBusinessBrandingSettings.brandAccentColor,
-    logoUrl: String(source.logoUrl || defaultBusinessBrandingSettings.logoUrl).trim() || defaultBusinessBrandingSettings.logoUrl,
-    appIconUrl: String(source.appIconUrl || source.logoUrl || defaultBusinessBrandingSettings.appIconUrl).trim() || defaultBusinessBrandingSettings.appIconUrl,
+    logoUrl: trimLogoUrl(source.logoUrl),
+    appIconUrl: trimLogoUrl(source.appIconUrl || source.logoUrl),
     coreLogoUrl: trimLogoUrl(source.coreLogoUrl),
     fieldLogoUrl: trimLogoUrl(source.fieldLogoUrl),
     surveyLogoUrl: trimLogoUrl(source.surveyLogoUrl),
     takeoffsLogoUrl: trimLogoUrl(source.takeoffsLogoUrl),
     heatDesignLogoUrl: trimLogoUrl(source.heatDesignLogoUrl),
+    trainerLogoUrl: trimLogoUrl(source.trainerLogoUrl),
     productName: String(source.productName || defaultBusinessBrandingSettings.productName).trim() || defaultBusinessBrandingSettings.productName,
     coreAppName: String(source.coreAppName || defaultBusinessBrandingSettings.coreAppName).trim() || defaultBusinessBrandingSettings.coreAppName,
     fieldAppName: String(source.fieldAppName || defaultBusinessBrandingSettings.fieldAppName).trim() || defaultBusinessBrandingSettings.fieldAppName,
     surveyAppName: String(source.surveyAppName || defaultBusinessBrandingSettings.surveyAppName).trim() || defaultBusinessBrandingSettings.surveyAppName,
     takeoffsAppName: String(source.takeoffsAppName || defaultBusinessBrandingSettings.takeoffsAppName).trim() || defaultBusinessBrandingSettings.takeoffsAppName,
     heatDesignAppName: String(source.heatDesignAppName || defaultBusinessBrandingSettings.heatDesignAppName).trim() || defaultBusinessBrandingSettings.heatDesignAppName,
+    trainerAppName: String(source.trainerAppName || defaultBusinessBrandingSettings.trainerAppName).trim() || defaultBusinessBrandingSettings.trainerAppName,
   };
 }
 
@@ -164,11 +209,13 @@ export function toPublicBranding(settings?: Partial<BusinessBrandingSettings> | 
     surveyLogoUrl: brand.surveyLogoUrl,
     takeoffsLogoUrl: brand.takeoffsLogoUrl,
     heatDesignLogoUrl: brand.heatDesignLogoUrl,
+    trainerLogoUrl: brand.trainerLogoUrl,
     coreAppName: brand.coreAppName,
     fieldAppName: brand.fieldAppName,
     surveyAppName: brand.surveyAppName,
     takeoffsAppName: brand.takeoffsAppName,
     heatDesignAppName: brand.heatDesignAppName,
+    trainerAppName: brand.trainerAppName,
     clientPortalBrandLine: brand.clientPortalBrandLine,
   };
 }
@@ -186,6 +233,8 @@ export function appDisplayName(brand: PublicBranding | BusinessBrandingSettings,
       return brand.takeoffsAppName;
     case "heat-design":
       return brand.heatDesignAppName;
+    case "trainer":
+      return brand.trainerAppName;
     default:
       return brand.productName;
   }
@@ -195,12 +244,12 @@ export function operationsLabel(brand: PublicBranding | BusinessBrandingSettings
   if (brand.hidePlatformName) {
     return `${brand.productName || brand.companyName} Operations`;
   }
-  return "NeXa Operations";
+  return `${PLATFORM_NAME} Operations`;
 }
 
 export function platformLabel(brand: PublicBranding | BusinessBrandingSettings): string {
   if (brand.hidePlatformName) return brand.productName || brand.companyName;
-  return "NeXa";
+  return PLATFORM_NAME;
 }
 
 function lightenHex(hex: string, amount: number): string {
@@ -244,20 +293,60 @@ export function applyBrandCssVariables(brand: Pick<PublicBranding, "brandPrimary
   root.style.setProperty("--blue-soft", lightenHex(primary, 0.88));
 }
 
-/** In-app header logo for an app (per-app → company logo). */
+/** Company / trading logo for PDFs, certificates and Customise Forms — never the blake. product mark. */
+export function resolveCompanyLogoUrl(brand: PublicBranding | BusinessBrandingSettings): string {
+  return trimLogoUrl(brand.logoUrl) || DEFAULT_COMPANY_LOGO_URL;
+}
+
+/** In-app product chrome logo (per-app upload → blake. wordmark). Not for customer-facing forms. */
 export function resolveBrandLogoUrl(brand: PublicBranding | BusinessBrandingSettings, app?: BrandAppKey): string {
   if (app) {
     const specific = trimLogoUrl(brand[brandAppLogoField(app)]);
     if (specific) return specific;
   }
-  return brand.logoUrl || defaultBusinessBrandingSettings.logoUrl;
+  return PLATFORM_WORDMARK_DARK_URL;
 }
 
-/** Home-screen / PWA icon for an app (per-app → shared app icon → company logo). */
+/**
+ * Logos for coloured chrome bars (Core header, blue rail, Field topbar).
+ * Prefer the blake. wordmark — square per-app marks read as a boxed “edge” on blue.
+ */
+export function resolveBrandChromeLogoUrl(
+  brand: PublicBranding | BusinessBrandingSettings,
+  app?: BrandAppKey,
+): string {
+  if (app) {
+    const specific = trimLogoUrl(brand[brandAppLogoField(app)]);
+    if (specific) {
+      if (/logo-core|ewg-mark|appIcon|icon/i.test(specific) && !/logo-field|logo-survey|logo-takeoffs|logo-heat|logo-trainer/i.test(specific)) {
+        return PLATFORM_WORDMARK_DARK_URL;
+      }
+      return specific;
+    }
+  }
+  return PLATFORM_WORDMARK_DARK_URL;
+}
+
+/** Append home=1 so /api/branding/assets/* returns the composed home-screen icon. */
+function withHomeIconParam(url: string): string {
+  const trimmed = trimLogoUrl(url);
+  if (!trimmed.includes("/api/branding/assets/")) return trimmed;
+  if (/[?&]home=1(?:&|$)/.test(trimmed) || /[?&]apple=1(?:&|$)/.test(trimmed)) return trimmed;
+  return trimmed.includes("?") ? `${trimmed}&home=1` : `${trimmed}?home=1`;
+}
+
+/** Home-screen / PWA icon for an app (per-app → blake. mark). Company logo stays on forms. */
 export function resolveBrandIconUrl(brand: PublicBranding | BusinessBrandingSettings, app?: BrandAppKey): string {
   if (app) {
     const specific = trimLogoUrl(brand[brandAppLogoField(app)]);
-    if (specific) return specific;
+    if (specific) return withHomeIconParam(specific);
   }
-  return brand.appIconUrl || brand.logoUrl || defaultBusinessBrandingSettings.logoUrl;
+  return PLATFORM_MARK_URL;
+}
+
+/** Dark-rail lockup for Core sidebar — blake. unless a Core-specific logo was uploaded. */
+export function resolvePlatformRailLockup(brand: PublicBranding | BusinessBrandingSettings): string {
+  const coreLogo = trimLogoUrl(brand.coreLogoUrl);
+  if (coreLogo) return coreLogo;
+  return PLATFORM_LOCKUP_LIGHT_URL;
 }

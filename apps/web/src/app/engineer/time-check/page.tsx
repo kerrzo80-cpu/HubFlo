@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, Clock3, TriangleAlert } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Clock3, ExternalLink, TriangleAlert } from "lucide-react";
 import { formatDuration, getEngineerSchedule } from "@/lib/engineer-data";
 
 export default function EngineerTimeCheckPage() {
@@ -14,12 +14,31 @@ export default function EngineerTimeCheckPage() {
       <section className="engineer-job-detail-hero">
         <p className="eyebrow">Daily time check</p>
         <h1>Confirm today</h1>
-        <p>Your scheduled time is ready. Confirm it, or fix anything that changed.</p>
+        <p>
+          Hours confirmation lives in Field — Blake walks you through booked time, gaps, and amendments on your phone.
+        </p>
         <div className="engineer-detail-meta">
           <span>{jobs.length} jobs</span>
           <span>{formatDuration(totalHours)} scheduled</span>
           <span>{formatDuration(knownGapHours)} gap to assign</span>
         </div>
+      </section>
+
+      <section className="engineer-panel">
+        <div className="engineer-section-heading compact">
+          <div>
+            <p className="eyebrow">Field Hours</p>
+            <h2>Open Blake time check</h2>
+          </div>
+          <Clock3 size={21} />
+        </div>
+        <p className="engineer-muted-copy">
+          Use Field Hours to confirm today&apos;s schedule, assign gaps, and sync amendments back to Core. This
+          engineer preview shows your booked jobs — the live flow is on Field.
+        </p>
+        <Link href="/field/time-check" className="engineer-primary-action" style={{ display: "inline-flex", marginTop: 12 }}>
+          <ExternalLink size={17} /> Open Field Hours
+        </Link>
       </section>
 
       <section className="engineer-panel">
@@ -48,7 +67,7 @@ export default function EngineerTimeCheckPage() {
           </div>
           <TriangleAlert size={21} />
         </div>
-        <p className="engineer-muted-copy">NeXa found a 30 minute gap between scheduled jobs. Assign it to an existing job/cost centre, or create a reactive job if work came in before the office could schedule it.</p>
+        <p className="engineer-muted-copy">Blake found a 30 minute gap between scheduled jobs. Assign it to an existing job/cost centre, or create a reactive job if work came in before the office could schedule it.</p>
         <div className="engineer-gap-options">
           <button type="button">Assign to job and cost centre</button>
           <button type="button">Create reactive job</button>
@@ -56,9 +75,9 @@ export default function EngineerTimeCheckPage() {
       </section>
 
       <section className="engineer-outcome-bar" aria-label="Time check actions">
-        <button type="button"><CheckCircle2 size={17} /> Confirm all</button>
-        <button type="button"><Clock3 size={17} /> Adjust</button>
-        <button type="button"><TriangleAlert size={17} /> Save draft</button>
+        <Link href="/field/time-check" className="engineer-primary-action" style={{ textDecoration: "none" }}>
+          <CheckCircle2 size={17} /> Confirm in Field Hours
+        </Link>
       </section>
     </main>
   );

@@ -9,8 +9,10 @@ import {
   getClients,
 } from "@/lib/lead-store";
 import { getAccessProfileFromHeaders } from "@/lib/access";
+import { getHubDetailState } from "@/lib/hub-detail-store";
 import { getJobs, type Job } from "@/lib/workflow-data";
 import { parseJsonRequestBody } from "@/lib/http";
+import { assertLeadSurveyAgainstPlans, type HubScheduleAssignment } from "@/lib/schedule-clash";
 
 type LeadSurveyBooking = {
   leadId?: string;
@@ -74,16 +76,29 @@ function leadSurveyClashErrorPayload(booking: LeadSurveyBooking, leads: LeadReco
     return {
       conflict: true,
       conflictLeadRef: clash.ref,
+      code: "SCHEDULE_CLASH",
       message: `${booking.surveyor} already has ${clash.ref} at ${clash.surveyTime} for ${clash.customerName}.`,
     };
   }
   const jobClash = findLeadOverlappingJob(booking, jobs);
-  if (!jobClash) return null;
-  return {
-    conflict: true,
-    conflictJobRef: jobClash.ref,
-    message: `${booking.surveyor} already has ${jobClash.ref} at ${jobClash.scheduledTime || "time"} for ${jobClash.customer}.`,
-  };
+  if (jobClash) {
+    return {
+      conflict: true,
+      conflictJobRef: jobClash.ref,
+      code: "SCHEDULE_CLASH",
+      message: `${booking.surveyor} already has ${jobClash.ref} at ${jobClash.scheduledTime || "time"} for ${jobClash.customer}.`,
+    };
+  }
+  const plans = (getHubDetailState().jobSchedulePlans || {}) as Record<string, HubScheduleAssignment[]>;
+  const planClash = assertLeadSurveyAgainstPlans(booking, plans, leads);
+  if (planClash) {
+    return {
+      conflict: true,
+      code: "SCHEDULE_CLASH",
+      message: planClash,
+    };
+  }
+  return null;
 }
 
 type LeadCreateResponse = {

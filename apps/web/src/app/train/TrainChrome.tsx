@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { PLATFORM_WORDMARK, TRAINER_APP_NAME } from "@/lib/product-brand";
+
 export function TrainChrome({
   children,
   subtitle = "Voice-first staff trainer",
@@ -23,9 +25,9 @@ export function TrainChrome({
       <header className="blake-train-top">
         <div className="blake-train-brand">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/nexa-command-mark.svg" alt="" aria-hidden="true" />
+          <img src="/brand/blake-mark.svg" alt="" aria-hidden="true" />
           <div>
-            <strong>Blake · NeXa Trainer</strong>
+            <strong>{PLATFORM_WORDMARK} · {TRAINER_APP_NAME}</strong>
             <span>{subtitle}</span>
           </div>
         </div>

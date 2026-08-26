@@ -8,6 +8,7 @@ import {
 } from "@/lib/field/ask-blake-voice-accent";
 import { parseJsonRequestBody } from "@/lib/http";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export const runtime = "nodejs";
 
@@ -65,7 +66,7 @@ export async function POST(request: Request) {
         },
       },
     };
-    return fetch("https://api.openai.com/v1/realtime/client_secrets", {
+    return openAiFetch("https://api.openai.com/v1/realtime/client_secrets", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${config.apiKey}`,

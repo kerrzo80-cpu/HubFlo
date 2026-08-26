@@ -1,12 +1,12 @@
 {
-  "name": "NeXa Core",
+  "name": "Blake Core",
   "short_name": "Core",
-  "description": "NeXa Core command center for leads, quotes, jobs, invoices and operations.",
+  "description": "Blake Core command center for leads, quotes, jobs, invoices and operations.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#006eb8",
-  "theme_color": "#006eb8",
+  "background_color": "#2563eb",
+  "theme_color": "#2563eb",
   "icons": [
     {
       "src": "/app-icons/nexa-core-icon-512.png",

@@ -9,6 +9,7 @@ import {
 import { cleanForSpeech } from "@/lib/field/ask-blake-speech";
 import { parseJsonRequestBody } from "@/lib/http";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export const runtime = "nodejs";
 
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
   const instructions = accentTtsInstructions(accent);
 
   async function synth(model: string, voice: string, withInstructions: boolean) {
-    return fetch("https://api.openai.com/v1/audio/speech", {
+    return openAiFetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${config.apiKey}`,

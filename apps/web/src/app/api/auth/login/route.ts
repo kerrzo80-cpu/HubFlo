@@ -10,9 +10,13 @@ import {
   nexaSessionMaxAgeSeconds,
   recordFailedLoginAttempt,
 } from "@/lib/auth-store";
+import { isTrialAccessExpired } from "@/lib/trial-licence";
 import { appendAuditEvent } from "@/lib/people-data";
 
 export async function POST(request: Request) {
+  if (isTrialAccessExpired()) {
+    return NextResponse.json({ error: "This trial has ended.", trialExpired: true }, { status: 403 });
+  }
   if (!isUserAuthenticationEnabled()) {
     return NextResponse.json({ error: "Individual user authentication is not enabled." }, { status: 409 });
   }
@@ -37,7 +41,7 @@ export async function POST(request: Request) {
       action: "failed sign in",
       recordType: "employee",
       recordId: "authentication",
-      summary: "A NeXa sign-in attempt was rejected.",
+      summary: "A Blake sign-in attempt was rejected.",
       source: "authentication",
       importance: "high",
     });
@@ -52,7 +56,8 @@ export async function POST(request: Request) {
 
   clearFailedLoginAttempts(loginIdentifier);
   const session = createUserSession(user.id);
-  const response = NextResponse.json({ user });
+  const mobileClient = request.headers.get("x-nexa-client") === "blake-mobile";
+  const response = NextResponse.json({ user, ...(mobileClient ? { sessionToken: session.token } : {}) });
   response.cookies.set(nexaSessionCookie, session.token, {
     httpOnly: true,
     maxAge: nexaSessionMaxAgeSeconds,
@@ -65,7 +70,7 @@ export async function POST(request: Request) {
     action: "signed in",
     recordType: "employee",
     recordId: user.employeeId || user.id,
-    summary: `${user.name} signed in to NeXa using an individual account.`,
+    summary: `${user.name} signed in to Blake using an individual account.`,
     source: "authentication",
     importance: "normal",
   });

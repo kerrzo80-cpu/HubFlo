@@ -9,7 +9,7 @@ import { FIELD_BASE, fieldPath } from "@/lib/field/routes";
 
 const links = [
   { href: fieldPath("/"), label: "My Day", icon: CalendarDays },
-  { href: fieldPath("/ask"), label: "Ask Blake", icon: MessageCircle },
+  { href: fieldPath("/ask"), label: "Ask Ayla", icon: MessageCircle },
   { href: fieldPath("/time-check"), label: "Hours", icon: Clock3 },
 ];
 
@@ -29,7 +29,7 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
     >
       <header className="field-topbar">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={resolveBrandLogoUrl(brand, "field")} alt={brand.companyName} />
+        <img src={resolveBrandLogoUrl(brand, "field")} alt="blake." />
         <div>
           <strong>{brand.fieldAppName}</strong>
           <span>{brand.companyName}</span>

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { toPublicBranding } from "@/lib/branding";
+import { applyEnvCompanyFallback, toPublicBranding } from "@/lib/branding";
 import { getHubDetailState } from "@/lib/hub-detail-store";
 
 export const runtime = "nodejs";
@@ -10,6 +10,6 @@ export async function GET() {
   const hub = getHubDetailState();
   return NextResponse.json({
     ok: true,
-    branding: toPublicBranding(hub.businessSettings),
+    branding: toPublicBranding(applyEnvCompanyFallback(hub.businessSettings)),
   });
 }

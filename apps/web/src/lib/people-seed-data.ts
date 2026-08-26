@@ -12,6 +12,14 @@ export type ClientSite = {
   nextVisit: string;
   vatTreatment?: VatTreatment;
   vatRateOverride?: string;
+  /** Site override — undefined inherits client. Explicit false turns CIS off for this site. */
+  cis?: boolean;
+  /** Retention % override — blank/undefined inherits client. */
+  retentionPercent?: string;
+  /** Max £ retention held on this site’s jobs — blank/undefined inherits client. */
+  retentionCapAmount?: string;
+  /** Main contractor discount % override — blank/undefined inherits client. */
+  mainContractorDiscountPercent?: string;
   archived?: boolean;
 };
 
@@ -28,6 +36,14 @@ export type ClientRecord = {
   notes: string;
   vatTreatment?: VatTreatment;
   vatRateOverride?: string;
+  /** Default CIS for this customer’s sites/invoices unless a site overrides. */
+  cis?: boolean;
+  /** Default retention % for valuations / claims. */
+  retentionPercent?: string;
+  /** Max £ retention held per job (e.g. 10000). Blank = no cap. */
+  retentionCapAmount?: string;
+  /** Default main contractor discount %. */
+  mainContractorDiscountPercent?: string;
   archived?: boolean;
   xeroContactId?: string;
   lastStatementSentAt?: string;

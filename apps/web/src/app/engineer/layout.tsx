@@ -1,3 +1,5 @@
+import { EngineerBrandBar } from "./EngineerBrandBar";
+
 export default function EngineerLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <>
@@ -20,13 +22,15 @@ export default function EngineerLayout({ children }: Readonly<{ children: React.
         }
 
         .engineer-brand-bar img {
-          background: #fff;
-          border: 1px solid rgba(88, 172, 213, 0.18);
-          border-radius: 14px;
+          background: transparent;
+          border: 0;
+          border-radius: 8px;
           height: 42px;
+          max-width: 160px;
           object-fit: contain;
-          padding: 4px 7px;
-          width: 76px;
+          object-position: left center;
+          padding: 0;
+          width: auto;
         }
 
         .engineer-brand-copy {
@@ -140,14 +144,15 @@ export default function EngineerLayout({ children }: Readonly<{ children: React.
 
           .engineer-brand-bar img {
             height: 38px;
-            width: 68px;
+            max-width: 140px;
+            width: auto;
           }
         }
       `}</style>
-      <header className="engineer-brand-bar" aria-label="NeXa engineer app">
-        <img src="/brand/nexa-command-mark.svg" alt="" aria-hidden="true" />
+      <header className="engineer-brand-bar" aria-label="Blake engineer app">
+        <img src="/brand/blake-mark.svg" alt="" aria-hidden="true" />
         <div className="engineer-brand-copy">
-          <strong>NeXa</strong>
+          <strong>Ayla</strong>
           <span>Field command</span>
         </div>
       </header>

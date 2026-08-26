@@ -128,7 +128,7 @@ export function createSimproImportRun(input: {
     mode: input.mode,
     companyId: input.companyId.trim(),
     tenantKey: input.tenantKey?.trim() || "default",
-    actor: input.actor.trim() || "NeXa admin",
+    actor: input.actor.trim() || "Blake admin",
     status: "queued",
     checkpoint: { stage: "queued", lastProcessedPage: 0 },
     counts: emptyCounts(),

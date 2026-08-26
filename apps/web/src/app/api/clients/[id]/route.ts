@@ -9,6 +9,12 @@ function pickString(body: Record<string, unknown> | null, key: string) {
   return typeof value === "string" ? value : undefined;
 }
 
+function pickOptionalBoolean(body: Record<string, unknown> | null, key: string) {
+  const value = body?.[key];
+  if (typeof value === "boolean") return value;
+  return undefined;
+}
+
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const access = getAccessProfileFromHeaders(request.headers);
   if (!access.showCustomers) {
@@ -33,6 +39,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     notes: pickString(body, "notes"),
     vatTreatment: pickString(body, "vatTreatment") as never,
     vatRateOverride: pickString(body, "vatRateOverride"),
+    cis: pickOptionalBoolean(body, "cis"),
+    retentionPercent: pickString(body, "retentionPercent"),
+    retentionCapAmount: pickString(body, "retentionCapAmount"),
+    mainContractorDiscountPercent: pickString(body, "mainContractorDiscountPercent"),
     xeroContactId: pickString(body, "xeroContactId"),
     lastStatementSentAt: pickString(body, "lastStatementSentAt"),
     lastStatementSentTo: pickString(body, "lastStatementSentTo"),
@@ -49,7 +59,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     .filter((job): job is NonNullable<typeof job> => Boolean(job));
 
   appendAuditEvent({
-    actor: typeof body.actor === "string" && body.actor.trim() ? body.actor.trim() : "NeXa user",
+    actor: typeof body.actor === "string" && body.actor.trim() ? body.actor.trim() : "Blake user",
     action: updated.archived ? "archived" : "updated",
     recordType: "client",
     recordId: updated.id,
@@ -76,7 +86,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   if (!deleted) return NextResponse.json({ error: "Client not found." }, { status: 404 });
 
   appendAuditEvent({
-    actor: request.headers.get("x-hub-actor")?.trim() || "NeXa user",
+    actor: request.headers.get("x-hub-actor")?.trim() || "Blake user",
     action: "deleted",
     recordType: "client",
     recordId: id,

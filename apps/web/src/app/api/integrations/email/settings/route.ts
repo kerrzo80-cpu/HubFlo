@@ -5,7 +5,10 @@ import { getEmailIntegrationStatus, saveEmailIntegrationSettings, type EmailInte
 
 export async function GET(request: Request) {
   const access = getAccessProfileFromHeaders(request.headers);
-  if (!access.canCustomize) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // Status (no secrets) must be readable by anyone who can send documents.
+  if (!access.canCustomize && !access.canCreateQuote && !access.showFinance) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   return NextResponse.json(getEmailIntegrationStatus());
 }
 

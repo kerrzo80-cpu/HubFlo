@@ -1,6 +1,6 @@
-# simPRO → NeXa gap map
+# simPRO → Blake gap map
 
-Live review of **Errol Watson Group Ltd** (`errolwatson.simprosuite.com`) on **28 Jul 2026**, compared to the NeXa codebase.
+Live review of **Errol Watson Group Ltd** (`errolwatson.simprosuite.com`) on **28 Jul 2026**, compared to the Blake codebase.
 
 Goal: coverage of what EWG actually runs. Delete or defer anything we do not need.
 
@@ -12,9 +12,9 @@ Status legend:
 | Partial | Exists but not simPRO-class |
 | Thin | UI/API stub |
 | Missing | Not built |
-| NeXa ahead | Keep and extend |
+| Blake ahead | Keep and extend |
 
-Counts from the matrix below: **Strong 1 · Partial 20 · Thin 9 · Missing 3 · NeXa ahead 2**
+Counts from the matrix below: **Strong 1 · Partial 20 · Thin 9 · Missing 3 · Blake ahead 2**
 
 ---
 
@@ -28,13 +28,13 @@ Counts from the matrix below: **Strong 1 · Partial 20 · Thin 9 · Missing 3 ·
 - Asset types: Gas appliance, Oil Boiler, Pipework
 - Open Quotes list ~**110** rows with schedule strip
 
-NeXa is nowhere near closing that operational backlog yet.
+Blake is nowhere near closing that operational backlog yet.
 
 ---
 
-## Live simPRO menu → NeXa today
+## Live simPRO menu → Blake today
 
-| Module | What you have in simPRO | NeXa today |
+| Module | What you have in simPRO | Blake today |
 | --- | --- | --- |
 | People | Customers, Sites, Suppliers, Contacts, Employees, Contractors | Partial — clients/sites/employees; contacts/contractors thinner |
 | Leads | Open / Closed leads + create | Partial — leads exist; stages/follow-ups weaker |
@@ -60,7 +60,7 @@ NeXa is nowhere near closing that operational backlog yet.
 | Employees / contractors | Partial | Skills matrix, utilisation, leave calendar |
 | Vendors / suppliers | Thin | Catalog sync, side-by-side pricing, RFQ closed loop |
 | Estimating & quoting | Strong | Templates, deposit quotes, online acceptance, revision history |
-| Survey → estimate pack | **NeXa ahead** | Keep; deepen photo vision + Takeoffs handoff |
+| Survey → estimate pack | **Blake ahead** | Keep; deepen photo vision + Takeoffs handoff |
 | Takeoffs / plan markup | Partial | Finish survey→takeoff→estimate chain; locked plans |
 | Vendor catalogues | Partial | CSV import; preferred supplier syncs to stock on SKU rows |
 | Service jobs | Partial | Status machine, complete notice, overdue booked-job queue; SLA clocks still thin |
@@ -89,9 +89,9 @@ NeXa is nowhere near closing that operational backlog yet.
 | Open API | Partial | Documented external API + webhooks later |
 | simPRO bridge | Partial | Two-way customers/sites/quotes/jobs; invoice apply rules |
 | Fleet GPS (Simtrac) | Missing | Defer unless requested |
-| AI assistant (Blake) | **NeXa ahead** | Expand across quote build, blockers, margin |
+| AI assistant (Blake) | **Blake ahead** | Expand across quote build, blockers, margin |
 
-Sources: simPRO Premium feature pages + NeXa Core / Surveyor / Estimator / Takeoff / Engineer / simPRO bridge. Not a pixel copy of tenant menus.
+Sources: simPRO Premium feature pages + Blake Core / Surveyor / Estimator / Takeoff / Engineer / simPRO bridge. Not a pixel copy of tenant menus.
 
 ---
 
@@ -114,7 +114,7 @@ Cut or demote unless Brian overrides. Do **not** spend build effort here until W
 | Public partner API | Defer | Internal APIs enough for Wave 1 |
 | Online card payments (Stripe) | Wave 2+ | Xero + overdue invoice workflow first; pay-links after invoices are trustworthy |
 
-**Keep and protect (NeXa-native — do not dumb down to match simPRO):**
+**Keep and protect (Blake-native — do not dumb down to match simPRO):**
 
 - Guided Surveyor
 - AI estimate pack
@@ -135,7 +135,7 @@ Close the cash loop that live simPRO is screaming about:
 4. Completed job → invoice (kill “14 uninvoiced completed”)
 5. Invoice ageing / overdue pack (attack “77 overdue”)
 6. **Xero** sync for customers / invoices / payments (primary accounts path for EWG)
-7. Harden simPRO two-way for **customers, sites, quotes, jobs** while NeXa becomes the front door
+7. Harden simPRO two-way for **customers, sites, quotes, jobs** while Blake becomes the front door
 
 If Brian overrides Wave 1 pain:
 
@@ -143,7 +143,7 @@ If Brian overrides Wave 1 pain:
 | --- | --- |
 | Overdue invoices (default) | Invoice list by age + complete→invoice gate + Xero push |
 | Unassigned jobs | Dispatch board: unassigned queue + drag to tech + day view |
-| Survey → quote | Survey pack → Takeoff BOQ → quote cost centres (already NeXa strength) |
+| Survey → quote | Survey pack → Takeoff BOQ → quote cost centres (already Blake strength) |
 
 ### Wave 2 — Field & materials
 
@@ -190,7 +190,7 @@ Until Brian cuts further, execute in this order:
 - **Xero export** on invoice record (live API when tokens present, else CSV import pack) + accounts status Sent
 - **Xero OAuth connect** in Setup → Integrations (`/api/integrations/xero/connect` + callback); static token still supported; CSV always works
 - **Xero payment pull** on invoice record (`/api/integrations/xero/payments`) — append-only import by invoice number with PaymentID dedupe
-- **Xero InvoiceID** stored on NeXa invoice after live export; re-export updates existing; payment pull prefers GUID then number
+- **Xero InvoiceID** stored on Blake invoice after live export; re-export updates existing; payment pull prefers GUID then number
 - **PO → Xero bill (ACCPAY)** export from purchase order record (live upsert or CSV pack); stores `xeroBillId`
 - **Low-stock reorder PO** from Stock panel (shortfall qty, supplier + charge-to job)
 - **Stock preferred supplier** editable on items; reorder uses override → preferred → workspace default

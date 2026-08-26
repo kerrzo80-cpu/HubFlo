@@ -153,7 +153,7 @@ function confidencePrompts(intent: SurveyorIntent) {
   ];
 
   if (intent.confidence === "Low" || intent.confidence === "Needs more evidence") {
-    prompts.push("If NeXa cannot see the route, valve, serial plate or condition clearly, ask for another angle or a short slow video instead of guessing.");
+    prompts.push("If Blake cannot see the route, valve, serial plate or condition clearly, ask for another angle or a short slow video instead of guessing.");
   }
 
   if (intent.workType === "Relocation") {
@@ -210,7 +210,7 @@ function pathForRadiator(intent: SurveyorIntent): Omit<DynamicSurveyPath, "inten
       question("rad-isolation", "Isolation", "Do the existing valves isolate, or will the system need a full drain down?", "This is usually the biggest labour difference."),
       question("rad-valves-lfl", "Valves", "Are TRV, lockshield and tails being reused or replaced?", "Valve sets are commonly missed from small radiator jobs."),
       question("rad-system-treatment", "System", "Is inhibitor/cleaner required after the work?", "Small heating work still needs chemical treatment where water is lost."),
-      question("rad-photos", "Evidence", "Have we photographed the radiator size, both valves, pipe entry and surrounding finish?", "NeXa should ask for another angle if the valve or pipe entry is unclear."),
+      question("rad-photos", "Evidence", "Have we photographed the radiator size, both valves, pipe entry and surrounding finish?", "Blake should ask for another angle if the valve or pipe entry is unclear."),
     ],
     evidencePrompts: confidencePrompts(intent),
     materialBuild: [
@@ -360,7 +360,7 @@ function pathForPipework(intent: SurveyorIntent): Omit<DynamicSurveyPath, "inten
 function pathForGeneral(intent: SurveyorIntent): Omit<DynamicSurveyPath, "intent"> {
   return {
     title: "Clarify scope survey path",
-    summary: "Start by identifying the item and type of work, then NeXa will switch to the correct trade questions.",
+    summary: "Start by identifying the item and type of work, then Blake will switch to the correct trade questions.",
     nextQuestions: [
       question("clarify-item", "Scope", "What item are we working on: radiator, boiler, WC, bath/shower, basin/sink, cylinder, pipework or something else?", "The item controls the whole survey path."),
       question("clarify-work-type", "Scope", "Are we replacing like-for-like, relocating, newly installing, servicing/repairing or removing/capping off?", "The type of work changes every follow-up question."),

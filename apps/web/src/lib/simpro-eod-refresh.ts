@@ -1,6 +1,6 @@
 import type { SimproSyncEntity } from "@/lib/simpro-sync";
 
-/** Working-set entities refreshed after UK office hours. */
+/** Working-set entities refreshed on the nightly simPRO pull. */
 export const SIMPRO_EOD_ENTITIES: SimproSyncEntity[] = [
   "leads",
   "quotes",
@@ -11,7 +11,7 @@ export const SIMPRO_EOD_ENTITIES: SimproSyncEntity[] = [
   "sites",
 ];
 
-export const SIMPRO_EOD_ACTOR = "EOD cron";
+export const SIMPRO_EOD_ACTOR = "Nightly cron";
 
 export function parseSimproEodEntities(raw: unknown): SimproSyncEntity[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined;

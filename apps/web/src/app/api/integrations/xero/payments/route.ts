@@ -14,11 +14,12 @@ type LedgerPayment = {
   reference?: string;
   note?: string;
   actor?: string;
-  source?: "manual" | "xero" | "adjustment";
+  source?: "manual" | "xero" | "sumup" | "stripe" | "adjustment";
   sourcePaymentId?: string;
   sourceInvoiceId?: string;
   importedAt?: string;
   reconciled?: boolean;
+  xeroPaymentId?: string;
 };
 
 type PullInvoiceInput = {
@@ -240,17 +241,30 @@ export async function POST(request: NextRequest) {
 
       const paidAt = normalizeXeroDate(row.Date);
       const reference = row.Reference?.trim() || undefined;
+      const alreadyLinkedSumUp = existing.some(
+        (payment) =>
+          payment.source === "sumup" &&
+          (payment as { xeroPaymentId?: string }).xeroPaymentId === paymentId,
+      );
+      if (alreadyLinkedSumUp) {
+        skippedCount += 1;
+        continue;
+      }
       const likelyManualDuplicate = existing.some(
         (payment) =>
           payment.source !== "xero" &&
           payment.paidAt === paidAt &&
           Math.abs(payment.amount - amount) < 0.009 &&
-          (payment.reference || "") === (reference || ""),
+          ((payment.reference || "") === (reference || "") ||
+            payment.source === "sumup" ||
+            /sumup/i.test(payment.method || "") ||
+            /sumup/i.test(reference || "")),
       );
       if (likelyManualDuplicate) {
         conflicts.push({
           xeroPaymentId: paymentId,
-          reason: "Likely matches an existing manual payment (same date/amount/reference). Review before importing.",
+          reason:
+            "Likely matches an existing SumUp/manual payment (same date/amount). Review before importing to avoid double-count.",
         });
         continue;
       }
@@ -289,7 +303,7 @@ export async function POST(request: NextRequest) {
             ? "Sent"
             : invoice.status || "Sent";
 
-    const actor = request.headers.get(employeeHeaderName) || "NeXa";
+    const actor = request.headers.get(employeeHeaderName) || "Blake";
 
     return NextResponse.json({
       ok: true,

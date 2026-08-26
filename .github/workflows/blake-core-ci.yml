@@ -1,0 +1,61 @@
+name: Blake Core CI
+
+on:
+  pull_request:
+    paths:
+      - "apps/web/src/lib/blake-**"
+      - "apps/web/src/lib/blake-core/**"
+      - "apps/web/src/lib/job-office-updates*"
+      - "apps/web/src/app/**"
+      - "packages/domain/src/blake-**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/blake-core-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXA_WORKSPACE_MODE: live
+      NEXA_ENVIRONMENT: live
+      NEXT_PUBLIC_NEXA_ENVIRONMENT: live
+      NEXA_POSTGRES_MIRROR: "0"
+      NEXA_TENANT_KEY: ewg-live
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: corepack enable
+      - run: corepack prepare pnpm@11.5.3 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: NODE_OPTIONS=--max-old-space-size=3072 pnpm build
+      - name: Start production server smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @hubflo/web exec next start -p 3100 > /tmp/nexa-next-start.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+
+          for attempt in $(seq 1 30); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              echo "Production server exited during startup."
+              cat /tmp/nexa-next-start.log
+              exit 1
+            fi
+
+            if curl --fail --silent --show-error --output /dev/null http://127.0.0.1:3100/; then
+              echo "Production server started successfully."
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "Production server did not become reachable."
+          cat /tmp/nexa-next-start.log
+          exit 1

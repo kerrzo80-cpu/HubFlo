@@ -247,6 +247,7 @@ function getSharedAudio() {
   if (!window.__blakeVoiceAudio) {
     window.__blakeVoiceAudio = new Audio();
     window.__blakeVoiceAudio.setAttribute("playsinline", "true");
+    window.__blakeVoiceAudio.setAttribute("webkit-playsinline", "true");
     window.__blakeVoiceAudio.preload = "auto";
   }
   return window.__blakeVoiceAudio;
@@ -254,7 +255,7 @@ function getSharedAudio() {
 
 export async function ensureMicAccess() {
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-    throw new Error("This phone can’t open the microphone for Ask Blake.");
+    throw new Error("This phone can’t open the microphone for Ask Ayla.");
   }
   // iPhone: keep constraints simple first — fancy AEC settings can yield a silent track.
   try {
@@ -272,18 +273,58 @@ export async function ensureMicAccess() {
 }
 
 let sharedAudioContext: AudioContext | null = null;
+let activeBlakeSources: AudioBufferSourceNode[] = [];
 
-/** Must run inside a tap handler so iOS unlocks Web Audio for the level meter. */
+function getAudioContextConstructor() {
+  if (typeof window === "undefined") return null;
+  return window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext || null;
+}
+
+function primeAudioContext(context: AudioContext) {
+  try {
+    const buffer = context.createBuffer(1, 1, context.sampleRate || 22050);
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.connect(context.destination);
+    source.start(0);
+  } catch {
+    // ignore
+  }
+}
+
+function stopBlakeWebAudio() {
+  for (const source of activeBlakeSources) {
+    try {
+      source.onended = null;
+      source.stop();
+      source.disconnect();
+    } catch {
+      // ignore
+    }
+  }
+  activeBlakeSources = [];
+}
+
+/** Must run inside a tap handler so iOS unlocks Web Audio for later TTS playback. */
 export async function unlockAudioContext() {
   if (typeof window === "undefined") return null;
-  const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  const AudioCtx = getAudioContextConstructor();
   if (!AudioCtx) return null;
   if (!sharedAudioContext || sharedAudioContext.state === "closed") {
     sharedAudioContext = new AudioCtx();
   }
+  // Kick resume immediately — awaiting alone can drop the iOS user-gesture token.
+  const resume = sharedAudioContext.resume();
+  primeAudioContext(sharedAudioContext);
+  try {
+    await resume;
+  } catch {
+    // ignore
+  }
   if (sharedAudioContext.state === "suspended") {
     try {
       await sharedAudioContext.resume();
+      primeAudioContext(sharedAudioContext);
     } catch {
       // ignore
     }
@@ -303,14 +344,28 @@ export function stopMicStream(stream: MediaStream | null | undefined) {
 }
 
 /**
- * Must run inside the Start talking tap handler.
+ * Must run inside the Start talking / Enable sound tap handler.
  * iOS Safari blocks speech/audio until unlocked by a user gesture.
  */
 export async function unlockBlakeVoice() {
   if (typeof window === "undefined") return;
 
-  // Stop any leftover playback before we open the mic.
-  stopBlakeAudio();
+  // Stop leftover playback, but keep the shared AudioContext alive.
+  stopBlakeWebAudio();
+  try {
+    window.speechSynthesis?.cancel();
+  } catch {
+    // ignore
+  }
+  const existing = window.__blakeVoiceAudio;
+  if (existing) {
+    try {
+      existing.pause();
+    } catch {
+      // ignore
+    }
+  }
+
   await unlockAudioContext();
 
   if ("speechSynthesis" in window) {
@@ -337,6 +392,7 @@ export async function unlockBlakeVoice() {
   const audio = getSharedAudio();
   if (!audio) return;
   try {
+    audio.muted = false;
     audio.src =
       "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQQAAAAAAA==";
     audio.volume = 0.01;
@@ -347,7 +403,7 @@ export async function unlockBlakeVoice() {
     audio.load();
     audio.volume = 1;
   } catch {
-    // ignore
+    // ignore — Web Audio prime above is the important unlock for iPhone
   }
 }
 
@@ -431,19 +487,90 @@ function speakWithSynthesis(text: string, onEnd?: () => void) {
 }
 
 async function speakWithServerAudio(text: string, speakPath: string, onEnd?: () => void) {
-  const audio = getSharedAudio();
-  if (!audio) throw new Error("No audio element");
+  const context = sharedAudioContext && sharedAudioContext.state !== "closed"
+    ? sharedAudioContext
+    : await unlockAudioContext();
+  if (!context) throw new Error("No audio context");
+  if (context.state === "suspended") {
+    try {
+      await context.resume();
+    } catch {
+      // continue — decode/play may still work if already unlocked earlier
+    }
+  }
 
   const response = await fetch(speakPath, {
     method: "POST",
+    credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text: cleanForSpeech(text) }),
   });
   if (!response.ok) throw new Error(`Speak failed (${response.status})`);
-  const blob = await response.blob();
-  if (!blob.size) throw new Error("Empty audio");
+  const arrayBuffer = await response.arrayBuffer();
+  if (!arrayBuffer.byteLength) throw new Error("Empty audio");
 
-  const url = URL.createObjectURL(blob);
+  // Safari detaches the buffer passed to decodeAudioData — copy first.
+  const copy = arrayBuffer.slice(0);
+  let audioBuffer: AudioBuffer;
+  try {
+    audioBuffer = await context.decodeAudioData(copy);
+  } catch {
+    // Fall back to HTMLAudioElement if decode fails.
+    return speakWithHtmlAudio(arrayBuffer, onEnd);
+  }
+
+  stopBlakeWebAudio();
+  try {
+    window.speechSynthesis?.cancel();
+  } catch {
+    // ignore
+  }
+
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    onEnd?.();
+  };
+
+  const source = context.createBufferSource();
+  const gain = context.createGain();
+  gain.gain.value = 1;
+  source.buffer = audioBuffer;
+  source.connect(gain);
+  gain.connect(context.destination);
+  source.onended = () => {
+    activeBlakeSources = activeBlakeSources.filter((item) => item !== source);
+    finish();
+  };
+  activeBlakeSources.push(source);
+  source.start(0);
+
+  // Watchdog in case onended never fires on some iOS builds.
+  const watchdog = window.setTimeout(
+    finish,
+    Math.min(120_000, Math.max(1500, Math.ceil(audioBuffer.duration * 1000) + 750)),
+  );
+
+  return () => {
+    window.clearTimeout(watchdog);
+    finished = true;
+    try {
+      source.onended = null;
+      source.stop();
+      source.disconnect();
+    } catch {
+      // ignore
+    }
+    activeBlakeSources = activeBlakeSources.filter((item) => item !== source);
+  };
+}
+
+async function speakWithHtmlAudio(arrayBuffer: ArrayBuffer, onEnd?: () => void) {
+  const audio = getSharedAudio();
+  if (!audio) throw new Error("No audio element");
+
+  const url = URL.createObjectURL(new Blob([arrayBuffer], { type: "audio/mpeg" }));
   let finished = false;
   const finish = () => {
     if (finished) return;
@@ -453,10 +580,16 @@ async function speakWithServerAudio(text: string, speakPath: string, onEnd?: () 
   };
 
   audio.onended = finish;
-  audio.onerror = finish;
+  audio.onerror = () => finish();
   audio.src = url;
   audio.volume = 1;
-  await audio.play();
+  audio.muted = false;
+  try {
+    await audio.play();
+  } catch (error) {
+    URL.revokeObjectURL(url);
+    throw error;
+  }
 
   return () => {
     finished = true;
@@ -472,18 +605,20 @@ async function speakWithServerAudio(text: string, speakPath: string, onEnd?: () 
 }
 
 /**
- * Prefer server TTS (works after unlock on iOS). Fall back to device speechSynthesis.
+ * Prefer server TTS via unlocked Web Audio (reliable on iPhone after a tap).
+ * Fall back to device speechSynthesis when allowed.
  */
 export async function speakBlakeReply(
   text: string,
-  options?: { speakPath?: string; onEnd?: () => void },
+  options?: { speakPath?: string; onEnd?: () => void; preferServer?: boolean },
 ) {
-  const speakPath = options?.speakPath ?? "/api/field/ask-blake/speak";
+  const speakPath = options?.speakPath ?? "/api/field/ask-ayla/speak";
   const onEnd = options?.onEnd;
 
   try {
     return await speakWithServerAudio(text, speakPath, onEnd);
-  } catch {
+  } catch (error) {
+    if (options?.preferServer) throw error;
     return speakWithSynthesis(text, onEnd);
   }
 }
@@ -495,6 +630,7 @@ export function speakText(text: string, onEnd?: () => void) {
 
 export function stopBlakeAudio() {
   if (typeof window === "undefined") return;
+  stopBlakeWebAudio();
   try {
     window.speechSynthesis?.cancel();
   } catch {
@@ -520,7 +656,7 @@ export function voiceStatusLabel(state: VoiceSessionState) {
     case "speaking":
       return "Blake is talking";
     case "unsupported":
-      return "This phone can’t record for Ask Blake";
+      return "This phone can’t record for Ask Ayla";
     case "error":
       return "Mic issue — tap to try again";
     default:
