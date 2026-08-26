@@ -16390,7 +16390,7 @@ export default function CoreApp() {
           role: "assistant",
           text: timedOut
             ? action.kind === "confirm_budget_prices"
-              ? "Pricing is still running or timed out. Open Tenders → Bill and use Blake budget prices if the rates did not appear."
+              ? "Pricing is still running or timed out. Open Tenders → Bill and use Ayla budget prices if the rates did not appear."
               : "Confirm timed out — check again in a moment. Nothing may have been saved."
             : "The live booking could not be saved. Nothing was changed.",
         },

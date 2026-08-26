@@ -65,7 +65,7 @@ export function TenderAiTakeoffPanel({
     });
     const payload = (await response.json().catch(() => null)) as ApiPayload | null;
     if (!response.ok) {
-      onNotice(payload?.error || "Could not load Blake takeoff workspace.");
+      onNotice(payload?.error || "Could not load Ayla takeoff workspace.");
       return;
     }
     if (payload?.state) setState(payload.state);
@@ -112,7 +112,7 @@ export function TenderAiTakeoffPanel({
       if (payload?.validation) setValidation(payload.validation);
       if (payload?.ai) setAiMeta(payload.ai);
       if (!response.ok) {
-        onNotice(payload?.error || "Blake takeoff request failed.");
+        onNotice(payload?.error || "Ayla takeoff request failed.");
         return false;
       }
       if (typeof payload?.removed === "number" && payload.removed > 0) {
@@ -146,7 +146,7 @@ export function TenderAiTakeoffPanel({
       }
       if (payload?.state) setState(payload.state);
       onNotice(
-        `Applied ${payload?.applied || 0} Blake takeoff line(s) to BoQ sheet “${payload?.sheetName || "Blake Takeoff"}”.`,
+        `Applied ${payload?.applied || 0} Ayla takeoff line(s) to BoQ sheet “${payload?.sheetName || "Ayla Takeoff"}”.`,
       );
       onBoqApplied?.();
     } finally {
@@ -161,7 +161,7 @@ export function TenderAiTakeoffPanel({
   if (!state) {
     return (
       <div className="tenders-ai-takeoff">
-        <p className="setup-inline-note">Loading Blake…</p>
+        <p className="setup-inline-note">Loading Ayla…</p>
       </div>
     );
   }
@@ -173,19 +173,19 @@ export function TenderAiTakeoffPanel({
     <div className="tenders-ai-takeoff">
       <div className="tenders-ai-takeoff-header">
         <div>
-          <span className="permission-heading">Blake proposes · NeXa calculates</span>
+          <span className="permission-heading">Ayla proposes · blake. calculates</span>
           <h3>
-            <Sparkles size={16} /> Blake
+            <Sparkles size={16} /> Ayla
           </h3>
           <p>
             Takeoff chat for <strong>{tenderName}</strong>. Works for housing estates <em>and</em> commercial /
-            single-building jobs — no fake house types required. Upload the issued BoQ under Documents, then ask Blake
-            to import and price materials. Cost is material £/unit — if it shows £0, ask Blake to price materials. Sell = materials (+ markup) + labour before Apply to BoQ.
+            single-building jobs — no fake house types required. Upload the issued BoQ under Documents, then ask Ayla
+            to import and price materials. Cost is material £/unit — if it shows £0, ask Ayla to price materials. Sell = materials (+ markup) + labour before Apply to BoQ.
           </p>
         </div>
         <div className="tenders-toolbar-actions">
           <span className={aiMeta.connected ? "status-pill green" : "status-pill amber"}>
-            {aiMeta.connected ? `Blake connected · ${aiMeta.model || "model"}` : "OpenAI not connected"}
+            {aiMeta.connected ? `Ayla connected · ${aiMeta.model || "model"}` : "OpenAI not connected"}
           </span>
           <button type="button" className="secondary-button" disabled={busy} onClick={() => void load()}>
             <RefreshCw size={14} /> Refresh
@@ -302,7 +302,7 @@ export function TenderAiTakeoffPanel({
             ) : (
               state.messages.map((row) => (
                 <article key={row.id} className={`tenders-ai-msg tenders-ai-msg-${row.role}`}>
-                  <span>{row.role === "user" ? "You" : row.role === "assistant" ? "Blake" : "System"}</span>
+                  <span>{row.role === "user" ? "You" : row.role === "assistant" ? "Ayla" : "System"}</span>
                   <p>{row.text}</p>
                   {row.toolCalls?.length ? (
                     <ul>
@@ -321,7 +321,7 @@ export function TenderAiTakeoffPanel({
             <textarea
               rows={3}
               value={message}
-              placeholder="Ask Blake to import an issued BoQ, set a single area, or take off quantities…"
+              placeholder="Ask Ayla to import an issued BoQ, set a single area, or take off quantities…"
               disabled={busy}
               onChange={(event) => setMessage(event.target.value)}
               onKeyDown={(event) => {
@@ -400,7 +400,7 @@ export function TenderAiTakeoffPanel({
           <tbody>
             {state.lines.length === 0 ? (
               <tr>
-                <td colSpan={10}>No proposed lines yet — ask Blake to import an issued BoQ or add takeoff items.</td>
+                <td colSpan={10}>No proposed lines yet — ask Ayla to import an issued BoQ or add takeoff items.</td>
               </tr>
             ) : (
               state.lines.map((line: AiTakeoffLine) => {
