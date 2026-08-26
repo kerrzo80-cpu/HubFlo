@@ -168,16 +168,16 @@ export function TendersPanel({
     jobSections: Array<{ id: string; name: string; description: string }>;
     jobCostCentres: Array<Record<string, unknown>>;
   }) => void;
-  /** Lets Ask Blake talk about the open tender. */
+  /** Lets Ask Ayla talk about the open tender. */
   onOpenTenderChange?: (tender: { id: string; name: string } | null) => void;
-  /** Increment after Blake writes rates from Ask Blake so the open Bill reloads. */
+  /** Increment after Ayla writes rates from Ask Ayla so the open Bill reloads. */
   boqRefreshToken?: number;
 }) {
   const [tenders, setTenders] = useState<Tender[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [folderKey, setFolderKey] = useState<"open" | "won" | "lost" | "all">("open");
+  const [folderKey, setFolderKey] = useState<"open" | "submitted" | "won" | "lost">("open");
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [tab, setTab] = useState<TabKey>("overview");
@@ -439,14 +439,21 @@ export function TendersPanel({
   }
 
   const folders = useMemo(() => {
-    const open = tenders.filter((tender) => !["Won", "Lost"].includes(tender.status));
+    const open = tenders.filter((tender) => !["Won", "Lost", "Sent"].includes(tender.status));
+    const submitted = tenders.filter((tender) => tender.status === "Sent");
     const won = tenders.filter((tender) => tender.status === "Won");
     const lost = tenders.filter((tender) => tender.status === "Lost");
     return [
-      { key: "open" as const, label: "Open", tone: "blue", items: open, detail: "Live and in-progress tenders" },
+      { key: "open" as const, label: "Open", tone: "blue", items: open, detail: "Tenders you are working on" },
+      {
+        key: "submitted" as const,
+        label: "Submitted",
+        tone: "blue",
+        items: submitted,
+        detail: "Marked submitted / Sent — awaiting win or loss",
+      },
       { key: "won" as const, label: "Won", tone: "green", items: won, detail: "Accepted — creates a Pending job for scheduling" },
-      { key: "lost" as const, label: "Lost / archived", tone: "amber", items: lost, detail: "Lost or archived tenders" },
-      { key: "all" as const, label: "All", tone: "blue", items: tenders, detail: "Everything" },
+      { key: "lost" as const, label: "Lost", tone: "amber", items: lost, detail: "Lost or archived tenders" },
     ];
   }, [tenders]);
 
@@ -1230,14 +1237,14 @@ export function TendersPanel({
     if (!selected) return;
     const measured = selected.boqLines.filter((line) => line.kind === "measured");
     if (!measured.length) {
-      onNotice("Import a BoQ first — Blake needs measured lines to price.");
+      onNotice("Import a BoQ first — Ayla needs measured lines to price.");
       return;
     }
     if (blakeBudgetBusy) return;
 
     const lineIds = filterSelectedMeasuredLineIds(selected.boqLines, boqBlakeLineIds);
     if (!lineIds.length) {
-      onNotice("Tick the measured lines (or a whole sheet/section) you want Blake to budget-price first.");
+      onNotice("Tick the measured lines (or a whole sheet/section) you want Ayla to budget-price first.");
       return;
     }
 
@@ -1263,7 +1270,7 @@ export function TendersPanel({
       const contentType = response.headers.get("content-type") || "";
       if (!response.ok && !contentType.includes("ndjson")) {
         const fail = (await response.json().catch(() => ({}))) as { error?: string };
-        throw new Error(fail.error || "Blake budget pricing failed");
+        throw new Error(fail.error || "Ayla budget pricing failed");
       }
 
       type BlakePayload = {
@@ -1309,7 +1316,7 @@ export function TendersPanel({
             } else if (event.type === "result") {
               payload = event;
             } else if (event.type === "error") {
-              throw new Error(event.error || "Blake budget pricing failed");
+              throw new Error(event.error || "Ayla budget pricing failed");
             }
           }
         }
@@ -1317,17 +1324,17 @@ export function TendersPanel({
           try {
             const event = JSON.parse(buffer.trim()) as BlakePayload;
             if (event.type === "result") payload = event;
-            else if (event.type === "error") throw new Error(event.error || "Blake budget pricing failed");
+            else if (event.type === "error") throw new Error(event.error || "Ayla budget pricing failed");
           } catch (error) {
-            if (error instanceof Error && /Blake budget/.test(error.message)) throw error;
+            if (error instanceof Error && /Ayla budget|Blake budget/.test(error.message)) throw error;
           }
         }
       } else {
         payload = (await response.json()) as BlakePayload;
-        if (!response.ok) throw new Error(payload.error || "Blake budget pricing failed");
+        if (!response.ok) throw new Error(payload.error || "Ayla budget pricing failed");
       }
 
-      if (!payload) throw new Error("Blake budget pricing returned no result");
+      if (!payload) throw new Error("Ayla budget pricing returned no result");
       if (payload.error && !(payload.pricedCount || payload.libraryFilled || payload.blakeFilled || payload.targetedPricedCount)) {
         throw new Error(payload.error);
       }
@@ -1364,7 +1371,7 @@ export function TendersPanel({
       const targeted = payload.targetedCount ?? lineIds.length;
       const targetedPriced = payload.targetedPricedCount ?? payload.pricedCount ?? 0;
       const notice = payload.aiUsed
-        ? `Blake budget prices on ${targeted} selected · ${payload.blakeFilled ?? 0} Blake · ${payload.libraryFilled ?? 0} library · ${targetedPriced} of selected priced · ${blank} blank on bill · ${money(payload.budgetTotal)}. Guide rates only — amend before FoT.`
+        ? `Ayla budget prices on ${targeted} selected · ${payload.blakeFilled ?? 0} Ayla · ${payload.libraryFilled ?? 0} library · ${targetedPriced} of selected priced · ${blank} blank on bill · ${money(payload.budgetTotal)}. Guide rates only — amend before FoT.`
         : `Guide rates on ${targeted} selected · ${payload.libraryFilled ?? 0} from library · ${targetedPriced} of selected priced · ${blank} blank on bill · ${money(payload.budgetTotal)}. OpenAI offline or skipped — blanks stay unpriced.`;
       setBlakeBudgetStatus(
         `Done · ${targetedPriced}/${targeted} selected priced`,
@@ -1373,10 +1380,10 @@ export function TendersPanel({
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         setBlakeBudgetStatus("Cancelled");
-        onNotice("Blake budget pricing cancelled.");
+        onNotice("Ayla budget pricing cancelled.");
       } else {
         setBlakeBudgetStatus(null);
-        onNotice(error instanceof Error ? error.message : "Unable to run Blake budget prices");
+        onNotice(error instanceof Error ? error.message : "Unable to run Ayla budget prices");
       }
     } finally {
       if (blakeBudgetAbortRef.current === abort) blakeBudgetAbortRef.current = null;
@@ -1581,7 +1588,7 @@ export function TendersPanel({
               ["overview", "Overview"],
               ["boq", "BoQ pricing"],
               ["documents", "Documents"],
-              ["ai-takeoff", "Blake"],
+              ["ai-takeoff", "Ayla"],
               ["submit", "Submit pack"],
             ] as const
           ).map(([key, label]) => (
@@ -1922,7 +1929,7 @@ export function TendersPanel({
                   Supplier priced PDF/Excel as extra lines: keep Add to BoQ (default when lines exist), then drop the file below — it appends new sheet tab(s) named from the file only (paste box is ignored and cleared). Supplier quote PDFs (Filpumps, William Wilson, etc.) merge into one tab named from the filename; other multi-page BoQ PDFs keep Page 1, Page 2…; Excel keeps worksheet names; duplicates get “ (2)”. Documents → Supplier quotes only stores the file; it does not pull lines into the bill. Use Replace BoQ only when you intend to wipe current lines.
                 </p>
                 <p className="tenders-boq-blake-note">
-                  Sheet tabs: + Sheet / Rename / Remove sheet. Lines: Add line on the open sheet, edit cells, trash a row, or tick lines and Delete selected / Move to sheet… / Merge into tab… / Move to section…. Merge selected into another tab (or new); if the whole sheet is ticked, the empty tab is removed. Move to section assigns ticked lines to a section header (Heating, Hot & cold, Gas, etc.) on the same sheet — useful for orphaned lines after a merge. Takeoff push uses one tab per house type with Heating / Hot & cold / Gas as section headers inside. Tick measured lines then run Blake — only ticked lines are budget-priced. Guide rates only; unsure lines stay blank.
+                  Sheet tabs: + Sheet / Rename / Remove sheet. Lines: Add line on the open sheet, edit cells, trash a row, or tick lines and Delete selected / Move to sheet… / Merge into tab… / Move to section…. Merge selected into another tab (or new); if the whole sheet is ticked, the empty tab is removed. Move to section assigns ticked lines to a section header (Heating, Hot & cold, Gas, etc.) on the same sheet — useful for orphaned lines after a merge. Takeoff push uses one tab per house type with Heating / Hot & cold / Gas as section headers inside. Tick measured lines then run Ayla — only ticked lines are budget-priced. Guide rates only; unsure lines stay blank.
                 </p>
                 <div className="tenders-boq-blake-actions">
                   <button
@@ -1933,10 +1940,10 @@ export function TendersPanel({
                   >
                     <Sparkles size={15} />
                     {blakeBudgetBusy
-                      ? "Blake pricing…"
+                      ? "Ayla pricing…"
                       : boqBlakeSelectedCount
-                        ? `Blake budget prices (${boqBlakeSelectedCount})`
-                        : "Blake budget prices"}
+                        ? `Ayla budget prices (${boqBlakeSelectedCount})`
+                        : "Ayla budget prices"}
                   </button>
                   <button
                     type="button"
@@ -1947,7 +1954,7 @@ export function TendersPanel({
                       || !boqBlakeSelectedCount
                     }
                     onClick={() => void runBlakeBudgetPrices(true)}
-                    title="Re-run Blake/library on selected budget or guide rates (manual rates kept)"
+                    title="Re-run Ayla/library on selected budget or guide rates (manual rates kept)"
                   >
                     Refresh selected guides
                   </button>
@@ -2034,7 +2041,7 @@ export function TendersPanel({
                   </p>
                 ) : boqBlakeSelectedCount ? (
                   <p className="tenders-boq-blake-progress" aria-live="polite">
-                    {boqBlakeSelectedCount} measured line{boqBlakeSelectedCount === 1 ? "" : "s"} selected for Blake
+                    {boqBlakeSelectedCount} measured line{boqBlakeSelectedCount === 1 ? "" : "s"} selected for Ayla
                   </p>
                 ) : null}
               </div>
@@ -2187,7 +2194,7 @@ export function TendersPanel({
                         el.indeterminate =
                           selectedInSheet > 0 && selectedInSheet < activeSheetMeasuredIds.length;
                       }}
-                      aria-label="Select all measured lines on this sheet for Blake"
+                      aria-label="Select all measured lines on this sheet for Ayla"
                       disabled={blakeBudgetBusy}
                       onChange={(event) =>
                         toggleBoqBlakeSection(activeSheetMeasuredIds, event.target.checked)
@@ -2339,7 +2346,7 @@ export function TendersPanel({
                   <thead>
                     <tr>
                       <th className="tenders-boq-check-col" scope="col">
-                        <span className="sr-only">Select for Blake</span>
+                        <span className="sr-only">Select for Ayla</span>
                       </th>
                       <th className="tenders-boq-ref-col">Ref</th>
                       <th className="tenders-boq-desc-col">Description</th>
@@ -2472,7 +2479,7 @@ export function TendersPanel({
                               <input
                                 type="checkbox"
                                 checked={checked}
-                                aria-label={`Select ${line.ref || line.description} for Blake`}
+                                aria-label={`Select ${line.ref || line.description} for Ayla`}
                                 disabled={blakeBudgetBusy || line.kind !== "measured"}
                                 onChange={(event) => toggleBoqBlakeLine(line.id, event.target.checked)}
                               />
@@ -2901,7 +2908,7 @@ export function TendersPanel({
       <div className="record-folder-grid register-kpi-grid">
         <article className="record-folder-card blue">
           <span>Live tenders</span>
-          <strong>{tenders.filter((t) => !["Won", "Lost"].includes(t.status)).length}</strong>
+          <strong>{tenders.filter((t) => !["Won", "Lost", "Sent"].includes(t.status)).length}</strong>
         </article>
         <article className="record-folder-card green">
           <span>Pipeline value</span>
