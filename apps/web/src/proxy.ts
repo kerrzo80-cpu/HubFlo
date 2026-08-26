@@ -118,9 +118,9 @@ function withRoleHeaders(request: NextRequest, role: string, employeeId = "pilot
   // Overwrite spoofable client role headers with session-derived values.
   requestHeaders.set(roleHeaderName, role);
   requestHeaders.set(employeeHeaderName, employeeId);
-  if (!requestHeaders.has(permissionHeaderName)) {
-    requestHeaders.set(permissionHeaderName, "{}");
-  }
+  // Always reset permissions too — keeping a Field-only client profile would deny
+  // Core APIs even after we stamp an office pilot role.
+  requestHeaders.set(permissionHeaderName, "{}");
   return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
