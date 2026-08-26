@@ -52,7 +52,6 @@ import {
   ShieldAlert,
   SlidersHorizontal,
   Sparkles,
-  MessageCircle,
   TrendingDown,
   TrendingUp,
   UserCheck,
