@@ -23453,190 +23453,6 @@ export default function CoreApp() {
     setXeroSelectedPoIds([]);
   }
 
-  async function pullSelectedInvoicePaymentsFromXero() {
-    if (!selectedInvoice) return;
-    if (selectedInvoice.claimType === "valuation") {
-      showNotice("Convert the valuation to a progress claim before pulling Xero payments.");
-      return;
-    }
-    if (selectedInvoice.status === "Draft" || selectedInvoice.status === "Cancelled") {
-      showNotice("Draft or cancelled invoices cannot pull Xero payments.");
-      return;
-    }
-    setIsPullingXeroPayments(true);
-    try {
-      const response = await fetch("/api/integrations/xero/payments", {
-        method: "POST",
-        headers: { ...requestHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          invoice: {
-            id: selectedInvoice.id,
-            ref: selectedInvoice.ref,
-            chargeTotal: selectedInvoice.chargeTotal,
-            vatRate: selectedInvoice.vatRate,
-            status: selectedInvoice.status,
-            claimType: selectedInvoice.claimType,
-            payments: selectedInvoice.payments || [],
-            paidAmount: selectedInvoice.paidAmount ?? 0,
-            xeroInvoiceId: selectedInvoice.xeroInvoiceId,
-          },
-        }),
-      });
-      const body = (await response.json().catch(() => null)) as {
-        error?: string;
-        addedCount?: number;
-        skippedCount?: number;
-        fetchedCount?: number;
-        conflicts?: Array<{ xeroPaymentId: string; reason: string }>;
-        payments?: InvoicePaymentRecord[];
-        paidAmount?: number;
-        paymentStatus?: InvoicePaymentStatus;
-        status?: InvoiceStatus;
-        xeroInvoiceId?: string;
-        xeroInvoiceNumber?: string;
-        match?: { invoiceNumber?: string; xeroInvoiceId?: string; matchedBy?: string };
-      } | null;
-      if (!response.ok || !body?.payments) {
-        throw new Error(body?.error || `Xero payment pull failed (HTTP ${response.status})`);
-      }
-
-      markInvoiceEdited();
-      setInvoices((current) =>
-        current.map((invoice) =>
-          invoice.id === selectedInvoice.id
-            ? {
-                ...invoice,
-                payments: body.payments,
-                paidAmount: body.paidAmount ?? invoice.paidAmount,
-                paymentStatus: body.paymentStatus ?? invoice.paymentStatus,
-                status: body.status ?? invoice.status,
-                ...(body.xeroInvoiceId
-                  ? {
-                      xeroInvoiceId: body.xeroInvoiceId,
-                      xeroInvoiceNumber: body.xeroInvoiceNumber || invoice.xeroInvoiceNumber || invoice.ref,
-                    }
-                  : {}),
-              }
-            : invoice,
-        ),
-      );
-
-      const grandTotal = selectedInvoice.chargeTotal * (1 + selectedInvoice.vatRate / 100);
-      const stillRemaining = Math.max(0, grandTotal - (body.paidAmount ?? 0));
-      invoicePaymentDraftDirtyRef.current = false;
-      setInvoicePaymentAmountDraft(stillRemaining > 0 ? stillRemaining.toFixed(2) : "");
-
-      logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
-        action: "xero payment pull",
-        recordType: "invoice",
-        recordId: selectedInvoice.id,
-        summary: `${selectedInvoice.ref}: pulled ${body.addedCount ?? 0} Xero payment(s), skipped ${body.skippedCount ?? 0}, conflicts ${(body.conflicts || []).length} (Xero ${body.match?.xeroInvoiceId || "invoice"}).`,
-        source: "web",
-        importance: (body.addedCount ?? 0) > 0 ? "high" : "normal",
-      });
-
-      const conflicts = body.conflicts || [];
-      const firstConflict = conflicts[0];
-      const conflictNote =
-        firstConflict
-          ? ` ${conflicts.length} need review (${firstConflict.reason}).`
-          : "";
-      showNotice(
-        `${selectedInvoice.ref}: ${body.addedCount ?? 0} payment(s) imported from Xero` +
-          `${body.skippedCount ? `, ${body.skippedCount} already on ledger` : ""}` +
-          ` · paid to date ${currency(body.paidAmount ?? 0)}.${conflictNote}`,
-      );
-    } catch (error) {
-      showNotice(error instanceof Error ? error.message : "Unable to pull payments from Xero.");
-    } finally {
-      setIsPullingXeroPayments(false);
-    }
-  }
-
-  /** Pull Xero payments for every invoice currently in the Reports filter (cash reconcile). */
-  async function pullFilteredInvoicePaymentsFromXero() {
-    const targets = reportInvoiceRows
-      .map((row) => row.invoice)
-      .filter((invoice) => invoice.status !== "Draft" && invoice.status !== "Cancelled" && invoice.claimType !== "valuation");
-    if (!targets.length) {
-      showNotice("No invoices in the current report filter to reconcile.");
-      return;
-    }
-    setIsPullingXeroPayments(true);
-    let added = 0;
-    let failed = 0;
-    try {
-      let nextInvoices = [...invoices];
-      for (const invoice of targets.slice(0, 40)) {
-        try {
-          const response = await fetch("/api/integrations/xero/payments", {
-            method: "POST",
-            headers: { ...requestHeaders, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              invoice: {
-                id: invoice.id,
-                ref: invoice.ref,
-                chargeTotal: invoice.chargeTotal,
-                vatRate: invoice.vatRate,
-                status: invoice.status,
-                claimType: invoice.claimType,
-                payments: invoice.payments || [],
-                paidAmount: invoice.paidAmount ?? 0,
-                xeroInvoiceId: invoice.xeroInvoiceId,
-              },
-            }),
-          });
-          const body = (await response.json().catch(() => null)) as {
-            error?: string;
-            addedCount?: number;
-            payments?: InvoicePaymentRecord[];
-            paidAmount?: number;
-            paymentStatus?: InvoicePaymentStatus;
-            status?: InvoiceStatus;
-            xeroInvoiceId?: string;
-            xeroInvoiceNumber?: string;
-          } | null;
-          if (!response.ok || !body?.payments) {
-            failed += 1;
-            continue;
-          }
-          added += body.addedCount ?? 0;
-          nextInvoices = nextInvoices.map((row) =>
-            row.id === invoice.id
-              ? {
-                  ...row,
-                  payments: body.payments,
-                  paidAmount: body.paidAmount ?? row.paidAmount,
-                  paymentStatus: body.paymentStatus ?? row.paymentStatus,
-                  status: body.status ?? row.status,
-                  ...(body.xeroInvoiceId
-                    ? {
-                        xeroInvoiceId: body.xeroInvoiceId,
-                        xeroInvoiceNumber: body.xeroInvoiceNumber || row.xeroInvoiceNumber || row.ref,
-                      }
-                    : {}),
-                }
-              : row,
-          );
-        } catch {
-          failed += 1;
-        }
-      }
-      markInvoiceEdited();
-      setInvoices(nextInvoices);
-      saveHubDetailStateWithInvoices(nextInvoices, "Could not save reconciled invoices.");
-      showNotice(
-        `Cash reconcile: ${added} payment(s) imported from Xero across ${Math.min(targets.length, 40)} invoice(s)` +
-          (failed ? ` · ${failed} failed or not linked` : "") +
-          (targets.length > 40 ? " · capped at 40 per run" : "") +
-          ".",
-      );
-    } finally {
-      setIsPullingXeroPayments(false);
-    }
-  }
-
   /** Server-side batch pull for all exported invoices (same engine as nightly cron). */
   async function syncAllInvoicePaymentsFromXero() {
     if (!xeroConnectionStatus?.configured) {
@@ -37235,10 +37051,13 @@ export default function CoreApp() {
                       <button
                         className="secondary-button"
                         type="button"
-                        disabled={isPullingXeroPayments}
-                        onClick={() => void pullFilteredInvoicePaymentsFromXero()}
+                        onClick={() => {
+                          setHomeView("xero");
+                          setActiveXeroTab("connection");
+                          scrollWorkspaceToTop();
+                        }}
                       >
-                        {isPullingXeroPayments ? "Pulling…" : "Pull Xero payments (filter)"}
+                        Open Xero payment sync
                       </button>
                       <button
                         className="secondary-button"
@@ -46095,35 +45914,21 @@ export default function CoreApp() {
                         ) : null}
                         <footer>
                           <small>
-                            Record payments on this invoice. SumUp portal pays post to the ledger and push to Xero when the invoice is exported. Export / pull from the{" "}
+                            Record payments on this invoice. SumUp portal pays post to the ledger and push to Xero when the invoice is exported. Xero payments sync back automatically overnight — or use{" "}
                             <button
                               type="button"
                               className="text-button"
                               onClick={() => {
                                 setHomeView("xero");
-                                setActiveXeroTab("sales");
+                                setActiveXeroTab("connection");
                                 scrollWorkspaceToTop();
                               }}
                             >
-                              Xero
+                              Xero → Connection
                             </button>{" "}
-                            module.
+                            to sync now.
                           </small>
                           <div>
-                            <button
-                              className="secondary-button"
-                              type="button"
-                              disabled={
-                                isPullingXeroPayments ||
-                                !access.canEditInvoice ||
-                                selectedInvoice.status === "Draft" ||
-                                selectedInvoice.status === "Cancelled" ||
-                                selectedInvoice.claimType === "valuation"
-                              }
-                              onClick={() => void pullSelectedInvoicePaymentsFromXero()}
-                            >
-                              {isPullingXeroPayments ? "Pulling…" : "Pull Xero payments"}
-                            </button>
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Unpaid")}>Clear payments</button>
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Part paid")}>Record payment</button>
                             <button className="primary-button" type="button" onClick={() => updateSelectedInvoicePayment("Paid")}>Record balance paid</button>
