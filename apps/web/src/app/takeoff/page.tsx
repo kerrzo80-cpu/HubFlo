@@ -864,7 +864,7 @@ export default function TakeoffStudioPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: draftName || "Blake takeoff",
+          name: draftName || "Ayla takeoff",
           customer: "",
           site: "",
           description: `${brand.takeoffsAppName} Studio`,
@@ -1123,7 +1123,7 @@ export default function TakeoffStudioPage() {
   function confirmBlakeAsk() {
     const targets = blakeAskTargets();
     if (!targets.length) {
-      setError("Pick at least one thing for Blake to look for.");
+      setError("Pick at least one thing for Ayla to look for.");
       return;
     }
     const instruction = (blakeChatDraft || blakeAskNote).trim();
@@ -1169,7 +1169,7 @@ export default function TakeoffStudioPage() {
     setError(null);
     setNotice(null);
     const steps = [
-      `Blake is looking for: ${lookingFor}`,
+      `Ayla is looking for: ${lookingFor}`,
       "Reading the open PDF…",
       wantHotCold || wantWaste || wantHeating
         ? "Tracing coloured CAD pipe lines you asked for…"
@@ -1177,13 +1177,13 @@ export default function TakeoffStudioPage() {
       wantFixtures ? "Placing fixture pins from tags…" : "Skipping fixture pins for this brief…",
     ];
     let stepIndex = 0;
-    setBlakeStep(steps[0] || "Blake is working…");
+    setBlakeStep(steps[0] || "Ayla is working…");
     const stepTimer = window.setInterval(() => {
       stepIndex = Math.min(stepIndex + 1, steps.length - 1);
-      setBlakeStep(steps[stepIndex] || "Blake is working…");
+      setBlakeStep(steps[stepIndex] || "Ayla is working…");
     }, 2200);
     try {
-      // Flush scale / mark-up before Blake — otherwise the server may miss Set scale and wipe it on return.
+      // Flush scale / mark-up before Ayla — otherwise the server may miss Set scale and wipe it on return.
       await persistStudio(studio, {}, { immediate: true, skipHistory: true });
 
       setBlakeStep(
@@ -1253,7 +1253,7 @@ export default function TakeoffStudioPage() {
         setBlakeStep("No pipe colours in this brief — skipping CAD line scan…");
       }
 
-      // Scanned sheets: send page screenshot(s) so Blake can use vision when text/vectors are empty.
+      // Scanned sheets: send page screenshot(s) so Ayla can use vision when text/vectors are empty.
       const pageImages: Array<{
         documentId: string;
         fileName: string;
@@ -1268,7 +1268,7 @@ export default function TakeoffStudioPage() {
       );
       const strokeRuns = clientStrokeRuns.reduce((sum, row) => sum + (row.runs?.length || 0), 0);
       if (textItems < 8 && strokeRuns === 0 && (wantFixtures || allowedRoles.size > 0)) {
-        setBlakeStep("Sheet looks scanned — Blake is looking at the open page…");
+        setBlakeStep("Sheet looks scanned — Ayla is looking at the open page…");
         const pagesToSnap = [studio.activePage || 1];
         if ((studio.activePage || 1) === 1) pagesToSnap.push(2);
         for (const pageNumber of pagesToSnap.slice(0, 2)) {
@@ -1289,7 +1289,7 @@ export default function TakeoffStudioPage() {
         }
       }
 
-      setBlakeStep(`Blake is scanning for: ${lookingFor}…`);
+      setBlakeStep(`Ayla is scanning for: ${lookingFor}…`);
       const response = await apiFetch(`/api/takeoff-projects/${selected.id}/blake-run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1329,10 +1329,10 @@ export default function TakeoffStudioPage() {
         focus?: { documentId: string; page: number; classificationId: string } | null;
       };
       if (!response.ok || !payload.ok || !payload.project) {
-        throw new Error(payload.error || `Blake failed (${response.status}).`);
+        throw new Error(payload.error || `Ayla failed (${response.status}).`);
       }
       let nextStudio = payload.project.studio ?? createDefaultStudioState();
-      // Never let Blake wipe a user Set scale — merge + propagate to sibling pages with mark-up.
+      // Never let Ayla wipe a user Set scale — merge + propagate to sibling pages with mark-up.
       nextStudio = {
         ...nextStudio,
         scales: mergeStudioScales(studio.scales, nextStudio.scales || []),
@@ -1345,13 +1345,13 @@ export default function TakeoffStudioPage() {
         nextStudio.tool = "select";
       }
       await persistStudio(nextStudio, {}, { immediate: true, skipHistory: true });
-      const actorLabel = payload.actor && payload.actor !== "Blake" ? ` · ${payload.actor}` : "";
+      const actorLabel = payload.actor && payload.actor !== "Ayla" ? ` · ${payload.actor}` : "";
       const coverage = payload.coverage;
       const coverageNote = coverage?.note
         || (coverage
           ? ` Scanned ${coverage.scannedCount} of ${coverage.drawingCount} drawing file(s). BOQ totals are for the whole project.`
           : "");
-      const message = `${payload.message || "Blake finished."}${actorLabel}${
+      const message = `${payload.message || "Ayla finished."}${actorLabel}${
         payload.message && coverage?.note && payload.message.includes(coverage.note) ? "" : coverageNote
       }`;
       const pinCount = payload.pinCount || 0;
@@ -1368,7 +1368,7 @@ export default function TakeoffStudioPage() {
             }.`
           : coverage
             ? `Done — nothing auto-measured on ${coverage.scannedCount}/${coverage.drawingCount} drawing(s) scanned.`
-            : "Done — nothing Blake could auto-measure yet.",
+            : "Done — nothing Ayla could auto-measure yet.",
       );
       await new Promise((resolve) => window.setTimeout(resolve, 700));
       setError(null);
@@ -1385,7 +1385,7 @@ export default function TakeoffStudioPage() {
       }
       void refreshTakeoffAudit(selected.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Blake could not finish. Keep the sheet open and try again, or Length the run.");
+      setError(err instanceof Error ? err.message : "Ayla could not finish. Keep the sheet open and try again, or Length the run.");
     } finally {
       window.clearInterval(stepTimer);
       setBusy(null);
@@ -1424,7 +1424,7 @@ export default function TakeoffStudioPage() {
     }
     setBusy("propose");
     setError(null);
-    setBlakeStep("Blake is proposing plant, routes and equipment…");
+    setBlakeStep("Ayla is proposing plant, routes and equipment…");
     try {
       const classId = plantClassIdForPropose(proposePlant);
       const existingPlant = [...studio.geometries]
@@ -1482,14 +1482,14 @@ export default function TakeoffStudioPage() {
           ? " · rule stubs (AI miss)"
           : " · rule stubs (OpenAI off)";
       show(
-        `${payload.summary || "Blake proposed a layout."}${aiTag}${
-          payload.actor && payload.actor !== "Blake" ? ` · ${payload.actor}` : ""
+        `${payload.summary || "Ayla proposed a layout."}${aiTag}${
+          payload.actor && payload.actor !== "Ayla" ? ` · ${payload.actor}` : ""
         }`,
         16000,
       );
       void refreshTakeoffAudit(selected.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Blake could not propose routes.");
+      setError(err instanceof Error ? err.message : "Ayla could not propose routes.");
     } finally {
       setBusy(null);
       setBlakeStep(null);
@@ -1542,7 +1542,7 @@ export default function TakeoffStudioPage() {
   async function rejectAiReview() {
     if (!selected) return;
     const ok = window.confirm(
-      "Reject Blake’s fixture pins? Pipe runs on the sheet stay in the BOQ — only count pins are removed.",
+      "Reject Ayla’s fixture pins? Pipe runs on the sheet stay in the BOQ — only count pins are removed.",
     );
     if (!ok) return;
     setBusy("ai-review");
@@ -1591,7 +1591,7 @@ export default function TakeoffStudioPage() {
           text: "Those pins will not come back. Tell me why if you want — e.g. “That was a light switch — I’m a plumber. Only pipework and sanitary.” That changes the next scan.",
         },
       ]);
-      show(`Pins rejected and remembered — they will not be re-proposed. Talk to Blake below · ${authName || "Office"}.`);
+      show(`Pins rejected and remembered — they will not be re-proposed. Talk to Ayla below · ${authName || "Office"}.`);
       void refreshTakeoffAudit(selected.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not reject AI counts.");
@@ -1628,12 +1628,12 @@ export default function TakeoffStudioPage() {
       };
       setBlakeChatMessages((current) => [
         ...current,
-        { role: "assistant", text: payload.reply || payload.error || "Blake could not reply." },
+        { role: "assistant", text: payload.reply || payload.error || "Ayla could not reply." },
       ]);
     } catch {
       setBlakeChatMessages((current) => [
         ...current,
-        { role: "assistant", text: "Could not reach Blake just now. Nothing was changed." },
+        { role: "assistant", text: "Could not reach Ayla just now. Nothing was changed." },
       ]);
     } finally {
       setBlakeChatBusy(false);
@@ -1707,7 +1707,7 @@ export default function TakeoffStudioPage() {
     const attach = await apiFetch(`/api/takeoff-projects/${selected.id}/marked-drawing`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ documentId, actor: authName || "Blake Takeoff" }),
+      body: JSON.stringify({ documentId, actor: authName || "Ayla Takeoff" }),
     });
     if (!attach.ok) {
       if (!options.quiet) {
@@ -1798,11 +1798,11 @@ export default function TakeoffStudioPage() {
     if (!selected) return null;
     if (hasPendingAiReview && !options.allowPendingAiReview) {
       const ok = window.confirm(
-        "Blake fixture pins are still pending review. Push the BOQ to Core anyway?",
+        "Ayla fixture pins are still pending review. Push the BOQ to Core anyway?",
       );
       if (!ok) {
         setReviewOpen(true);
-        show("Confirm or reject Blake’s fixture pins, then Push — or override from Push again.", 12000);
+        show("Confirm or reject Ayla’s fixture pins, then Push — or override from Push again.", 12000);
         return null;
       }
     }
@@ -1861,11 +1861,11 @@ export default function TakeoffStudioPage() {
     }
     if (hasPendingAiReview && !options.allowPendingAiReview) {
       const ok = window.confirm(
-        "Blake fixture pins are still pending review. Push the BOQ to the tender anyway?",
+        "Ayla fixture pins are still pending review. Push the BOQ to the tender anyway?",
       );
       if (!ok) {
         setReviewOpen(true);
-        show("Confirm or reject Blake’s fixture pins, then Push — or override from Push again.", 12000);
+        show("Confirm or reject Ayla’s fixture pins, then Push — or override from Push again.", 12000);
         return;
       }
       await pushToTender({ allowPendingAiReview: true });
@@ -1940,11 +1940,11 @@ export default function TakeoffStudioPage() {
     }
     if (hasPendingAiReview && !options.allowPendingAiReview) {
       const ok = window.confirm(
-        "Blake fixture pins are still pending review. Push the BOQ to Core anyway?",
+        "Ayla fixture pins are still pending review. Push the BOQ to Core anyway?",
       );
       if (!ok) {
         setReviewOpen(true);
-        show("Confirm or reject Blake’s fixture pins, then Push — or override from Push again.", 12000);
+        show("Confirm or reject Ayla’s fixture pins, then Push — or override from Push again.", 12000);
         return;
       }
       await pushToCore({ allowPendingAiReview: true, createNew });
@@ -2075,7 +2075,7 @@ export default function TakeoffStudioPage() {
         show("Pipe runs are already on the sheet — check the BOQ.", 10000);
         return;
       }
-      setError("Ask Blake first to place pins to review.");
+      setError("Ask Ayla first to place pins to review.");
       return;
     }
     if (step === "mark") {
@@ -2119,8 +2119,8 @@ export default function TakeoffStudioPage() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={resolveBrandLogoUrl(brand, "takeoffs")} alt={brand.takeoffsAppName || "blake."} width={40} height={40} />
           <div>
-            <strong>{brand.takeoffsAppName || "Blake Takeoff"}</strong>
-            <span>Blake · {brand.tradingName || brand.companyName}</span>
+            <strong>{brand.takeoffsAppName || "Ayla Takeoff"}</strong>
+            <span>Ayla · {brand.tradingName || brand.companyName}</span>
           </div>
         </div>
         <nav className="nexa-studio-flow" aria-label="Takeoff steps">
@@ -2128,7 +2128,7 @@ export default function TakeoffStudioPage() {
             [
               ["upload", "Upload"],
               ["scale", "Scale"],
-              ["blake", "Blake"],
+              ["blake", "Ayla"],
               ["review", "Review"],
               ["mark", "Mark"],
               ["boq", "BOQ"],
@@ -2172,7 +2172,7 @@ export default function TakeoffStudioPage() {
             <BuddyCharacter mood="guide" size="md" interactive={false} />
             <strong id="blake-ask-title">{scanBriefForLayer(activeLayerId).title}</strong>
             <p>
-              Blake is looking for: {lookingForLabel(blakeAskTargets(), activeLayerId)}. Not a mystery scan. Talk first if you want — then scan this sheet.
+              Ayla is looking for: {lookingForLabel(blakeAskTargets(), activeLayerId)}. Not a mystery scan. Talk first if you want — then scan this sheet.
             </p>
 
             <fieldset className="nexa-studio-blake-ask-group">
@@ -2252,14 +2252,14 @@ export default function TakeoffStudioPage() {
             </fieldset>
 
             <p className="nexa-studio-blake-ask-note">
-              Blake reads coloured CAD strokes and text on the open PDF — not a ChatGPT dump of six files. Guide quantities only, not a firm tender. Type e.g. “ignore electrical”, “we don’t do ventilation”, “price the plumbing bill only”.
+              Ayla reads coloured CAD strokes and text on the open PDF — not a ChatGPT dump of six files. Guide quantities only, not a firm tender. Type e.g. “ignore electrical”, “we don’t do ventilation”, “price the plumbing bill only”.
             </p>
 
             {blakeChatMessages.length ? (
               <div className="nexa-studio-blake-chat">
                 {blakeChatMessages.slice(-8).map((item, index) => (
                   <p key={`${item.role}-${index}`} className={item.role === "user" ? "you" : "blake"}>
-                    <strong>{item.role === "user" ? "You" : "Blake"}</strong>
+                    <strong>{item.role === "user" ? "You" : "Ayla"}</strong>
                     {item.text}
                   </p>
                 ))}
@@ -2267,7 +2267,7 @@ export default function TakeoffStudioPage() {
             ) : null}
 
             <label className="nexa-studio-blake-chat-compose">
-              Talk to Blake
+              Talk to Ayla
               <textarea
                 value={blakeChatDraft}
                 onChange={(event) => setBlakeChatDraft(event.target.value)}
@@ -2299,14 +2299,14 @@ export default function TakeoffStudioPage() {
         <div className="nexa-studio-blake-overlay" role="status" aria-live="polite">
           <div className="nexa-studio-blake-card">
             <BuddyCharacter mood="thinking" size="md" interactive={false} />
-            <strong>Blake is working</strong>
+            <strong>Ayla is working</strong>
             <p>{blakeStep}</p>
             <Loader2 className="spin" size={20} />
           </div>
         </div>
       ) : null}
 
-      {/* Notice/error + Blake review overlay canvas — scale alerts live in the rail (in-flow). */}
+      {/* Notice/error + Ayla review overlay canvas — scale alerts live in the rail (in-flow). */}
       <div className="nexa-studio-banner-stack" aria-live="polite">
         {(notice || error) ? (
           <div className={`nexa-studio-banner ${error ? "error" : "ok"}`}>
@@ -2344,7 +2344,7 @@ export default function TakeoffStudioPage() {
         {selected && hasPendingAiReview ? (
           <div className="nexa-studio-banner warn nexa-studio-ai-review-banner">
             <span>
-              Blake: {aiReviewPinCount || blakePinCount} fixture pin{(aiReviewPinCount || blakePinCount) === 1 ? "" : "s"} to confirm
+              Ayla: {aiReviewPinCount || blakePinCount} fixture pin{(aiReviewPinCount || blakePinCount) === 1 ? "" : "s"} to confirm
               {blakePipeRunCount > 0 ? ` · ${blakePipeRunCount} pipe run(s) in BOQ` : ""}.
             </span>
             <button type="button" onClick={() => setReviewOpen(true)}>Review pins</button>
@@ -3295,15 +3295,15 @@ export default function TakeoffStudioPage() {
                   })}
                 </div>
               ) : (
-                <p className="empty">Nothing on this layer yet — go Back to drawing, Ask Blake or finish a Length run.</p>
+                <p className="empty">Nothing on this layer yet — go Back to drawing, Ask Ayla or finish a Length run.</p>
               )}
             </div>
           ) : selected ? (
             <>
               {proposeOpen ? (
-                <div className="nexa-studio-propose-panel" aria-label="Blake route and equipment proposer">
+                <div className="nexa-studio-propose-panel" aria-label="Ayla route and equipment proposer">
                   <header>
-                    <strong>Blake propose</strong>
+                    <strong>Ayla propose</strong>
                     <span>Place plant → answer a few questions → routes + equipment land in the BOQ</span>
                   </header>
                   <div className="nexa-studio-propose-row" role="group" aria-label="Heat source">
@@ -3371,7 +3371,7 @@ export default function TakeoffStudioPage() {
                   </div>
                   {proposeQuestions.length ? (
                     <div className="nexa-studio-propose-questions">
-                      <strong>Blake still needs</strong>
+                      <strong>Ayla still needs</strong>
                       <ul>
                         {proposeQuestions.map((question) => (
                           <li key={question}>{question}</li>
@@ -3380,7 +3380,7 @@ export default function TakeoffStudioPage() {
                     </div>
                   ) : (
                     <p className="muted">
-                      Tip: tap plant position first for a better layout. Edit dashed proposed runs like any Blake mark.
+                      Tip: tap plant position first for a better layout. Edit dashed proposed runs like any Ayla mark.
                     </p>
                   )}
                 </div>
@@ -3406,8 +3406,8 @@ export default function TakeoffStudioPage() {
             </>
           ) : (
             <div className="nexa-studio-empty-main">
-              <h1>Start a Blake takeoff</h1>
-              <p>Create a project, upload drawings, set scale, then Count / Linear / Area — or Ask Blake.</p>
+              <h1>Start a Ayla takeoff</h1>
+              <p>Create a project, upload drawings, set scale, then Count / Linear / Area — or Ask Ayla.</p>
             </div>
           )}
         </main>

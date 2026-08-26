@@ -312,7 +312,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-ayla" }: As
               <BlakeCharacter mood="thinking" size="sm" />
             </span>
             <div>
-              <p className="muted">Blake is checking that…</p>
+              <p className="muted">Ayla is checking that…</p>
               <button type="button" className="ask-blake-cancel" onClick={cancelBusy}>
                 Cancel
               </button>
@@ -324,7 +324,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-ayla" }: As
 
       {warning ? <div className="feedback">{warning}</div> : null}
       {error ? <div className="feedback error">{error}</div> : null}
-      {preparingMedia ? <div className="feedback">Preparing media for Blake…</div> : null}
+      {preparingMedia ? <div className="feedback">Preparing media for Ayla…</div> : null}
 
       {attachments.length ? (
         <div className="ask-blake-preview-row" aria-label="Attached media">

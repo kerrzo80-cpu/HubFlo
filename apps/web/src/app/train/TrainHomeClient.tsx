@@ -115,7 +115,7 @@ export function TrainHomeClient() {
 
   async function beginFlow(flowId: string) {
     try {
-      // Must run in the tap handler — browsers block Blake’s voice otherwise.
+      // Must run in the tap handler — browsers block Ayla’s voice otherwise.
       await unlockBlakeVoice();
       setSoundReady(true);
     } catch {
@@ -140,10 +140,10 @@ export function TrainHomeClient() {
     <TrainChrome subtitle="Role-aware modules · approved materials only">
       <section className="blake-train-hero">
         <div>
-          <h1>Blake trains your team by voice</h1>
+          <h1>Ayla trains your team by voice</h1>
           <p>
-            Blake talks staff through each module, pauses to check understanding, and answers
-            questions only from approved Blake guides, screenshots, videos, FAQs and company rules.
+            Ayla talks staff through each module, pauses to check understanding, and answers
+            questions only from approved Ayla guides, screenshots, videos, FAQs and company rules.
           </p>
           <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             <label style={{ fontSize: "0.86rem", fontWeight: 650 }}>
@@ -186,7 +186,7 @@ export function TrainHomeClient() {
                 ))}
               </div>
               <button type="button" className="blake-train-btn verdigris" onClick={() => void beginFlow(flow.id)}>
-                {existing?.status === "completed" ? "Review with Blake" : existing ? "Continue with Blake" : "Start with Blake"}
+                {existing?.status === "completed" ? "Review with Ayla" : existing ? "Continue with Ayla" : "Start with Ayla"}
               </button>
             </article>
           );
@@ -449,7 +449,7 @@ function TrainSession({
         }),
       });
       const data = (await response.json()) as TrainerTurnResponse & { error?: string; ok?: boolean };
-      if (!response.ok) throw new Error(data.error || "Blake could not reply.");
+      if (!response.ok) throw new Error(data.error || "Ayla could not reply.");
       applyTurn(data, mode === "start" ? undefined : message);
       await speak(data.reply, { afterSpeak: "listen" });
     } catch (err) {
@@ -664,8 +664,8 @@ function TrainSession({
         ? `Listening… pause when you’re done (${Math.round(level * 100)}%)`
         : "Your turn — just talk. I’ll reply when you pause.";
     }
-    if (voiceState === "thinking") return "Blake is thinking…";
-    if (voiceState === "speaking") return "Blake is speaking…";
+    if (voiceState === "thinking") return "Ayla is thinking…";
+    if (voiceState === "speaking") return "Ayla is speaking…";
     if (phase === "complete") return "Training complete";
     if (!conversationOn) return "Conversation paused — resume to keep talking";
     if (step?.kind === "check") return "Answer the check when ready — just speak";
@@ -772,7 +772,7 @@ function TrainSession({
                 }
               }}
               placeholder={step?.kind === "check" ? "Type your check answer…" : "Ask Ayla or type next…"}
-              aria-label="Message Blake"
+              aria-label="Message Ayla"
             />
             <button type="button" className="blake-train-btn" onClick={() => void onSubmitText()} disabled={!draft.trim()}>
               <SendHorizontal size={16} />
@@ -802,7 +802,7 @@ function TrainSession({
           <div className="blake-train-panel">
             <h3>Grounding rule</h3>
             <p style={{ margin: 0, color: "#5d6673", fontSize: "0.88rem", lineHeight: 1.45 }}>
-              Blake only answers from approved Blake materials. No guessing. If it isn’t in the pack, Blake says so.
+              Ayla only answers from approved Ayla materials. No guessing. If it isn’t in the pack, Ayla says so.
             </p>
           </div>
         </aside>

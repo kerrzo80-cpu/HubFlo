@@ -731,7 +731,7 @@ export default function HeatDesignLabPage() {
     setLayoutMode(true);
     setTab("plan");
     setNotice(
-      `Designed ${option?.label ?? "system"} at ${nextFlow}°C flow with ${emitterMode === "ufh" ? "underfloor heating" : emitterMode === "mixed" ? "mixed radiators / UFH" : "radiators"}${project.heatingLayout?.plants?.length ? " — kept your plant positions" : ""}. Use Draw pipe or drag plant. Ask Blake for kit + sizing, then Send to Takeoff.`,
+      `Designed ${option?.label ?? "system"} at ${nextFlow}°C flow with ${emitterMode === "ufh" ? "underfloor heating" : emitterMode === "mixed" ? "mixed radiators / UFH" : "radiators"}${project.heatingLayout?.plants?.length ? " — kept your plant positions" : ""}. Use Draw pipe or drag plant. Ask Ayla for kit + sizing, then Send to Takeoff.`,
     );
   }
 
@@ -1122,7 +1122,7 @@ export default function HeatDesignLabPage() {
 
   function blakeSizeRoutes() {
     if (!project?.heatingLayout?.pipes?.length) {
-      setNotice("Design on plan first, then Blake can size 28 / 22 / 15 mm routes.");
+      setNotice("Design on plan first, then Ayla can size 28 / 22 / 15 mm routes.");
       return;
     }
     const layout = applyBlakePipeSizing(project.heatingLayout);
@@ -1131,7 +1131,7 @@ export default function HeatDesignLabPage() {
     setFittingsSummary(summary);
     setLayoutMode(true);
     setNotice(
-      `Rule size · ${summary.totalMetres} m · ${summary.totalElbows} elbows · ${summary.totalCouplings} couplings · ${summary.totalReducers} reducers (copper 28→22→15 · UFH 16 mm PEX). Prefer Ask Blake for live AI.`,
+      `Rule size · ${summary.totalMetres} m · ${summary.totalElbows} elbows · ${summary.totalCouplings} couplings · ${summary.totalReducers} reducers (copper 28→22→15 · UFH 16 mm PEX). Prefer Ask Ayla for live AI.`,
     );
   }
 
@@ -1161,7 +1161,7 @@ export default function HeatDesignLabPage() {
       }
       setNotice(
         body.aiUsed
-          ? `Blake budget costs · ${body.pricedCount ?? 0} lines · £${Number(body.budgetTotal || 0).toFixed(0)} — amend when supplier quotes land.`
+          ? `Ayla budget costs · ${body.pricedCount ?? 0} lines · £${Number(body.budgetTotal || 0).toFixed(0)} — amend when supplier quotes land.`
           : `Guide budget costs · ${body.pricedCount ?? 0} lines${body.stillOpenCount ? ` · ${body.stillOpenCount} still open` : ""}.`,
       );
     } catch (err) {
@@ -1199,7 +1199,7 @@ export default function HeatDesignLabPage() {
       if (options.surfaceError) {
         throw err instanceof Error ? err : new Error("Could not save heat design");
       }
-      /* Ask Blake still sends the client snapshot — save race is non-fatal */
+      /* Ask Ayla still sends the client snapshot — save race is non-fatal */
     }
   }
 
@@ -1211,7 +1211,7 @@ export default function HeatDesignLabPage() {
       && !project.heatingLayout?.plants?.length
       && !project.rooms?.length
     ) {
-      setNotice("Pick a system, place plant, or design on plan first, then Ask Blake.");
+      setNotice("Pick a system, place plant, or design on plan first, then Ask Ayla.");
       return;
     }
     setBlakeBusy(true);
@@ -1226,7 +1226,7 @@ export default function HeatDesignLabPage() {
       updatedAt: new Date().toISOString(),
     };
     try {
-      // Flush + send snapshot so Ask Blake never designs against a stale server project
+      // Flush + send snapshot so Ask Ayla never designs against a stale server project
       // (autosave is debounced — plant placed moments ago would otherwise be missing).
       await flushProjectToServer(snapshot);
       const res = await fetch("/api/heat-design/blake-propose", {
@@ -1254,7 +1254,7 @@ export default function HeatDesignLabPage() {
         clarifyingQuestions?: Array<{ key: string; question: string; why: string }>;
       };
       if (!res.ok || !body.ok) {
-        throw new Error(body.error || `Ask Blake failed (${res.status})`);
+        throw new Error(body.error || `Ask Ayla failed (${res.status})`);
       }
       if (body.project) {
         patchProject({
@@ -1274,14 +1274,14 @@ export default function HeatDesignLabPage() {
         ?? 0;
       setNotice(
         body.aiUsed
-          ? `Blake (live AI) · ${pipes} pipe run${pipes === 1 ? "" : "s"}${qCount ? ` · ${qCount} question${qCount === 1 ? "" : "s"}` : ""} — ${body.summary || "design ready."}`
+          ? `Ayla (live AI) · ${pipes} pipe run${pipes === 1 ? "" : "s"}${qCount ? ` · ${qCount} question${qCount === 1 ? "" : "s"}` : ""} — ${body.summary || "design ready."}`
           : body.connected
-            ? `Blake rule design · ${pipes} pipes — ${body.summary || "OpenAI could not finish; geometry still drawn."}`
-            : `OpenAI not connected — rule design drew ${pipes} pipe run${pipes === 1 ? "" : "s"}. Set OPENAI_API_KEY on Render for live Blake.`,
+            ? `Ayla rule design · ${pipes} pipes — ${body.summary || "OpenAI could not finish; geometry still drawn."}`
+            : `OpenAI not connected — rule design drew ${pipes} pipe run${pipes === 1 ? "" : "s"}. Set OPENAI_API_KEY on Render for live Ayla.`,
       );
       setBlakeMessage("");
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : "Ask Blake could not reply.");
+      setNotice(err instanceof Error ? err.message : "Ask Ayla could not reply.");
     } finally {
       setBlakeBusy(false);
     }
@@ -1753,11 +1753,11 @@ export default function HeatDesignLabPage() {
                     setNotice("Surveyed plan locked in — pick a system and design flow temperature next.");
                   }}
                 />
-                <div className="hd-blake-route-panel" aria-label="Blake kit assist">
+                <div className="hd-blake-route-panel" aria-label="Ayla kit assist">
                   <header>
                     <strong className="hd-blake-title">
                       <BuddyCharacter mood={blakeBusy ? "thinking" : "idle"} size="sm" interactive={false} />
-                      Blake kit assist
+                      Ayla kit assist
                     </strong>
                     <span>
                       Optional: sizes defined kit / BoQ notes after Generate UFH has drawn circuits. Does not invent room
@@ -1765,7 +1765,7 @@ export default function HeatDesignLabPage() {
                     </span>
                   </header>
                   <label className="hd-blake-ask-label">
-                    <span className="sr-only">Message for Blake</span>
+                    <span className="sr-only">Message for Ayla</span>
                     <textarea
                       className="hd-blake-ask-input"
                       rows={2}
@@ -1783,7 +1783,7 @@ export default function HeatDesignLabPage() {
                       onClick={() => void askBlakeLive()}
                     >
                       <BuddyCharacter mood={blakeBusy ? "thinking" : "idle"} size="sm" interactive={false} />
-                      {blakeBusy ? "Blake thinking…" : "Ask Blake (kit)"}
+                      {blakeBusy ? "Ayla thinking…" : "Ask Ayla (kit)"}
                     </button>
                     <button
                       type="button"
@@ -1835,7 +1835,7 @@ export default function HeatDesignLabPage() {
                       ) : null}
                       {project.blakeProposal.clarifyingQuestions?.length ? (
                         <div className="hd-blake-ai-questions">
-                          <strong>Blake still needs</strong>
+                          <strong>Ayla still needs</strong>
                           <ul>
                             {project.blakeProposal.clarifyingQuestions.map((q) => (
                               <li key={q.key}>
@@ -1901,7 +1901,7 @@ export default function HeatDesignLabPage() {
                         <span>
                           {design.kit.length} lines · {money(design.kitTotal)} ex VAT
                           {project.blakeProposal?.kitLines?.length
-                            ? " · plant + Blake ancillaries (budget until Firm)"
+                            ? " · plant + Ayla ancillaries (budget until Firm)"
                             : " · catalogue + rule ancillaries"}
                         </span>
                       </div>
@@ -1957,7 +1957,7 @@ export default function HeatDesignLabPage() {
                         </div>
                       </div>
                       <p className="hd-defined-kit-note">
-                        Generate UFH first for loop + tail metres. Blake kit assist refreshes ancillaries / budget prices.
+                        Generate UFH first for loop + tail metres. Ayla kit assist refreshes ancillaries / budget prices.
                         Send to Takeoff pushes this BOQ — not a full hydraulic calculation.
                       </p>
                     </div>
@@ -2350,10 +2350,10 @@ export default function HeatDesignLabPage() {
                 <div className="hd-job-link-panel">
                   <strong className="hd-blake-title">
                     <BuddyCharacter mood="guide" size="sm" interactive={false} />
-                    Ask Blake → Takeoff
+                    Ask Ayla → Takeoff
                   </strong>
                   <p>
-                    Live Blake proposes sizes and the ancillaries kit from OpenAI. Send to Takeoff builds that BOQ;
+                    Live Ayla proposes sizes and the ancillaries kit from OpenAI. Send to Takeoff builds that BOQ;
                     kit push below still sends the full materials list into Core.
                   </p>
                   {project.blakeProposal ? (
@@ -2374,7 +2374,7 @@ export default function HeatDesignLabPage() {
                       }}
                     >
                       <BuddyCharacter mood={blakeBusy ? "thinking" : "idle"} size="sm" interactive={false} />
-                      {blakeBusy ? "Blake thinking…" : "Ask Blake"}
+                      {blakeBusy ? "Ayla thinking…" : "Ask Ayla"}
                     </button>
                     <button
                       type="button"
@@ -2585,7 +2585,7 @@ export default function HeatDesignLabPage() {
                     disabled={budgetBusy || blakeBusy}
                     onClick={() => void refreshBlakeBudgetPrices()}
                   >
-                    {budgetBusy ? "Pricing…" : "Blake budget prices"}
+                    {budgetBusy ? "Pricing…" : "Ayla budget prices"}
                   </button>
                   <span className="hd-lead" style={{ margin: 0 }}>
                     Live AI UK trade ballpark — replace with supplier quotes when uploaded.

@@ -992,7 +992,7 @@ export default function StudioCanvas({
     count: {
       label: "Count",
       title: "Tap once for each fixture (WC, basin, socket, etc.).",
-      hint: "Tap each fixture once to count it (stays on until Esc / Edit). Use Ask Blake first if tags are on the PDF.",
+      hint: "Tap each fixture once to count it (stays on until Esc / Edit). Use Ask Ayla first if tags are on the PDF.",
     },
     linear: {
       label: "Length",

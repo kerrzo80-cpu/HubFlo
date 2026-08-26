@@ -213,8 +213,8 @@ export async function PATCH(
           recordId: id,
           summary:
             nextStatus === "confirmed"
-              ? "Blake AI review confirmed — pins kept for Core"
-              : "Blake AI review rejected — pins excluded from Core",
+              ? "Ayla AI review confirmed — pins kept for Core"
+              : "Ayla AI review rejected — pins excluded from Core",
           source: "takeoff add-on",
           importance: "high",
         });

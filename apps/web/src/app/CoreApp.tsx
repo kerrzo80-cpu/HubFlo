@@ -3599,7 +3599,7 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "tax-codes", label: "Tax codes", detail: "VAT treatments mapped for Xero" },
   { key: "email-templates", label: "Email templates", detail: "Quote, invoice, PO and follow-up wording" },
   { key: "security", label: "Security groups", detail: "Role permission templates for employee cards" },
-  { key: "integrations", label: "Integrations", detail: "API keys and software bridges that connect tools into NeXa", subItems: ["Blake AI", "simPRO", "Xero", "SumUp", "Import from simPRO"] },
+  { key: "integrations", label: "Integrations", detail: "API keys and software bridges that connect tools into NeXa", subItems: ["Ayla AI", "simPRO", "Xero", "SumUp", "Import from simPRO"] },
   { key: "communications", label: "Communications", detail: "Mailbox (Outlook / Gmail / iCloud), WhatsApp and supplier doorway settings", subItems: ["Outlook", "WhatsApp", "Supplier emails"] },
   { key: "finance", label: "Finance", detail: "Invoices, VAT, payment terms, Xero accounts and approval gates", subItems: ["Invoices", "Valuations", "PO approvals", "Xero"] },
 ];
@@ -3842,8 +3842,8 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
   "email-templates": {},
   security: {},
   integrations: {
-    "Blake AI": {
-      summary: "Connect OpenAI once here to power Blake across Takeoff, Survey, Field and the assistant — no redeploy needed.",
+    "Ayla AI": {
+      summary: "Connect OpenAI once here to power Ayla across Takeoff, Survey, Field and the assistant — no redeploy needed.",
       focus: ["Paste your OpenAI API key", "Powers every AI feature", "Environment key still takes precedence"],
       status: "Set up in seconds",
     },
@@ -12358,7 +12358,7 @@ export default function CoreApp() {
       if (!targetQuote) return;
       openQuoteDrawer(targetQuote.id);
       setQuoteStatusFilter("All quotes");
-      showNotice(`${targetQuote.ref} opened from Blake AI intake.`);
+      showNotice(`${targetQuote.ref} opened from Ayla AI intake.`);
       setHandledInitialRoute(true);
       window.history.replaceState(null, "", window.location.pathname);
       return;
@@ -12399,7 +12399,7 @@ export default function CoreApp() {
             : `${targetJob.ref} Engineer Flow opened — gas service record / certificate preview.`,
         );
       } else {
-        showNotice(`${targetJob.ref} opened from Blake AI intake.`);
+        showNotice(`${targetJob.ref} opened from Ayla AI intake.`);
       }
       setHandledInitialRoute(true);
       window.history.replaceState(null, "", window.location.pathname);
@@ -16296,7 +16296,7 @@ export default function CoreApp() {
         {
           id: `buddy-${crypto.randomUUID()}`,
           role: "assistant",
-          text: result.reply || result.error || "Blake could not complete that request.",
+          text: result.reply || result.error || "Ayla could not complete that request.",
           action: result.action,
           aiUsed: result.aiUsed,
         },
@@ -16363,10 +16363,10 @@ export default function CoreApp() {
           showNotice(result.reply || "Fault logged.");
         } else if (action.kind === "confirm_budget_prices") {
           setBlakeTenderBoqRevision((current) => current + 1);
-          showNotice(result.reply || "Blake wrote guide rates onto the open BoQ.");
+          showNotice(result.reply || "Ayla wrote guide rates onto the open BoQ.");
         } else if (action.kind === "confirm_create_lead" && result.leadId) {
           await refreshCoreWorkflowRecords();
-          showNotice(`${result.leadRef || "Lead"} created by Blake.`);
+          showNotice(`${result.leadRef || "Lead"} created by Ayla.`);
         } else if (result.assignment) {
           setJobSchedulePlans((current) => ({
             ...current,
@@ -16378,7 +16378,7 @@ export default function CoreApp() {
             ),
           }));
           await refreshCoreWorkflowRecords();
-          showNotice("Live schedule updated by Blake.");
+          showNotice("Live schedule updated by Ayla.");
         }
       }
     } catch (error) {
@@ -25477,7 +25477,7 @@ export default function CoreApp() {
           ].join("\n"),
         },
       ]);
-      showNotice("Blake stopped the Simpro send — check the alerts first.");
+      showNotice("Ayla stopped the Simpro send — check the alerts first.");
       return;
     }
 
@@ -34771,7 +34771,7 @@ export default function CoreApp() {
                         type="button"
                         onClick={() => {
                           setBuddySendOverride(true);
-                          showNotice("Blake will allow the next Send to Simpro.");
+                          showNotice("Ayla will allow the next Send to Simpro.");
                         }}
                       >
                         Send anyway next
@@ -34809,7 +34809,7 @@ export default function CoreApp() {
                       </button>
                     </div>
                   ) : null}
-                  {message.role === "assistant" && message.aiUsed ? <small>Interpreted with Blake AI · checked against live Blake data</small> : null}
+                  {message.role === "assistant" && message.aiUsed ? <small>Interpreted with Ayla AI · checked against live blake. data</small> : null}
                 </article>
               ))}
               {nexaAssistantBusy ? <p className="buddy-thinking">Ayla is checking the live workspace...</p> : null}
@@ -34903,7 +34903,7 @@ export default function CoreApp() {
               }}
             >
               <textarea
-                aria-label="Chat with Blake"
+                aria-label="Chat with Ayla"
                 placeholder={
                   blakeOpenTender
                     ? `Talk about ${blakeOpenTender.name} — e.g. ignore electrical, price the plumbing bill only`
@@ -34920,12 +34920,12 @@ export default function CoreApp() {
                   }
                 }}
               />
-              <button className="primary-button icon-only" type="submit" disabled={!nexaAssistantDraft.trim() || nexaAssistantBusy} aria-label="Send to Blake">
+              <button className="primary-button icon-only" type="submit" disabled={!nexaAssistantDraft.trim() || nexaAssistantBusy} aria-label="Send to Ayla">
                 <Send size={17} />
               </button>
             </form>
             <small className="buddy-safety">
-              Blake learns your patterns on this device
+              Ayla learns your patterns on this device
               {buddyMemory.workHabits.quotesWatched
                 ? ` · ~${buddyMemory.workHabits.avgLinesPerQuote || 0} lines/quote`
                 : ""}
@@ -38192,7 +38192,7 @@ export default function CoreApp() {
                   <span className="addon-icon"><ClipboardCheck size={20} /></span>
                   <div>
                     <strong>{businessSettings.surveyAppName}</strong>
-                    <p>Site capture with Blake, photos, measurements and AI estimate packs.</p>
+                    <p>Site capture with Ayla, photos, measurements and AI estimate packs.</p>
                     <small>Outputs survey evidence, assumptions, materials, labour and Core quote handoff.</small>
                   </div>
                   <ChevronRight size={17} />
@@ -47570,7 +47570,7 @@ export default function CoreApp() {
                   ) : null}
 
                   {activeSetupCategory === "integrations" &&
-                  (!activeSetupSubItem || activeSetupSubItem === "Blake AI" || activeSetupSubItem === "NeXa AI") ? (
+                  (!activeSetupSubItem || activeSetupSubItem === "Ayla AI" || activeSetupSubItem === "NeXa AI") ? (
                     <OpenAiKeyCard />
                   ) : null}
                   {activeSetupCategory === "integrations" &&

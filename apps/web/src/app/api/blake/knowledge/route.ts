@@ -59,7 +59,7 @@ function visibleItems(request: Request, includeInactive = false) {
 }
 
 export async function GET(request: Request) {
-  if (!canUseBlake(request.headers)) return NextResponse.json({ error: "Your role cannot use Blake Knowledge." }, { status: 403 });
+  if (!canUseBlake(request.headers)) return NextResponse.json({ error: "Your role cannot use Ayla Knowledge." }, { status: 403 });
   const url = new URL(request.url);
   const includeInactive = url.searchParams.get("includeInactive") === "true";
   const query = url.searchParams.get("q")?.trim().toLowerCase() || "";
@@ -73,7 +73,7 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  if (!canUseBlake(request.headers)) return NextResponse.json({ error: "Your role cannot use Blake Knowledge." }, { status: 403 });
+  if (!canUseBlake(request.headers)) return NextResponse.json({ error: "Your role cannot use Ayla Knowledge." }, { status: 403 });
   const body = await parseJsonRequestBody<{ id?: string; title?: string; content?: string; category?: BlakeKnowledgeCategory }>(request);
   if (!body?.id) return NextResponse.json({ error: "Knowledge id is required." }, { status: 400 });
   const existing = visibleItems(request, false).find((item) => item.id === body.id);
@@ -93,7 +93,7 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  if (!canUseBlake(request.headers)) return NextResponse.json({ error: "Your role cannot use Blake Knowledge." }, { status: 403 });
+  if (!canUseBlake(request.headers)) return NextResponse.json({ error: "Your role cannot use Ayla Knowledge." }, { status: 403 });
   const id = new URL(request.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "Knowledge id is required." }, { status: 400 });
   const existing = visibleItems(request, false).find((item) => item.id === id);

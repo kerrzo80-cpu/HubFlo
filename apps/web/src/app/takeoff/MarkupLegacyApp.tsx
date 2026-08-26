@@ -2841,7 +2841,7 @@ const filteredMarkupPlantTools = useMemo(() => {
   const markupSyncLabel = (() => {
     if (!markupOfflineDraftSavedAt) return "";
     if (markupSyncStatus === "saving") return "Saving markup...";
-    if (markupSyncStatus === "saved") return "Saved to Blake";
+    if (markupSyncStatus === "saved") return "Saved to blake.";
     if (markupSyncStatus === "offline") return "Saved offline";
     if (markupSyncStatus === "queued") return "Offline draft waiting to sync";
     if (markupSyncStatus === "error") return "Markup sync needs retry";
@@ -3289,7 +3289,7 @@ const filteredMarkupPlantTools = useMemo(() => {
       if (patch.servicesMarkup) {
         const savedAt = writeMarkupOfflineDraft(projectId, patch.servicesMarkup, {
           pendingSync: false,
-          reason: "Markup synced to Blake",
+          reason: "Markup synced to blake.",
         });
         if (savedAt) setMarkupOfflineDraftSavedAt(savedAt);
         setMarkupPendingSyncProjectId((current) => (current === projectId ? "" : current));
@@ -3347,7 +3347,7 @@ const filteredMarkupPlantTools = useMemo(() => {
       servicesMarkup: draftMarkup,
       materialAllowances: quantityPatch.materialAllowances,
       supplierRequests: quantityPatch.supplierRequests,
-    }, "Offline markup draft synced to Blake.");
+    }, "Offline markup draft synced to blake.");
   }
 
   function currentServicesMarkupSnapshot() {
@@ -5662,7 +5662,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   ) {
     const backgroundSvg = exportBackgroundDataUrl
       ? `<image href="${escapeSvgText(exportBackgroundDataUrl)}" x="0" y="0" width="${markupCanvasWidth}" height="${markupCanvasHeight}" preserveAspectRatio="none" opacity="0.9" />`
-      : `<rect x="0" y="0" width="${markupCanvasWidth}" height="${markupCanvasHeight}" fill="#ffffff" /><text x="28" y="42" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#607084">${escapeSvgText(markupSelectedDrawing?.fileName ?? "Drawing source saved in Blake")}</text>`;
+      : `<rect x="0" y="0" width="${markupCanvasWidth}" height="${markupCanvasHeight}" fill="#ffffff" /><text x="28" y="42" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#607084">${escapeSvgText(markupSelectedDrawing?.fileName ?? "Drawing source saved in blake.")}</text>`;
     const pipeSvg = snapshot.pipes.map((pipe) => {
       const points = pipe.points.map((point) => `${point.x},${point.y}`).join(" ");
       const colour = escapeSvgText(markupPipeColour(pipe.material, pipe.diameter, pipe.service));
@@ -5757,7 +5757,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
           documentId: snapshotDocument.id,
-          actor: "Blake Takeoff",
+          actor: "Ayla Takeoff",
         }),
       });
       if (!response.ok) {
@@ -6155,7 +6155,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       });
       if (!response.ok) {
         const body = (await response.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Unable to run Blake BOQ review");
+        throw new Error(body.error ?? "Unable to run Ayla BOQ review");
       }
       const result = (await response.json()) as {
         project: TakeoffProject;
@@ -6175,7 +6175,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
           : `Blake drafted review for ${result.generated.billLines} bill item(s): ${result.generated.ancillaries} ancillar${result.generated.ancillaries === 1 ? "y" : "ies"}, ${result.generated.labour} labour suggestion(s). Review below, then Apply.`,
       );
     } catch (blakeError) {
-      setError(blakeError instanceof Error ? blakeError.message : "Unable to run Blake BOQ review");
+      setError(blakeError instanceof Error ? blakeError.message : "Unable to run Ayla BOQ review");
     } finally {
       setIsBlakeReviewing(false);
     }
@@ -6755,7 +6755,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
             approvedBy: "Office review",
           },
         });
-        if (!approvedProject) throw new Error("Unable to approve Takeoff project before pushing into Blake.");
+        if (!approvedProject) throw new Error("Unable to approve Takeoff project before pushing into blake.");
         projectToPush = approvedProject;
       }
 
@@ -6800,7 +6800,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         status={(
           <span className={`takeoff-chrome-pill ${aiStatus?.connected ? "on" : ""}`}>
             <Sparkles size={13} />
-            {aiStatus?.connected ? (aiStatus.model || "Blake ready") : "AI optional"}
+            {aiStatus?.connected ? (aiStatus.model || "Ayla ready") : "AI optional"}
           </span>
         )}
         actions={(
@@ -9145,12 +9145,12 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       <BuddyCharacter
                         mood={isBlakeReviewing ? "thinking" : blakeBoqDraft ? "guide" : "idle"}
                         size="md"
-                        title="Blake"
+                        title="Ayla"
                       />
                       <div>
                         <h2>Bill of quantities</h2>
                         <p>
-                          Blake reviews each bill item against your drawings. He does not restate lengths already on the bill
+                          Ayla reviews each bill item against your drawings. He does not restate lengths already on the bill
                           (e.g. 49m gutters) — he works out ancillaries like clips, then labour as hours per metre / Nr.
                         </p>
                       </div>
@@ -9177,7 +9177,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         onClick={() => runBlakeBoqReview(false)}
                       >
                         <Sparkles size={15} />
-                        {isBlakeReviewing ? "Blake reviewing…" : "Ask Ayla to review bill"}
+                        {isBlakeReviewing ? "Ayla reviewing…" : "Ask Ayla to review bill"}
                       </button>
                       <button
                         className="takeoff-secondary-button"
@@ -9186,7 +9186,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         onClick={() => runBlakeBoqReview(true)}
                       >
                         <CheckCircle2 size={15} />
-                        Apply Blake suggestions
+                        Apply Ayla suggestions
                       </button>
                       <button
                         className="takeoff-small-button"
@@ -9204,7 +9204,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                     </div>
                     {!selectedProject.materialAllowances.length ? (
                       <p className="takeoff-boq-next-step">
-                        Upload BOQ Excel + drawings in Intake first. Blake then reviews each bill line for clips, brackets and man-hours.
+                        Upload BOQ Excel + drawings in Intake first. Ayla then reviews each bill line for clips, brackets and man-hours.
                       </p>
                     ) : markupNeedsCalibrationNudge(workingServicesMarkup) ? (
                       <div className="takeoff-boq-next-step warn">
@@ -9229,8 +9229,8 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                     <article className="takeoff-panel takeoff-blake-review-panel">
                       <PanelTitle
                         icon={Sparkles}
-                        title="Blake bill review"
-                        action={`${blakeReviewProvider || "Blake"} · ${blakeBoqDraft.confidence}`}
+                        title="Ayla bill review"
+                        action={`${blakeReviewProvider || "Ayla"} · ${blakeBoqDraft.confidence}`}
                       />
                       <p className="takeoff-blake-review-summary">{blakeBoqDraft.summary}</p>
                       <div className="takeoff-blake-review-list">
@@ -9275,7 +9275,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       </div>
                       {blakeBoqDraft.questions.length ? (
                         <div className="takeoff-blake-questions">
-                          <strong>Blake still wants to confirm</strong>
+                          <strong>Ayla still wants to confirm</strong>
                           <ul>
                             {blakeBoqDraft.questions.map((question) => (
                               <li key={question}>{question}</li>
@@ -9311,7 +9311,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           <div className="takeoff-material-desc">
                             <input value={line.description} onChange={(event) => updateMaterial(line.id, { description: event.target.value })} />
                             {line.blakeNote ? <small>{line.blakeNote}</small> : null}
-                            {line.parentMaterialId ? <small>Blake ancillary</small> : null}
+                            {line.parentMaterialId ? <small>Ayla ancillary</small> : null}
                           </div>
                           <input type="number" value={line.quantity} onChange={(event) => updateMaterial(line.id, { quantity: numberFromInput(event.target.value) })} />
                           <input value={line.unit} onChange={(event) => updateMaterial(line.id, { unit: event.target.value })} />

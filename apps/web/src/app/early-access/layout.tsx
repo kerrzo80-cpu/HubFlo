@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "NeXa · Company Production Early Access",
     description:
-      "Paid early access to the full NeXa package: Core through Field, Blake AI, backups, and a clear ops checklist.",
+      "Paid early access to the full NeXa package: Core through Field, Ayla AI, backups, and a clear ops checklist.",
     url: "/early-access",
     siteName: "NeXa",
     type: "website",

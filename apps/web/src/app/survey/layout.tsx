@@ -4,7 +4,7 @@ import "./survey.css";
 
 export const metadata: Metadata = {
   title: "Survey",
-  description: "Site capture, Blake assistance and AI estimate packs.",
+  description: "Site capture, Ayla assistance and AI estimate packs.",
   applicationName: "Survey",
   manifest: "/api/manifest/survey",
   appleWebApp: {

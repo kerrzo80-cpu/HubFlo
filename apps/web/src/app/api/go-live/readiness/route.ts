@@ -77,7 +77,7 @@ export async function GET(request: Request) {
       label: openaiConnected ? `OpenAI key via ${openaiSource}` : "OpenAI key missing",
       detail: openaiConnected
         ? "Blake / Survey / Takeoff AI can resolve a key (env preferred, then in-app)."
-        : "Set OPENAI_API_KEY / NEXA_OPENAI_API_KEY on Render, or paste a key in Setup → Blake AI.",
+        : "Set OPENAI_API_KEY / NEXA_OPENAI_API_KEY on Render, or paste a key in Setup → Ayla AI.",
     },
     {
       id: "backup",

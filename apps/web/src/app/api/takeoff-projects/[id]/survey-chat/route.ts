@@ -377,7 +377,7 @@ async function runOpenAiSurveyChat(project: TakeoffProject, nextMessages: Takeof
           content: [{
             type: "input_text",
             text: [
-              "You are Ayla, Blake AI Estimator for a UK plumbing, heating and bathroom contractor.",
+              "You are Ayla, AI Estimator for a UK plumbing, heating and bathroom contractor.",
               "Run a live survey-to-quote conversation. Be practical, commercial and specific.",
               "Do not use a fixed questionnaire. First identify the item or system, then identify the work type, then branch your next question from that.",
               "Examples: radiator like-for-like means ask isolation valves, drain-down, TRVs, inhibitor and system type; radiator relocation means ask new position, pipe route, floor type, route length and heat loss.",

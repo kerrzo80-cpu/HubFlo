@@ -757,7 +757,7 @@ export async function POST(
             quantity: hit.quantity,
             method: hit.method || "vector-length",
             confidence: hit.confidence || "Low",
-            notes: hit.notes || "Blake AI estimate for pipe/area — verify on the drawing",
+            notes: hit.notes || "Ayla AI estimate for pipe/area — verify on the drawing",
           };
         });
       }
