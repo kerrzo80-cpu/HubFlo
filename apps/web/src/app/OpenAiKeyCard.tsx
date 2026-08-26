@@ -50,7 +50,7 @@ export function OpenAiKeyCard() {
       }
       if (data) setStatus(data);
       setKeyDraft("");
-      setMessage("OpenAI connected — Blake is now live across Core, Field, Survey and Takeoff.");
+      setMessage("OpenAI connected — Ayla is now live across Core, Field, Survey and Takeoff.");
     } catch {
       setError("Network error while saving the key.");
     } finally {
@@ -87,20 +87,20 @@ export function OpenAiKeyCard() {
             mood={connected ? "good" : "alert"}
             size="md"
             interactive={false}
-            title="Blake"
+            title="Ayla"
           />
         </span>
         <div>
-          <span className="ai-key-card__eyebrow">Blake AI backbone</span>
-          <h2>Blake AI · OpenAI</h2>
+          <span className="ai-key-card__eyebrow">Ayla AI backbone</span>
+          <h2>Ayla AI · OpenAI</h2>
           <p>
-            One key powers Blake across the stack — Core assistant, Survey packs, Field Ask Blake, Heat Design and
+            One key powers Ayla across the stack — Core assistant, Survey packs, Field Ask Ayla, Heat Design and
             Takeoff.
           </p>
         </div>
         <span className={`ai-key-card__status ${connected ? "is-on" : "is-off"}`}>
           {connected ? <Check size={14} /> : <TriangleAlert size={14} />}
-          {connected ? "Blake live" : "Not connected"}
+          {connected ? "Ayla live" : "Not connected"}
         </span>
       </header>
 
@@ -112,7 +112,7 @@ export function OpenAiKeyCard() {
           </p>
         ) : (
           <p className="ai-key-card__note">
-            Paste an OpenAI API key to switch Blake AI on instantly — no redeploy required. Stored securely in your
+            Paste an OpenAI API key to switch Ayla AI on instantly — no redeploy required. Stored securely in your
             workspace and never shown again.
           </p>
         )}
@@ -140,9 +140,9 @@ export function OpenAiKeyCard() {
             {busy ? (
               <Loader2 size={16} className="spin" />
             ) : (
-              <BuddyCharacter mood="thinking" size="sm" interactive={false} title="Blake" />
+              <BuddyCharacter mood="thinking" size="sm" interactive={false} title="Ayla" />
             )}
-            {status?.hasInAppKey ? "Update key" : "Connect Blake"}
+            {status?.hasInAppKey ? "Update key" : "Connect Ayla"}
           </button>
         </div>
 

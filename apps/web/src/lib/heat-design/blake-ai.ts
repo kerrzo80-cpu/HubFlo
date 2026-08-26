@@ -137,7 +137,7 @@ function normalisePipeSizes(raw: unknown, layout?: HeatingSystemLayout | null): 
     out.push({
       pipeId,
       diameterMm,
-      reason: String(item.reason || "").trim() || "Blake AI size proposal",
+      reason: String(item.reason || "").trim() || "Ayla AI size proposal",
     });
   }
   return out;

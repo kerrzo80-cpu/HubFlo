@@ -61,11 +61,11 @@ export default function BlakeKnowledgePage() {
       if (scope !== "all") params.set("scope", scope);
       const response = await fetch(`/api/blake/knowledge?${params.toString()}`, { credentials: "include", cache: "no-store" });
       const payload = await response.json() as { items?: KnowledgeItem[]; error?: string };
-      if (!response.ok) throw new Error(payload.error || "Blake Knowledge could not be loaded.");
+      if (!response.ok) throw new Error(payload.error || "Ayla Knowledge could not be loaded.");
       setItems(payload.items ?? []);
       if (selectedId && !(payload.items ?? []).some((item) => item.id === selectedId)) setSelectedId(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Blake Knowledge could not be loaded.");
+      setError(reason instanceof Error ? reason.message : "Ayla Knowledge could not be loaded.");
     } finally {
       setBusy(false);
     }
@@ -115,7 +115,7 @@ export default function BlakeKnowledgePage() {
       if (!response.ok) throw new Error(payload.error || "Knowledge could not be archived.");
       setItems((current) => current.filter((item) => item.id !== selected.id));
       setSelectedId(null);
-      setNotice("Blake has forgotten that active rule. Its audit history is retained.");
+      setNotice("Ayla has forgotten that active rule. Its audit history is retained.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Knowledge could not be archived.");
     } finally {
@@ -127,8 +127,8 @@ export default function BlakeKnowledgePage() {
     <main className={styles.page}>
       <header className={styles.header}>
         <div>
-          <Link href="/blake" className={styles.back}><ArrowLeft size={16} /> Blake</Link>
-          <div className={styles.heading}><Brain size={24} /><div><h1>Blake Knowledge</h1><p>What Blake has been taught, scoped and governed by NeXa.</p></div></div>
+          <Link href="/blake" className={styles.back}><ArrowLeft size={16} /> Ayla</Link>
+          <div className={styles.heading}><Brain size={24} /><div><h1>Ayla Knowledge</h1><p>What Ayla has been taught, scoped and governed by NeXa.</p></div></div>
         </div>
         <button className={styles.secondary} onClick={() => void load()} disabled={busy}><RefreshCw size={16} /> Refresh</button>
       </header>
@@ -153,7 +153,7 @@ export default function BlakeKnowledgePage() {
               <small>v{item.version} · {item.createdBy} · {when(item.updatedAt)}</small>
             </button>
           ))}
-          {!items.length && !busy ? <div className={styles.empty}>No matching active Blake knowledge.</div> : null}
+          {!items.length && !busy ? <div className={styles.empty}>No matching active Ayla knowledge.</div> : null}
         </section>
 
         <aside className={styles.detail}>

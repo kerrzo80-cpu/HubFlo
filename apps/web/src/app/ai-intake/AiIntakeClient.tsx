@@ -583,7 +583,7 @@ export function AiIntakeClient() {
         phone: phone || undefined,
         email: email || undefined,
         primaryContact: name.trim(),
-        source: `Blake AI ${modeLabel(recordMode).toLowerCase()} intake`,
+        source: `Ayla AI ${modeLabel(recordMode).toLowerCase()} intake`,
         actor: "Carol",
         serviceLine: workType.trim() || "New work",
         status: "Prospect",
@@ -629,7 +629,7 @@ export function AiIntakeClient() {
         email: fieldValue(fields, "email"),
         notes: selectedClient
           ? `Existing client ${selectedClient.name}; new site via Blake`
-          : "Captured via Blake AI intake",
+          : "Captured via Ayla AI intake",
       },
     };
 
@@ -795,10 +795,10 @@ export function AiIntakeClient() {
 
   const brandSubtitle =
     recordMode === "quote"
-      ? "Blake AI intake · creates a real quote in Core"
+      ? "Ayla AI intake · creates a real quote in Core"
       : recordMode === "job"
-        ? "Blake AI intake · creates a real job in Core"
-        : "Blake AI intake · creates a real lead in Core";
+        ? "Ayla AI intake · creates a real job in Core"
+        : "Ayla AI intake · creates a real lead in Core";
 
   return (
     <div className="ai-first-root">

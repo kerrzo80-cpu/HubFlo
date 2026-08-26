@@ -58,7 +58,7 @@ export async function POST(request: Request) {
     const access = getAccessProfileFromHeaders(request.headers);
     const canChat = access.showSchedule || access.showQuotes || access.showJobs || access.canCustomize || access.showFinance;
     if (!canChat) {
-      return NextResponse.json({ error: "Your role cannot use Blake." }, { status: 403 });
+      return NextResponse.json({ error: "Your role cannot use Ayla." }, { status: 403 });
     }
     const payload = await parseJsonRequestBody<AssistantRequest>(request);
     if (!payload) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
@@ -125,7 +125,7 @@ export async function POST(request: Request) {
     }
 
     const rawMessage = payload.message?.trim();
-    if (!rawMessage) return NextResponse.json({ error: "Ask Blake a question first." }, { status: 400 });
+    if (!rawMessage) return NextResponse.json({ error: "Ask Ayla a question first." }, { status: 400 });
     const history = Array.isArray(payload.history)
       ? payload.history
         .filter((item): item is BlakeHistoryMessage => Boolean(item && (item.role === "user" || item.role === "assistant") && typeof item.text === "string"))
@@ -198,7 +198,7 @@ export async function GET(request: Request) {
   const access = getAccessProfileFromHeaders(request.headers);
   const canChat = access.showSchedule || access.showQuotes || access.showJobs || access.canCustomize || access.showFinance;
   if (!canChat) {
-    return NextResponse.json({ error: "Your role cannot use Blake." }, { status: 403 });
+    return NextResponse.json({ error: "Your role cannot use Ayla." }, { status: 403 });
   }
   const url = new URL(request.url);
   const { loadBlakeMemoryForScreen } = await import("@/lib/blake-record-memory");

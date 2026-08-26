@@ -17,7 +17,7 @@ type Message = {
 type Chat = { id: string; title: string; createdAt: string; updatedAt: string; messages: Message[] };
 type AssistantResponse = { reply?: string; error?: string; aiUsed?: boolean; action?: MessageAction };
 
-const WELCOME = "I’m Blake. Ask me anything about your authorised NeXa workspace, or think something through with me just as you would in ChatGPT.";
+const WELCOME = "I’m Ayla. Ask me anything about your authorised blake. workspace, or think something through with me just as you would in ChatGPT.";
 
 export default function BlakeChatPage() {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -55,12 +55,12 @@ export default function BlakeChatPage() {
     try {
       const response = await fetch("/api/blake/chats", { credentials: "include" });
       const payload = await response.json() as { chats?: Chat[]; error?: string };
-      if (!response.ok) throw new Error(payload.error || "Could not load your Blake chats.");
+      if (!response.ok) throw new Error(payload.error || "Could not load your Ayla chats.");
       const loaded = payload.chats || [];
       setChats(loaded);
       if (loaded[0]) setActiveId(loaded[0].id);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not load your Blake chats.");
+      setError(caught instanceof Error ? caught.message : "Could not load your Ayla chats.");
     } finally {
       setLoading(false);
     }
@@ -150,7 +150,7 @@ export default function BlakeChatPage() {
           message: text,
           history: chat.messages.slice(-30).map((message) => ({ role: message.role, text: message.text })),
           sourceRoute: "/blake",
-          sourcePage: "Blake chat",
+          sourcePage: "Ayla chat",
           channel: "web_text",
           conversationId: chat.id,
         }),
@@ -166,7 +166,7 @@ export default function BlakeChatPage() {
       };
       await persist({ ...withUser, messages: [...withUser.messages, assistantMessage] });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Blake could not complete that request.");
+      setError(caught instanceof Error ? caught.message : "Ayla could not complete that request.");
     } finally {
       setBusy(false);
     }
@@ -206,7 +206,7 @@ export default function BlakeChatPage() {
           <button className={styles.mobileClose} onClick={() => setSidebarOpen(false)} aria-label="Close chats"><X size={19} /></button>
         </div>
         <button className={styles.newChat} onClick={() => void newChat()}><Plus size={18} /> New chat</button>
-        <nav className={styles.chatList} aria-label="Your Blake chats">
+        <nav className={styles.chatList} aria-label="Your Ayla chats">
           {chats.map((chat) => (
             <div className={`${styles.chatRow} ${active?.id === chat.id ? styles.activeChat : ""}`} key={chat.id}>
               <button className={styles.chatSelect} onClick={() => { setActiveId(chat.id); setSidebarOpen(false); }}>
@@ -223,7 +223,7 @@ export default function BlakeChatPage() {
             </div>
           ))}
         </nav>
-        <p className={styles.permissionNote}>Chats are private to your profile. Blake only uses the NeXa areas your role can access.</p>
+        <p className={styles.permissionNote}>Chats are private to your profile. Ayla only uses the blake. areas your role can access.</p>
       </aside>
 
       {sidebarOpen ? <button className={styles.backdrop} onClick={() => setSidebarOpen(false)} aria-label="Close chats" /> : null}
@@ -231,7 +231,7 @@ export default function BlakeChatPage() {
       <section className={styles.workspace}>
         <header className={styles.header}>
           <button className={styles.mobileMenu} onClick={() => setSidebarOpen(true)} aria-label="Open chats"><Menu size={20} /></button>
-          <div><strong>Blake</strong><span>{active?.title || "New conversation"}</span></div>
+          <div><strong>Ayla</strong><span>{active?.title || "New conversation"}</span></div>
           <span className={styles.status}><i /> Connected to NeXa</span>
         </header>
 
@@ -239,7 +239,7 @@ export default function BlakeChatPage() {
           {loading ? <p className={styles.loading}>Loading your chats…</p> : null}
           {!loading && !active?.messages.length ? (
             <div className={styles.empty}>
-              <div className={styles.blakeMark}>B</div>
+              <div className={styles.blakeMark}>A</div>
               <h1>What can I help with?</h1>
               <p>{WELCOME}</p>
               <div className={styles.prompts}>
@@ -252,7 +252,7 @@ export default function BlakeChatPage() {
           ) : null}
           {active?.messages.map((message) => (
             <article className={`${styles.message} ${message.role === "user" ? styles.userMessage : styles.assistantMessage}`} key={message.id}>
-              {message.role === "assistant" ? <div className={styles.avatar}>B</div> : null}
+              {message.role === "assistant" ? <div className={styles.avatar}>A</div> : null}
               <div className={styles.messageBody}>
                 <p>{message.text}</p>
                 {message.action ? (
@@ -265,7 +265,7 @@ export default function BlakeChatPage() {
               </div>
             </article>
           ))}
-          {busy ? <div className={`${styles.message} ${styles.assistantMessage}`}><div className={styles.avatar}>B</div><p className={styles.thinking}>Blake is working across NeXa…</p></div> : null}
+          {busy ? <div className={`${styles.message} ${styles.assistantMessage}`}><div className={styles.avatar}>A</div><p className={styles.thinking}>Ayla is working across blake.…</p></div> : null}
           <div ref={endRef} />
         </div>
 
@@ -277,13 +277,13 @@ export default function BlakeChatPage() {
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }}
-              placeholder="Message Blake"
-              aria-label="Message Blake"
+              placeholder="Message Ayla"
+              aria-label="Message Ayla"
               rows={1}
             />
             <button type="submit" disabled={!draft.trim() || busy} aria-label="Send"><Send size={19} /></button>
           </form>
-          <small>Blake can read only what your NeXa role permits. Operational and commercial changes require confirmation.</small>
+          <small>Ayla can read only what your blake. role permits. Operational and commercial changes require confirmation.</small>
         </div>
       </section>
     </main>

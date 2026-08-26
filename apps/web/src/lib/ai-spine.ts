@@ -82,7 +82,7 @@ function rulePlan(brief: AiSpineBrief): SpinePlan {
     emitterMode: brief.emitterMode || (mixed ? "mixed" : ufh ? "ufh" : "radiators"),
     summary: "Spine opened from brief (rule plan).",
     narrative:
-      "Created linked Heat Design + Takeoff from the brief. Draw rooms / upload drawings, Ask Blake, then Push to quote.",
+      "Created linked Heat Design + Takeoff from the brief. Draw rooms / upload drawings, Ask Ayla, then Push to quote.",
     clarifyingQuestions: [
       "Confirm plant type and flow temperature on Heat Design.",
       "Upload the floor plan PDF into Takeoff and set scale.",
@@ -113,7 +113,7 @@ async function planSpineWithAi(brief: AiSpineBrief): Promise<SpinePlan> {
           {
             role: "system",
             content:
-              "Return JSON only. You are Blake planning a UK heating job handoff across Heat Design and Takeoff.",
+              "Return JSON only. You are Ayla planning a UK heating job handoff across Heat Design and Takeoff.",
           },
           {
             role: "user",
@@ -159,7 +159,7 @@ async function planSpineWithAi(brief: AiSpineBrief): Promise<SpinePlan> {
       summary: String(parsed.summary || "").trim() || "Blake opened the job spine.",
       narrative:
         String(parsed.narrative || "").trim()
-        || "Linked Heat Design and Takeoff are ready — continue the steps Blake listed.",
+        || "Linked Heat Design and Takeoff are ready — continue the steps Ayla listed.",
       clarifyingQuestions,
       aiUsed: true,
       connected: true,
@@ -198,7 +198,7 @@ export async function runAiSpine(brief: AiSpineBrief): Promise<AiSpineResult> {
     linkedJobRef: brief.linkedJobRef,
   });
 
-  // Seed a starter layout so Ask Blake / Send to Takeoff have plant context even before rooms.
+  // Seed a starter layout so Ask Ayla / Send to Takeoff have plant context even before rooms.
   const layout = seedHeatingLayout(heat, plan.systemOptionId, plan.emitterMode);
   heat = saveHeatDesignProject({
     ...heat,
@@ -234,17 +234,17 @@ export async function runAiSpine(brief: AiSpineBrief): Promise<AiSpineResult> {
   const steps: AiSpineStep[] = [
     {
       id: "heat",
-      label: "Heat Design — rooms & Ask Blake",
+      label: "Heat Design — rooms & Ask Ayla",
       href: `/heat-design?projectId=${encodeURIComponent(heat.id)}`,
       status: "next",
-      detail: "Draw/survey rooms, confirm system, Ask Blake for kit + sizes.",
+      detail: "Draw/survey rooms, confirm system, Ask Ayla for kit + sizes.",
     },
     {
       id: "takeoff",
       label: "Takeoff — upload drawing & measure",
       href: `/takeoff?projectId=${encodeURIComponent(takeoff.id)}`,
       status: "ready",
-      detail: "Upload PDF, set scale, Ask Blake / Propose, then Push.",
+      detail: "Upload PDF, set scale, Ask Ayla / Propose, then Push.",
     },
     {
       id: "survey",

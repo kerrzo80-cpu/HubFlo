@@ -95,7 +95,7 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
   } catch {
     const snippet = text.replace(/\s+/g, " ").trim().slice(0, 160);
     if (response.status === 502 || /<!DOCTYPE html>|>\s*502\s*</i.test(text)) {
-      throw new Error("Upload failed on the live server (502). Blake is compressing photos before upload — try again after refresh, one photo at a time.");
+      throw new Error("Upload failed on the live server (502). Ayla is compressing photos before upload — try again after refresh, one photo at a time.");
     }
     throw new Error(
       response.ok
@@ -503,7 +503,7 @@ export default function SimpleSurveyWorkspacePage() {
         }
       }
       setNoticeTone(body.aiUsed ? "ok" : "warn");
-      setNotice(body.summary || (body.aiUsed ? "Blake built the cost centres." : "Rule-based draft ready — check OpenAI status above."));
+      setNotice(body.summary || (body.aiUsed ? "Ayla built the cost centres." : "Rule-based draft ready — check OpenAI status above."));
     } catch (generateError) {
       setError(generateError instanceof Error ? generateError.message : "Unable to generate cost centres.");
     } finally {
@@ -571,7 +571,7 @@ export default function SimpleSurveyWorkspacePage() {
     ? `/takeoff?projectId=${encodeURIComponent(survey.legacyTakeoffProjectId)}&tab=boq`
     : "/takeoff?tab=boq";
   const buddyQuestions = survey.answers.filter((answer) =>
-    answer.section === "Blake checks" || answer.section === "Buddy checks",
+    answer.section === "Ayla checks" || answer.section === "Buddy checks",
   );
   const openBuddyQuestions = buddyQuestions.filter((answer) => !String(answer.value || "").trim());
 
@@ -610,13 +610,13 @@ export default function SimpleSurveyWorkspacePage() {
               mood={aiStatus == null ? "thinking" : aiStatus.connected ? "good" : "alert"}
               size="sm"
               interactive={false}
-              title="Blake"
+              title="Ayla"
             />
             {aiStatus == null
-              ? "Checking Blake…"
+              ? "Checking Ayla…"
               : aiStatus.connected
-                ? `Blake ready · ${aiStatus.model || "OpenAI"}`
-                : "Blake key missing"}
+                ? `Ayla ready · ${aiStatus.model || "OpenAI"}`
+                : "Ayla key missing"}
           </span>
           <span className={`survey-simple-save ${saveState.toLowerCase()}`}>
             {saveState === "Saving" ? <Loader2 className="spin" size={14} /> : saveState === "Saved" ? <CheckCircle2 size={14} /> : <Save size={14} />}
@@ -629,14 +629,14 @@ export default function SimpleSurveyWorkspacePage() {
 
       <section className="survey-simple-stage">
         <div className="survey-simple-hero">
-          <p className="survey-simple-eyebrow">Blake · survey backbone</p>
+          <p className="survey-simple-eyebrow">Ayla · survey backbone</p>
           <h1>Site survey</h1>
-          <p>Capture photos and drawings first. Link the Core record, add the works note, then let Blake build cost centres and RFQ checks.</p>
+          <p>Capture photos and drawings first. Link the Core record, add the works note, then let Ayla build cost centres and RFQ checks.</p>
         </div>
 
         {aiStatus && !aiStatus.connected ? (
           <p className="survey-simple-warning">
-            OpenAI is not connected. Add your key in Core → Setup → Integrations → Blake AI, or set <code>{aiStatus.keyName || "OPENAI_API_KEY"}</code> in this environment and redeploy.
+            OpenAI is not connected. Add your key in Core → Setup → Integrations → Ayla AI, or set <code>{aiStatus.keyName || "OPENAI_API_KEY"}</code> in this environment and redeploy.
           </p>
         ) : null}
         {notice ? <p className={noticeTone === "warn" ? "survey-simple-warning" : "survey-simple-notice"}>{notice}</p> : null}
@@ -700,7 +700,7 @@ export default function SimpleSurveyWorkspacePage() {
           <header>
             <div>
               <p>
-                Connect this survey to the quote (or lead/job) in Blake Core. Customer and site can prefill from that record —
+                Connect this survey to the quote (or lead/job) in Ayla Core. Customer and site can prefill from that record —
                 you should not re-type them as a disconnected draft.
               </p>
             </div>
@@ -721,7 +721,7 @@ export default function SimpleSurveyWorkspacePage() {
               </button>
             </div>
           ) : (
-            <p className="survey-simple-muted">Not linked yet — pick a Core quote below so Blake builds against the right record.</p>
+            <p className="survey-simple-muted">Not linked yet — pick a Core quote below so Ayla builds against the right record.</p>
           )}
 
           <div className="survey-simple-link-type-row" role="tablist" aria-label="Core link type">
@@ -823,9 +823,9 @@ export default function SimpleSurveyWorkspacePage() {
             {generating ? (
               <Loader2 className="spin" size={17} />
             ) : (
-              <BuddyCharacter mood={costCentres.length ? "guide" : "thinking"} size="sm" interactive={false} title="Blake" />
+              <BuddyCharacter mood={costCentres.length ? "guide" : "thinking"} size="sm" interactive={false} title="Ayla" />
             )}
-            {generating ? "Blake building…" : costCentres.length ? "Rebuild with Blake" : "Ask Blake for cost centres"}
+            {generating ? "Ayla building…" : costCentres.length ? "Rebuild with Ayla" : "Ask Ayla for cost centres"}
           </button>
           <button
             type="button"
@@ -849,13 +849,13 @@ export default function SimpleSurveyWorkspacePage() {
           <section className="survey-simple-buddy">
             <header>
               <h2>
-                <BuddyCharacter mood={openBuddyQuestions.length ? "alert" : "good"} size="sm" title="Blake" />
-                Blake checks
+                <BuddyCharacter mood={openBuddyQuestions.length ? "alert" : "good"} size="sm" title="Ayla" />
+                Ayla checks
               </h2>
               <p>
                 {openBuddyQuestions.length
-                  ? `Blake needs ${openBuddyQuestions.length} answer${openBuddyQuestions.length === 1 ? "" : "s"} before the RFQ is tight. Answer below, then rebuild with Blake.`
-                  : "Blake’s checks are answered. Rebuild with Blake to tighten materials and labour."}
+                  ? `Ayla needs ${openBuddyQuestions.length} answer${openBuddyQuestions.length === 1 ? "" : "s"} before the RFQ is tight. Answer below, then rebuild with Ayla.`
+                  : "Ayla’s checks are answered. Rebuild with Ayla to tighten materials and labour."}
               </p>
             </header>
             <div className="survey-simple-buddy-list">

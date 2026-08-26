@@ -393,7 +393,7 @@ async function aiIntent(message: string, employees: Employee[], now: Date): Prom
             role: "system",
             content: [{
               type: "input_text",
-              text: `Extract a Blake intent. Use report_fault or suggest_improvement when the user wants to log a NeXa product fault/improvement. Use scheduling actions only for diaries/bookings. Otherwise use action "chat". Today is ${now.toISOString().slice(0, 10)}. UK date order is day/month/year. Employees: ${employees.map((employee) => employee.name).join(", ")}. Never silently repair a weekday/date mismatch.`,
+              text: `Extract a Ayla intent. Use report_fault or suggest_improvement when the user wants to log a NeXa product fault/improvement. Use scheduling actions only for diaries/bookings. Otherwise use action "chat". Today is ${now.toISOString().slice(0, 10)}. UK date order is day/month/year. Employees: ${employees.map((employee) => employee.name).join(", ")}. Never silently repair a weekday/date mismatch.`,
             }],
           },
           { role: "user", content: [{ type: "input_text", text: message }] },
@@ -578,31 +578,31 @@ function deterministicBusinessReply(message: string): string | null {
   const context = buildWorkspaceContext();
 
   if (/\b(hello|hi|hey|good (morning|afternoon|evening))\b/i.test(message)) {
-    return `Hi — I'm Ayla, your Blake business assistant. I can check the diary, quote pipeline, jobs, tenders and follow-ups using live Blake data. What do you need?`;
+    return `Hi — I'm Ayla, your Ayla business assistant. I can check the diary, quote pipeline, jobs, tenders and follow-ups using live Ayla data. What do you need?`;
   }
 
   if (/\b(help|what can you)\b/i.test(message)) {
     return [
-      "I can help with live Blake questions such as:",
+      "I can help with live Ayla questions such as:",
       "• When is an engineer available?",
       "• Which quotes need follow-up?",
       "• Which jobs are open or unscheduled?",
       "• Which jobs are over their labour allowance?",
-      "• Open a tender or job and ask me to walk through the BoQ, or “price this bill” (rate library + Blake guides — confirm before I write rates).",
+      "• Open a tender or job and ask me to walk through the BoQ, or “price this bill” (rate library + Ayla guides — confirm before I write rates).",
       "• Draft a booking — I will always ask you to confirm before writing the diary.",
     ].join("\n");
   }
 
   if (/\b(quote|quotation).*(follow|outstanding|pipeline|not followed)|follow.?up.*quote/i.test(lower)
     || /\bwhich quotes\b/i.test(lower)) {
-    if (!context.quoteFollowUps.length) return "There are no draft or sent quotes waiting for follow-up in Blake right now.";
+    if (!context.quoteFollowUps.length) return "There are no draft or sent quotes waiting for follow-up in Ayla right now.";
     return `Quotes needing attention:\n${context.quoteFollowUps
       .map((quote) => `• ${quote.ref} · ${quote.customer} · ${quote.status} · ${currency(quote.value)} · ${quote.next || quote.due}`)
       .join("\n")}`;
   }
 
   if (/\bunscheduled|not (been )?allocated|no (labour|schedule)|which jobs.*(free|open)/i.test(lower)) {
-    if (!context.unscheduledJobs.length) return "Every open job currently has a scheduled date in Blake.";
+    if (!context.unscheduledJobs.length) return "Every open job currently has a scheduled date in blake.";
     return `Open jobs without a scheduled date:\n${context.unscheduledJobs
       .map((job) => `• ${job.ref} · ${job.customer} · ${job.description}`)
       .join("\n")}`;
@@ -662,7 +662,7 @@ async function conversationalReply(
 
   try {
     const system = [
-      `You are Blake, the universal AI operating layer inside NeXa for ${displayCompanyName(getHubDetailState().businessSettings)}.`,
+      `You are Ayla, the universal AI operating layer inside blake. for ${displayCompanyName(getHubDetailState().businessSettings)}.`,
       "Talk naturally like a capable ChatGPT colleague. Understand follow-up questions from conversation; do not force users into forms or repeat questions they have answered.",
       "Use the available NeXa tools whenever live records, figures, reports, invoices, profitability, customers or schedules are needed. Do not guess live facts from general knowledge.",
       "Explain tool results in clear business English and answer the actual question. If records lack reliable cost data, say so explicitly rather than presenting a false margin.",
@@ -696,7 +696,7 @@ async function conversationalReply(
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ model, temperature: 0.2, messages, tools: tools.length ? tools : undefined, tool_choice: tools.length ? "auto" : undefined }),
       });
-      if (!response.ok) return { reply: deterministic ?? "Blake could not reach the AI service just now. No Blake data was changed.", aiUsed: false };
+      if (!response.ok) return { reply: deterministic ?? "Ayla could not reach the AI service just now. No Ayla data was changed.", aiUsed: false };
       const body = await response.json() as {
         choices?: Array<{ message?: { role?: string; content?: string | null; tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }> } }>;
       };
@@ -713,14 +713,14 @@ async function conversationalReply(
         try { input = JSON.parse(call.function.arguments || "{}"); } catch { input = {}; }
         const result = coreContext
           ? await blakeCore.execute(call.function.name, input, coreContext)
-          : { ok: false, error: { message: "No trusted Blake context is available." } };
+          : { ok: false, error: { message: "No trusted Ayla context is available." } };
         messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
       }
     }
     return { reply: "I reached the tool-call limit for that request. Nothing was changed; please narrow the question slightly.", aiUsed: true };
   } catch {
     return {
-      reply: deterministic ?? "Blake hit a temporary error talking to the AI service. Your Blake data was not changed.",
+      reply: deterministic ?? "Ayla hit a temporary error talking to the AI service. Your Ayla data was not changed.",
       aiUsed: false,
     };
   }
@@ -990,7 +990,7 @@ function offerBudgetPrices(
       kind: "confirm_budget_prices",
       title: forceRefresh ? `Refresh guides · ${record.tender.name}` : `Price BoQ · ${record.tender.name}`,
       detail: skipped > 0 ? `${offer.detail} · skip ${skipped} out of scope` : offer.detail,
-      confirmLabel: forceRefresh ? "Refresh Blake budget prices" : "Apply Blake budget prices",
+      confirmLabel: forceRefresh ? "Refresh Ayla budget prices" : "Apply Ayla budget prices",
     },
     aiUsed: false,
   };
@@ -1061,7 +1061,7 @@ export async function handleNexaAssistantMessage(
       revenue: number; directCost: number; grossProfit: number; grossMarginPercent: number;
       acceptedQuoteValue: number; invoicesIssued: number; jobsCompleted: number; basis: string;
     }>("build_management_report", period, coreContext);
-    if (!result.ok || !result.data) return { reply: result.error?.message || "Blake could not build that report.", intent: { action: "chat" }, aiUsed: false };
+    if (!result.ok || !result.data) return { reply: result.error?.message || "Ayla could not build that report.", intent: { action: "chat" }, aiUsed: false };
     const report = result.data;
     return {
       reply: [
@@ -1110,7 +1110,7 @@ export async function handleNexaAssistantMessage(
       rows: Array<{ id: string; ref: string; customer: string; title: string; status: string; issuedDate: string; dueDate: string; total: number; owed: number }>;
     }>("list_invoices", { status, customer, asAt: now.toISOString().slice(0, 10), limit: 20 }, coreContext);
     if (!result.ok || !result.data) {
-      return { reply: result.error?.message || "Blake could not read the invoices.", intent: { action: "chat" }, aiUsed: false };
+      return { reply: result.error?.message || "Ayla could not read the invoices.", intent: { action: "chat" }, aiUsed: false };
     }
     const invoices = result.data;
     const statusLabel = status === "all" ? "invoices" : `${status} invoices`;
@@ -1269,7 +1269,7 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
   refreshPendingStore();
   const action = pendingStore.actions.find((item) => item.id === actionId);
   if (!action || action.actorId !== actor.id) {
-    return { ok: false as const, status: 404, reply: "That request has expired. Ask Blake again." };
+    return { ok: false as const, status: 404, reply: "That request has expired. Ask Ayla again." };
   }
 
   if (action.kind === "budget_prices") {
@@ -1287,20 +1287,20 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
         recordType: "tender",
         recordId: tender.id,
         summary: action.forceRefresh
-          ? `Blake Ask confirmed refresh · ${priced.targetedCount} selected · ${priced.blakeFilled} Blake · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`
-          : `Blake Ask confirmed budget prices · ${priced.targetedCount} selected · ${priced.blakeFilled} Blake · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`,
-        source: "Blake",
+          ? `Ayla Ask confirmed refresh · ${priced.targetedCount} selected · ${priced.blakeFilled} Ayla · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`
+          : `Ayla Ask confirmed budget prices · ${priced.targetedCount} selected · ${priced.blakeFilled} Ayla · ${priced.libraryFilled} library · ${priced.leftBlank} blank · £${priced.budgetTotal}`,
+        source: "Ayla",
         importance: "high",
       });
       const left = priced.leftBlank
-        ? `${priced.leftBlank} line(s) left blank because Blake was not sure — those are not free work.`
+        ? `${priced.leftBlank} line(s) left blank because Ayla was not sure — those are not free work.`
         : "No measured lines were left blank this pass.";
       return {
         ok: true as const,
         status: 200,
         reply: [
           `Guide rates written to ${tender.name}.`,
-          `FoT / priced BoQ: £${priced.budgetTotal.toFixed(2)} · ${priced.libraryFilled} library · ${priced.blakeFilled} Blake.`,
+          `FoT / priced BoQ: £${priced.budgetTotal.toFixed(2)} · ${priced.libraryFilled} library · ${priced.blakeFilled} Ayla.`,
           left,
           "Amend on Tenders → Bill before you submit. Specialist plant still wants a supplier RFQ.",
         ].join("\n"),
@@ -1310,7 +1310,7 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
       return {
         ok: false as const,
         status: 409,
-        reply: error instanceof Error ? error.message : "Unable to apply Blake budget prices.",
+        reply: error instanceof Error ? error.message : "Unable to apply Ayla budget prices.",
       };
     }
   }
@@ -1371,7 +1371,7 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
     endDate: booking.date,
     endTime: booking.endTime,
     plannedHours: booking.durationHours,
-    notes: `Scheduled by Blake for ${actor.name}.`,
+    notes: `Scheduled by Ayla for ${actor.name}.`,
   };
   const nextPlans = {
     ...plans,
@@ -1390,11 +1390,11 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
   });
   appendAuditEvent({
     actor: actor.name,
-    action: "scheduled by Blake",
+    action: "scheduled by Ayla",
     recordType: "job",
     recordId: job.id,
     summary: `${employee.name} assigned to ${booking.costCentreName} on ${formatUkDate(booking.date)} from ${booking.startTime} to ${booking.endTime}.`,
-    source: "Blake",
+    source: "Ayla",
     importance: "high",
   });
   pendingStore.actions = pendingStore.actions.filter((item) => item.id !== booking.id);

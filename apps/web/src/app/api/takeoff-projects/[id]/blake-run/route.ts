@@ -530,7 +530,7 @@ export async function POST(
     return NextResponse.json(
       {
         ok: false,
-        error: "Blake is paused briefly while the server recovers memory. Wait ~20 seconds and Ask Blake again on one drawing.",
+        error: "Blake is paused briefly while the server recovers memory. Wait ~20 seconds and Ask Ayla again on one drawing.",
       },
       { status: 503 },
     );

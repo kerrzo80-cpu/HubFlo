@@ -74,7 +74,7 @@ export default function EarlyAccessPage() {
           />
           <h1>One company package.</h1>
           <p className={styles.heroLede}>
-            Core, Survey, Takeoff, Heat Design and Field for {pack.buyer} — live ops, Blake AI and backups. Not a pile of project apps.
+            Core, Survey, Takeoff, Heat Design and Field for {pack.buyer} — live ops, Ayla AI and backups. Not a pile of project apps.
           </p>
           <div className={styles.heroActions}>
             <a className={styles.primary} href={acceptHref}>

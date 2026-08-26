@@ -106,7 +106,7 @@ export function locallyExtractLeadData(message: string, current: CreateLeadColle
 
 async function extractLeadData(message: string, current: CreateLeadCollectedData) {
   const apiKey = resolveOpenAiApiKey();
-  if (!apiKey) throw new Error("OpenAI is not connected on pilot. Your lead workflow is saved; connect Blake AI and continue.");
+  if (!apiKey) throw new Error("OpenAI is not connected on pilot. Your lead workflow is saved; connect Ayla AI and continue.");
   const model = process.env.BLAKE_MODEL?.trim() || process.env.NEXA_ASSISTANT_OPENAI_MODEL?.trim() || "gpt-4.1-mini";
   const response = await openAiFetch("https://api.openai.com/v1/responses", {
     method: "POST",

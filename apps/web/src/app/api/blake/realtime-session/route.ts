@@ -76,7 +76,7 @@ async function mintClientSecret(apiKey: string, model: string, voice: string, in
 export async function POST(request: Request) {
   const access = getAccessProfileFromHeaders(request.headers);
   if (!canUseBlake(access)) {
-    return NextResponse.json({ error: "Your role cannot use Blake Driving Mode." }, { status: 403 });
+    return NextResponse.json({ error: "Your role cannot use Ayla Driving Mode." }, { status: 403 });
   }
 
   const apiKey = resolveOpenAiApiKey();

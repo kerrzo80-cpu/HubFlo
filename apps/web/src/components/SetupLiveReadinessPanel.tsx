@@ -468,7 +468,7 @@ export function SetupLiveReadinessPanel() {
           <small>
             {openai?.envKeyName
               ? `Env ${openai.envKeyName}${openai.hasInAppKey ? " · in-app fallback saved" : ""} · model ${openai.model || "default"}`
-              : "Configure in Setup → Integrations → Blake AI"}
+              : "Configure in Setup → Integrations → Ayla AI"}
           </small>
         </article>
         <article>

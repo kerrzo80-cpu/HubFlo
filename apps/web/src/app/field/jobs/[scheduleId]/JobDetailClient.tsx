@@ -1372,7 +1372,7 @@ export default function JobDetailPage() {
       >
         <BlakeCharacter mood="guide" size="md" />
         <span className="field-blake-row-copy">
-          <strong>Ask Blake</strong>
+          <strong>Ask Ayla</strong>
           <small>Fault diagnosis, checks and next steps for this job</small>
         </span>
         <ChevronRight size={18} aria-hidden className="field-blake-row-chevron" />

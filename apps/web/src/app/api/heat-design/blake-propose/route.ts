@@ -19,7 +19,7 @@ export const runtime = "nodejs";
 
 type Body = {
   projectId?: string;
-  /** Client snapshot — Ask Blake must not race the debounced autosave. */
+  /** Client snapshot — Ask Ayla must not race the debounced autosave. */
   project?: HeatDesignProject;
   message?: string;
   regenerateLayout?: boolean;
@@ -114,7 +114,7 @@ export async function POST(request: Request) {
         recordType: "heat_design_project",
         recordId: project.id,
         summary: proposal.aiUsed
-          ? `Blake AI designed layout + kit (${proposal.layout?.pipes?.length || 0} pipes, ${proposal.kitLines.length} lines)${proposal.model ? ` · ${proposal.model}` : ""}`
+          ? `Ayla AI designed layout + kit (${proposal.layout?.pipes?.length || 0} pipes, ${proposal.kitLines.length} lines)${proposal.model ? ` · ${proposal.model}` : ""}`
           : `Blake rule design + kit (${proposal.layout?.pipes?.length || 0} pipes, ${proposal.kitLines.length} lines)`,
         source: "heat-design",
         importance: "high",

@@ -44,7 +44,7 @@ function stateLabel(state: DriveState) {
   if (state === "connecting") return "Connecting…";
   if (state === "listening") return "Listening";
   if (state === "thinking") return "Working in NeXa…";
-  if (state === "speaking") return "Blake is speaking";
+  if (state === "speaking") return "Ayla is speaking";
   if (state === "unsupported") return "Live voice isn’t supported on this browser";
   if (state === "error") return "Call issue";
   return "Ready to drive";
@@ -122,7 +122,7 @@ export default function BlakeDrivingMode() {
       body: "{}",
     });
     const payload = await response.json().catch(() => ({})) as { chat?: Chat; error?: string };
-    if (!response.ok || !payload.chat) throw new Error(payload.error || "Could not create a Blake driving conversation.");
+    if (!response.ok || !payload.chat) throw new Error(payload.error || "Could not create a Ayla driving conversation.");
     chatRef.current = payload.chat;
     historyRef.current = payload.chat.messages ?? [];
     setConversationTitle(payload.chat.title || "Driving conversation");
@@ -160,10 +160,10 @@ export default function BlakeDrivingMode() {
         output_modalities: ["audio"],
         max_output_tokens: 1600,
         instructions: [
-          "Speak the following Blake response naturally and faithfully.",
+          "Speak the following Ayla response naturally and faithfully.",
           "Do not add facts, remove figures, change names, alter references, or change whether confirmation is required.",
           "For long lists, speak clearly and use short pauses.",
-          "BLAKE RESPONSE:",
+          "AYLA RESPONSE:",
           reply,
         ].join("\n"),
       },
@@ -184,7 +184,7 @@ export default function BlakeDrivingMode() {
         message: text,
         history: historyRef.current.slice(-40).map((item) => ({ role: item.role, text: item.text })),
         sourceRoute: "/blake/drive",
-        sourcePage: "Blake Driving Mode",
+        sourcePage: "Ayla Driving Mode",
         channel: "web_voice",
         conversationId: chat.id,
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -206,7 +206,7 @@ export default function BlakeDrivingMode() {
     queueRef.current = queueRef.current
       .then(() => askNexa(cleaned, sequence))
       .catch((reason) => {
-        const message = reason instanceof Error ? reason.message : "Blake could not process that turn.";
+        const message = reason instanceof Error ? reason.message : "Ayla could not process that turn.";
         setError(message);
         if (activeRef.current && sequence === speechSequenceRef.current) speak(message);
       });
@@ -234,7 +234,7 @@ export default function BlakeDrivingMode() {
       const token = await tokenResponse.json().catch(() => ({})) as {
         clientSecret?: string; error?: string; model?: string; voice?: string;
       };
-      if (!tokenResponse.ok || !token.clientSecret) throw new Error(token.error || "Could not start Blake live voice.");
+      if (!tokenResponse.ok || !token.clientSecret) throw new Error(token.error || "Could not start Ayla live voice.");
 
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
@@ -268,7 +268,7 @@ export default function BlakeDrivingMode() {
           type: "response.create",
           response: {
             output_modalities: ["audio"],
-            instructions: "Say: ‘Blake is live. What do you need?’ Keep it to that one short sentence.",
+            instructions: "Say: ‘Ayla is live. What do you need?’ Keep it to that one short sentence.",
           },
         });
       });
@@ -315,7 +315,7 @@ export default function BlakeDrivingMode() {
       await pc.setRemoteDescription({ type: "answer", sdp: await sdpResponse.text() });
       setState("listening");
     } catch (reason) {
-      const message = reason instanceof Error ? reason.message : "Blake Driving Mode could not start.";
+      const message = reason instanceof Error ? reason.message : "Ayla Driving Mode could not start.";
       setError(message);
       await stopCall();
       setState("error");
@@ -340,7 +340,7 @@ export default function BlakeDrivingMode() {
   return (
     <main className={styles.page}>
       <header className={styles.header}>
-        <a href="/blake" className={styles.back}><ArrowLeft size={20} /> Blake</a>
+        <a href="/blake" className={styles.back}><ArrowLeft size={20} /> Ayla</a>
         <span className={styles.title}>{conversationTitle}</span>
         <span className={`${styles.liveDot} ${active ? styles.live : ""}`} aria-label={active ? "Live" : "Offline"} />
       </header>
@@ -351,7 +351,7 @@ export default function BlakeDrivingMode() {
         </div>
         <h1>{stateLabel(state)}</h1>
         <p className={styles.hint}>
-          {active ? "Keep talking naturally. Interrupt Blake whenever you need to." : "One tap starts a hands-free Blake conversation through your car audio."}
+          {active ? "Keep talking naturally. Interrupt Ayla whenever you need to." : "One tap starts a hands-free Ayla conversation through your car audio."}
         </p>
 
         {!active ? (
@@ -376,8 +376,8 @@ export default function BlakeDrivingMode() {
 
         <div className={styles.transcript} aria-live="polite">
           {heard ? <div><span>You</span><p>{heard}</p></div> : null}
-          {blakeSaid ? <div><span>Blake</span><p>{blakeSaid}</p></div> : null}
-          {!heard && !blakeSaid ? <p className={styles.empty}>Your latest exchange will appear here as a backup while Blake speaks through the car.</p> : null}
+          {blakeSaid ? <div><span>Ayla</span><p>{blakeSaid}</p></div> : null}
+          {!heard && !blakeSaid ? <p className={styles.empty}>Your latest exchange will appear here as a backup while Ayla speaks through the car.</p> : null}
         </div>
 
         {error ? <div className={styles.error}>{error}</div> : null}
