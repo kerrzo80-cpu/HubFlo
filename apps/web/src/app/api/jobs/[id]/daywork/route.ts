@@ -16,6 +16,7 @@ import {
   ensureDayworkVariationCostCentre,
   listDayworkSheetsForJob,
   reconcileDayworkVariationsFromEvidence,
+  removeDayworkSheet,
   saveDayworkSheetToHub,
 } from "@/lib/engineer-flow";
 import { getHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
@@ -213,8 +214,39 @@ export async function POST(request: Request, { params }: Params) {
     }
   }
 
+  if (body.action === "discard" || body.action === "delete") {
+    const costCentreId = body.costCentreId?.trim() || ensureDayworkVariationCostCentre(jobId);
+    const result = removeDayworkSheet({
+      jobId,
+      costCentreId,
+      allowSubmitted: true,
+    });
+    if (!result.discarded) {
+      return NextResponse.json({ error: result.reason || "Could not delete Daywork." }, { status: 400 });
+    }
+    const hubState = getHubDetailState() as HubDetailState & {
+      dayworkSheets?: Record<string, DayworkSheetSnapshot>;
+      flowStepEvidence?: Record<string, unknown>;
+      jobDeliveryEvents?: unknown[];
+      jobCostCentres?: Record<string, unknown[]>;
+    };
+    return NextResponse.json({
+      ok: true,
+      deleted: true,
+      costCentreId,
+      dayworkSheets: hubState.dayworkSheets ?? {},
+      flowStepEvidence: hubState.flowStepEvidence ?? {},
+      jobDeliveryEvents: hubState.jobDeliveryEvents ?? [],
+      jobCostCentres: hubState.jobCostCentres ?? {},
+      sheets: listDayworkSheetsForJob(jobId),
+    });
+  }
+
   if (body.action !== "save") {
-    return NextResponse.json({ error: "Unsupported action. Use action: save or send_copy." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Unsupported action. Use action: save, send_copy, discard, or delete." },
+      { status: 400 },
+    );
   }
 
   const costCentreId =

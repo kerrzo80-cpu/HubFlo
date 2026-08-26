@@ -26902,6 +26902,123 @@ export default function CoreApp() {
     showNotice("Variation approved and marked ready to proceed.");
   }
 
+  function dayworkCostCentreIdFromVariation(variation: JobVariation, jobId: string) {
+    const event = jobDeliveryEvents.find(
+      (item) => item.id === variation.id && item.jobId === jobId && item.kind === "variation",
+    );
+    if (event?.costCentreId) return event.costCentreId;
+    const prefix = `daywork-${jobId}-`;
+    if (variation.id.startsWith(prefix)) return variation.id.slice(prefix.length);
+    return `${jobId}-daywork-account`;
+  }
+
+  async function deleteSelectedJobDayworkSheet(jobId: string, costCentreId: string, label: string) {
+    if (!access.canEditJobs) {
+      showNotice("Your role cannot delete dayworks.");
+      return false;
+    }
+    if (!confirmPilotDelete(label)) return false;
+    try {
+      const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/daywork`, {
+        method: "POST",
+        credentials: "include",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", costCentreId }),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        dayworkSheets?: typeof dayworkSheets;
+        flowStepEvidence?: Record<string, EngineerFlowStepEvidenceValue>;
+        jobDeliveryEvents?: JobDeliveryEvent[];
+        jobCostCentres?: Record<string, EstimateCostCentre[]>;
+      } | null;
+      if (!response.ok) throw new Error(body?.error || "Could not delete Daywork.");
+      if (body?.dayworkSheets) setDayworkSheets(body.dayworkSheets);
+      else {
+        setDayworkSheets((current) => {
+          const next = { ...current };
+          delete next[`${jobId}:${costCentreId}`];
+          return next;
+        });
+      }
+      if (body?.flowStepEvidence) {
+        setFlowStepEvidence((current) => {
+          const next = { ...current };
+          const prefix = `${jobId}:${costCentreId}:`;
+          for (const key of Object.keys(next)) {
+            if (key.startsWith(prefix)) delete next[key];
+          }
+          return { ...next, ...body.flowStepEvidence };
+        });
+      }
+      if (body?.jobDeliveryEvents) setJobDeliveryEvents(body.jobDeliveryEvents);
+      else {
+        setJobDeliveryEvents((current) =>
+          current.filter((event) => {
+            if (event.id === `daywork-${jobId}-${costCentreId}`) return false;
+            if (event.kind === "variation" && event.jobId === jobId && event.costCentreId === costCentreId) {
+              return false;
+            }
+            return true;
+          }),
+        );
+      }
+      if (body?.jobCostCentres?.[jobId]) {
+        setJobEstimateCostCentres((current) => ({
+          ...current,
+          [jobId]: body.jobCostCentres![jobId]!,
+        }));
+      }
+      showNotice(`${label} deleted.`);
+      return true;
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Could not delete Daywork.");
+      return false;
+    }
+  }
+
+  async function deleteSelectedJobVariation(variation: JobVariation) {
+    if (!selectedJob) return;
+    if (!access.canEditJobs) {
+      showNotice("Your role cannot delete variations.");
+      return;
+    }
+    const isDaywork = variation.id.startsWith("daywork-") || variation.reason === "Daywork account";
+    const label = `${variation.reference}${variation.title ? ` · ${variation.title}` : ""}`;
+    if (isDaywork) {
+      const costCentreId = dayworkCostCentreIdFromVariation(variation, selectedJob.id);
+      await deleteSelectedJobDayworkSheet(selectedJob.id, costCentreId, label);
+      return;
+    }
+    if (!confirmPilotDelete(label)) return;
+    try {
+      const response = await fetch(
+        `/api/jobs/${encodeURIComponent(selectedJob.id)}/variations?variationEventId=${encodeURIComponent(variation.id)}`,
+        {
+          method: "DELETE",
+          credentials: "include",
+          headers: requestHeaders,
+        },
+      );
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        jobDeliveryEvents?: JobDeliveryEvent[];
+      } | null;
+      if (!response.ok) throw new Error(body?.error || "Could not delete variation.");
+      if (body?.jobDeliveryEvents) setJobDeliveryEvents(body.jobDeliveryEvents);
+      else {
+        setJobDeliveryEvents((current) =>
+          current.filter(
+            (event) => !(event.id === variation.id && event.jobId === selectedJob.id && event.kind === "variation"),
+          ),
+        );
+      }
+      showNotice(`${label} deleted.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Could not delete variation.");
+    }
+  }
+
   async function copySelectedJobVariationPortalLink(variationId: string) {
     if (typeof window === "undefined") return;
     if (!selectedJob) return;
@@ -33591,6 +33708,15 @@ export default function CoreApp() {
                       >
                         {previewingDayworkPdf ? "Opening…" : "Client PDF"}
                       </button>
+                      {access.canEditJobs ? (
+                        <button
+                          className="simpro-options-button danger"
+                          type="button"
+                          onClick={() => void deleteSelectedJobDayworkSheet(job.id, sheet.costCentreId, label)}
+                        >
+                          Delete
+                        </button>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -38164,6 +38290,25 @@ export default function CoreApp() {
                         >
                           Open daywork
                         </button>
+                        {access.canEditJobs ? (
+                          <button
+                            type="button"
+                            className="simpro-options-button danger"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              const sheets = sortDayworkSheetsByNumber(
+                                job.id,
+                                Object.values(dayworkSheets).filter((sheet) => sheet.jobId === job.id),
+                              );
+                              const first = sheets[0];
+                              const costCentreId = first?.costCentreId || `${job.id}-daywork-account`;
+                              const label = dayworkSheetListLabel(job.id, costCentreId);
+                              void deleteSelectedJobDayworkSheet(job.id, costCentreId, label);
+                            }}
+                          >
+                            Delete
+                          </button>
+                        ) : null}
                       </article>
                     ))}
                   </>
@@ -43040,6 +43185,15 @@ export default function CoreApp() {
                                     >
                                       Mark approved / proceed
                                     </button>
+                                    {access.canEditJobs ? (
+                                      <button
+                                        className="simpro-options-button danger"
+                                        type="button"
+                                        onClick={() => void deleteSelectedJobVariation(variation)}
+                                      >
+                                        Delete
+                                      </button>
+                                    ) : null}
                                   </div>
                                 </div>
                               </article>

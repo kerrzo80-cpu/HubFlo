@@ -4,6 +4,7 @@ import { sendEmailMessage } from "@/lib/email-integration-store";
 import { parseJsonRequestBody } from "@/lib/http";
 import {
   getVariationPortalRequestsByJob,
+  deleteVariationPortalByEventId,
   upsertVariationPortalRequest,
   type VariationPortalStatus,
 } from "@/lib/variation-portal-data";
@@ -60,6 +61,16 @@ export async function GET(request: NextRequest) {
   }));
 
   return NextResponse.json(requests as VariationPortalListResponse);
+}
+
+export async function DELETE(request: NextRequest) {
+  const url = new URL(request.url);
+  const variationEventId = url.searchParams.get("variationEventId")?.trim();
+  if (!variationEventId) {
+    return NextResponse.json({ error: "variationEventId query param required" }, { status: 400 });
+  }
+  const removed = deleteVariationPortalByEventId(variationEventId);
+  return NextResponse.json({ ok: true, removed });
 }
 
 export async function POST(request: NextRequest) {

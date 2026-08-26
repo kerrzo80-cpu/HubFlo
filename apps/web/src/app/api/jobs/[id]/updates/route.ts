@@ -5,6 +5,7 @@ import { parseJsonRequestBody } from "@/lib/http";
 import {
   addJobOfficeNote,
   createJobVariationDraft,
+  deleteJobVariationDraft,
   getJobOfficeUpdates,
   resolveJobAttention,
 } from "@/lib/job-office-updates";
@@ -31,6 +32,10 @@ type JobUpdateRequest =
   | {
       action: "resolve_attention";
       kind?: "note" | "variation";
+      id?: string;
+    }
+  | {
+      action: "delete_variation";
       id?: string;
     };
 
@@ -95,6 +100,20 @@ export async function POST(request: Request, { params }: Params) {
         source: "Core",
       });
       return NextResponse.json({ variation, updates: getJobOfficeUpdates(actor.tenantId, jobIdentifier) }, { status: 201 });
+    }
+
+    if (body.action === "delete_variation") {
+      if (!body.id) return NextResponse.json({ error: "Variation id is required." }, { status: 400 });
+      const variation = deleteJobVariationDraft({
+        tenantId: actor.tenantId,
+        id: body.id,
+        actor: actor.actor,
+      });
+      return NextResponse.json({ variation, updates: getJobOfficeUpdates(actor.tenantId, jobIdentifier) });
+    }
+
+    if (body.action !== "resolve_attention") {
+      return NextResponse.json({ error: "Unsupported job update action." }, { status: 400 });
     }
 
     if (!body.kind || !body.id) {

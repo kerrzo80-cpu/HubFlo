@@ -7,9 +7,11 @@ import {
   mergeJobDeliveryEvents,
 } from "@/lib/hub-state-merge";
 import {
+  deleteDayworkSheetFromStore,
   mergeDayworkSheetsIntoStore,
   readDayworkSheetsStore,
 } from "@/lib/daywork-sheets-store";
+import { dayworkSheetKey } from "@/lib/daywork-account-form";
 import { leanCentresForTransport, leanJobCostCentresMap } from "@/lib/job-cost-centres-lean";
 
 const JOB_CC_INDEX_STORE = "nexa-job-cc-index-v1";
@@ -358,4 +360,101 @@ export function resetHubDetailState(): HubDetailState {
   });
   writeServerStore("hub-detail-store", hubDetailState);
   return clone(hubDetailState);
+}
+
+/**
+ * Hard-remove a Daywork sheet and optional linked variation events.
+ * Bypasses merge helpers that would otherwise resurrect deleted keys from side stores.
+ */
+export function purgeDayworkSheetFromHub(options: {
+  jobId: string;
+  costCentreId: string;
+}): HubDetailState {
+  rehydrateHubDetailStateFromDisk();
+  rehydrateDayworkFieldsFromDisk();
+  const jobId = options.jobId.trim();
+  const costCentreId = options.costCentreId.trim();
+  const sheetKey = dayworkSheetKey(jobId, costCentreId);
+
+  try {
+    deleteDayworkSheetFromStore(jobId, costCentreId);
+  } catch {
+    // Continue — still clear hub memory.
+  }
+
+  const sheets = {
+    ...((hubDetailState.dayworkSheets || {}) as Record<string, unknown>),
+  };
+  delete sheets[sheetKey];
+  hubDetailState.dayworkSheets = sheets;
+
+  const events = Array.isArray(hubDetailState.jobDeliveryEvents)
+    ? (hubDetailState.jobDeliveryEvents as Array<Record<string, unknown>>).filter((event) => {
+        const eventId = String(event.id || "");
+        const eventCentre = String(event.costCentreId || "");
+        if (eventId === `daywork-${jobId}-${costCentreId}`) return false;
+        if (event.kind === "variation" && eventCentre && eventCentre === costCentreId && String(event.jobId || "") === jobId) {
+          return false;
+        }
+        return true;
+      })
+    : [];
+  hubDetailState.jobDeliveryEvents = events;
+
+  const evidence = { ...((hubDetailState.flowStepEvidence || {}) as Record<string, unknown>) };
+  const completion = { ...((hubDetailState.flowStepCompletion || {}) as Record<string, unknown>) };
+  const prefix = `${jobId}:${costCentreId}:`;
+  for (const key of Object.keys(evidence)) {
+    if (key.startsWith(prefix)) delete evidence[key];
+  }
+  for (const key of Object.keys(completion)) {
+    if (key.startsWith(prefix)) delete completion[key];
+  }
+  hubDetailState.flowStepEvidence = evidence;
+  hubDetailState.flowStepCompletion = completion;
+
+  const centresByJob = { ...((hubDetailState.jobCostCentres || {}) as Record<string, unknown[]>) };
+  const centres = Array.isArray(centresByJob[jobId]) ? [...centresByJob[jobId]] : [];
+  const primaryId = `${jobId}-daywork-account`;
+  centresByJob[jobId] =
+    costCentreId === primaryId
+      ? centres
+      : centres.filter((centre) => {
+          const id = centre && typeof centre === "object" ? String((centre as { id?: string }).id || "") : "";
+          return id !== costCentreId;
+        });
+  hubDetailState.jobCostCentres = centresByJob;
+
+  hubDetailState.updatedAt = new Date().toISOString();
+  try {
+    writeServerStore("hub-detail-store", hubDetailState);
+  } catch {
+    // Best-effort persist.
+  }
+  return safeCloneHub(hubDetailState);
+}
+
+/** Hard-remove a job delivery event (e.g. commercial variation) without merge resurrection. */
+export function purgeJobDeliveryEventFromHub(options: {
+  jobId: string;
+  eventId: string;
+}): HubDetailState {
+  rehydrateHubDetailStateFromDisk();
+  const jobId = options.jobId.trim();
+  const eventId = options.eventId.trim();
+  const events = Array.isArray(hubDetailState.jobDeliveryEvents)
+    ? (hubDetailState.jobDeliveryEvents as Array<Record<string, unknown>>).filter((event) => {
+        if (String(event.id || "") !== eventId) return true;
+        if (String(event.jobId || "") && String(event.jobId || "") !== jobId) return true;
+        return false;
+      })
+    : [];
+  hubDetailState.jobDeliveryEvents = events;
+  hubDetailState.updatedAt = new Date().toISOString();
+  try {
+    writeServerStore("hub-detail-store", hubDetailState);
+  } catch {
+    // Best-effort persist.
+  }
+  return safeCloneHub(hubDetailState);
 }

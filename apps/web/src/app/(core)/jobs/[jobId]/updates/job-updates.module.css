@@ -354,6 +354,10 @@
   cursor: pointer;
 }
 
+.itemFooter button.danger {
+  color: #b42318;
+}
+
 .attention,
 .resolved,
 .muted {

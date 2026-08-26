@@ -314,6 +314,28 @@ export function resolveJobAttention(input: {
   return clone(variation);
 }
 
+export function deleteJobVariationDraft(input: {
+  tenantId: string;
+  id: string;
+  actor: string;
+}) {
+  const store = readStore();
+  const index = store.variations.findIndex((item) => item.id === input.id && item.tenantId === input.tenantId);
+  if (index < 0) throw new Error("That draft variation could not be found in this NeXa workspace.");
+  const [removed] = store.variations.splice(index, 1);
+  saveStore(store);
+  appendAuditEvent({
+    actor: input.actor,
+    action: "deleted draft job variation",
+    recordType: "job",
+    recordId: removed.jobId,
+    summary: `${removed.ref} on ${removed.jobRef} deleted: ${removed.description.slice(0, 160)}`,
+    source: "Jobs",
+    importance: "normal",
+  });
+  return clone(removed);
+}
+
 export function getJobAttentionAlerts(tenantId: string): OfficeAttentionItem[] {
   const store = readStore();
   const noteAlerts: OfficeAttentionItem[] = store.notes

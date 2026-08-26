@@ -144,3 +144,16 @@ export function setVariationPortalResponse(
   persistVariationPortalStore();
   return clone(request);
 }
+
+/** Remove portal approval request(s) linked to a variation delivery event. */
+export function deleteVariationPortalByEventId(variationEventId: string) {
+  const before = variationPortalStore.requests.length;
+  const id = String(variationEventId || "").trim();
+  if (!id) return 0;
+  variationPortalStore.requests = variationPortalStore.requests.filter(
+    (request) => request.variationEventId !== id,
+  );
+  const removed = before - variationPortalStore.requests.length;
+  if (removed > 0) persistVariationPortalStore();
+  return removed;
+}

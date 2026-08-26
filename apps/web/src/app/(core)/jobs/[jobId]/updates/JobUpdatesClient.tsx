@@ -173,6 +173,14 @@ export default function JobUpdatesClient({ jobId }: { jobId: string }) {
     if (ok) setNotice(kind === "note" ? "Note marked dealt with." : "Variation marked reviewed.");
   }
 
+  async function deleteVariation(id: string, label: string) {
+    if (typeof window !== "undefined" && !window.confirm(`Delete draft variation ${label}? This cannot be undone.`)) {
+      return;
+    }
+    const ok = await post({ action: "delete_variation", id });
+    if (ok) setNotice(`Deleted ${label}.`);
+  }
+
   const openNotes = data?.notes.filter((note) => note.attentionStatus === "Open").length ?? 0;
   const openVariations = data?.variations.filter((variation) => variation.attentionStatus === "Open").length ?? 0;
 
@@ -273,6 +281,9 @@ export default function JobUpdatesClient({ jobId }: { jobId: string }) {
                   <div className={styles.itemFooter}>
                     {variation.attentionStatus === "Open" ? <span className={styles.attention}><TriangleAlert size={14} /> Needs office review</span> : <span className={styles.resolved}><CheckCircle2 size={14} /> Reviewed</span>}
                     {variation.attentionStatus === "Open" ? <button type="button" onClick={() => void resolve("variation", variation.id)} disabled={busy}>Mark reviewed</button> : null}
+                    <button type="button" className={styles.danger} onClick={() => void deleteVariation(variation.id, variation.ref)} disabled={busy}>
+                      Delete
+                    </button>
                   </div>
                 </article>
               ))}
