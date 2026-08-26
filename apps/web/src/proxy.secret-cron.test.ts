@@ -7,6 +7,7 @@ describe("secretAuthCronPaths", () => {
   it("includes office backup and other Render cron routes", () => {
     assert.equal(secretAuthCronPaths.has("/api/office-backup/cron"), true);
     assert.equal(secretAuthCronPaths.has("/api/integrations/simpro/sync/cron"), true);
+    assert.equal(secretAuthCronPaths.has("/api/integrations/xero/payments/cron"), true);
     assert.equal(secretAuthCronPaths.has("/api/integrations/simpro/import/tick"), true);
     assert.equal(secretAuthCronPaths.has("/api/reports/board-pack/cron"), true);
     assert.equal(secretAuthCronPaths.has("/api/ops/postgres-reconcile"), true);

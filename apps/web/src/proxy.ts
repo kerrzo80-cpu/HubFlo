@@ -49,6 +49,7 @@ const userAuthPublicPaths = new Set([
 export const secretAuthCronPaths = new Set([
   "/api/office-backup/cron",
   "/api/integrations/simpro/sync/cron",
+  "/api/integrations/xero/payments/cron",
   "/api/integrations/simpro/import/tick",
   "/api/integrations/simpro/webhook",
   "/api/integrations/email/inbound",

@@ -173,6 +173,37 @@ services:
       - key: NEXA_BACKUP_CRON_SECRET
         sync: false
 
+  # Nightly Xero payment pull — when invoices are paid in Xero, update NeXa ledger automatically.
+  # Same NEXA_IMPORT_TICK_SECRET as simPRO cron and nexa-live web service.
+  - type: cron
+    name: nexa-live-xero-payments
+    runtime: node
+    region: frankfurt
+    plan: starter
+    schedule: "30 22 * * *"
+    buildCommand: echo "nexa-xero-payments-cron"
+    startCommand: >-
+      node --input-type=module -e "
+      const secret = process.env.NEXA_IMPORT_TICK_SECRET;
+      if (!secret) { console.error('NEXA_IMPORT_TICK_SECRET missing'); process.exit(1); }
+      const res = await fetch('https://nexa-live.onrender.com/api/integrations/xero/payments/cron', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-nexa-import-tick-secret': secret,
+        },
+        body: JSON.stringify({ actor: 'Nightly Xero payment cron' }),
+      });
+      const text = await res.text();
+      console.log(res.status, text.slice(0, 2000));
+      if (!res.ok) process.exit(1);
+      "
+    envVars:
+      - key: NODE_VERSION
+        value: 24.14.0
+      - key: NEXA_IMPORT_TICK_SECRET
+        sync: false
+
   # Nightly simPRO pull — new/open leads, quotes, jobs, invoices, schedules (+ clients/sites).
   # Same working set as Setup → Import Apply. Set the same NEXA_IMPORT_TICK_SECRET on this cron and on nexa-live.
   - type: cron

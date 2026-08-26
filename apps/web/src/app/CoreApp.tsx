@@ -8982,6 +8982,17 @@ export default function CoreApp() {
   const retentionReleaseDraftSeededIdRef = useRef<string | null>(null);
   const [isExportingInvoiceToXero, setIsExportingInvoiceToXero] = useState(false);
   const [isPullingXeroPayments, setIsPullingXeroPayments] = useState(false);
+  const [xeroPaymentSyncStatus, setXeroPaymentSyncStatus] = useState<{
+    lastSuccessfulAt?: string;
+    lastRun?: {
+      finishedAt?: string;
+      paymentsAdded?: number;
+      updated?: number;
+      failed?: number;
+      attempted?: number;
+    };
+    scheduleHint?: string;
+  } | null>(null);
   const [isExportingPoBillToXero, setIsExportingPoBillToXero] = useState(false);
   const [activeXeroTab, setActiveXeroTab] = useState<"sales" | "bills" | "exported" | "connection">("sales");
   const [xeroSelectedInvoiceIds, setXeroSelectedInvoiceIds] = useState<string[]>([]);
@@ -12584,6 +12595,25 @@ export default function CoreApp() {
     requestHeaders,
     xeroConnectionStatus?.configured,
   ]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData || homeView !== "xero" || !xeroConnectionStatus?.configured) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/integrations/xero/payments/sync", { headers: requestHeaders });
+        const body = (await response.json().catch(() => null)) as typeof xeroPaymentSyncStatus;
+        if (!cancelled && response.ok) {
+          setXeroPaymentSyncStatus(body);
+        }
+      } catch {
+        if (!cancelled) setXeroPaymentSyncStatus(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasHydratedLocalData, homeView, requestHeaders, xeroConnectionStatus?.configured]);
 
   useEffect(() => {
     // Stock cost rollup only matters for Reports / Stock — don't compete with hub hydrate.
@@ -23602,6 +23632,71 @@ export default function CoreApp() {
           (targets.length > 40 ? " · capped at 40 per run" : "") +
           ".",
       );
+    } finally {
+      setIsPullingXeroPayments(false);
+    }
+  }
+
+  /** Server-side batch pull for all exported invoices (same engine as nightly cron). */
+  async function syncAllInvoicePaymentsFromXero() {
+    if (!xeroConnectionStatus?.configured) {
+      showNotice("Connect Xero first (Xero → Connection).");
+      return;
+    }
+    setIsPullingXeroPayments(true);
+    try {
+      const response = await fetch("/api/integrations/xero/payments/sync", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        run?: {
+          paymentsAdded?: number;
+          updated?: number;
+          failed?: number;
+          attempted?: number;
+          scanned?: number;
+        };
+        status?: typeof xeroPaymentSyncStatus;
+      } | null;
+      if (!response.ok || !body?.run) {
+        throw new Error(body?.error || `Xero payment sync failed (HTTP ${response.status})`);
+      }
+
+      const hubResponse = await fetch("/api/hub-state", { headers: requestHeaders, credentials: "same-origin" });
+      if (hubResponse.ok) {
+        const hubState = (await hubResponse.json()) as HubDetailStatePayload;
+        if (Array.isArray(hubState.invoices)) {
+          markInvoiceEdited();
+          setInvoices(hubState.invoices as Invoice[]);
+        }
+        if (hubState.integrationSettings) {
+          setIntegrationSettings({ ...defaultIntegrationSettings, ...hubState.integrationSettings });
+        }
+      }
+
+      if (body.status) setXeroPaymentSyncStatus(body.status);
+
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "xero payment sync",
+        recordType: "integration",
+        recordId: "xero",
+        summary: `Manual Xero payment sync: ${body.run.paymentsAdded ?? 0} payment(s) on ${body.run.updated ?? 0} invoice(s), ${body.run.failed ?? 0} failed.`,
+        source: "web",
+        importance: (body.run.paymentsAdded ?? 0) > 0 ? "high" : "normal",
+      });
+
+      showNotice(
+        `Xero payment sync: ${body.run.paymentsAdded ?? 0} payment(s) imported on ${body.run.updated ?? 0} invoice(s)` +
+          ` · checked ${body.run.attempted ?? 0} of ${body.run.scanned ?? 0} exported` +
+          (body.run.failed ? ` · ${body.run.failed} failed` : "") +
+          ". Nightly sync runs automatically at 22:30 UTC.",
+      );
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to sync Xero payments.");
     } finally {
       setIsPullingXeroPayments(false);
     }
@@ -44651,7 +44746,7 @@ export default function CoreApp() {
                 <div>
                   <h2>Xero</h2>
                   <p className="muted">
-                    Export queue for sales invoices, credit notes and supplier bills — same pattern as simPRO accounts, then we trim what you do not need.
+                    Export queue for sales invoices, credit notes and supplier bills. Payments marked in Xero sync back to NeXa automatically every night — or pull now below.
                   </p>
                 </div>
                 <span className={`status-pill ${xeroConnectionStatus?.configured ? "green" : "amber"}`}>
@@ -44976,7 +45071,43 @@ export default function CoreApp() {
                             : "Live push when connected; otherwise CSV pack.")}
                       </small>
                     </article>
+                    <article>
+                      <span>Payment sync</span>
+                      <strong>
+                        {xeroConnectionStatus?.configured
+                          ? xeroPaymentSyncStatus?.lastSuccessfulAt
+                            ? `Last sync ${xeroPaymentSyncStatus.lastSuccessfulAt.slice(0, 16).replace("T", " ")} UTC`
+                            : "Automatic nightly"
+                          : "Connect Xero first"}
+                      </strong>
+                      <small>
+                        {xeroConnectionStatus?.configured
+                          ? xeroPaymentSyncStatus?.scheduleHint || "Nightly 22:30 UTC when paid in Xero → Paid in NeXa"
+                          : "Exports must reach Xero before payments can sync back"}
+                      </small>
+                    </article>
                   </div>
+                  {xeroConnectionStatus?.configured ? (
+                    <div className="setup-template-actions" style={{ marginTop: "1rem" }}>
+                      <button
+                        className="primary-button"
+                        type="button"
+                        disabled={isPullingXeroPayments || !access.canEditInvoice}
+                        onClick={() => void syncAllInvoicePaymentsFromXero()}
+                      >
+                        {isPullingXeroPayments ? "Syncing…" : "Sync all payments from Xero now"}
+                      </button>
+                      {xeroPaymentSyncStatus?.lastRun ? (
+                        <span className="muted" style={{ alignSelf: "center" }}>
+                          Last run: {xeroPaymentSyncStatus.lastRun.paymentsAdded ?? 0} payment(s) on{" "}
+                          {xeroPaymentSyncStatus.lastRun.updated ?? 0} invoice(s)
+                          {(xeroPaymentSyncStatus.lastRun.failed ?? 0) > 0
+                            ? ` · ${xeroPaymentSyncStatus.lastRun.failed} failed`
+                            : ""}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {xeroConnectionStatus?.officeMessage && !xeroConnectionStatus.configured ? (
                     <p className="muted" style={{ marginTop: "0.75rem" }}>{xeroConnectionStatus.officeMessage}</p>
                   ) : null}
@@ -45987,7 +46118,7 @@ export default function CoreApp() {
                                 !access.canEditInvoice ||
                                 selectedInvoice.status === "Draft" ||
                                 selectedInvoice.status === "Cancelled" ||
-                                selectedInvoice.claimType === "progress-claim"
+                                selectedInvoice.claimType === "valuation"
                               }
                               onClick={() => void pullSelectedInvoicePaymentsFromXero()}
                             >
