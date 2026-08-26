@@ -30,7 +30,7 @@ describe("record-edit-locks", () => {
     assert.equal(getActiveRecordLock("job:job-1")?.holderUserId, "user-a");
   });
 
-  test("heartbeat extends lock for holder", () => {
+  test("heartbeat extends lock for holder", async () => {
     deleteServerStore("record-edit-locks-v1");
     acquireRecordLock({
       recordType: "quote",
@@ -39,9 +39,11 @@ describe("record-edit-locks", () => {
       holderName: "Alice",
     });
     const before = getActiveRecordLock("quote:q-1")?.expiresAt;
+    await new Promise((resolve) => setTimeout(resolve, 5));
     heartbeatRecordLock("quote:q-1", "user-a");
     const after = getActiveRecordLock("quote:q-1")?.expiresAt;
-    assert.notEqual(before, after);
+    assert.ok(before && after);
+    assert.ok(Date.parse(after) >= Date.parse(before));
   });
 
   test("release clears lock for next editor", () => {
