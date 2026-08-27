@@ -12048,7 +12048,8 @@ export default function CoreApp() {
       // Never autosave full BoQ dumps — lean packages only (same as localStorage).
       jobCostCentres: leanJobCostCentresMapForUi(jobEstimateCostCentres),
       jobSections,
-      jobReviews: jobReviewApprovals,
+      // jobReviews intentionally omitted — /api/jobs/[id]/passaround owns ticks.
+      // Including them here re-fired fat hub PUTs on every Chris/Commercial/Carol click.
       jobDeliveryEvents,
       jobVariationSections,
       ...(dayworkSheetsPayload ? { dayworkSheets: dayworkSheetsPayload } : {}),
@@ -12496,14 +12497,7 @@ export default function CoreApp() {
   }, [
     employees,
     loggedInEmployeeId,
-    clients,
-    clientSites,
     suppliers,
-    leads,
-    jobs,
-    quotes,
-    purchaseRequests,
-    auditEvents,
     invoices,
     businessSettings,
     formTemplates,
@@ -12528,7 +12522,8 @@ export default function CoreApp() {
     catalogFolders,
     jobEstimateCostCentres,
     jobSections,
-    jobReviewApprovals,
+    // Intentionally NOT: jobs, quotes, leads, clients, clientSites, auditEvents, jobReviewApprovals.
+    // Those change on Mark complete / passaround ticks and were scheduling full hub PUTs that OOMed live.
     jobDeliveryEvents,
     jobVariationSections,
     dayworkSheets,
