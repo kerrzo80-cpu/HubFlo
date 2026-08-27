@@ -43,7 +43,7 @@ async function withMockOpenAi(
   }
 }
 
-test("Blake uses a NeXa capability and feeds the result back into the same AI turn", async () => {
+test("Ayla uses a Blake capability and feeds the result back into the same AI turn", async () => {
   await withMockOpenAi((_body, call) => {
     if (call === 1) {
       return jsonResponse({
@@ -58,7 +58,7 @@ test("Blake uses a NeXa capability and feeds the result back into the same AI tu
     }
     return jsonResponse({
       id: "resp-tool-2",
-      output: [{ type: "message", content: [{ type: "output_text", text: "I checked NeXa and found the pending jobs." }] }],
+      output: [{ type: "message", content: [{ type: "output_text", text: "I checked Blake and found the pending jobs." }] }],
     });
   }, async (bodies) => {
     const result = await handleBlakeOrchestratedMessage({
@@ -70,7 +70,7 @@ test("Blake uses a NeXa capability and feeds the result back into the same AI tu
       timeZone: "Europe/London",
     });
 
-    assert.equal(result?.reply, "I checked NeXa and found the pending jobs.");
+    assert.equal(result?.reply, "I checked Blake and found the pending jobs.");
     assert.equal(bodies.length, 2);
     const secondInput = bodies[1]?.input as Array<Record<string, unknown>>;
     assert.equal(secondInput?.[0]?.type, "function_call_output");
@@ -96,7 +96,7 @@ test("recent tool results are carried into the next conversational turn", async 
   });
 
   await withMockOpenAi((body) => {
-    assert.match(String(body.instructions || ""), /Recent NeXa tool results from this conversation/);
+    assert.match(String(body.instructions || ""), /Recent Blake tool results from this conversation/);
     assert.match(String(body.instructions || ""), /list_jobs/);
     return jsonResponse({ id: "resp-follow-3", output: [{ type: "message", content: [{ type: "output_text", text: "Yes — I’m still referring to those pending jobs." }] }] });
   }, async () => {

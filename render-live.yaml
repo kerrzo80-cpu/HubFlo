@@ -114,8 +114,15 @@ services:
           property: connectionString
       - key: NEXA_OPENAI_API_KEY
         sync: false
+      # Routine Ask Ayla chat/tool selection is cheap; heavier survey/estimate AI gets Terra.
       - key: NEXA_ASSISTANT_OPENAI_MODEL
-        value: gpt-4.1-mini
+        value: gpt-5.6-luna
+      - key: NEXA_TAKEOFF_OPENAI_MODEL
+        value: gpt-5.6-terra
+      - key: BLAKE_AI_MONTHLY_WARNING_USD
+        value: "30"
+      - key: BLAKE_AI_MONTHLY_LIMIT_USD
+        value: "50"
       # Optional UK PAF street lookup. Ideal Postcodes is preferred; getAddress.io is a fallback.
       # Without keys NeXa uses Ideal Postcodes sandbox (ak_test) then OpenStreetMap.
       - key: IDEAL_POSTCODES_API_KEY
