@@ -1,4 +1,5 @@
 import { assistantReadCapabilities } from "./assistant-read-capabilities";
+import { aylaSurveyQuoteCapabilities } from "./ayla-survey-quote-capabilities";
 import { coreCapabilities } from "./capabilities";
 import { chatWriteCapabilities } from "./chat-write-capabilities";
 import { humanEntityCapabilities } from "./human-entity-capabilities";
@@ -12,6 +13,7 @@ export * from "./context-store";
 export * from "./types";
 export { createBlakeCapabilityRegistry } from "./registry";
 export { assistantReadCapabilities } from "./assistant-read-capabilities";
+export { aylaSurveyQuoteCapabilities } from "./ayla-survey-quote-capabilities";
 export { coreCapabilities } from "./capabilities";
 export { chatWriteCapabilities } from "./chat-write-capabilities";
 export { humanEntityCapabilities } from "./human-entity-capabilities";
@@ -42,4 +44,5 @@ export const blakeCore = createBlakeCapabilityRegistry([
   ...chatWriteCapabilities,
   ...operatorCapabilities,
   ...jobUpdateCapabilities,
+  ...aylaSurveyQuoteCapabilities,
 ]);
