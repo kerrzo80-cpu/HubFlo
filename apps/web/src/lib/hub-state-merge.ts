@@ -551,6 +551,29 @@ function mergeKeyedArraysById(serverValue: unknown, clientValue: unknown) {
 }
 
 /**
+ * Sticky-OR merge for passaround ticks. Once Chris/Commercial/Carol is true on the
+ * server, a stale Core autosave must not wipe it back to false (that demoted
+ * Ready-to-invoice jobs via withEnforcedInvoiceReview). Explicit unticks go through
+ * the passaround API, which writes hub detail directly.
+ */
+export function mergeJobReviews(serverValue: unknown, clientValue: unknown) {
+  const server = asRecord(serverValue) || {};
+  const client = asRecord(clientValue) || {};
+  const keys = new Set([...Object.keys(server), ...Object.keys(client)]);
+  const merged: Record<string, Record<string, boolean>> = {};
+  for (const jobId of keys) {
+    const s = asRecord(server[jobId]) || {};
+    const c = asRecord(client[jobId]) || {};
+    merged[jobId] = {
+      construction: s.construction === true || c.construction === true,
+      commercial: s.commercial === true || c.commercial === true,
+      office: s.office === true || c.office === true,
+    };
+  }
+  return merged;
+}
+
+/**
  * Merge a Core client hub PUT onto the live server hub so Field/daywork writes
  * are not wiped by a stale browser tab.
  */
@@ -573,5 +596,6 @@ export function mergeHubDetailState(serverState: HubDetailState, clientState: Hu
       (clientState as HubDetailState & { dayworkSheets?: unknown }).dayworkSheets,
     ),
     invoices: mergeInvoicesById(serverState.invoices, clientState.invoices),
+    jobReviews: mergeJobReviews(serverState.jobReviews, clientState.jobReviews),
   };
 }

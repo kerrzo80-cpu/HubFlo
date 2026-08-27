@@ -126,11 +126,13 @@ test("seed-once guard stops empty-array thrash", () => {
   assert.equal(changes, 1);
 });
 
-test("CoreApp toggle persists jobReviews-only and patchJobRecord reads error field", async () => {
+test("CoreApp passaround uses atomic API and patchJobRecord reads error field", async () => {
   const fs = await import("node:fs/promises");
   const source = await fs.readFile(new URL("../app/CoreApp.tsx", import.meta.url), "utf8");
   assert.match(source, /seededJobCentresFromQuoteRef/);
-  assert.match(source, /body: JSON\.stringify\(\{ jobReviews: nextReviews \}\)/);
+  assert.match(source, /\/api\/jobs\/\$\{jobId\}\/passaround/);
+  assert.match(source, /action: "set-review"/);
+  assert.match(source, /action: "ready-to-invoice"/);
   assert.match(source, /conflict\.error/);
   assert.match(source, /toggleSelectedJobReview/);
   assert.doesNotMatch(source, /agentDebugLog/);

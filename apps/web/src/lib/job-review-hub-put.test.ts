@@ -136,15 +136,39 @@ test("merge keeps server schedules when client sends jobReviews only", () => {
   assert.ok(merged.jobSchedulePlans?.["job-b"]);
 });
 
-test("CoreApp approveSelectedJobForInvoice sends jobReviews-only hub PUT", async () => {
+test("merge jobReviews sticky-OR refuses stale client unticks", () => {
+  const server = {
+    jobReviews: {
+      "job-x": { construction: true, commercial: true, office: true },
+    },
+  };
+  const client = {
+    jobReviews: {
+      "job-x": { construction: false, commercial: false, office: false },
+      "job-y": { construction: true, commercial: false, office: false },
+    },
+  };
+  const merged = mergeHubDetailState(server, client);
+  assert.deepEqual(merged.jobReviews?.["job-x"], {
+    construction: true,
+    commercial: true,
+    office: true,
+  });
+  assert.deepEqual(merged.jobReviews?.["job-y"], {
+    construction: true,
+    commercial: false,
+    office: false,
+  });
+});
+
+test("CoreApp approveSelectedJobForInvoice uses atomic passaround API", async () => {
   const fs = await import("node:fs/promises");
   const source = await fs.readFile(new URL("../app/CoreApp.tsx", import.meta.url), "utf8");
   const fnStart = source.indexOf("async function approveSelectedJobForInvoice()");
   assert.ok(fnStart > 0);
   const fnBody = source.slice(fnStart, fnStart + 4500);
-  assert.match(fnBody, /persistJobReviewsForInvoice/);
-  assert.match(fnBody, /construction: true/);
-  assert.match(fnBody, /commercial: true/);
-  assert.match(fnBody, /office: true/);
+  assert.match(fnBody, /action: "ready-to-invoice"/);
+  assert.match(fnBody, /postJobPassaround/);
+  assert.doesNotMatch(fnBody, /persistJobReviewsForInvoice/);
   assert.doesNotMatch(fnBody, /buildHubDetailStatePayload\(\)/);
 });

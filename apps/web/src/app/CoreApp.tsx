@@ -27455,17 +27455,40 @@ export default function CoreApp() {
     }
   }
 
+  async function postJobPassaround(
+    jobId: string,
+    payload: Record<string, unknown>,
+  ): Promise<{ ok: true; job?: Job; review?: JobReviewState; error?: string } | null> {
+    const response = await fetch(`/api/jobs/${jobId}/passaround`, {
+      method: "POST",
+      headers: { ...requestHeaders, "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(payload),
+    });
+    const body = (await response.json().catch(() => null)) as
+      | { ok?: boolean; job?: Job; review?: JobReviewState; error?: string; message?: string }
+      | null;
+    if (!response.ok) {
+      const detail =
+        (body && typeof body.error === "string" && body.error) ||
+        (body && typeof body.message === "string" && body.message) ||
+        "Passaround request failed.";
+      throw new Error(detail);
+    }
+    return body as { ok: true; job?: Job; review?: JobReviewState };
+  }
+
   async function completeSelectedJob() {
     if (!selectedJob) return;
     try {
-      const updated = await patchSelectedJob(
-        {
-          status: "Completed",
-          next: "Pass around required before Ready to invoice.",
-        },
-        `${selectedJob.ref} marked Complete — tick pass around, then approve for invoice.`,
-      );
-      if (!updated) return;
+      const result = await postJobPassaround(selectedJob.id, {
+        action: "complete",
+        by: activeEmployee?.name ?? "NeXa user",
+      });
+      const updated = result?.job;
+      if (!updated) throw new Error("Unable to complete job.");
+      setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
+      showNotice(`${updated.ref} marked Complete — tick pass around, then approve for invoice.`);
       setActiveJobFolderKey("review");
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
@@ -27491,18 +27514,27 @@ export default function CoreApp() {
     const nextReviews = { ...jobReviewApprovals, [selectedJob.id]: next };
     markJobReviewEdited();
     setJobReviewApprovals(nextReviews);
-    // Persist reviews immediately with a light payload — do not wait for the fat hub autosave
-    // (schedules + cost centres) which can 409/OOM and leave the jobs API without approvals.
-    void fetch("/api/hub-state", {
-      method: "PUT",
-      headers: { ...requestHeaders, "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify({ jobReviews: nextReviews }),
+    // Atomic server tick — avoids hub PUT races / schedule clash / poll wipe.
+    void postJobPassaround(selectedJob.id, {
+      action: "set-review",
+      key: check,
+      approved: next[check],
+      by: activeEmployee?.name ?? "NeXa user",
     })
-      .then((response) => {
-        if (response.ok) pendingJobReviewSaveRef.current = false;
+      .then((result) => {
+        if (result?.review) {
+          setJobReviewApprovals((current) => ({
+            ...current,
+            [selectedJob.id]: result.review as JobReviewState,
+          }));
+        }
+        pendingJobReviewSaveRef.current = false;
       })
-      .catch(() => {});
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : "Unable to save pass around tick.";
+        setSectionError(message);
+        showNotice(message);
+      });
     const checkLabel = jobReviewChecks.find((item) => item.key === check)?.label ?? "Review";
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
@@ -27523,14 +27555,14 @@ export default function CoreApp() {
       "Approval required",
     ];
     if (allTicked && progressStatuses.includes(selectedJob.status)) {
-      void patchSelectedJob(
-        {
-          status: "Completed",
-          next: "Pass around complete — approve for invoice when ready.",
-        },
-        `${selectedJob.ref} moved to Complete after full pass around.`,
-      ).then((updated) => {
+      void postJobPassaround(selectedJob.id, {
+        action: "complete",
+        by: activeEmployee?.name ?? "NeXa user",
+      }).then((result) => {
+        const updated = result?.job;
         if (!updated) return;
+        setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
+        showNotice(`${updated.ref} moved to Complete after full pass around.`);
         logAuditEvent({
           actor: activeEmployee?.name ?? "NeXa user",
           action: "completed",
@@ -27542,29 +27574,6 @@ export default function CoreApp() {
         });
       });
     }
-  }
-
-  async function persistJobReviewsForInvoice(jobId: string, reviews: Record<string, JobReviewState>) {
-    markJobReviewEdited();
-    const reviewResponse = await fetch("/api/hub-state", {
-      method: "PUT",
-      headers: { ...requestHeaders, "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify({ jobReviews: reviews }),
-    });
-    if (!reviewResponse.ok) {
-      const failBody = await reviewResponse.json().catch(() => null);
-      const detail =
-        failBody && typeof failBody === "object" && typeof (failBody as { error?: string }).error === "string"
-          ? (failBody as { error: string }).error
-          : null;
-      throw new Error(
-        detail
-          ? `The three approvals could not be saved (${detail}). This job has not been moved.`
-          : "The three approvals could not be saved. This job has not been moved.",
-      );
-    }
-    pendingJobReviewSaveRef.current = false;
   }
 
   async function approveSelectedJobForInvoice() {
@@ -27582,38 +27591,32 @@ export default function CoreApp() {
       return;
     }
     try {
-      // Persist the authoritative three-person review before asking the jobs API
-      // to cross the server-enforced invoice boundary.
-      const nextReviews = {
-        ...jobReviewApprovals,
-        [selectedJob.id]: {
-          construction: true,
-          commercial: true,
-          office: true,
-        },
-      };
-      setJobReviewApprovals(nextReviews);
-      await persistJobReviewsForInvoice(selectedJob.id, nextReviews);
-
-      let updated = await patchSelectedJob(
-        {
-          status: "Ready to invoice",
-          next: "Raise and email final invoice.",
-        },
-        `${selectedJob.ref} approved and ready to invoice.`,
-      );
-      // If reviews raced, retry once after another light persist.
-      if (!updated) {
-        await persistJobReviewsForInvoice(selectedJob.id, nextReviews);
-        updated = await patchSelectedJob(
-          {
-            status: "Ready to invoice",
-            next: "Raise and email final invoice.",
+      markJobReviewEdited();
+      // One server round-trip: force three ticks + Ready to invoice (no hub PUT / PATCH race).
+      const result = await postJobPassaround(selectedJob.id, {
+        action: "ready-to-invoice",
+        by: activeEmployee?.name ?? "NeXa user",
+      });
+      const updated = result?.job;
+      if (!updated) throw new Error("Unable to approve job for invoice.");
+      if (result?.review) {
+        setJobReviewApprovals((current) => ({
+          ...current,
+          [selectedJob.id]: result.review as JobReviewState,
+        }));
+      } else {
+        setJobReviewApprovals((current) => ({
+          ...current,
+          [selectedJob.id]: {
+            construction: true,
+            commercial: true,
+            office: true,
           },
-          `${selectedJob.ref} approved and ready to invoice.`,
-        );
+        }));
       }
-      if (!updated) return;
+      pendingJobReviewSaveRef.current = false;
+      setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
+      showNotice(`${updated.ref} approved and ready to invoice.`);
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
         action: "approved",
