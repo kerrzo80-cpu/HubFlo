@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { getServerStoreDirectory, loadServerStore, writeServerStore } from "@/lib/server-store";
 
-export type RecordDocumentScope = "lead" | "quote" | "job" | "invoice";
+export type RecordDocumentScope = "lead" | "quote" | "job" | "invoice" | "purchase";
 
 export type StoredRecordDocument = {
   id: string;
