@@ -22076,7 +22076,7 @@ export default function CoreApp() {
         }));
       }
     }
-    void healSelectedJobCostCentresIfNeeded(jobId, job?.ref, Boolean(job?.sourceTenderId));
+    // Do not heal cost centres on open — that getHubDetailState clone tipped live before passaround.
   }
 
   async function healSelectedJobCostCentresIfNeeded(

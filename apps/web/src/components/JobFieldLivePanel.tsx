@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { HardHat, RefreshCw } from "lucide-react";
 
 type FieldChecklistItem = {
@@ -82,7 +82,8 @@ export function JobFieldLivePanel({
 }) {
   const [data, setData] = useState<FieldByJobResponse | null>(null);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [loadedOnce, setLoadedOnce] = useState(false);
 
   const [stopGo, setStopGo] = useState<{
     runs?: Array<{
@@ -95,6 +96,7 @@ export function JobFieldLivePanel({
     if (!jobId) return;
     setLoading(true);
     setError("");
+    setLoadedOnce(true);
     try {
       const [response, stopGoResponse] = await Promise.all([
         fetch(`/api/field/jobs/by-job/${encodeURIComponent(jobId)}`),
@@ -116,9 +118,8 @@ export function JobFieldLivePanel({
     }
   }, [jobId]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // Do NOT auto-fetch on mount — that OOMed live when opening a job before Mark complete.
+  // Office loads Field evidence on demand.
 
   const visits = data?.visits ?? [];
   const doneItems = visits.reduce(
@@ -143,10 +144,17 @@ export function JobFieldLivePanel({
             <HardHat size={15} /> Open Field
           </a>
           <button className="secondary-button" type="button" onClick={() => void load()} disabled={loading}>
-            <RefreshCw size={15} /> {loading ? "Refreshing…" : "Refresh"}
+            <RefreshCw size={15} />{" "}
+            {loading ? "Refreshing…" : loadedOnce ? "Refresh" : "Load Field evidence"}
           </button>
         </div>
       </header>
+
+      {!loadedOnce && !loading ? (
+        <p className="muted" style={{ margin: "0.75rem 0 0" }}>
+          Field checklist and hours load on demand so Mark complete / pass around stays stable on live.
+        </p>
+      ) : null}
 
       <div className="job-field-live-stats">
         <article>
