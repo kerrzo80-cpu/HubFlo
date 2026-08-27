@@ -27519,29 +27519,6 @@ export default function CoreApp() {
         [selectedJob.id]: selectedJobReviewState,
       };
       const reviewPayload = { jobReviews: nextReviews };
-      // #region agent log
-      {
-        fetch("/api/debug-agent-log", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: "CoreApp.tsx:approveSelectedJobForInvoice",
-            message: "about to PUT hub-state for reviews",
-            hypothesisId: "A,B,C",
-            runId: "post-fix",
-            data: {
-              jobId: selectedJob.id,
-              review: selectedJobReviewState,
-              payloadKeys: Object.keys(reviewPayload),
-              schedulePlanJobCount: 0,
-              scheduleAssignmentCount: 0,
-              approxPayloadChars: JSON.stringify(reviewPayload).length,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-      }
-      // #endregion
       const reviewResponse = await fetch("/api/hub-state", {
         method: "PUT",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
@@ -27549,49 +27526,17 @@ export default function CoreApp() {
         body: JSON.stringify(reviewPayload),
       });
       if (!reviewResponse.ok) {
-        // #region agent log
         const failBody = await reviewResponse.json().catch(() => null);
-        fetch("/api/debug-agent-log", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: "CoreApp.tsx:approveSelectedJobForInvoice",
-            message: "hub-state PUT failed for reviews",
-            hypothesisId: "A,B,C,D",
-            runId: "post-fix",
-            data: {
-              status: reviewResponse.status,
-              error: failBody && typeof failBody === "object" ? (failBody as { error?: string }).error : null,
-              code: failBody && typeof failBody === "object" ? (failBody as { code?: string }).code : null,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
         const detail =
           failBody && typeof failBody === "object" && typeof (failBody as { error?: string }).error === "string"
             ? (failBody as { error: string }).error
             : null;
-        // #endregion
         throw new Error(
           detail
             ? `The three approvals could not be saved (${detail}). This job has not been moved.`
             : "The three approvals could not be saved. This job has not been moved.",
         );
       }
-      // #region agent log
-      fetch("/api/debug-agent-log", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          location: "CoreApp.tsx:approveSelectedJobForInvoice",
-          message: "hub-state PUT ok; patching job to Ready to invoice",
-          hypothesisId: "E",
-          runId: "post-fix",
-          data: { jobId: selectedJob.id, status: reviewResponse.status },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       const updated = await patchSelectedJob(
         {
           status: "Ready to invoice",
@@ -27612,42 +27557,11 @@ export default function CoreApp() {
       setActiveJobFolderKey("uninvoiced");
       try {
         openInvoiceForJob(updated);
-      } catch (invoiceError) {
-        // #region agent log
-        fetch("/api/debug-agent-log", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: "CoreApp.tsx:approveSelectedJobForInvoice",
-            message: "openInvoiceForJob threw after successful status move",
-            hypothesisId: "G",
-            runId: "post-fix",
-            data: {
-              jobId: updated.id,
-              err: invoiceError instanceof Error ? invoiceError.message : String(invoiceError),
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
+      } catch {
         showNotice(`${updated.ref} is ready to invoice, but the invoice screen could not be opened automatically.`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to approve job for invoice.";
-      // #region agent log
-      fetch("/api/debug-agent-log", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          location: "CoreApp.tsx:approveSelectedJobForInvoice:catch",
-          message: "approve for invoice caught error",
-          hypothesisId: "G",
-          runId: "post-fix",
-          data: { message },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       setSectionError(message);
       showNotice(message);
     }
