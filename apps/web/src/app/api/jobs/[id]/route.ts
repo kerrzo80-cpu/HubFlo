@@ -134,6 +134,27 @@ export async function PATCH(
     body.status === "Ready to invoice" &&
     !jobInvoiceReviewComplete(getHubDetailState().jobReviews?.[id])
   ) {
+    // #region agent log
+    try {
+      const { appendFileSync, mkdirSync } = await import("node:fs");
+      mkdirSync("/opt/cursor/logs", { recursive: true });
+      appendFileSync(
+        "/opt/cursor/logs/debug.log",
+        `${JSON.stringify({
+          hypothesisId: "D",
+          location: "jobs/[id]/route.ts:PATCH",
+          message: "Ready to invoice blocked — reviews incomplete",
+          data: {
+            jobId: id,
+            review: getHubDetailState().jobReviews?.[id] ?? null,
+          },
+          timestamp: Date.now(),
+        })}\n`,
+      );
+    } catch {
+      /* ignore debug log failures */
+    }
+    // #endregion
     return NextResponse.json(
       { error: "Chris, Commercial and Carol must all approve this job before it can move to Ready to invoice." },
       { status: 409 },
