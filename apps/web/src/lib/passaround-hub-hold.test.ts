@@ -7,10 +7,14 @@ describe("passaround holds fat hub autosave", () => {
   it("CoreApp holds hub autosave during passaround and hub PUT ignores jobReviews", () => {
     const core = readFileSync(path.join(process.cwd(), "src/app/CoreApp.tsx"), "utf8");
     assert.match(core, /PASSAROUND_HOLD_MS = 60_000/);
-    assert.match(core, /function markJobReviewEdited\(\)[\s\S]*hubAutosaveHoldUntilRef\.current = Math\.max/);
+    assert.match(core, /function armPassaroundHubHold\(\)/);
+    assert.match(core, /hubAutosaveAbortRef\.current\?\.abort\(\)/);
+    assert.match(core, /includeBoqMaps/);
+    assert.match(core, /Autosave must omit BoQ\/takeoff maps/);
+    assert.match(core, /function markJobReviewEdited\(\)[\s\S]*armPassaroundHubHold\(\)/);
     assert.match(core, /if \(Date\.now\(\) < passaroundHoldUntilRef\.current\) \{\s*return;/);
     assert.match(core, /suppressHubAutosaveFromPollUntilRef/);
-    assert.match(core, /async function completeSelectedJob\(\)[\s\S]*hubAutosaveHoldUntilRef\.current = Math\.max/);
+    assert.match(core, /async function completeSelectedJob\(\)[\s\S]*armPassaroundHubHold\(\)/);
     assert.match(core, /Intentionally NOT: jobs, quotes, leads, clients, clientSites, auditEvents, jobReviewApprovals/);
     assert.match(core, /jobReviews intentionally omitted/);
 

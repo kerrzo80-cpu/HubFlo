@@ -35,6 +35,11 @@ function leanSchedulePlans(value: unknown): Record<string, unknown[]> {
   return out;
 }
 
+/** Slim schedule maps for hub poll / autosave wire — drop unknown fat fields. */
+export function leanSchedulePlansForWire<T>(value: T): T {
+  return leanSchedulePlans(value) as T;
+}
+
 /**
  * Office hub GET must stay small. Passaround ticks die when this response is ~1.9MB
  * (quote takeoff dumps + full cost centres + simpro exports) and overlaps updateJob / hub PUT.
