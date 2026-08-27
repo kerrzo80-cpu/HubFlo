@@ -10591,10 +10591,15 @@ export default function CoreApp() {
     [quotes, selectedJob],
   );
 
-  const selectedJobVariations = useMemo(
-    () => (selectedJob ? buildVariationsForJob(selectedJob) : []),
-    [dayworkSheets, flowStepEvidence, jobDeliveryEvents, jobEstimateCostCentres, selectedJob],
-  );
+  const selectedJobVariations = useMemo(() => {
+    if (!selectedJob) return [];
+    try {
+      return buildVariationsForJob(selectedJob);
+    } catch {
+      // Daywork/evidence synthesis must never white-screen the job record.
+      return [];
+    }
+  }, [dayworkSheets, flowStepEvidence, jobDeliveryEvents, jobEstimateCostCentres, selectedJob]);
 
   const selectedJobBillableVariations = useMemo(
     () => selectedJobVariations.filter((variation) => isBillableVariationStatus(variation.status)),
@@ -19739,6 +19744,36 @@ export default function CoreApp() {
     setJobs((current) => current.map((item) => (item.id === job.id ? { ...item, ...patch } : item)));
 
     try {
+      // Complete / Ready to invoice must use the atomic passaround API (no clash re-check).
+      if (patch.status === "Completed" || patch.status === "Ready to invoice") {
+        const action = patch.status === "Completed" ? "complete" : "ready-to-invoice";
+        const result = await postJobPassaround(job.id, {
+          action,
+          by: activeEmployee?.name ?? "NeXa user",
+        });
+        const updated = result?.job;
+        if (!updated) throw new Error("Unable to update job");
+        if (result?.review) {
+          markJobReviewEdited();
+          setJobReviewApprovals((current) => ({
+            ...current,
+            [updated.id]: result.review as JobReviewState,
+          }));
+        }
+        setJobs((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+        logAuditEvent({
+          actor: activeEmployee?.name ?? "NeXa user",
+          action: String(patch.status).toLowerCase(),
+          recordType: "job",
+          recordId: job.id,
+          summary: `${job.ref} updated from directory actions.`,
+          source: "directory actions",
+          importance: "high",
+        });
+        showNotice(message);
+        return;
+      }
+
       const response = await fetch(`/api/jobs/${job.id}`, {
         method: "PATCH",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
@@ -27481,13 +27516,25 @@ export default function CoreApp() {
   async function completeSelectedJob() {
     if (!selectedJob) return;
     try {
-      const result = await postJobPassaround(selectedJob.id, {
-        action: "complete",
-        by: activeEmployee?.name ?? "NeXa user",
-      });
-      const updated = result?.job;
+      let updated: Job | null | undefined = null;
+      try {
+        const result = await postJobPassaround(selectedJob.id, {
+          action: "complete",
+          by: activeEmployee?.name ?? "NeXa user",
+        });
+        updated = result?.job;
+      } catch {
+        // Fallback: status-only PATCH (clash checks already skipped for schedule-unchanged).
+        updated = await patchSelectedJob(
+          {
+            status: "Completed",
+            next: "Pass around required before Ready to invoice.",
+          },
+          `${selectedJob.ref} marked Complete — tick pass around, then approve for invoice.`,
+        );
+      }
       if (!updated) throw new Error("Unable to complete job.");
-      setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
+      setJobs((current) => current.map((job) => (job.id === updated!.id ? updated! : job)));
       showNotice(`${updated.ref} marked Complete — tick pass around, then approve for invoice.`);
       setActiveJobFolderKey("review");
       logAuditEvent({
@@ -27528,7 +27575,7 @@ export default function CoreApp() {
             [selectedJob.id]: result.review as JobReviewState,
           }));
         }
-        pendingJobReviewSaveRef.current = false;
+        // Keep sticky hold via lastLocalJobReviewEditAt — do not clear pending until hold expires.
       })
       .catch((error) => {
         const message = error instanceof Error ? error.message : "Unable to save pass around tick.";
@@ -27558,21 +27605,31 @@ export default function CoreApp() {
       void postJobPassaround(selectedJob.id, {
         action: "complete",
         by: activeEmployee?.name ?? "NeXa user",
-      }).then((result) => {
-        const updated = result?.job;
-        if (!updated) return;
-        setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
-        showNotice(`${updated.ref} moved to Complete after full pass around.`);
-        logAuditEvent({
-          actor: activeEmployee?.name ?? "NeXa user",
-          action: "completed",
-          recordType: "job",
-          recordId: updated.id,
-          summary: `${updated.ref} moved to Complete after site, commercial and finance pass around.`,
-          source: "completion review",
-          importance: "high",
+      })
+        .then((result) => {
+          const updated = result?.job;
+          if (!updated) return;
+          setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
+          showNotice(`${updated.ref} moved to Complete after full pass around.`);
+          logAuditEvent({
+            actor: activeEmployee?.name ?? "NeXa user",
+            action: "completed",
+            recordType: "job",
+            recordId: updated.id,
+            summary: `${updated.ref} moved to Complete after site, commercial and finance pass around.`,
+            source: "completion review",
+            importance: "high",
+          });
+        })
+        .catch(() => {
+          void patchSelectedJob(
+            {
+              status: "Completed",
+              next: "Pass around complete — approve for invoice when ready.",
+            },
+            `${selectedJob.ref} moved to Complete after full pass around.`,
+          );
         });
-      });
     }
   }
 
@@ -27592,31 +27649,41 @@ export default function CoreApp() {
     }
     try {
       markJobReviewEdited();
-      // One server round-trip: force three ticks + Ready to invoice (no hub PUT / PATCH race).
-      const result = await postJobPassaround(selectedJob.id, {
-        action: "ready-to-invoice",
-        by: activeEmployee?.name ?? "NeXa user",
-      });
-      const updated = result?.job;
-      if (!updated) throw new Error("Unable to approve job for invoice.");
-      if (result?.review) {
-        setJobReviewApprovals((current) => ({
-          ...current,
-          [selectedJob.id]: result.review as JobReviewState,
-        }));
-      } else {
-        setJobReviewApprovals((current) => ({
-          ...current,
-          [selectedJob.id]: {
-            construction: true,
-            commercial: true,
-            office: true,
+      let updated: Job | null | undefined = null;
+      let review: JobReviewState | undefined;
+      try {
+        const result = await postJobPassaround(selectedJob.id, {
+          action: "ready-to-invoice",
+          by: activeEmployee?.name ?? "NeXa user",
+        });
+        updated = result?.job;
+        review = result?.review;
+      } catch {
+        // Fallback path: force ticks then status-only PATCH.
+        await postJobPassaround(selectedJob.id, { action: "force-reviews", by: activeEmployee?.name ?? "NeXa user" }).catch(
+          () => undefined,
+        );
+        updated = await patchSelectedJob(
+          {
+            status: "Ready to invoice",
+            next: "Raise and email final invoice.",
           },
-        }));
+          `${selectedJob.ref} approved and ready to invoice.`,
+        );
+        review = { construction: true, commercial: true, office: true };
       }
-      pendingJobReviewSaveRef.current = false;
-      setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
-      showNotice(`${updated.ref} approved and ready to invoice.`);
+      if (!updated) throw new Error("Unable to approve job for invoice.");
+      setJobReviewApprovals((current) => ({
+        ...current,
+        [selectedJob.id]: review ?? {
+          construction: true,
+          commercial: true,
+          office: true,
+        },
+      }));
+      setJobs((current) => current.map((job) => (job.id === updated!.id ? updated! : job)));
+      // Stay on the job record — do NOT auto-open invoice (that path white-screened live).
+      showNotice(`${updated.ref} is Ready to invoice. Open it from Uninvoiced when you want to raise the invoice.`);
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
         action: "approved",
@@ -27627,11 +27694,6 @@ export default function CoreApp() {
         importance: "high",
       });
       setActiveJobFolderKey("uninvoiced");
-      try {
-        openInvoiceForJob(updated);
-      } catch {
-        showNotice(`${updated.ref} is ready to invoice, but the invoice screen could not be opened automatically.`);
-      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to approve job for invoice.";
       setSectionError(message);

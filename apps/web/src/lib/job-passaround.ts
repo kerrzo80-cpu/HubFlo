@@ -50,6 +50,14 @@ export function forceJobReviewsComplete(jobId: string) {
   });
 }
 
+function safeAudit(input: Parameters<typeof appendAuditEvent>[0]) {
+  try {
+    appendAuditEvent(input);
+  } catch {
+    // Never roll back a successful status/review write because audit logging failed.
+  }
+}
+
 /** Mark visit Complete — status only, no schedule clash re-check. */
 export function completeJobPassaround(jobId: string, actor: string): Job {
   const current = getJob(jobId);
@@ -61,7 +69,7 @@ export function completeJobPassaround(jobId: string, actor: string): Job {
     next: "Pass around required before Ready to invoice.",
   });
   if (!updated) throw new Error("Job not found");
-  appendAuditEvent({
+  safeAudit({
     actor,
     action: "completed",
     recordType: "job",
@@ -70,7 +78,7 @@ export function completeJobPassaround(jobId: string, actor: string): Job {
     source: "job passaround api",
     importance: "high",
   });
-  return updated;
+  return getJob(jobId) ?? updated;
 }
 
 /**
@@ -97,7 +105,7 @@ export function readyJobForInvoice(jobId: string, actor: string): {
   });
   if (!updated) throw new Error("Job not found");
 
-  appendAuditEvent({
+  safeAudit({
     actor,
     action: "approved",
     recordType: "job",
@@ -107,5 +115,11 @@ export function readyJobForInvoice(jobId: string, actor: string): {
     importance: "high",
   });
 
-  return { job: updated, review };
+  // Re-read through withEnforcedInvoiceReview — must stay Ready to invoice with ticks saved.
+  const confirmed = getJob(jobId) ?? updated;
+  if (confirmed.status !== "Ready to invoice") {
+    throw new Error("Approvals could not be saved on the server.");
+  }
+
+  return { job: confirmed, review };
 }
