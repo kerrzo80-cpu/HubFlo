@@ -739,6 +739,38 @@
 }
 
 /* Fixed above the tab bar — sticky was vanishing under Safari + bottom nav. */
+.field-app .ask-blake-feedback-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  left: 16px;
+  position: fixed;
+  right: 16px;
+  bottom: calc(158px + env(safe-area-inset-bottom, 0px));
+  z-index: 28;
+}
+
+.field-app .ask-blake-feedback-chip {
+  align-items: center;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 999px;
+  color: #9a3412;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.field-app .ask-blake-feedback-chip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .field-app .ask-blake-composer {
   align-items: end;
   background: var(--white);

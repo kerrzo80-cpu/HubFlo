@@ -41957,6 +41957,17 @@ button.nexa-kpi-card,
   opacity: 0.6;
 }
 
+.buddy-report-chip.is-feedback {
+  background: #fff7ed;
+  border-color: #fdba74;
+  color: #9a3412;
+}
+
+.buddy-report-chip.is-feedback:hover:not(:disabled) {
+  background: #ffedd5;
+  border-color: #fb923c;
+}
+
 /* Report Problem modal kept available if reopened from Faults later */
 .report-fault-overlay {
   align-items: end;

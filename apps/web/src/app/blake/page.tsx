@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 
+import { ASSISTANT_ASK, ASSISTANT_NAME, PLATFORM_NAME } from "@/lib/product-brand";
 import BlakeChatPage from "./BlakeChatPage";
 import launcherStyles from "./drive-launcher.module.css";
 
 export const metadata: Metadata = {
-  title: "Ayla | blake.",
-  description: "Your AI operating layer for blake.",
+  title: `${ASSISTANT_ASK} | ${PLATFORM_NAME}`,
+  description: `Ask ${ASSISTANT_NAME} anything about your authorised blake. workspace.`,
 };
 
 export default function BlakePage() {
@@ -13,7 +14,7 @@ export default function BlakePage() {
     <>
       <BlakeChatPage />
       <a href="/blake/knowledge" className={launcherStyles.knowledge}>
-        Ayla Knowledge
+        {ASSISTANT_NAME} Knowledge
       </a>
       <a href="/blake/drive" className={launcherStyles.launcher}>
         Driving Mode
