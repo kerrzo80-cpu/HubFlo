@@ -166,9 +166,11 @@ test("CoreApp approveSelectedJobForInvoice uses atomic passaround API", async ()
   const source = await fs.readFile(new URL("../app/CoreApp.tsx", import.meta.url), "utf8");
   const fnStart = source.indexOf("async function approveSelectedJobForInvoice()");
   assert.ok(fnStart > 0);
-  const fnBody = source.slice(fnStart, fnStart + 4500);
+  const fnBody = source.slice(fnStart, fnStart + 5500);
   assert.match(fnBody, /action: "ready-to-invoice"/);
   assert.match(fnBody, /postJobPassaround/);
   assert.doesNotMatch(fnBody, /persistJobReviewsForInvoice/);
   assert.doesNotMatch(fnBody, /buildHubDetailStatePayload\(\)/);
+  // Must not auto-open invoice (that white-screened live after Ready to invoice).
+  assert.doesNotMatch(fnBody, /openInvoiceForJob\(/);
 });

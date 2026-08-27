@@ -33,7 +33,8 @@ export async function GET(request: NextRequest, context: Ctx) {
 
 export async function POST(request: NextRequest, context: Ctx) {
   const access = getAccessProfileFromHeaders(request.headers);
-  if (!access.canEditJobs) {
+  // Office staff who can see jobs must be able to Complete / Ready to invoice.
+  if (!access.canEditJobs && !(access.showCore && access.showJobs)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
-
 export default function AppError({
   error,
   reset,
@@ -9,38 +7,6 @@ export default function AppError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  // #region agent log
-  useEffect(() => {
-    const payload = {
-      hypothesisId: "C,E,render",
-      location: "error.tsx:AppError",
-      message: "React error boundary caught",
-      data: {
-        errorMessage: error?.message || "unknown",
-        digest: error?.digest || null,
-        stack: typeof error?.stack === "string" ? error.stack.slice(0, 2500) : null,
-      },
-      timestamp: Date.now(),
-      runId: "passaround-crash-again",
-    };
-    try {
-      console.error("[PASSAROUND_DEBUG] error.tsx boundary", payload);
-    } catch {
-      /* ignore */
-    }
-    try {
-      void fetch("/api/passaround-trace", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify(payload),
-      }).catch(() => {});
-    } catch {
-      /* ignore */
-    }
-  }, [error]);
-  // #endregion
-
   return (
     <main style={{ fontFamily: "system-ui, sans-serif", padding: 32, maxWidth: 560 }}>
       <h1 style={{ fontSize: 20, marginBottom: 8 }}>This screen crashed</h1>

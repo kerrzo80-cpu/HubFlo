@@ -374,47 +374,6 @@ const STORAGE_KEYS = {
 
 const OPEN_WORKSPACE_TAB_LIMIT = 10;
 
-/** Temporary Ready-to-invoice / Complete crash investigation — remove after fix confirmed. */
-function passaroundCrashLog(
-  hypothesisId: string,
-  location: string,
-  message: string,
-  data: Record<string, unknown> = {},
-) {
-  const payload = {
-    hypothesisId,
-    location,
-    message,
-    data,
-    timestamp: Date.now(),
-    runId: "passaround-crash-again",
-  };
-  try {
-    console.error("[PASSAROUND_DEBUG]", message, payload);
-  } catch {
-    /* ignore */
-  }
-  try {
-    void fetch("/api/passaround-trace", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify(payload),
-    }).catch(() => {});
-  } catch {
-    /* ignore */
-  }
-  try {
-    void fetch("http://127.0.0.1:7243/ingest/2f8c0e1a-passaround", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }).catch(() => {});
-  } catch {
-    /* ignore */
-  }
-}
-
 const SETUP_SERVER_SYNC_HOLD_MS = 120000;
 const COST_CENTRE_SERVER_SYNC_HOLD_MS = 120000;
 const INVOICE_SERVER_SYNC_HOLD_MS = 120000;
@@ -9108,10 +9067,6 @@ export default function CoreApp() {
   const savedRecordFingerprintRef = useRef("");
   /** Jobs already seeded from a converted quote — prevents update-depth loops when jobs identity flaps. */
   const seededJobCentresFromQuoteRef = useRef<Set<string>>(new Set());
-  // #region agent log
-  const quoteSeedLoopGuardRef = useRef({ runs: 0, lastChangedAt: 0 });
-  const hubReviewMergeLogRef = useRef({ polls: 0, lastMode: "" });
-  // #endregion
   /** Prevents double-click / overlapping manual record saves. */
   const recordSaveInFlightRef = useRef(false);
   const recordEditLockReadOnlyRef = useRef(false);
@@ -10636,10 +10591,15 @@ export default function CoreApp() {
     [quotes, selectedJob],
   );
 
-  const selectedJobVariations = useMemo(
-    () => (selectedJob ? buildVariationsForJob(selectedJob) : []),
-    [dayworkSheets, flowStepEvidence, jobDeliveryEvents, jobEstimateCostCentres, selectedJob],
-  );
+  const selectedJobVariations = useMemo(() => {
+    if (!selectedJob) return [];
+    try {
+      return buildVariationsForJob(selectedJob);
+    } catch {
+      // Daywork/evidence synthesis must never white-screen the job record.
+      return [];
+    }
+  }, [dayworkSheets, flowStepEvidence, jobDeliveryEvents, jobEstimateCostCentres, selectedJob]);
 
   const selectedJobBillableVariations = useMemo(
     () => selectedJobVariations.filter((variation) => isBillableVariationStatus(variation.status)),
@@ -11861,32 +11821,9 @@ export default function CoreApp() {
             setCatalogFolders((current) => mergeCatalogFolderList(hubState.catalogFolders!, current));
           }
           if (hubState.jobReviews && !hasRecentLocalJobReviewEdit) {
-            // #region agent log
-            hubReviewMergeLogRef.current.polls += 1;
-            hubReviewMergeLogRef.current.lastMode = "replace";
-            if (hubReviewMergeLogRef.current.polls <= 8 || hubReviewMergeLogRef.current.polls % 25 === 0) {
-              passaroundCrashLog("B", "CoreApp.tsx:hubPoll:jobReviews", "hub poll replacing jobReviews", {
-                mode: "replace",
-                polls: hubReviewMergeLogRef.current.polls,
-                pendingSave: pendingJobReviewSaveRef.current,
-                reviewKeys: Object.keys(hubState.jobReviews as object).slice(0, 12),
-              });
-            }
-            // #endregion
             setJobReviewApprovals(hubState.jobReviews as typeof jobReviewApprovals);
           } else if (hubState.jobReviews && hasRecentLocalJobReviewEdit) {
             // Prefer local ticks while a passaround save is in flight — hub polls were wiping them.
-            // #region agent log
-            hubReviewMergeLogRef.current.polls += 1;
-            hubReviewMergeLogRef.current.lastMode = "sticky-local";
-            if (hubReviewMergeLogRef.current.polls <= 8 || hubReviewMergeLogRef.current.polls % 25 === 0) {
-              passaroundCrashLog("B", "CoreApp.tsx:hubPoll:jobReviews", "hub poll sticky-merging jobReviews", {
-                mode: "sticky-local",
-                polls: hubReviewMergeLogRef.current.polls,
-                pendingSave: pendingJobReviewSaveRef.current,
-              });
-            }
-            // #endregion
             setJobReviewApprovals((current) => ({
               ...(hubState.jobReviews as typeof jobReviewApprovals),
               ...current,
@@ -12102,7 +12039,6 @@ export default function CoreApp() {
     setJobEstimateCostCentres((current) => {
       let changed = false;
       const next = { ...current };
-      const seededJobIds: string[] = [];
 
       quotes.forEach((quote) => {
         if (!quote.convertedJobId) return;
@@ -12122,40 +12058,8 @@ export default function CoreApp() {
 
         next[linkedJob.id] = estimateCostCentresFromQuote(linkedJob, sourceCentres);
         seededJobCentresFromQuoteRef.current.add(linkedJob.id);
-        seededJobIds.push(linkedJob.id);
         changed = true;
       });
-
-      // #region agent log
-      quoteSeedLoopGuardRef.current.runs += 1;
-      if (changed) {
-        const prior = quoteSeedLoopGuardRef.current.lastChangedAt;
-        quoteSeedLoopGuardRef.current.lastChangedAt = quoteSeedLoopGuardRef.current.runs;
-        const consecutive = prior > 0 && quoteSeedLoopGuardRef.current.runs - prior <= 1;
-        passaroundCrashLog("A", "CoreApp.tsx:quoteSeedEffect", "quote→job centre seed effect", {
-          runs: quoteSeedLoopGuardRef.current.runs,
-          changed: true,
-          consecutive,
-          seededCount: seededJobIds.length,
-          seededJobIds: seededJobIds.slice(0, 8),
-          jobsLen: jobs.length,
-          guardSize: seededJobCentresFromQuoteRef.current.size,
-        });
-        if (quoteSeedLoopGuardRef.current.runs > 12 && consecutive) {
-          passaroundCrashLog("A", "CoreApp.tsx:quoteSeedEffect:LOOP", "seed still changing after many runs", {
-            runs: quoteSeedLoopGuardRef.current.runs,
-            seededJobIds: seededJobIds.slice(0, 8),
-          });
-        }
-      } else if (quoteSeedLoopGuardRef.current.runs <= 3 || quoteSeedLoopGuardRef.current.runs % 25 === 0) {
-        passaroundCrashLog("A", "CoreApp.tsx:quoteSeedEffect", "quote→job centre seed effect", {
-          runs: quoteSeedLoopGuardRef.current.runs,
-          changed: false,
-          jobsLen: jobs.length,
-          guardSize: seededJobCentresFromQuoteRef.current.size,
-        });
-      }
-      // #endregion
 
       return changed ? next : current;
     });
@@ -12232,15 +12136,6 @@ export default function CoreApp() {
         changed = true;
         return { ...job, value: nextValue };
       });
-
-      // #region agent log
-      if (changed) {
-        passaroundCrashLog("A", "CoreApp.tsx:jobValueSyncEffect", "job value sync from centres", {
-          changedCount: nextJobs.filter((job, index) => job !== current[index]).length,
-          jobsLen: current.length,
-        });
-      }
-      // #endregion
 
       return changed ? nextJobs : current;
     });
@@ -19849,6 +19744,36 @@ export default function CoreApp() {
     setJobs((current) => current.map((item) => (item.id === job.id ? { ...item, ...patch } : item)));
 
     try {
+      // Complete / Ready to invoice must use the atomic passaround API (no clash re-check).
+      if (patch.status === "Completed" || patch.status === "Ready to invoice") {
+        const action = patch.status === "Completed" ? "complete" : "ready-to-invoice";
+        const result = await postJobPassaround(job.id, {
+          action,
+          by: activeEmployee?.name ?? "NeXa user",
+        });
+        const updated = result?.job;
+        if (!updated) throw new Error("Unable to update job");
+        if (result?.review) {
+          markJobReviewEdited();
+          setJobReviewApprovals((current) => ({
+            ...current,
+            [updated.id]: result.review as JobReviewState,
+          }));
+        }
+        setJobs((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+        logAuditEvent({
+          actor: activeEmployee?.name ?? "NeXa user",
+          action: String(patch.status).toLowerCase(),
+          recordType: "job",
+          recordId: job.id,
+          summary: `${job.ref} updated from directory actions.`,
+          source: "directory actions",
+          importance: "high",
+        });
+        showNotice(message);
+        return;
+      }
+
       const response = await fetch(`/api/jobs/${job.id}`, {
         method: "PATCH",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
@@ -22295,111 +22220,46 @@ export default function CoreApp() {
   }
 
   function openInvoiceForJob(job: Job) {
-    // #region agent log
-    passaroundCrashLog("C,E", "CoreApp.tsx:openInvoiceForJob:enter", "openInvoiceForJob enter", {
-      jobId: job?.id ?? null,
-      jobRef: job?.ref ?? null,
-      jobStatus: job?.status ?? null,
-      hasCentres: Boolean(job && jobEstimateCostCentres[job.id]?.length),
-      existingInvoice: Boolean(job && invoiceSourceMap.byJob.get(job.id)),
-    });
-    // #endregion
-    try {
-      if (!job) return;
-      const existing = invoiceSourceMap.byJob.get(job.id) ?? null;
-      if (existing) {
-        openInvoiceRecord(existing.id);
-        showNotice(`Opening existing invoice ${existing.ref} for ${job.ref}.`);
-        return;
-      }
-
-      const client = clients.find((item) => item.id === job.clientId) ?? null;
-      const site = job.siteId ? clientSites.find((item) => item.id === job.siteId) ?? null : null;
-      const sourceCentres = jobEstimateCostCentres[job.id] ?? makeDefaultEstimateCostCentres(job);
-      const sourceLineTotals = buildInvoiceLineTotalsFromEstimate(sourceCentres);
-      const sourceTotals = sourceLineTotals.reduce(
-        (acc, line) => ({
-          cost: acc.cost + line.costToUs,
-          charge: acc.charge + line.chargeToClient,
-          lineItems: [...acc.lineItems, line],
-        }),
-        { cost: 0, charge: 0, lineItems: [] as InvoiceLine[] },
-      );
-
-      let variations: JobVariation[] = [];
-      try {
-        variations = buildVariationsForJob(job);
-      } catch (variationError) {
-        // #region agent log
-        passaroundCrashLog("C,E", "CoreApp.tsx:openInvoiceForJob:variationsThrow", "buildVariationsForJob threw", {
-          jobId: job.id,
-          errorMessage: variationError instanceof Error ? variationError.message : String(variationError),
-          stack: variationError instanceof Error ? variationError.stack?.slice(0, 2500) : null,
-        });
-        // #endregion
-        variations = [];
-      }
-
-      // #region agent log
-      passaroundCrashLog("C,E", "CoreApp.tsx:openInvoiceForJob:beforeCreate", "creating invoice from job", {
-        jobId: job.id,
-        centresCount: Array.isArray(sourceCentres) ? sourceCentres.length : -1,
-        lineCount: sourceLineTotals.length,
-        variationCount: variations.length,
-        cost: sourceTotals.cost,
-        charge: sourceTotals.charge,
-      });
-      // #endregion
-
-      const created = makeInvoiceFromJobTotals(
-        job,
-        client,
-        site,
-        sourceTotals,
-        invoices,
-        variations,
-        normalizedFinanceSettings,
-      );
-
-      if (!sourceLineTotals.length) {
-        showNotice(`Job ${job.ref} does not yet have cost centre lines; invoice created from current values.`);
-      }
-
-      markInvoiceEdited();
-      setInvoices((current) => [created, ...current]);
-      logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
-        action: "created",
-        recordType: "invoice",
-        recordId: created.id,
-        summary: `Invoice ${created.ref} created from ${job.ref} job estimate and variations.`,
-        source: "web",
-        importance: "high",
-      });
-      openInvoiceRecord(created.id);
-      showNotice(`Invoice ${created.ref} created from ${job.ref}.`);
-      // #region agent log
-      passaroundCrashLog("C,E", "CoreApp.tsx:openInvoiceForJob:ok", "invoice opened", {
-        jobId: job.id,
-        invoiceId: created.id,
-        invoiceRef: created.ref,
-      });
-      // #endregion
-    } catch (error) {
-      // #region agent log
-      passaroundCrashLog("C,E", "CoreApp.tsx:openInvoiceForJob:throw", "openInvoiceForJob threw", {
-        jobId: job?.id ?? null,
-        jobRef: job?.ref ?? null,
-        errorMessage: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack?.slice(0, 2500) : null,
-      });
-      // #endregion
-      showNotice(
-        `${job?.ref || "Job"} is ready to invoice, but opening the invoice screen failed: ${
-          error instanceof Error ? error.message : "unknown error"
-        }`,
-      );
+    if (!job) return;
+    const existing = invoiceSourceMap.byJob.get(job.id) ?? null;
+    if (existing) {
+      openInvoiceRecord(existing.id);
+      showNotice(`Opening existing invoice ${existing.ref} for ${job.ref}.`);
+      return;
     }
+
+    const client = clients.find((item) => item.id === job.clientId) ?? null;
+    const site = job.siteId ? clientSites.find((item) => item.id === job.siteId) ?? null : null;
+    const sourceCentres = jobEstimateCostCentres[job.id] ?? makeDefaultEstimateCostCentres(job);
+    const sourceLineTotals = buildInvoiceLineTotalsFromEstimate(sourceCentres);
+    const sourceTotals = sourceLineTotals.reduce(
+      (acc, line) => ({
+        cost: acc.cost + line.costToUs,
+        charge: acc.charge + line.chargeToClient,
+        lineItems: [...acc.lineItems, line],
+      }),
+      { cost: 0, charge: 0, lineItems: [] as InvoiceLine[] },
+    );
+
+    const created = makeInvoiceFromJobTotals(job, client, site, sourceTotals, invoices, buildVariationsForJob(job), normalizedFinanceSettings);
+
+    if (!sourceLineTotals.length) {
+      showNotice(`Job ${job.ref} does not yet have cost centre lines; invoice created from current values.`);
+    }
+
+    markInvoiceEdited();
+    setInvoices((current) => [created, ...current]);
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "created",
+      recordType: "invoice",
+      recordId: created.id,
+      summary: `Invoice ${created.ref} created from ${job.ref} job estimate and variations.`,
+      source: "web",
+      importance: "high",
+    });
+    openInvoiceRecord(created.id);
+    showNotice(`Invoice ${created.ref} created from ${job.ref}.`);
   }
 
   function openJobInvoiceCreator(job: Job) {
@@ -27634,14 +27494,6 @@ export default function CoreApp() {
     jobId: string,
     payload: Record<string, unknown>,
   ): Promise<{ ok: true; job?: Job; review?: JobReviewState; error?: string } | null> {
-    // #region agent log
-    passaroundCrashLog("D", "CoreApp.tsx:postJobPassaround:start", "passaround request", {
-      jobId,
-      action: payload.action ?? null,
-      key: payload.key ?? null,
-      approved: payload.approved ?? null,
-    });
-    // #endregion
     const response = await fetch(`/api/jobs/${jobId}/passaround`, {
       method: "POST",
       headers: { ...requestHeaders, "Content-Type": "application/json" },
@@ -27656,45 +27508,33 @@ export default function CoreApp() {
         (body && typeof body.error === "string" && body.error) ||
         (body && typeof body.message === "string" && body.message) ||
         "Passaround request failed.";
-      // #region agent log
-      passaroundCrashLog("D", "CoreApp.tsx:postJobPassaround:fail", "passaround request failed", {
-        jobId,
-        action: payload.action ?? null,
-        status: response.status,
-        detail,
-      });
-      // #endregion
       throw new Error(detail);
     }
-    // #region agent log
-    passaroundCrashLog("D", "CoreApp.tsx:postJobPassaround:ok", "passaround request ok", {
-      jobId,
-      action: payload.action ?? null,
-      status: response.status,
-      jobStatus: body?.job?.status ?? null,
-      hasReview: Boolean(body?.review),
-    });
-    // #endregion
     return body as { ok: true; job?: Job; review?: JobReviewState };
   }
 
   async function completeSelectedJob() {
     if (!selectedJob) return;
-    // #region agent log
-    passaroundCrashLog("D", "CoreApp.tsx:completeSelectedJob:start", "complete begin", {
-      jobId: selectedJob.id,
-      jobRef: selectedJob.ref,
-      status: selectedJob.status,
-    });
-    // #endregion
     try {
-      const result = await postJobPassaround(selectedJob.id, {
-        action: "complete",
-        by: activeEmployee?.name ?? "NeXa user",
-      });
-      const updated = result?.job;
+      let updated: Job | null | undefined = null;
+      try {
+        const result = await postJobPassaround(selectedJob.id, {
+          action: "complete",
+          by: activeEmployee?.name ?? "NeXa user",
+        });
+        updated = result?.job;
+      } catch {
+        // Fallback: status-only PATCH (clash checks already skipped for schedule-unchanged).
+        updated = await patchSelectedJob(
+          {
+            status: "Completed",
+            next: "Pass around required before Ready to invoice.",
+          },
+          `${selectedJob.ref} marked Complete — tick pass around, then approve for invoice.`,
+        );
+      }
       if (!updated) throw new Error("Unable to complete job.");
-      setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
+      setJobs((current) => current.map((job) => (job.id === updated!.id ? updated! : job)));
       showNotice(`${updated.ref} marked Complete — tick pass around, then approve for invoice.`);
       setActiveJobFolderKey("review");
       logAuditEvent({
@@ -27706,20 +27546,7 @@ export default function CoreApp() {
         source: "job completion",
         importance: "high",
       });
-      // #region agent log
-      passaroundCrashLog("D", "CoreApp.tsx:completeSelectedJob:ok", "complete success", {
-        jobId: updated.id,
-        status: updated.status,
-      });
-      // #endregion
     } catch (error) {
-      // #region agent log
-      passaroundCrashLog("D", "CoreApp.tsx:completeSelectedJob:catch", "complete failed", {
-        jobId: selectedJob.id,
-        errorMessage: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack?.slice(0, 2500) : null,
-      });
-      // #endregion
       const message = error instanceof Error ? error.message : "Unable to complete job.";
       setSectionError(message);
       showNotice(message);
@@ -27732,15 +27559,6 @@ export default function CoreApp() {
     const next = { ...existing, [check]: !existing[check] };
     const allTicked = jobReviewChecks.every((item) => next[item.key]);
     const nextReviews = { ...jobReviewApprovals, [selectedJob.id]: next };
-    // #region agent log
-    passaroundCrashLog("B,D", "CoreApp.tsx:toggleSelectedJobReview", "review toggled", {
-      jobId: selectedJob.id,
-      check,
-      nextValue: next[check],
-      allTicked,
-      status: selectedJob.status,
-    });
-    // #endregion
     markJobReviewEdited();
     setJobReviewApprovals(nextReviews);
     // Atomic server tick — avoids hub PUT races / schedule clash / poll wipe.
@@ -27757,16 +27575,9 @@ export default function CoreApp() {
             [selectedJob.id]: result.review as JobReviewState,
           }));
         }
-        pendingJobReviewSaveRef.current = false;
+        // Keep sticky hold via lastLocalJobReviewEditAt — do not clear pending until hold expires.
       })
       .catch((error) => {
-        // #region agent log
-        passaroundCrashLog("B,D", "CoreApp.tsx:toggleSelectedJobReview:fail", "review tick failed", {
-          jobId: selectedJob.id,
-          check,
-          errorMessage: error instanceof Error ? error.message : String(error),
-        });
-        // #endregion
         const message = error instanceof Error ? error.message : "Unable to save pass around tick.";
         setSectionError(message);
         showNotice(message);
@@ -27794,35 +27605,36 @@ export default function CoreApp() {
       void postJobPassaround(selectedJob.id, {
         action: "complete",
         by: activeEmployee?.name ?? "NeXa user",
-      }).then((result) => {
-        const updated = result?.job;
-        if (!updated) return;
-        setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
-        showNotice(`${updated.ref} moved to Complete after full pass around.`);
-        logAuditEvent({
-          actor: activeEmployee?.name ?? "NeXa user",
-          action: "completed",
-          recordType: "job",
-          recordId: updated.id,
-          summary: `${updated.ref} moved to Complete after site, commercial and finance pass around.`,
-          source: "completion review",
-          importance: "high",
+      })
+        .then((result) => {
+          const updated = result?.job;
+          if (!updated) return;
+          setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
+          showNotice(`${updated.ref} moved to Complete after full pass around.`);
+          logAuditEvent({
+            actor: activeEmployee?.name ?? "NeXa user",
+            action: "completed",
+            recordType: "job",
+            recordId: updated.id,
+            summary: `${updated.ref} moved to Complete after site, commercial and finance pass around.`,
+            source: "completion review",
+            importance: "high",
+          });
+        })
+        .catch(() => {
+          void patchSelectedJob(
+            {
+              status: "Completed",
+              next: "Pass around complete — approve for invoice when ready.",
+            },
+            `${selectedJob.ref} moved to Complete after full pass around.`,
+          );
         });
-      });
     }
   }
 
   async function approveSelectedJobForInvoice() {
     if (!selectedJob) return;
-    // #region agent log
-    passaroundCrashLog("C,D,E", "CoreApp.tsx:approveSelectedJobForInvoice:start", "approve begin", {
-      jobId: selectedJob.id,
-      jobRef: selectedJob.ref,
-      status: selectedJob.status,
-      reviewComplete: selectedJobReviewComplete,
-      review: selectedJobReviewState,
-    });
-    // #endregion
     if (!selectedJobReviewComplete) {
       if (workflowRules.requireCommercialReviewBeforeInvoice && !selectedJobReviewState.commercial) {
         showNotice("Commercial review must be logged before this job can be marked ready to invoice.");
@@ -27837,31 +27649,41 @@ export default function CoreApp() {
     }
     try {
       markJobReviewEdited();
-      // One server round-trip: force three ticks + Ready to invoice (no hub PUT / PATCH race).
-      const result = await postJobPassaround(selectedJob.id, {
-        action: "ready-to-invoice",
-        by: activeEmployee?.name ?? "NeXa user",
-      });
-      const updated = result?.job;
-      if (!updated) throw new Error("Unable to approve job for invoice.");
-      if (result?.review) {
-        setJobReviewApprovals((current) => ({
-          ...current,
-          [selectedJob.id]: result.review as JobReviewState,
-        }));
-      } else {
-        setJobReviewApprovals((current) => ({
-          ...current,
-          [selectedJob.id]: {
-            construction: true,
-            commercial: true,
-            office: true,
+      let updated: Job | null | undefined = null;
+      let review: JobReviewState | undefined;
+      try {
+        const result = await postJobPassaround(selectedJob.id, {
+          action: "ready-to-invoice",
+          by: activeEmployee?.name ?? "NeXa user",
+        });
+        updated = result?.job;
+        review = result?.review;
+      } catch {
+        // Fallback path: force ticks then status-only PATCH.
+        await postJobPassaround(selectedJob.id, { action: "force-reviews", by: activeEmployee?.name ?? "NeXa user" }).catch(
+          () => undefined,
+        );
+        updated = await patchSelectedJob(
+          {
+            status: "Ready to invoice",
+            next: "Raise and email final invoice.",
           },
-        }));
+          `${selectedJob.ref} approved and ready to invoice.`,
+        );
+        review = { construction: true, commercial: true, office: true };
       }
-      pendingJobReviewSaveRef.current = false;
-      setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
-      showNotice(`${updated.ref} approved and ready to invoice.`);
+      if (!updated) throw new Error("Unable to approve job for invoice.");
+      setJobReviewApprovals((current) => ({
+        ...current,
+        [selectedJob.id]: review ?? {
+          construction: true,
+          commercial: true,
+          office: true,
+        },
+      }));
+      setJobs((current) => current.map((job) => (job.id === updated!.id ? updated! : job)));
+      // Stay on the job record — do NOT auto-open invoice (that path white-screened live).
+      showNotice(`${updated.ref} is Ready to invoice. Open it from Uninvoiced when you want to raise the invoice.`);
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
         action: "approved",
@@ -27872,38 +27694,7 @@ export default function CoreApp() {
         importance: "high",
       });
       setActiveJobFolderKey("uninvoiced");
-      // #region agent log
-      passaroundCrashLog("C,E", "CoreApp.tsx:approveSelectedJobForInvoice:openInvoice", "opening invoice for job", {
-        jobId: updated.id,
-        status: updated.status,
-      });
-      // #endregion
-      try {
-        openInvoiceForJob(updated);
-      } catch (invoiceError) {
-        // #region agent log
-        passaroundCrashLog("C,E", "CoreApp.tsx:approveSelectedJobForInvoice:invoiceThrow", "openInvoiceForJob threw", {
-          jobId: updated.id,
-          errorMessage: invoiceError instanceof Error ? invoiceError.message : String(invoiceError),
-          stack: invoiceError instanceof Error ? invoiceError.stack?.slice(0, 2500) : null,
-        });
-        // #endregion
-        showNotice(`${updated.ref} is ready to invoice, but the invoice screen could not be opened automatically.`);
-      }
-      // #region agent log
-      passaroundCrashLog("C,D,E", "CoreApp.tsx:approveSelectedJobForInvoice:ok", "approve finished", {
-        jobId: updated.id,
-        status: updated.status,
-      });
-      // #endregion
     } catch (error) {
-      // #region agent log
-      passaroundCrashLog("D,E", "CoreApp.tsx:approveSelectedJobForInvoice:catch", "approve caught error", {
-        jobId: selectedJob.id,
-        errorMessage: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack?.slice(0, 2500) : null,
-      });
-      // #endregion
       const message = error instanceof Error ? error.message : "Unable to approve job for invoice.";
       setSectionError(message);
       showNotice(message);
