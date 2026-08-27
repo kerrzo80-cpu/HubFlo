@@ -17,6 +17,7 @@ import {
 import { createPortal } from "react-dom";
 import { CorePanelSkeleton } from "@/components/CorePanelSkeleton";
 import { FileDropZone } from "@/components/FileDropZone";
+import { JobRecordErrorBoundary } from "@/components/JobRecordErrorBoundary";
 import { RecordEditLockBanner } from "@/components/RecordEditLockBanner";
 import { activeRecordFromHomeView, useRecordEditLock } from "@/hooks/useRecordEditLock";
 import { downloadBlob } from "@/lib/download-blob";
@@ -374,10 +375,43 @@ const STORAGE_KEYS = {
 
 const OPEN_WORKSPACE_TAB_LIMIT = 10;
 
+/** Temporary Ready-to-invoice / Complete crash investigation — remove after fix confirmed. */
+function passaroundCrashLog(
+  hypothesisId: string,
+  location: string,
+  message: string,
+  data: Record<string, unknown> = {},
+) {
+  const payload = {
+    hypothesisId,
+    location,
+    message,
+    data,
+    timestamp: Date.now(),
+    runId: "passaround-live-fail",
+  };
+  try {
+    console.error("[PASSAROUND_DEBUG]", message, payload);
+  } catch {
+    /* ignore */
+  }
+  try {
+    void fetch("/api/passaround-trace", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+  } catch {
+    /* ignore */
+  }
+}
+
 const SETUP_SERVER_SYNC_HOLD_MS = 120000;
 const COST_CENTRE_SERVER_SYNC_HOLD_MS = 120000;
 const INVOICE_SERVER_SYNC_HOLD_MS = 120000;
 const JOB_REVIEW_SERVER_SYNC_HOLD_MS = 120000;
+const PASSAROUND_HOLD_MS = 8000;
 
 const dashboardPanelIds = [
   "jobs",
@@ -9067,6 +9101,18 @@ export default function CoreApp() {
   const savedRecordFingerprintRef = useRef("");
   /** Jobs already seeded from a converted quote — prevents update-depth loops when jobs identity flaps. */
   const seededJobCentresFromQuoteRef = useRef<Set<string>>(new Set());
+  /** Detect quote→job seed thrash (>20 setState cycles). */
+  const quoteSeedLoopGuardRef = useRef({ runs: 0, lastChangedAt: 0, changedRuns: 0 });
+  /** Detect job value sync thrash (>20 setState cycles). */
+  const jobValueSyncLoopGuardRef = useRef({ runs: 0, changedRuns: 0 });
+  /** Last centre-derived value written per job — breaks value sync ↔ setJobs ping-pong. */
+  const lastSyncedJobValueRef = useRef<Record<string, number>>({});
+  /** Recent nextValues per job — detect A↔B oscillation from remapping fights. */
+  const jobValueSyncHistoryRef = useRef<Record<string, number[]>>({});
+  /** Jobs frozen after detected value oscillation (centre remaps fighting hub/header). */
+  const valueSyncFrozenJobsRef = useRef<Set<string>>(new Set());
+  /** After Complete/Ready, skip value-sync setJobs so status/next patches don't ping-pong. */
+  const passaroundHoldUntilRef = useRef(0);
   /** Prevents double-click / overlapping manual record saves. */
   const recordSaveInFlightRef = useRef(false);
   const recordEditLockReadOnlyRef = useRef(false);
@@ -12039,6 +12085,7 @@ export default function CoreApp() {
     setJobEstimateCostCentres((current) => {
       let changed = false;
       const next = { ...current };
+      const seededJobIds: string[] = [];
 
       quotes.forEach((quote) => {
         if (!quote.convertedJobId) return;
@@ -12048,6 +12095,7 @@ export default function CoreApp() {
 
         // Once we have attempted a seed for this job, never write again from this effect.
         // Re-running on every jobs[] identity change was a Maximum update depth source.
+        // Also covers hub polls that wipe centres back to [] — do not re-fire.
         if (seededJobCentresFromQuoteRef.current.has(linkedJob.id)) return;
 
         const existingCentres = Array.isArray(next[linkedJob.id]) ? next[linkedJob.id] : [];
@@ -12056,10 +12104,37 @@ export default function CoreApp() {
           return;
         }
 
-        next[linkedJob.id] = estimateCostCentresFromQuote(linkedJob, sourceCentres);
+        // Mark seeded BEFORE write so a failed/empty seed cannot re-enter forever.
         seededJobCentresFromQuoteRef.current.add(linkedJob.id);
+        const seeded = estimateCostCentresFromQuote(linkedJob, sourceCentres);
+        if (!Array.isArray(seeded) || seeded.length === 0) return;
+        next[linkedJob.id] = seeded;
+        seededJobIds.push(linkedJob.id);
         changed = true;
       });
+
+      // #region agent log
+      quoteSeedLoopGuardRef.current.runs += 1;
+      if (changed) {
+        quoteSeedLoopGuardRef.current.changedRuns += 1;
+        quoteSeedLoopGuardRef.current.lastChangedAt = quoteSeedLoopGuardRef.current.runs;
+        passaroundCrashLog("H1", "CoreApp.tsx:quoteSeedEffect", "quote→job centre seed wrote", {
+          runs: quoteSeedLoopGuardRef.current.runs,
+          changedRuns: quoteSeedLoopGuardRef.current.changedRuns,
+          seededCount: seededJobIds.length,
+          seededJobIds: seededJobIds.slice(0, 8),
+          jobsLen: jobs.length,
+          guardSize: seededJobCentresFromQuoteRef.current.size,
+        });
+        if (quoteSeedLoopGuardRef.current.changedRuns > 20) {
+          passaroundCrashLog("H1", "CoreApp.tsx:quoteSeedEffect:LOOP", "seed changed >20 times", {
+            runs: quoteSeedLoopGuardRef.current.runs,
+            changedRuns: quoteSeedLoopGuardRef.current.changedRuns,
+            seededJobIds: seededJobIds.slice(0, 8),
+          });
+        }
+      }
+      // #endregion
 
       return changed ? next : current;
     });
@@ -12119,11 +12194,32 @@ export default function CoreApp() {
     });
 
     setJobs((current) => {
+      // #region agent log
+      jobValueSyncLoopGuardRef.current.runs += 1;
+      // #endregion
+      if (Date.now() < passaroundHoldUntilRef.current) {
+        // #region agent log
+        if (jobValueSyncLoopGuardRef.current.runs <= 5 || jobValueSyncLoopGuardRef.current.runs % 50 === 0) {
+          passaroundCrashLog("H1", "CoreApp.tsx:jobValueSyncEffect:hold", "skip setJobs during passaround hold", {
+            runs: jobValueSyncLoopGuardRef.current.runs,
+            holdUntil: passaroundHoldUntilRef.current,
+          });
+        }
+        // #endregion
+        return current;
+      }
+      // Hard circuit-breaker — runaway value sync white-screens Complete/Ready.
+      if (jobValueSyncLoopGuardRef.current.changedRuns > 20) {
+        return current;
+      }
+
       let changed = false;
+      const flipped: Array<{ id: string; from: number; to: number }> = [];
       const nextJobs = current.map((job) => {
         // Imported simPRO jobs keep API Total on the header — remapping from cost centres
         // was flickering values between Total and partial line sells.
         if (job.simproJobId) return job;
+        if (valueSyncFrozenJobsRef.current.has(job.id)) return job;
         const centres = jobEstimateCostCentres[job.id];
         if (!centres?.length) return job;
 
@@ -12131,11 +12227,62 @@ export default function CoreApp() {
           centres.reduce((total, centre) => total + estimateCostCentreTotals(centre).totalSell, 0),
         );
         if (!Number.isFinite(nextValue)) return job;
-        if (Math.abs((job.value ?? 0) - nextValue) < 0.01) return job;
+        // Already synced this exact value for this job — never rewrite again.
+        if (lastSyncedJobValueRef.current[job.id] === nextValue) return job;
+        if (Math.abs((job.value ?? 0) - nextValue) < 0.01) {
+          lastSyncedJobValueRef.current[job.id] = nextValue;
+          return job;
+        }
+
+        const previousSynced = lastSyncedJobValueRef.current[job.id];
+        const history = [...(jobValueSyncHistoryRef.current[job.id] ?? []), nextValue].slice(-4);
+        jobValueSyncHistoryRef.current[job.id] = history;
+        // Oscillation A↔B↔A↔B from centre remap fighting hub/defaults (seen live on gas-cert trial).
+        if (
+          history.length >= 4 &&
+          history[0] === history[2] &&
+          history[1] === history[3] &&
+          history[0] !== history[1]
+        ) {
+          valueSyncFrozenJobsRef.current.add(job.id);
+          // #region agent log
+          passaroundCrashLog("H1", "CoreApp.tsx:jobValueSyncEffect:freeze", "froze oscillating job value sync", {
+            jobId: job.id,
+            history,
+            headerValue: job.value ?? 0,
+          });
+          // #endregion
+          return job;
+        }
+        // Cooldown after a write — status/next-only patches must not re-enter value sync immediately.
+        if (previousSynced !== undefined && Date.now() < (passaroundHoldUntilRef.current || 0)) {
+          return job;
+        }
 
         changed = true;
+        flipped.push({ id: job.id, from: job.value ?? 0, to: nextValue });
+        lastSyncedJobValueRef.current[job.id] = nextValue;
         return { ...job, value: nextValue };
       });
+
+      // #region agent log
+      if (changed) {
+        jobValueSyncLoopGuardRef.current.changedRuns += 1;
+        passaroundCrashLog("H1", "CoreApp.tsx:jobValueSyncEffect", "job value sync setJobs", {
+          runs: jobValueSyncLoopGuardRef.current.runs,
+          changedRuns: jobValueSyncLoopGuardRef.current.changedRuns,
+          flipped: flipped.slice(0, 5),
+          jobsLen: current.length,
+        });
+        if (jobValueSyncLoopGuardRef.current.changedRuns > 20) {
+          passaroundCrashLog("H1", "CoreApp.tsx:jobValueSyncEffect:LOOP", "value sync circuit-breaker armed", {
+            runs: jobValueSyncLoopGuardRef.current.runs,
+            changedRuns: jobValueSyncLoopGuardRef.current.changedRuns,
+            flipped: flipped.slice(0, 5),
+          });
+        }
+      }
+      // #endregion
 
       return changed ? nextJobs : current;
     });
@@ -19747,6 +19894,13 @@ export default function CoreApp() {
       // Complete / Ready to invoice must use the atomic passaround API (no clash re-check).
       if (patch.status === "Completed" || patch.status === "Ready to invoice") {
         const action = patch.status === "Completed" ? "complete" : "ready-to-invoice";
+        // #region agent log
+        passaroundHoldUntilRef.current = Date.now() + PASSAROUND_HOLD_MS;
+        passaroundCrashLog("H2,H5,H6", "CoreApp.tsx:updateJobFromDirectory:passaround", "directory passaround", {
+          jobId: job.id,
+          action,
+        });
+        // #endregion
         const result = await postJobPassaround(job.id, {
           action,
           by: activeEmployee?.name ?? "NeXa user",
@@ -19754,22 +19908,13 @@ export default function CoreApp() {
         const updated = result?.job;
         if (!updated) throw new Error("Unable to update job");
         if (result?.review) {
-          markJobReviewEdited();
           setJobReviewApprovals((current) => ({
             ...current,
             [updated.id]: result.review as JobReviewState,
           }));
         }
+        // Hot path: status write + notice only — no folder switch, no audit rows, no review dirty flag.
         setJobs((current) => current.map((item) => (item.id === updated.id ? updated : item)));
-        logAuditEvent({
-          actor: activeEmployee?.name ?? "NeXa user",
-          action: String(patch.status).toLowerCase(),
-          recordType: "job",
-          recordId: job.id,
-          summary: `${job.ref} updated from directory actions.`,
-          source: "directory actions",
-          importance: "high",
-        });
         showNotice(message);
         return;
       }
@@ -27494,6 +27639,14 @@ export default function CoreApp() {
     jobId: string,
     payload: Record<string, unknown>,
   ): Promise<{ ok: true; job?: Job; review?: JobReviewState; error?: string } | null> {
+    // #region agent log
+    passaroundCrashLog("H4", "CoreApp.tsx:postJobPassaround:start", "passaround request", {
+      jobId,
+      action: payload.action ?? null,
+      key: payload.key ?? null,
+      approved: payload.approved ?? null,
+    });
+    // #endregion
     const response = await fetch(`/api/jobs/${jobId}/passaround`, {
       method: "POST",
       headers: { ...requestHeaders, "Content-Type": "application/json" },
@@ -27508,13 +27661,38 @@ export default function CoreApp() {
         (body && typeof body.error === "string" && body.error) ||
         (body && typeof body.message === "string" && body.message) ||
         "Passaround request failed.";
+      // #region agent log
+      passaroundCrashLog("H4", "CoreApp.tsx:postJobPassaround:fail", "passaround request failed", {
+        jobId,
+        action: payload.action ?? null,
+        status: response.status,
+        detail,
+      });
+      // #endregion
       throw new Error(detail);
     }
+    // #region agent log
+    passaroundCrashLog("H4", "CoreApp.tsx:postJobPassaround:ok", "passaround request ok", {
+      jobId,
+      action: payload.action ?? null,
+      status: response.status,
+      jobStatus: body?.job?.status ?? null,
+      hasReview: Boolean(body?.review),
+    });
+    // #endregion
     return body as { ok: true; job?: Job; review?: JobReviewState };
   }
 
   async function completeSelectedJob() {
     if (!selectedJob) return;
+    // #region agent log
+    passaroundHoldUntilRef.current = Date.now() + PASSAROUND_HOLD_MS;
+    passaroundCrashLog("H2,H5,H6", "CoreApp.tsx:completeSelectedJob:start", "complete begin", {
+      jobId: selectedJob.id,
+      jobRef: selectedJob.ref,
+      status: selectedJob.status,
+    });
+    // #endregion
     try {
       let updated: Job | null | undefined = null;
       try {
@@ -27523,30 +27701,33 @@ export default function CoreApp() {
           by: activeEmployee?.name ?? "NeXa user",
         });
         updated = result?.job;
-      } catch {
-        // Fallback: status-only PATCH (clash checks already skipped for schedule-unchanged).
-        updated = await patchSelectedJob(
-          {
-            status: "Completed",
-            next: "Pass around required before Ready to invoice.",
-          },
-          `${selectedJob.ref} marked Complete — tick pass around, then approve for invoice.`,
-        );
+      } catch (error) {
+        // #region agent log
+        passaroundCrashLog("H4", "CoreApp.tsx:completeSelectedJob:apiFail", "complete API failed — no status PATCH fallback", {
+          jobId: selectedJob.id,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+        // #endregion
+        throw error;
       }
       if (!updated) throw new Error("Unable to complete job.");
+      // Hot path: ONLY setJobs for this id + notice. No folder switch, no audit rows, no invoices.
       setJobs((current) => current.map((job) => (job.id === updated!.id ? updated! : job)));
       showNotice(`${updated.ref} marked Complete — tick pass around, then approve for invoice.`);
-      setActiveJobFolderKey("review");
-      logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
-        action: "completed",
-        recordType: "job",
-        recordId: updated.id,
-        summary: `${updated.ref} marked Complete and awaiting pass around.`,
-        source: "job completion",
-        importance: "high",
+      // #region agent log
+      passaroundCrashLog("H2,H5,H6", "CoreApp.tsx:completeSelectedJob:ok", "complete success (minimal hot path)", {
+        jobId: updated.id,
+        status: updated.status,
       });
+      // #endregion
     } catch (error) {
+      // #region agent log
+      passaroundCrashLog("H4", "CoreApp.tsx:completeSelectedJob:catch", "complete failed", {
+        jobId: selectedJob.id,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack?.slice(0, 2500) : null,
+      });
+      // #endregion
       const message = error instanceof Error ? error.message : "Unable to complete job.";
       setSectionError(message);
       showNotice(message);
@@ -27602,6 +27783,7 @@ export default function CoreApp() {
       "Approval required",
     ];
     if (allTicked && progressStatuses.includes(selectedJob.status)) {
+      passaroundHoldUntilRef.current = Date.now() + PASSAROUND_HOLD_MS;
       void postJobPassaround(selectedJob.id, {
         action: "complete",
         by: activeEmployee?.name ?? "NeXa user",
@@ -27611,24 +27793,15 @@ export default function CoreApp() {
           if (!updated) return;
           setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
           showNotice(`${updated.ref} moved to Complete after full pass around.`);
-          logAuditEvent({
-            actor: activeEmployee?.name ?? "NeXa user",
-            action: "completed",
-            recordType: "job",
-            recordId: updated.id,
-            summary: `${updated.ref} moved to Complete after site, commercial and finance pass around.`,
-            source: "completion review",
-            importance: "high",
-          });
         })
-        .catch(() => {
-          void patchSelectedJob(
-            {
-              status: "Completed",
-              next: "Pass around complete — approve for invoice when ready.",
-            },
-            `${selectedJob.ref} moved to Complete after full pass around.`,
-          );
+        .catch((error) => {
+          // #region agent log
+          passaroundCrashLog("H4", "CoreApp.tsx:toggleSelectedJobReview:completeFail", "auto-complete after ticks failed", {
+            jobId: selectedJob.id,
+            errorMessage: error instanceof Error ? error.message : String(error),
+          });
+          // #endregion
+          showNotice(error instanceof Error ? error.message : "Unable to mark job Complete after pass around.");
         });
     }
   }
@@ -27647,54 +27820,48 @@ export default function CoreApp() {
       showNotice("Commercial review must be logged before this job can be marked ready to invoice.");
       return;
     }
+    // #region agent log
+    passaroundHoldUntilRef.current = Date.now() + PASSAROUND_HOLD_MS;
+    passaroundCrashLog("H2,H5,H6", "CoreApp.tsx:approveSelectedJobForInvoice:start", "approve begin", {
+      jobId: selectedJob.id,
+      jobRef: selectedJob.ref,
+      status: selectedJob.status,
+      reviewComplete: selectedJobReviewComplete,
+    });
+    // #endregion
     try {
-      markJobReviewEdited();
-      let updated: Job | null | undefined = null;
-      let review: JobReviewState | undefined;
-      try {
-        const result = await postJobPassaround(selectedJob.id, {
-          action: "ready-to-invoice",
-          by: activeEmployee?.name ?? "NeXa user",
-        });
-        updated = result?.job;
-        review = result?.review;
-      } catch {
-        // Fallback path: force ticks then status-only PATCH.
-        await postJobPassaround(selectedJob.id, { action: "force-reviews", by: activeEmployee?.name ?? "NeXa user" }).catch(
-          () => undefined,
-        );
-        updated = await patchSelectedJob(
-          {
-            status: "Ready to invoice",
-            next: "Raise and email final invoice.",
-          },
-          `${selectedJob.ref} approved and ready to invoice.`,
-        );
-        review = { construction: true, commercial: true, office: true };
-      }
-      if (!updated) throw new Error("Unable to approve job for invoice.");
-      setJobReviewApprovals((current) => ({
-        ...current,
-        [selectedJob.id]: review ?? {
-          construction: true,
-          commercial: true,
-          office: true,
-        },
-      }));
-      setJobs((current) => current.map((job) => (job.id === updated!.id ? updated! : job)));
-      // Stay on the job record — do NOT auto-open invoice (that path white-screened live).
-      showNotice(`${updated.ref} is Ready to invoice. Open it from Uninvoiced when you want to raise the invoice.`);
-      logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
-        action: "approved",
-        recordType: "job",
-        recordId: updated.id,
-        summary: `${updated.ref} passed pass around and moved to Ready to invoice.`,
-        source: "completion review",
-        importance: "high",
+      const result = await postJobPassaround(selectedJob.id, {
+        action: "ready-to-invoice",
+        by: activeEmployee?.name ?? "NeXa user",
       });
-      setActiveJobFolderKey("uninvoiced");
+      const updated = result?.job;
+      const review = result?.review;
+      if (!updated) throw new Error("Unable to approve job for invoice.");
+      // Hot path: ONLY setJobs for this id + local review mirror + notice.
+      // Do NOT switch job folders, write audit rows, mark review dirty, or open invoices.
+      if (review) {
+        setJobReviewApprovals((current) => ({
+          ...current,
+          [selectedJob.id]: review,
+        }));
+      }
+      setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
+      showNotice(`${updated.ref} is Ready to invoice. Open it from Uninvoiced when you want to raise the invoice.`);
+      // #region agent log
+      passaroundCrashLog("H2,H5,H6", "CoreApp.tsx:approveSelectedJobForInvoice:ok", "approve finished (minimal hot path)", {
+        jobId: updated.id,
+        status: updated.status,
+        hasReview: Boolean(review),
+      });
+      // #endregion
     } catch (error) {
+      // #region agent log
+      passaroundCrashLog("H4", "CoreApp.tsx:approveSelectedJobForInvoice:catch", "approve caught error", {
+        jobId: selectedJob.id,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack?.slice(0, 2500) : null,
+      });
+      // #endregion
       const message = error instanceof Error ? error.message : "Unable to approve job for invoice.";
       setSectionError(message);
       showNotice(message);
@@ -41562,6 +41729,7 @@ export default function CoreApp() {
             ) : null
           ) : homeView === "job-record" ? (
             selectedJob ? (
+              <JobRecordErrorBoundary jobRef={selectedJob.ref}>
               <div className="record-with-timeline">
               <div className="record-with-timeline-main">
               <section className="quote-record-shell">
@@ -43465,6 +43633,7 @@ export default function CoreApp() {
               </div>
               {renderRecordTimelinePanel()}
               </div>
+              </JobRecordErrorBoundary>
             ) : null
           ) : homeView === "cost-centre-record" ? (
             selectedJob && selectedCostCentre ? (
