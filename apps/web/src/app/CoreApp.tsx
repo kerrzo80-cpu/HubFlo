@@ -27512,20 +27512,30 @@ export default function CoreApp() {
     try {
       // Persist the authoritative three-person review before asking the jobs API
       // to cross the server-enforced invoice boundary.
+      // Send jobReviews only — a full hub payload re-submits jobSchedulePlans and can
+      // 409 on pre-existing imported clashes (or OOM), blocking the invoice move.
+      const nextReviews = {
+        ...jobReviewApprovals,
+        [selectedJob.id]: selectedJobReviewState,
+      };
+      const reviewPayload = { jobReviews: nextReviews };
       const reviewResponse = await fetch("/api/hub-state", {
         method: "PUT",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({
-          ...buildHubDetailStatePayload(),
-          jobReviews: {
-            ...jobReviewApprovals,
-            [selectedJob.id]: selectedJobReviewState,
-          },
-        }),
+        body: JSON.stringify(reviewPayload),
       });
       if (!reviewResponse.ok) {
-        throw new Error("The three approvals could not be saved. This job has not been moved.");
+        const failBody = await reviewResponse.json().catch(() => null);
+        const detail =
+          failBody && typeof failBody === "object" && typeof (failBody as { error?: string }).error === "string"
+            ? (failBody as { error: string }).error
+            : null;
+        throw new Error(
+          detail
+            ? `The three approvals could not be saved (${detail}). This job has not been moved.`
+            : "The three approvals could not be saved. This job has not been moved.",
+        );
       }
       const updated = await patchSelectedJob(
         {
@@ -27545,7 +27555,11 @@ export default function CoreApp() {
         importance: "high",
       });
       setActiveJobFolderKey("uninvoiced");
-      openInvoiceForJob(updated);
+      try {
+        openInvoiceForJob(updated);
+      } catch {
+        showNotice(`${updated.ref} is ready to invoice, but the invoice screen could not be opened automatically.`);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to approve job for invoice.";
       setSectionError(message);

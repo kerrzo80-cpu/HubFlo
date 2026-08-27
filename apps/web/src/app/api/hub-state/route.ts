@@ -21,6 +21,33 @@ import {
 } from "@/lib/schedule-clash";
 import { useDemoSeedData } from "@/lib/workspace-mode";
 
+/** Stable compare for schedule plans — ignores object key insertion order. */
+function hubSchedulePlansSignature(plans: unknown): string {
+  if (!plans || typeof plans !== "object") return "";
+  const rows: string[] = [];
+  for (const [jobId, list] of Object.entries(plans as Record<string, unknown>)) {
+    if (!Array.isArray(list)) continue;
+    for (const raw of list) {
+      if (!raw || typeof raw !== "object") continue;
+      const row = raw as Record<string, unknown>;
+      rows.push(
+        [
+          jobId,
+          String(row.id || ""),
+          String(row.employeeId || ""),
+          String(row.employeeName || ""),
+          String(row.startDate || ""),
+          String(row.startTime || ""),
+          String(row.endDate || ""),
+          String(row.endTime || ""),
+        ].join("|"),
+      );
+    }
+  }
+  rows.sort();
+  return rows.join("\n");
+}
+
 export async function GET(request: Request) {
   const access = getAccessProfileFromHeaders(request.headers);
   if (!access.showJobs && !access.showQuotes && !access.showFinance) {
@@ -82,8 +109,10 @@ export async function PUT(request: Request) {
     if (payload.jobSchedulePlans !== undefined) {
       // Only hard-block when schedule plans actually change. Pre-existing imported
       // clashes must not fail every unrelated hub autosave (Setup, invoices, etc.).
-      const before = JSON.stringify(current.jobSchedulePlans ?? {});
-      const after = JSON.stringify(payload.jobSchedulePlans ?? {});
+      // Use a sorted assignment signature — JSON.stringify key order alone is unstable
+      // across client rebuilds and was re-blocking review/invoice saves on live data.
+      const before = hubSchedulePlansSignature(current.jobSchedulePlans);
+      const after = hubSchedulePlansSignature(payload.jobSchedulePlans);
       if (before !== after) {
         const leadAssignments = leadSurveysToAssignments(getLeads());
         const clashError = assertNoHubScheduleClashes(
