@@ -10,7 +10,12 @@ export async function GET(request: Request) {
   if (!access.showQuotes) {
     return NextResponse.json([]);
   }
-  return NextResponse.json(getQuotes());
+  try {
+    return NextResponse.json(getQuotes());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Quotes unavailable";
+    return NextResponse.json({ error: message }, { status: 503 });
+  }
 }
 
 export async function POST(request: Request) {

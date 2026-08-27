@@ -43,27 +43,35 @@ const seedPeopleStore: PeopleStore = {
 };
 
 const peopleStore: PeopleStore = loadServerStore("people-store", seedPeopleStore);
+let peopleStoreHydrated = Array.isArray(peopleStore.clients) && peopleStore.clients.length > 0;
 
 function rehydratePeopleStoreFromDisk() {
+  // List GETs must not deep-clone the whole people store from disk every request.
+  if (peopleStoreHydrated) return;
   const persisted = readServerStoreSnapshot("people-store") as PeopleStore | null;
-  if (!persisted || !Array.isArray(persisted.clients) || !Array.isArray(persisted.clientSites) || !Array.isArray(persisted.auditEvents)) return;
-  peopleStore.clients = clone(persisted.clients);
-  peopleStore.clientSites = clone(persisted.clientSites);
-  peopleStore.auditEvents = clone(persisted.auditEvents);
+  if (!persisted || !Array.isArray(persisted.clients) || !Array.isArray(persisted.clientSites) || !Array.isArray(persisted.auditEvents)) {
+    peopleStoreHydrated = true;
+    return;
+  }
+  peopleStore.clients = persisted.clients;
+  peopleStore.clientSites = persisted.clientSites;
+  peopleStore.auditEvents = persisted.auditEvents;
+  peopleStoreHydrated = true;
 }
 
 function persistPeopleStore() {
   writeServerStore("people-store", peopleStore);
+  peopleStoreHydrated = true;
 }
 
 export function getClients() {
   rehydratePeopleStoreFromDisk();
-  return clone(peopleStore.clients);
+  return peopleStore.clients.map((client) => ({ ...client }));
 }
 
 export function getClientSites() {
   rehydratePeopleStoreFromDisk();
-  return clone(peopleStore.clientSites);
+  return peopleStore.clientSites.map((site) => ({ ...site }));
 }
 
 function applyDefinedPatch<T extends object>(target: T, patch: Partial<T>) {

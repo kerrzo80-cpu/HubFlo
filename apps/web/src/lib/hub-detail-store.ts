@@ -168,10 +168,10 @@ function rehydrateHubDetailStateFromDisk() {
 }
 
 /**
- * Passaround / job list hot path — do NOT clone the full hub (that OOMed live getJobs).
+ * Passaround / job list hot path — do NOT rehydrate/clone the full hub on every list.
+ * In-memory reviews are updated by writeJobInvoiceReview; missing reviews demote Ready→Complete (safe).
  */
 export function peekHubJobReviews(): Record<string, unknown> {
-  rehydrateHubDetailStateFromDisk();
   const raw = hubDetailState.jobReviews;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   return raw as Record<string, unknown>;
