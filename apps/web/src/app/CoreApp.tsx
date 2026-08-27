@@ -11621,6 +11621,7 @@ export default function CoreApp() {
 
     const loadLiveData = async () => {
       let hasOfflineFallback = false;
+      const offlineReasons: string[] = [];
       try {
         const headers = requestHeadersRef.current;
         const [clientsResponse, clientSitesResponse, leadsResponse, jobsResponse, quotesResponse, purchaseResponse, auditResponse, hubStateResponse] = await Promise.all([
@@ -11671,20 +11672,25 @@ export default function CoreApp() {
           purchaseResponse.ok ? (purchaseResponse.json() as Promise<PurchaseRequest[]>) : Promise.resolve(null),
           auditResponse.ok ? (auditResponse.json() as Promise<AuditEvent[]>) : Promise.resolve(null),
           hubStateResponse.ok
-            ? (hubStateResponse.json() as Promise<HubDetailStatePayload>)
+            ? (hubStateResponse.json() as Promise<HubDetailStatePayload>).catch(() => null)
             : Promise.resolve(null),
         ]);
 
         if (stopped) return;
 
-        if (!clientsPayload) hasOfflineFallback = true;
-        if (!clientSitesPayload) hasOfflineFallback = true;
-        if (!leadsPayload && serverWorkspaceMode !== "live") hasOfflineFallback = true;
-        if (!jobsPayload) hasOfflineFallback = true;
-        if (!quotesPayload) hasOfflineFallback = true;
-        if (!purchasePayload && serverWorkspaceMode !== "live") hasOfflineFallback = true;
-        if (!auditPayload && serverWorkspaceMode !== "live") hasOfflineFallback = true;
-        if (!hubState) hasOfflineFallback = true;
+        const noteFail = (label: string, response: Response, payload: unknown) => {
+          if (payload) return;
+          hasOfflineFallback = true;
+          offlineReasons.push(`${label} ${response.status || "failed"}`);
+        };
+        noteFail("clients", clientsResponse, clientsPayload);
+        noteFail("sites", clientSitesResponse, clientSitesPayload);
+        if (serverWorkspaceMode !== "live") noteFail("leads", leadsResponse, leadsPayload);
+        noteFail("jobs", jobsResponse, jobsPayload);
+        noteFail("quotes", quotesResponse, quotesPayload);
+        if (serverWorkspaceMode !== "live") noteFail("POs", purchaseResponse, purchasePayload);
+        if (serverWorkspaceMode !== "live") noteFail("audit", auditResponse, auditPayload);
+        noteFail("hub", hubStateResponse, hubState);
 
         startTransition(() => {
           if (clientsPayload) setClients(clientsPayload);
@@ -11957,7 +11963,9 @@ export default function CoreApp() {
         if (stopped) return;
 
         if (hasOfflineFallback) {
-          setSectionError("Some NeXa workflows are currently using local workspace data.");
+          setSectionError(
+            `Some NeXa workflows are currently using local workspace data (${offlineReasons.slice(0, 4).join(", ") || "unknown"}).`,
+          );
         } else {
           setSectionError(null);
         }
@@ -27664,10 +27672,25 @@ export default function CoreApp() {
   async function completeSelectedJob() {
     if (!selectedJob) return;
     passaroundHoldUntilRef.current = Date.now() + PASSAROUND_HOLD_MS;
+    const jobId = selectedJob.id;
+    const jobRef = selectedJob.ref;
+    // Optimistic UI first — Enquiry/In progress jobs must show Completed immediately.
+    setJobs((current) =>
+      current.map((job) =>
+        job.id === jobId
+          ? {
+              ...job,
+              status: "Completed",
+              next: "Pass around required before Ready to invoice.",
+              health: "green",
+            }
+          : job,
+      ),
+    );
     try {
       let updated: Job | null | undefined = null;
       try {
-        const result = await postJobPassaround(selectedJob.id, {
+        const result = await postJobPassaround(jobId, {
           action: "complete",
           by: activeEmployee?.name ?? "NeXa user",
         });
@@ -27678,14 +27701,17 @@ export default function CoreApp() {
             status: "Completed",
             next: "Pass around required before Ready to invoice.",
           },
-          `${selectedJob.ref} marked Complete — tick pass around, then approve for invoice.`,
+          `${jobRef} marked Complete — tick pass around, then approve for invoice.`,
         );
       }
       if (!updated) throw new Error("Unable to complete job.");
-      // Hot path: ONLY setJobs for this id + notice. No folder switch, no audit rows, no invoices.
       setJobs((current) => current.map((job) => (job.id === updated!.id ? updated! : job)));
-      showNotice(`${updated.ref} marked Complete — tick pass around, then approve for invoice.`);
+      showNotice(`${updated.ref} marked Complete — tick Chris / Commercial / Carol, then Ready to invoice.`);
     } catch (error) {
+      // Roll back optimistic status if server refused.
+      setJobs((current) =>
+        current.map((job) => (job.id === jobId ? { ...job, status: selectedJob.status, next: selectedJob.next, health: selectedJob.health } : job)),
+      );
       const message = error instanceof Error ? error.message : "Unable to complete job.";
       setSectionError(message);
       showNotice(message);
@@ -36008,6 +36034,13 @@ export default function CoreApp() {
                   {homeView === "job-record" && selectedJob && access.canEditInvoice ? (
                     <button
                       className="primary-button"
+                      type="button"
+                      disabled={!["Completed", "Ready to invoice", "Invoiced"].includes(selectedJob.status)}
+                      title={
+                        ["Completed", "Ready to invoice", "Invoiced"].includes(selectedJob.status)
+                          ? "Raise or open the invoice for this job"
+                          : `Status is ${selectedJob.status}. Use Mark complete → pass around ticks → Ready to invoice first.`
+                      }
                       onClick={() => {
                         if (selectedJob) {
                           openJobInvoiceCreator(selectedJob);

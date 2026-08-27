@@ -63,12 +63,37 @@ export async function GET(request: Request) {
   } catch {
     // Best-effort backfill of Daywork variation cards from Field evidence.
   }
-  // Poll responses omit base64 signatures and lean job cost centres — never echo BoQ dumps.
-  const state = sanitizeHubStateForClient(stripDayworkBlobsForPoll(getHubDetailState()));
-  if (state.jobCostCentres && typeof state.jobCostCentres === "object") {
-    leanJobCostCentresMap(state.jobCostCentres);
+  try {
+    // Poll responses omit base64 signatures and lean job cost centres — never echo BoQ dumps.
+    const state = sanitizeHubStateForClient(stripDayworkBlobsForPoll(getHubDetailState()));
+    if (state.jobCostCentres && typeof state.jobCostCentres === "object") {
+      leanJobCostCentresMap(state.jobCostCentres);
+    }
+    return NextResponse.json(state);
+  } catch (error) {
+    // Fat hub clone/OOM must not blank the office — return the slices passaround needs.
+    try {
+      const hub = getHubDetailState();
+      return NextResponse.json({
+        jobReviews: hub.jobReviews || {},
+        employees: hub.employees || [],
+        financeSettings: hub.financeSettings || {},
+        businessSettings: hub.businessSettings || {},
+        workflowRules: hub.workflowRules || {},
+        jobSchedulePlans: hub.jobSchedulePlans || {},
+        invoices: [],
+        jobCostCentres: {},
+        jobSections: {},
+        hubDegraded: true,
+        hubDegradedReason: error instanceof Error ? error.message : "hub serialize failed",
+      });
+    } catch {
+      return NextResponse.json(
+        { error: "Hub state unavailable", jobReviews: {}, hubDegraded: true },
+        { status: 503 },
+      );
+    }
   }
-  return NextResponse.json(state);
 }
 
 export async function PUT(request: Request) {

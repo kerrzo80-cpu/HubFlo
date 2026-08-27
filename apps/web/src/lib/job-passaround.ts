@@ -1,4 +1,4 @@
-import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
+import { getHubDetailState, saveHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
 import {
   jobInvoiceReviewComplete,
   type JobInvoiceReviewState,
@@ -27,13 +27,24 @@ export function readJobInvoiceReview(jobId: string): JobInvoiceReviewState {
 
 export function writeJobInvoiceReview(jobId: string, review: JobInvoiceReviewState) {
   const hub = getHubDetailState();
-  saveHubDetailState({
-    ...hub,
-    jobReviews: {
-      ...((hub.jobReviews || {}) as Record<string, unknown>),
-      [jobId]: review,
-    },
-  });
+  try {
+    saveHubDetailState({
+      ...hub,
+      jobReviews: {
+        ...((hub.jobReviews || {}) as Record<string, unknown>),
+        [jobId]: review,
+      },
+    });
+  } catch {
+    // Full hub write can OOM on live — still keep reviews in the in-memory hub map via a second try
+    // with a minimal payload (merge preserves other server fields).
+    saveHubDetailState({
+      jobReviews: {
+        ...((hub.jobReviews || {}) as Record<string, unknown>),
+        [jobId]: review,
+      },
+    } as HubDetailState);
+  }
   return review;
 }
 
