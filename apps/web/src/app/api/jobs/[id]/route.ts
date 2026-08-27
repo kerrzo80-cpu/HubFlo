@@ -140,11 +140,20 @@ export async function PATCH(
     );
   }
 
+  const scheduleFieldsChanging =
+    (body.manager !== undefined && body.manager !== current.manager) ||
+    (body.scheduledDate !== undefined && body.scheduledDate !== current.scheduledDate) ||
+    (body.scheduledTime !== undefined && body.scheduledTime !== current.scheduledTime) ||
+    (body.scheduledDurationHours !== undefined &&
+      body.scheduledDurationHours !== current.scheduledDurationHours);
+
   const nextManager = body.manager ?? current.manager;
   const nextDate = body.scheduledDate ?? current.scheduledDate;
   const nextTime = body.scheduledTime ?? current.scheduledTime;
   const nextDurationHours = body.scheduledDurationHours ?? current.scheduledDurationHours;
-  if (nextManager && nextDate && nextTime) {
+  // Status-only moves (Complete / Ready to invoice) must not re-litigate pre-existing
+  // imported schedule clashes — that blocked office passaround on live.
+  if (scheduleFieldsChanging && nextManager && nextDate && nextTime) {
     const conflict = jobScheduleClashErrorPayload(
       {
         jobId: id,

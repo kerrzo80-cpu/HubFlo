@@ -376,6 +376,7 @@ const OPEN_WORKSPACE_TAB_LIMIT = 10;
 const SETUP_SERVER_SYNC_HOLD_MS = 120000;
 const COST_CENTRE_SERVER_SYNC_HOLD_MS = 120000;
 const INVOICE_SERVER_SYNC_HOLD_MS = 120000;
+const JOB_REVIEW_SERVER_SYNC_HOLD_MS = 120000;
 
 const dashboardPanelIds = [
   "jobs",
@@ -9053,10 +9054,12 @@ export default function CoreApp() {
   const hubAutosaveHoldUntilRef = useRef(0);
   const lastLocalEmployeeEditAt = useRef(0);
   const lastLocalInvoiceEditAt = useRef(0);
+  const lastLocalJobReviewEditAt = useRef(0);
   const hasAppliedHubSetupState = useRef(false);
   const pendingSetupSaveRef = useRef(false);
   const pendingCostCentreSaveRef = useRef(false);
   const pendingEmployeeSaveRef = useRef(false);
+  const pendingJobReviewSaveRef = useRef(false);
   const loadedEmployeeDraftIdRef = useRef<string | null>(null);
   const pendingInvoiceSaveRef = useRef(false);
   const quoteCostCentresRef = useRef<Record<string, QuoteCostCentre[]>>({});
@@ -11670,6 +11673,9 @@ export default function CoreApp() {
           const hasRecentLocalSetupEdit = Date.now() - lastLocalSetupEditAt.current < SETUP_SERVER_SYNC_HOLD_MS;
           const hasRecentLocalCostCentreEdit = Date.now() - lastLocalCostCentreEditAt.current < COST_CENTRE_SERVER_SYNC_HOLD_MS;
           const hasRecentLocalEmployeeEdit = Date.now() - lastLocalEmployeeEditAt.current < SETUP_SERVER_SYNC_HOLD_MS;
+          const hasRecentLocalJobReviewEdit =
+            Date.now() - lastLocalJobReviewEditAt.current < JOB_REVIEW_SERVER_SYNC_HOLD_MS ||
+            pendingJobReviewSaveRef.current;
           const hasRecentLocalInvoiceEdit = Date.now() - lastLocalInvoiceEditAt.current < INVOICE_SERVER_SYNC_HOLD_MS;
           if (hubState.employees?.length && !hasRecentLocalEmployeeEdit && !pendingEmployeeSaveRef.current) {
             const nextEmployees = normalizeEmployeeCards(
@@ -11808,7 +11814,15 @@ export default function CoreApp() {
           } else if (!hasRecentLocalSetupEdit && !pendingSetupSaveRef.current && hubState.catalogFolders?.length) {
             setCatalogFolders((current) => mergeCatalogFolderList(hubState.catalogFolders!, current));
           }
-          if (hubState.jobReviews) setJobReviewApprovals(hubState.jobReviews);
+          if (hubState.jobReviews && !hasRecentLocalJobReviewEdit) {
+            setJobReviewApprovals(hubState.jobReviews as typeof jobReviewApprovals);
+          } else if (hubState.jobReviews && hasRecentLocalJobReviewEdit) {
+            // Prefer local ticks while a passaround save is in flight — hub polls were wiping them.
+            setJobReviewApprovals((current) => ({
+              ...(hubState.jobReviews as typeof jobReviewApprovals),
+              ...current,
+            }));
+          }
           if (hubState.jobDeliveryEvents) setJobDeliveryEvents(hubState.jobDeliveryEvents);
           if (hubState.dayworkSheets) {
             // Prefer the richer sheet (Field signatures/materials) when merging poll updates.
@@ -17366,6 +17380,11 @@ export default function CoreApp() {
   function markCostCentreEdited() {
     lastLocalCostCentreEditAt.current = Date.now();
     pendingCostCentreSaveRef.current = true;
+  }
+
+  function markJobReviewEdited() {
+    lastLocalJobReviewEditAt.current = Date.now();
+    pendingJobReviewSaveRef.current = true;
   }
 
   function markEmployeeEdited() {
@@ -27469,6 +27488,7 @@ export default function CoreApp() {
     const next = { ...existing, [check]: !existing[check] };
     const allTicked = jobReviewChecks.every((item) => next[item.key]);
     const nextReviews = { ...jobReviewApprovals, [selectedJob.id]: next };
+    markJobReviewEdited();
     setJobReviewApprovals(nextReviews);
     // Persist reviews immediately with a light payload — do not wait for the fat hub autosave
     // (schedules + cost centres) which can 409/OOM and leave the jobs API without approvals.
@@ -27477,7 +27497,11 @@ export default function CoreApp() {
       headers: { ...requestHeaders, "Content-Type": "application/json" },
       credentials: "same-origin",
       body: JSON.stringify({ jobReviews: nextReviews }),
-    }).catch(() => {});
+    })
+      .then((response) => {
+        if (response.ok) pendingJobReviewSaveRef.current = false;
+      })
+      .catch(() => {});
     const checkLabel = jobReviewChecks.find((item) => item.key === check)?.label ?? "Review";
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
@@ -27519,6 +27543,29 @@ export default function CoreApp() {
     }
   }
 
+  async function persistJobReviewsForInvoice(jobId: string, reviews: Record<string, JobReviewState>) {
+    markJobReviewEdited();
+    const reviewResponse = await fetch("/api/hub-state", {
+      method: "PUT",
+      headers: { ...requestHeaders, "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ jobReviews: reviews }),
+    });
+    if (!reviewResponse.ok) {
+      const failBody = await reviewResponse.json().catch(() => null);
+      const detail =
+        failBody && typeof failBody === "object" && typeof (failBody as { error?: string }).error === "string"
+          ? (failBody as { error: string }).error
+          : null;
+      throw new Error(
+        detail
+          ? `The three approvals could not be saved (${detail}). This job has not been moved.`
+          : "The three approvals could not be saved. This job has not been moved.",
+      );
+    }
+    pendingJobReviewSaveRef.current = false;
+  }
+
   async function approveSelectedJobForInvoice() {
     if (!selectedJob) return;
     if (!selectedJobReviewComplete) {
@@ -27536,38 +27583,35 @@ export default function CoreApp() {
     try {
       // Persist the authoritative three-person review before asking the jobs API
       // to cross the server-enforced invoice boundary.
-      // Send jobReviews only — a full hub payload re-submits jobSchedulePlans and can
-      // 409 on pre-existing imported clashes (or OOM), blocking the invoice move.
       const nextReviews = {
         ...jobReviewApprovals,
-        [selectedJob.id]: selectedJobReviewState,
+        [selectedJob.id]: {
+          construction: true,
+          commercial: true,
+          office: true,
+        },
       };
-      const reviewPayload = { jobReviews: nextReviews };
-      const reviewResponse = await fetch("/api/hub-state", {
-        method: "PUT",
-        headers: { ...requestHeaders, "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify(reviewPayload),
-      });
-      if (!reviewResponse.ok) {
-        const failBody = await reviewResponse.json().catch(() => null);
-        const detail =
-          failBody && typeof failBody === "object" && typeof (failBody as { error?: string }).error === "string"
-            ? (failBody as { error: string }).error
-            : null;
-        throw new Error(
-          detail
-            ? `The three approvals could not be saved (${detail}). This job has not been moved.`
-            : "The three approvals could not be saved. This job has not been moved.",
-        );
-      }
-      const updated = await patchSelectedJob(
+      setJobReviewApprovals(nextReviews);
+      await persistJobReviewsForInvoice(selectedJob.id, nextReviews);
+
+      let updated = await patchSelectedJob(
         {
           status: "Ready to invoice",
           next: "Raise and email final invoice.",
         },
         `${selectedJob.ref} approved and ready to invoice.`,
       );
+      // If reviews raced, retry once after another light persist.
+      if (!updated) {
+        await persistJobReviewsForInvoice(selectedJob.id, nextReviews);
+        updated = await patchSelectedJob(
+          {
+            status: "Ready to invoice",
+            next: "Raise and email final invoice.",
+          },
+          `${selectedJob.ref} approved and ready to invoice.`,
+        );
+      }
       if (!updated) return;
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",

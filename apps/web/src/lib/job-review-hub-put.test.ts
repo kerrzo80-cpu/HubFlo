@@ -141,7 +141,10 @@ test("CoreApp approveSelectedJobForInvoice sends jobReviews-only hub PUT", async
   const source = await fs.readFile(new URL("../app/CoreApp.tsx", import.meta.url), "utf8");
   const fnStart = source.indexOf("async function approveSelectedJobForInvoice()");
   assert.ok(fnStart > 0);
-  const fnBody = source.slice(fnStart, fnStart + 3500);
-  assert.match(fnBody, /const reviewPayload = \{ jobReviews: nextReviews \}/);
+  const fnBody = source.slice(fnStart, fnStart + 4500);
+  assert.match(fnBody, /persistJobReviewsForInvoice/);
+  assert.match(fnBody, /construction: true/);
+  assert.match(fnBody, /commercial: true/);
+  assert.match(fnBody, /office: true/);
   assert.doesNotMatch(fnBody, /buildHubDetailStatePayload\(\)/);
 });
