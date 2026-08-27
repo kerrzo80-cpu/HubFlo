@@ -100,7 +100,7 @@ function openAiTools(definitions: CapabilityDefinition[]) {
     description: [
       definition.description,
       definition.mode === "write" && definition.requiresConfirmation
-        ? "This changes NeXa. Call it only when you have enough information to prepare the change; NeXa will require user confirmation before execution."
+        ? "This changes Blake. Call it only when you have enough information to prepare the change; Blake will require user confirmation before execution."
         : "",
     ].filter(Boolean).join(" "),
     parameters: definition.name === "create_lead" ? createLeadToolSchema() : definition.inputSchema,
@@ -174,7 +174,7 @@ function confirmationDetail(capability: string, input: Record<string, unknown>) 
     ...Object.keys(input).filter((key) => !preferred.includes(key) && input[key] !== undefined && input[key] !== null && input[key] !== ""),
   ].slice(0, 12);
   const details = keys.map((key) => `${humanise(key)}: ${displayValue(input[key])}`);
-  return details.length ? details.join("\n") : "Review the requested NeXa change.";
+  return details.length ? details.join("\n") : "Review the requested Blake change.";
 }
 
 function requiredInputMissing(definition: CapabilityDefinition, input: Record<string, unknown>) {
@@ -185,7 +185,7 @@ function requiredInputMissing(definition: CapabilityDefinition, input: Record<st
 
 function pendingResponse(action: BlakePendingCapabilityAction): BlakeOrchestratorResponse {
   return {
-    reply: `I’m ready to ${humanise(action.capability).toLowerCase()} in NeXa. Review the details below and confirm if you want me to do it.`,
+    reply: `I’m ready to ${humanise(action.capability).toLowerCase()} in Blake. Review the details below and confirm if you want me to do it.`,
     aiUsed: true,
     intent: { action: "chat" },
     action: {
@@ -204,9 +204,9 @@ function successReply(capability: string, data: unknown) {
   const customer = typeof record.customer === "string"
     ? record.customer
     : typeof record.customerName === "string" ? record.customerName : "";
-  if (ref && customer) return `Done — ${ref} is now saved in NeXa for ${customer}.`;
-  if (ref) return `Done — ${ref} is now saved in NeXa.`;
-  return `Done — ${humanise(capability).toLowerCase()} completed in NeXa.`;
+  if (ref && customer) return `Done — ${ref} is now saved in Blake for ${customer}.`;
+  if (ref) return `Done — ${ref} is now saved in Blake.`;
+  return `Done — ${humanise(capability).toLowerCase()} completed in Blake.`;
 }
 
 export async function confirmBlakeOrchestratorAction(
@@ -216,7 +216,7 @@ export async function confirmBlakeOrchestratorAction(
 ) {
   const action = getBlakePendingAction({ id: actionId, tenantId: actor.tenantId, actorId: actor.id });
   if (!action) {
-    return { status: 404, reply: "That Blake action has expired. Ask me to make the change again." };
+    return { status: 404, reply: "That Ayla action has expired. Ask me to make the change again." };
   }
   const result = await blakeCore.execute<Record<string, unknown>>(action.capability, action.input, {
     actor,
@@ -229,7 +229,7 @@ export async function confirmBlakeOrchestratorAction(
       : result.error?.code === "INVALID_INPUT" ? 400
         : result.error?.code === "NOT_FOUND" ? 404
           : 409;
-    return { status, reply: result.error?.message || "Blake could not complete that NeXa change. Nothing was saved." };
+    return { status, reply: result.error?.message || "Ayla could not complete that Blake change. Nothing was saved." };
   }
   removeBlakePendingAction(action.id);
   if (action.conversationId) {
@@ -297,24 +297,27 @@ function buildSystemPrompt(input: {
   });
 
   return [
-    "You are Blake, the ChatGPT-style AI operating interface inside NeXa.",
+    "You are Ayla, the ChatGPT-style AI office manager inside Blake.",
+    "Blake is the business operating platform; you are Ask Ayla, its conversational interface. Never introduce yourself as Blake or NeXa.",
     "The user must be able to talk to you naturally, exactly as they would talk to a capable office manager in a continuous conversation. Do not behave like a command parser.",
     "",
     "CORE BEHAVIOUR",
     "- Maintain conversational continuity. Resolve 'it', 'him', 'her', 'they', 'those', 'the first one', 'that job' and similar references from conversation history and recent tool results before deciding to search.",
     "- Never turn a conversational follow-up into a literal global search of the user's sentence. Infer what they are referring to.",
-    "- Use NeXa tools whenever a factual answer depends on NeXa data. You may call several tools in sequence to answer one request.",
+    "- Use Blake tools whenever a factual answer depends on Blake data. You may call several tools in sequence to answer one request.",
     "- Search is for locating entities. Once an entity is identified, inspect or use the relevant record/tool instead of repeatedly searching text.",
     "- Prefer customer names, site addresses and human descriptions in replies. Internal refs are useful secondary identifiers, not the main explanation.",
-    "- If NeXa data contradicts saved Blake knowledge, NeXa's authoritative record/configuration wins. Explain the conflict rather than silently overriding the system.",
+    "- If live Blake data contradicts saved Blake knowledge, the authoritative live record/configuration wins. Explain the conflict rather than silently overriding the system.",
     "- Do not invent records, figures, dates, availability, job states, costs, customers or successful actions.",
-    "- If no available capability can do something, say that capability has not yet been exposed to Blake. Do not pretend you performed it.",
+    "- If no available capability can do something, say that capability has not yet been exposed to Ayla. Do not pretend you performed it.",
     "- Ask only for information genuinely required to continue. Do not ask the user to repeat information already present in the conversation or tool results.",
+    "- For domestic quotes, default to one client-facing cost centre per room or logical work area (for example Bathroom or Kitchen). Keep detailed labour/material build-up internal unless the user explicitly asks to see it.",
+    "- Never invent labour rates, material costs or markups. Use Blake's estimating/rate tools and settings.",
     "",
     "WRITES AND CONFIRMATION",
-    "- When the user asks to change NeXa, call the appropriate write capability with the complete known input. The platform will convert consequential writes into a confirmation request; do not claim the write happened at tool-call time.",
-    "- Low-risk explicit memory saves may execute immediately if the capability says confirmation is not required.",
-    "- Never bypass NeXa permissions or business services. Never produce SQL or attempt direct database access.",
+    "- When the user asks to change Blake, call the appropriate write capability with the complete known input. The platform will convert consequential writes into a confirmation request; do not claim the write happened at tool-call time.",
+    "- Low-risk internal draft/capture actions may execute immediately if the capability says confirmation is not required.",
+    "- Never bypass Blake permissions or business services. Never produce SQL or attempt direct database access.",
     "",
     "MEMORY",
     "- If the user explicitly says remember/save/learn a durable company rule or corrects a permanent company rule, use remember_company_knowledge when authorised.",
@@ -323,10 +326,10 @@ function buildSystemPrompt(input: {
     "",
     `Current user: ${input.actor.name}.`,
     `Current local date/time supplied by the client: ${date.weekday} ${date.date} ${date.time} (${date.zone}).`,
-    `Available NeXa capabilities: ${input.definitions.map((item) => item.name).join(", ")}.`,
+    `Available Blake capabilities: ${input.definitions.map((item) => item.name).join(", ")}.`,
     knowledge.length ? `Relevant persistent Blake knowledge:\n${safeJson(knowledge, 10000)}` : "No relevant persistent Blake knowledge was found.",
-    recentTools.length ? `Recent NeXa tool results from this conversation (use these for follow-ups):\n${safeJson(recentTools, maximumRememberedToolChars)}` : "No recent NeXa tool results are stored for this conversation yet.",
-    pending ? `There is a pending unconfirmed NeXa action: ${safeJson({ capability: pending.capability, input: pending.input, detail: pending.detail }, 4000)}.` : "There is no pending NeXa action.",
+    recentTools.length ? `Recent Blake tool results from this conversation (use these for follow-ups):\n${safeJson(recentTools, maximumRememberedToolChars)}` : "No recent Blake tool results are stored for this conversation yet.",
+    pending ? `There is a pending unconfirmed Blake action: ${safeJson({ capability: pending.capability, input: pending.input, detail: pending.detail }, 4000)}.` : "There is no pending Blake action.",
   ].join("\n");
 }
 
@@ -388,7 +391,7 @@ export async function handleBlakeOrchestratedMessage(input: {
   }
   if (pending && exactCancellation(input.message)) {
     removeBlakePendingAction(pending.id);
-    return { reply: "Cancelled — I have not made that change in NeXa.", aiUsed: false, intent: { action: "chat" } };
+    return { reply: "Cancelled — I have not made that change in Blake.", aiUsed: false, intent: { action: "chat" } };
   }
 
   const definitions = visibleDefinitions(input.access);
@@ -403,7 +406,7 @@ export async function handleBlakeOrchestratedMessage(input: {
   });
   const model = process.env.BLAKE_MODEL?.trim()
     || process.env.NEXA_ASSISTANT_OPENAI_MODEL?.trim()
-    || "gpt-4.1-mini";
+    || "gpt-5.6-luna";
 
   if (input.conversationId) {
     patchBlakeOrchestratorConversation({
@@ -429,7 +432,7 @@ export async function handleBlakeOrchestratedMessage(input: {
     for (let round = 0; round < maximumToolRounds; round += 1) {
       const calls = functionCalls(response);
       if (!calls.length) {
-        const reply = outputText(response) || "I couldn't form a reliable answer from NeXa. Please try that again.";
+        const reply = outputText(response) || "I couldn't form a reliable answer from Blake. Please try that again.";
         if (input.conversationId) {
           patchBlakeOrchestratorConversation({
             id: input.conversationId,
@@ -522,16 +525,16 @@ export async function handleBlakeOrchestratedMessage(input: {
     }
 
     return {
-      reply: "I reached the NeXa tool-call limit for that request before I could finish reliably. Nothing unconfirmed was changed. Please narrow the request slightly and I'll continue.",
+      reply: "I reached the Blake tool-call limit for that request before I could finish reliably. Nothing unconfirmed was changed. Please narrow the request slightly and I'll continue.",
       aiUsed: true,
       intent: { action: "chat" },
       status: 409,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown Blake AI error";
-    console.error("Blake orchestrator failed", message);
+    const message = error instanceof Error ? error.message : "Unknown Ayla AI error";
+    console.error("Ayla orchestrator failed", message);
     return {
-      reply: "Blake's AI connection failed while I was working through that request. I have not guessed or silently fallen back to a simpler bot. Please try again in a moment.",
+      reply: "Ayla's AI connection failed while I was working through that request. I have not guessed or silently fallen back to a simpler bot. Please try again in a moment.",
       aiUsed: true,
       intent: { action: "chat" },
       status: 502,
