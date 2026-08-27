@@ -547,7 +547,7 @@ export function AiFirstPrototype() {
         <AiSpineLive />
         <header className="ai-first-topbar">
           <div className="ai-first-brand">
-            <img src="/brand/blake-mark.svg" alt="blake." />
+            <img src="/brand/blake-wordmark-dark.svg" alt="blake." />
             <div className="ai-first-brand-copy">
               <strong>Ayla</strong>
               <span>AI-first operating system · clickable prototype</span>
@@ -559,10 +559,10 @@ export function AiFirstPrototype() {
               href="/ai-first"
               style={{ textDecoration: "none" }}
             >
-              AI First · Human Approved
+              Ayla · Human Approved
             </a>
             <a className="ai-btn-ghost" href="/" style={{ textDecoration: "none" }}>
-              Back to Command Center
+              Back to Core
             </a>
           </div>
         </header>
