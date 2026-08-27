@@ -9061,6 +9061,8 @@ export default function CoreApp() {
   const pendingInvoiceSaveRef = useRef(false);
   const quoteCostCentresRef = useRef<Record<string, QuoteCostCentre[]>>({});
   const savedRecordFingerprintRef = useRef("");
+  /** Jobs already seeded from a converted quote — prevents update-depth loops when jobs identity flaps. */
+  const seededJobCentresFromQuoteRef = useRef<Set<string>>(new Set());
   /** Prevents double-click / overlapping manual record saves. */
   const recordSaveInFlightRef = useRef(false);
   const recordEditLockReadOnlyRef = useRef(false);
@@ -12024,10 +12026,18 @@ export default function CoreApp() {
         const sourceCentres = quoteCostCentres[quote.id] ?? [];
         if (!linkedJob || sourceCentres.length === 0) return;
 
-        const existingCentres = next[linkedJob.id] ?? [];
-        if (existingCentres.length > 0) return;
+        // Once we have attempted a seed for this job, never write again from this effect.
+        // Re-running on every jobs[] identity change was a Maximum update depth source.
+        if (seededJobCentresFromQuoteRef.current.has(linkedJob.id)) return;
+
+        const existingCentres = Array.isArray(next[linkedJob.id]) ? next[linkedJob.id] : [];
+        if (existingCentres.length > 0) {
+          seededJobCentresFromQuoteRef.current.add(linkedJob.id);
+          return;
+        }
 
         next[linkedJob.id] = estimateCostCentresFromQuote(linkedJob, sourceCentres);
+        seededJobCentresFromQuoteRef.current.add(linkedJob.id);
         changed = true;
       });
 
@@ -12100,6 +12110,7 @@ export default function CoreApp() {
         const nextValue = roundCurrencyValue(
           centres.reduce((total, centre) => total + estimateCostCentreTotals(centre).totalSell, 0),
         );
+        if (!Number.isFinite(nextValue)) return job;
         if (Math.abs((job.value ?? 0) - nextValue) < 0.01) return job;
 
         changed = true;
@@ -27022,8 +27033,9 @@ export default function CoreApp() {
 
   async function patchJobRecord(jobId: string, patch: Partial<Job>, successMessage: string) {
     type JobScheduleConflict = {
-      conflict: true;
-      message: string;
+      conflict?: true;
+      message?: string;
+      error?: string;
     };
 
     const response = await fetch(`/api/jobs/${jobId}`, {
@@ -27033,8 +27045,11 @@ export default function CoreApp() {
     });
 
     if (response.status === 409) {
-      const conflict = (await response.json()) as JobScheduleConflict;
-      const warning = conflict.message || "Selected slot is already taken.";
+      const conflict = (await response.json().catch(() => null)) as JobScheduleConflict | null;
+      const warning =
+        (conflict && typeof conflict.message === "string" && conflict.message) ||
+        (conflict && typeof conflict.error === "string" && conflict.error) ||
+        "Selected slot is already taken.";
       setSectionError(warning);
       showNotice(warning);
       return null;
@@ -27453,7 +27468,16 @@ export default function CoreApp() {
     const existing = jobReviewApprovals[selectedJob.id] ?? emptyJobReviewState;
     const next = { ...existing, [check]: !existing[check] };
     const allTicked = jobReviewChecks.every((item) => next[item.key]);
-    setJobReviewApprovals((current) => ({ ...current, [selectedJob.id]: next }));
+    const nextReviews = { ...jobReviewApprovals, [selectedJob.id]: next };
+    setJobReviewApprovals(nextReviews);
+    // Persist reviews immediately with a light payload — do not wait for the fat hub autosave
+    // (schedules + cost centres) which can 409/OOM and leave the jobs API without approvals.
+    void fetch("/api/hub-state", {
+      method: "PUT",
+      headers: { ...requestHeaders, "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ jobReviews: nextReviews }),
+    }).catch(() => {});
     const checkLabel = jobReviewChecks.find((item) => item.key === check)?.label ?? "Review";
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
