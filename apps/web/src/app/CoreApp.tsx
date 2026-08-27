@@ -27860,11 +27860,6 @@ export default function CoreApp() {
       showNotice("Commercial review must be logged before this job can be marked ready to invoice.");
       return;
     }
-    passaroundHoldUntilRef.current = Date.now() + PASSAROUND_HOLD_MS;
-    hubAutosaveHoldUntilRef.current = Math.max(
-      hubAutosaveHoldUntilRef.current,
-      passaroundHoldUntilRef.current,
-    );
     armPassaroundHubHold();
     try {
       let updated: Job | null | undefined = null;
