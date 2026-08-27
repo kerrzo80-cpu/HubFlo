@@ -224,6 +224,7 @@ import {
   totalDayworkLabourHours,
   type DayworkAccountRecord,
 } from "@/lib/daywork-account-form";
+import { leanSchedulePlansForWire } from "@/lib/hub-poll-lean";
 
 const panelSkeleton = (label: string) => <CorePanelSkeleton label={label} />;
 
@@ -9065,6 +9066,8 @@ export default function CoreApp() {
   const lastLocalCostCentreEditAt = useRef(0);
   /** Block hub PUT after BoQ rebuild — autosave was re-stringifying fat hubs and crashing Render. */
   const hubAutosaveHoldUntilRef = useRef(0);
+  /** Abort in-flight hub autosave when passaround starts — hold alone does not cancel a PUT already on the wire. */
+  const hubAutosaveAbortRef = useRef<AbortController | null>(null);
   /** Suppress hub autosave while applying a live hub poll — setEmployees/invoices alone re-fired fat PUTs. */
   const suppressHubAutosaveFromPollUntilRef = useRef(0);
   const lastLocalEmployeeEditAt = useRef(0);
@@ -12021,7 +12024,7 @@ export default function CoreApp() {
     // bootAuthFingerprint — not requestHeaders object — so employee object churn does not restart boot.
   }, [hasHydratedLocalData, bootAuthFingerprint, serverWorkspaceMode]);
 
-  function buildHubDetailStatePayload(): HubDetailStatePayload {
+  function buildHubDetailStatePayload(options?: { includeBoqMaps?: boolean }): HubDetailStatePayload {
     const savedEmployees = removeRetiredPilotEmployeeWhenReplaced(
       newEmployeeId ? employees.filter((employee) => employee.id !== newEmployeeId) : employees,
     );
@@ -12029,6 +12032,7 @@ export default function CoreApp() {
     // Server merge preserves Field sheets, but omitting empty keeps the wire payload honest.
     const dayworkSheetsPayload =
       dayworkSheets && Object.keys(dayworkSheets).length > 0 ? dayworkSheets : undefined;
+    const includeBoqMaps = options?.includeBoqMaps === true;
     return {
       employees: savedEmployees,
       businessSettings,
@@ -12045,14 +12049,20 @@ export default function CoreApp() {
       costCentreFlowAssignmentDrafts,
       flowStepCompletion,
       flowStepEvidence,
-      quoteCostCentres,
-      quoteSections,
-      quoteSchedulePlans,
-      jobSchedulePlans,
+      // Autosave must omit BoQ/takeoff maps — overlapping fat hub PUTs OOMed live during passaround.
+      // Manual Save / cost-centre persist passes includeBoqMaps: true. Server merge keeps omitted keys.
+      ...(includeBoqMaps
+        ? {
+            quoteCostCentres,
+            quoteSections,
+            jobCostCentres: leanJobCostCentresMapForUi(jobEstimateCostCentres),
+            simproExports,
+          }
+        : {}),
+      quoteSchedulePlans: leanSchedulePlansForWire(quoteSchedulePlans),
+      jobSchedulePlans: leanSchedulePlansForWire(jobSchedulePlans),
       customQuoteCatalog,
       catalogFolders,
-      // Never autosave full BoQ dumps — lean packages only (same as localStorage).
-      jobCostCentres: leanJobCostCentresMapForUi(jobEstimateCostCentres),
       jobSections,
       // jobReviews intentionally omitted — /api/jobs/[id]/passaround owns ticks.
       // Including them here re-fired fat hub PUTs on every Chris/Commercial/Carol click.
@@ -12064,7 +12074,6 @@ export default function CoreApp() {
       suppliers,
       contacts,
       contractors,
-      simproExports,
     };
   }
 
@@ -12426,6 +12435,7 @@ export default function CoreApp() {
     const costCentreSaveIncludesRecentEdit = Date.now() - lastLocalCostCentreEditAt.current < COST_CENTRE_SERVER_SYNC_HOLD_MS;
     const invoiceSaveIncludesRecentEdit = Date.now() - lastLocalInvoiceEditAt.current < INVOICE_SERVER_SYNC_HOLD_MS;
     const controller = new AbortController();
+    hubAutosaveAbortRef.current = controller;
     const timer = setTimeout(() => {
       if (Date.now() < hubAutosaveHoldUntilRef.current) {
         return;
@@ -12439,8 +12449,9 @@ export default function CoreApp() {
       if (recordEditLockReadOnlyRef.current && activeRecordFingerprint) {
         return;
       }
+      const includeBoqMaps = costCentreSaveIncludesRecentEdit || pendingCostCentreSaveRef.current;
       const payload = {
-        ...buildHubDetailStatePayload(),
+        ...buildHubDetailStatePayload({ includeBoqMaps }),
         ...(activeRecordForLock ? { recordLockContext: activeRecordForLock } : {}),
       };
       // Background autosave must not flip the Save button to "Saving…" — that state
@@ -12502,6 +12513,9 @@ export default function CoreApp() {
     return () => {
       clearTimeout(timer);
       controller.abort();
+      if (hubAutosaveAbortRef.current === controller) {
+        hubAutosaveAbortRef.current = null;
+      }
     };
   }, [
     employees,
@@ -17507,7 +17521,7 @@ export default function CoreApp() {
         method: "PUT",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify(buildHubDetailStatePayload()),
+        body: JSON.stringify(buildHubDetailStatePayload({ includeBoqMaps: true })),
       });
       if (!response.ok) throw new Error(`Setup save failed (${response.status}).`);
       pendingSetupSaveRef.current = false;
@@ -17553,13 +17567,19 @@ export default function CoreApp() {
     pendingCostCentreSaveRef.current = true;
   }
 
+  function armPassaroundHubHold() {
+    const holdUntil = Date.now() + PASSAROUND_HOLD_MS;
+    hubAutosaveHoldUntilRef.current = Math.max(hubAutosaveHoldUntilRef.current, holdUntil);
+    passaroundHoldUntilRef.current = Math.max(passaroundHoldUntilRef.current, holdUntil);
+    // Cancel any PUT already on the wire — hold alone only skips *new* timers.
+    hubAutosaveAbortRef.current?.abort();
+  }
+
   function markJobReviewEdited() {
     lastLocalJobReviewEditAt.current = Date.now();
     pendingJobReviewSaveRef.current = true;
     // Ticks must not kick the fat /api/hub-state PUT — that OOMs live alongside /passaround.
-    const holdUntil = Date.now() + PASSAROUND_HOLD_MS;
-    hubAutosaveHoldUntilRef.current = Math.max(hubAutosaveHoldUntilRef.current, holdUntil);
-    passaroundHoldUntilRef.current = Math.max(passaroundHoldUntilRef.current, holdUntil);
+    armPassaroundHubHold();
   }
 
   function markEmployeeEdited() {
@@ -21087,7 +21107,7 @@ export default function CoreApp() {
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         credentials: "same-origin",
         body: JSON.stringify({
-          ...buildHubDetailStatePayload(),
+          ...buildHubDetailStatePayload({ includeBoqMaps: true }),
           ...(activeRecordForLock ? { recordLockContext: activeRecordForLock } : {}),
         }),
       });
@@ -27707,9 +27727,7 @@ export default function CoreApp() {
 
   async function completeSelectedJob() {
     if (!selectedJob) return;
-    const holdUntil = Date.now() + PASSAROUND_HOLD_MS;
-    passaroundHoldUntilRef.current = holdUntil;
-    hubAutosaveHoldUntilRef.current = Math.max(hubAutosaveHoldUntilRef.current, holdUntil);
+    armPassaroundHubHold();
     const jobId = selectedJob.id;
     const jobRef = selectedJob.ref;
     // Optimistic UI first — Enquiry/In progress jobs must show Completed immediately.
@@ -27842,11 +27860,7 @@ export default function CoreApp() {
       showNotice("Commercial review must be logged before this job can be marked ready to invoice.");
       return;
     }
-    passaroundHoldUntilRef.current = Date.now() + PASSAROUND_HOLD_MS;
-    hubAutosaveHoldUntilRef.current = Math.max(
-      hubAutosaveHoldUntilRef.current,
-      passaroundHoldUntilRef.current,
-    );
+    armPassaroundHubHold();
     try {
       let updated: Job | null | undefined = null;
       let review: JobReviewState | undefined;
