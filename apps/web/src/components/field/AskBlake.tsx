@@ -1,7 +1,7 @@
 "use client";
 
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { Camera, ImagePlus, SendHorizontal, Video, X } from "lucide-react";
+import { Camera, Bug, ImagePlus, Lightbulb, SendHorizontal, Video, X } from "lucide-react";
 import { BlakeCharacter } from "@/components/field/BlakeCharacter";
 import { FileDropZone } from "@/components/FileDropZone";
 import {
@@ -172,6 +172,59 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-ayla" }: As
     const trimmed = message.trim();
     if ((!trimmed && !attachments.length) || busy) return;
 
+    const isProductFeedback =
+      /^report a problem\b/i.test(trimmed) || /^suggest an improvement\b/i.test(trimmed);
+
+    // Product feedback goes through Core Ayla (Faults), not the trade fault helper.
+    if (isProductFeedback) {
+      const nextHistory = messages.filter((item) => item.role === "user" || item.role === "assistant");
+      const userMessage: AskBlakeMessage = { role: "user", text: trimmed };
+      setMessages((current) => [...current, userMessage]);
+      setDraft("");
+      setBusy(true);
+      setError("");
+      setWarning("");
+      try {
+        const response = await fetch("/api/nexa-assistant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            message: trimmed,
+            history: nextHistory.slice(-10).map((item) => ({ role: item.role, text: item.text })),
+            sourceRoute: "/field/ask",
+            sourcePage: "Ask Ayla Field",
+            channel: "mobile_text",
+          }),
+        });
+        const body = (await response.json().catch(() => ({}))) as {
+          reply?: string;
+          error?: string;
+          action?: { id: string; title: string; detail: string; confirmLabel: string };
+        };
+        if (!response.ok) throw new Error(body.error || "Could not log that feedback.");
+        const reply =
+          body.reply?.trim() ||
+          "I’ve drafted that for Faults — confirm in Core Ask Ayla if you don’t see a confirm button here.";
+        setMessages((current) => [
+          ...current,
+          {
+            role: "assistant",
+            text: body.action
+              ? `${reply}\n\n${body.action.title}: ${body.action.detail}\nTap Confirm in Core Ask Ayla / Faults inbox to save it.`
+              : reply,
+          },
+        ]);
+      } catch (sendError) {
+        setError(sendError instanceof Error ? sendError.message : "Could not log that feedback.");
+        setMessages((current) => current.slice(0, -1));
+        setDraft(trimmed);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     const hasVideo = attachments.some((item) => item.kind === "video");
     const photoCount = attachments.filter((item) => item.kind === "photo").length;
     const userText = trimmed || (
@@ -325,6 +378,45 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-ayla" }: As
       {warning ? <div className="feedback">{warning}</div> : null}
       {error ? <div className="feedback error">{error}</div> : null}
       {preparingMedia ? <div className="feedback">Preparing media for Ayla…</div> : null}
+
+      <div className="ask-blake-feedback-chips" aria-label="Feedback actions">
+        <button
+          type="button"
+          className="ask-blake-feedback-chip"
+          disabled={busy || preparingMedia}
+          onClick={() => {
+            setDraft("Report a problem: ");
+            setMessages((current) => [
+              ...current,
+              {
+                role: "assistant",
+                text: "Tell me what’s wrong with the app (and which screen if it helps). I’ll draft a Faults entry for you to confirm.",
+              },
+            ]);
+          }}
+        >
+          <Bug size={14} />
+          Report a problem
+        </button>
+        <button
+          type="button"
+          className="ask-blake-feedback-chip"
+          disabled={busy || preparingMedia}
+          onClick={() => {
+            setDraft("Suggest an improvement: ");
+            setMessages((current) => [
+              ...current,
+              {
+                role: "assistant",
+                text: "What should blake. do better? I’ll log it as an improvement for you to confirm.",
+              },
+            ]);
+          }}
+        >
+          <Lightbulb size={14} />
+          Suggest an improvement
+        </button>
+      </div>
 
       {attachments.length ? (
         <div className="ask-blake-preview-row" aria-label="Attached media">

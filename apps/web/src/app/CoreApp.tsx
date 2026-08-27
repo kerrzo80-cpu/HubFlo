@@ -54,6 +54,7 @@ import {
   KeyRound,
   LayoutDashboard,
   Link2,
+  Lightbulb,
   ListChecks,
   LogOut,
   Mail,
@@ -34913,6 +34914,44 @@ export default function CoreApp() {
               {nexaAssistantBusy ? <p className="buddy-thinking">Ayla is checking the live workspace...</p> : null}
             </div>
             <div className="buddy-report-chips" aria-label="Quick actions">
+              <button
+                type="button"
+                className="buddy-report-chip is-feedback"
+                disabled={nexaAssistantBusy}
+                onClick={() => {
+                  setNexaAssistantDraft("Report a problem: ");
+                  setNexaAssistantMessages((current) => [
+                    ...current,
+                    {
+                      id: `buddy-guide-${crypto.randomUUID()}`,
+                      role: "assistant",
+                      text: "Tell me what’s wrong (and where you are if it helps). I’ll draft a Faults entry for you to confirm.",
+                    },
+                  ]);
+                }}
+              >
+                <Bug size={14} />
+                Report a problem
+              </button>
+              <button
+                type="button"
+                className="buddy-report-chip is-feedback"
+                disabled={nexaAssistantBusy}
+                onClick={() => {
+                  setNexaAssistantDraft("Suggest an improvement: ");
+                  setNexaAssistantMessages((current) => [
+                    ...current,
+                    {
+                      id: `buddy-guide-${crypto.randomUUID()}`,
+                      role: "assistant",
+                      text: "What should blake. do better? I’ll log it as an improvement for you to confirm.",
+                    },
+                  ]);
+                }}
+              >
+                <Lightbulb size={14} />
+                Suggest an improvement
+              </button>
               {blakeOpenTender || ((homeView === "job-record" || homeView === "cost-centre-record") && selectedJob) ? (
                 <>
                   <button
@@ -34947,43 +34986,6 @@ export default function CoreApp() {
               >
                 <Plus size={14} />
                 Create Lead
-              </button>
-              <button
-                type="button"
-                className="buddy-report-chip"
-                disabled={nexaAssistantBusy}
-                onClick={() => {
-                  setNexaAssistantDraft("Report a problem: ");
-                  setNexaAssistantMessages((current) => [
-                    ...current,
-                    {
-                      id: `buddy-guide-${crypto.randomUUID()}`,
-                      role: "assistant",
-                      text: "Tell me what’s wrong (and where you are if it helps). I’ll draft a Faults entry for you to confirm.",
-                    },
-                  ]);
-                }}
-              >
-                <Bug size={14} />
-                Report a problem
-              </button>
-              <button
-                type="button"
-                className="buddy-report-chip"
-                disabled={nexaAssistantBusy}
-                onClick={() => {
-                  setNexaAssistantDraft("Suggest an improvement: ");
-                  setNexaAssistantMessages((current) => [
-                    ...current,
-                    {
-                      id: `buddy-guide-${crypto.randomUUID()}`,
-                      role: "assistant",
-                      text: "What should NeXa do better? I’ll log it as an improvement for you to confirm.",
-                    },
-                  ]);
-                }}
-              >
-                Suggest an improvement
               </button>
               <button
                 type="button"
