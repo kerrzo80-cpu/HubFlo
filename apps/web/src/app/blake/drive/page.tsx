@@ -1,5 +1,5 @@
-import BlakeDrivingMode from "./BlakeDrivingMode";
+import BlakeStandardDrivingMode from "./BlakeStandardDrivingMode";
 
 export default function BlakeDrivePage() {
-  return <BlakeDrivingMode />;
+  return <BlakeStandardDrivingMode />;
 }
