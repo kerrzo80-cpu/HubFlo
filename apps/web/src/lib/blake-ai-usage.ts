@@ -118,6 +118,34 @@ export function recordBlakeAiUsage(input: {
   return entry;
 }
 
+/**
+ * Record AI costs that are billed by a non-token unit such as transcription
+ * audio minutes. This keeps Standard Voice inside Blake's same tenant spend
+ * warning/limit without pretending minute-based costs are text tokens.
+ */
+export function recordBlakeAiDirectCost(input: {
+  tenantId?: string;
+  model: string;
+  estimatedCostUsd: number;
+}) {
+  refresh();
+  const now = new Date();
+  const entry: UsageEntry = {
+    id: `ai-usage-${crypto.randomUUID()}`,
+    tenantId: input.tenantId?.trim() || configuredTenantId(),
+    month: monthKey(now),
+    model: input.model,
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    estimatedCostUsd: money(Math.max(0, input.estimatedCostUsd || 0)),
+    createdAt: now.toISOString(),
+  };
+  store.entries.unshift(entry);
+  persist();
+  return entry;
+}
+
 export function getBlakeAiUsage(input: { tenantId?: string; month?: string } = {}): UsageAggregate {
   refresh();
   const tenantId = input.tenantId?.trim() || configuredTenantId();
