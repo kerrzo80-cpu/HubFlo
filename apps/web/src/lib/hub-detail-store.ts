@@ -226,6 +226,16 @@ export function peekHubJobReviews(): Record<string, unknown> {
   return raw as Record<string, unknown>;
 }
 
+export function peekHubDetailState(): HubDetailState {
+  // Poll / passaround-adjacent reads: never rehydrate+clone the full hub from disk.
+  overlayJobCcSideStores(hubDetailState);
+  overlayJobReviewsSideStore();
+  return {
+    ...hubDetailState,
+    jobReviews: peekHubJobReviews(),
+  };
+}
+
 /**
  * Pull Field daywork sheets / evidence / events from SQLite before mutating memory.
  * Prevents a Core worker with a stale module cache from wiping another worker’s Field save.

@@ -5,7 +5,7 @@ import { getAuthenticatedUser } from "@/lib/auth-request";
 import { ensureGasCertTrialInCore } from "@/lib/gas-cert-trial-core";
 import { ensureDomesticStopGoSeed } from "@/lib/domestic-stop-go/seed";
 import { reconcileDayworkVariationsFromEvidence } from "@/lib/engineer-flow";
-import { getHubDetailState, saveHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
+import { getHubDetailState, peekHubDetailState, saveHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
 import { mergeHubDetailState } from "@/lib/hub-state-merge";
 import { leanJobCostCentresMap } from "@/lib/job-cost-centres-lean";
 import { parseJsonRequestBody } from "@/lib/http";
@@ -65,7 +65,8 @@ export async function GET(request: Request) {
   }
   try {
     // Poll responses omit base64 signatures and lean job cost centres — never echo BoQ dumps.
-    const state = sanitizeHubStateForClient(stripDayworkBlobsForPoll(getHubDetailState()));
+    // Use peek (no disk rehydrate + deep clone) so office polling does not OOM between passaround ticks.
+    const state = sanitizeHubStateForClient(stripDayworkBlobsForPoll(peekHubDetailState()));
     if (state.jobCostCentres && typeof state.jobCostCentres === "object") {
       leanJobCostCentresMap(state.jobCostCentres);
     }
@@ -73,7 +74,7 @@ export async function GET(request: Request) {
   } catch (error) {
     // Fat hub clone/OOM must not blank the office — return the slices passaround needs.
     try {
-      const hub = getHubDetailState();
+      const hub = peekHubDetailState();
       return NextResponse.json({
         jobReviews: hub.jobReviews || {},
         employees: hub.employees || [],
