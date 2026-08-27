@@ -22041,6 +22041,10 @@ export default function CoreApp() {
   }
 
   function openJobDrawer(jobId: string) {
+    // Selecting a job used to schedule a fat hub PUT that overlapped Mark complete and OOMed live.
+    hubAutosaveAbortRef.current?.abort();
+    suppressHubAutosaveFromPollUntilRef.current = Date.now() + 60_000;
+    hubAutosaveHoldUntilRef.current = Math.max(hubAutosaveHoldUntilRef.current, Date.now() + 60_000);
     const job = jobs.find((item) => item.id === jobId);
     if (jobAttentionContext && jobAttentionContext.jobId !== jobId) {
       setJobAttentionContext(null);

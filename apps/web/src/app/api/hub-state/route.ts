@@ -12,6 +12,7 @@ import { stripDayworkBlobsForPoll } from "@/lib/daywork-poll-strip";
 import { leanHubStateForOfficePoll } from "@/lib/hub-poll-lean";
 import { sanitizeHubStateForClient } from "@/lib/hub-state-sanitize";
 import { getLeads } from "@/lib/lead-store";
+import { isPassaroundBusy } from "@/lib/passaround-busy";
 import { assertRecordLockForWrite, type RecordLockType } from "@/lib/record-edit-locks";
 import { recordLockErrorResponse } from "@/lib/record-lock-http";
 import {
@@ -98,6 +99,11 @@ export async function PUT(request: Request) {
   const access = getAccessProfileFromHeaders(request.headers);
   if (!access.canEditJobs && !access.canCreateQuote && !access.canEditInvoice) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Passaround owns the process briefly — a concurrent full hub save OOMs live (UI Mark complete).
+  if (isPassaroundBusy()) {
+    return NextResponse.json({ ok: true, deferred: true, reason: "passaround_busy" });
   }
 
   try {

@@ -11,6 +11,7 @@ import {
   readDayworkSheetsStore,
 } from "@/lib/daywork-sheets-store";
 import { leanCentresForTransport, leanJobCostCentresMap } from "@/lib/job-cost-centres-lean";
+import { isPassaroundBusy } from "@/lib/passaround-busy";
 
 const JOB_CC_INDEX_STORE = "nexa-job-cc-index-v1";
 /** Tiny reviews map — passaround ticks must never stringify the full hub (live 502/OOM). */
@@ -393,6 +394,10 @@ export function saveHubDetailState(nextState: HubDetailState): HubDetailState {
     delete hubDetailState[key as keyof HubDetailState];
   });
   Object.assign(hubDetailState, updated);
+  // If passaround is active, keep memory merged but skip disk stringify/clone — that OOMs live.
+  if (isPassaroundBusy()) {
+    return updated;
+  }
   prepareHubCostCentresForPersist(hubDetailState);
   try {
     writeServerStore(JOB_REVIEWS_STORE, {
@@ -410,7 +415,8 @@ export function saveHubDetailState(nextState: HubDetailState): HubDetailState {
   if (updated.dayworkSheets) {
     mergeDayworkSheetsIntoStore(updated.dayworkSheets);
   }
-  return safeCloneHub(hubDetailState);
+  // Never deep-clone the full hub on save — that OOMed live when hub PUT overlapped passaround.
+  return updated;
 }
 
 export function getHubDetailState(): HubDetailState {

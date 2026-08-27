@@ -11,6 +11,7 @@ import {
   setJobReviewTick,
   type JobReviewKey,
 } from "@/lib/job-passaround";
+import { markPassaroundBusy } from "@/lib/passaround-busy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,6 +49,9 @@ export async function POST(request: NextRequest, context: Ctx) {
     (typeof body.by === "string" && body.by.trim()) ||
     authUser?.name ||
     "NeXa user";
+
+  // Block concurrent fat hub PUT saves for the duration of this passaround request + follow-up ticks.
+  markPassaroundBusy(45_000);
 
   try {
     if (action === "set-review") {
