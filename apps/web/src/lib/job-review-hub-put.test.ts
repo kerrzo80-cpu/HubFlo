@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { appendFileSync, mkdirSync } from "node:fs";
 import test from "node:test";
 
 import { mergeHubDetailState } from "@/lib/hub-state-merge";
@@ -8,18 +7,8 @@ import {
   type HubScheduleAssignment,
 } from "@/lib/schedule-clash";
 
-const LOG = "/opt/cursor/logs/debug.log";
-
-function agentLog(message: string, hypothesisId: string, data: Record<string, unknown>) {
-  mkdirSync("/opt/cursor/logs", { recursive: true });
-  appendFileSync(
-    LOG,
-    `${JSON.stringify({ location: "job-review-hub-put.test.ts", message, hypothesisId, data, timestamp: Date.now() })}\n`,
-  );
-}
-
 /**
- * Mirrors hub-state PUT clash gating: only when payload includes jobSchedulePlans
+ * Mirrors legacy hub-state PUT clash gating: only when payload includes jobSchedulePlans
  * AND JSON.stringify(before) !== JSON.stringify(after).
  */
 function wouldBlockReviewSave(args: {
@@ -74,7 +63,7 @@ const overlappingB: HubScheduleAssignment = {
   costCentreName: "Pipework",
 };
 
-/** Mirrors post-fix hub-state signature — key order must not count as a change. */
+/** Mirrors hub-state signature — key order must not count as a change. */
 function hubSchedulePlansSignature(plans: Record<string, HubScheduleAssignment[]>): string {
   const rows: string[] = [];
   for (const [jobId, list] of Object.entries(plans || {})) {
@@ -97,7 +86,7 @@ function hubSchedulePlansSignature(plans: Record<string, HubScheduleAssignment[]
   return rows.join("\n");
 }
 
-test("hypothesis A: JSON key-order drift used to re-trigger clash gate on full hub payload", () => {
+test("JSON key-order drift used to re-trigger clash gate on full hub payload", () => {
   // Server has clashes already (imported). Client sends same assignments but different top-level key order
   // — JSON.stringify then treats plans as "changed" and re-runs the clash gate.
   const serverPlans = { "job-a": [overlappingA], "job-b": [overlappingB] };
@@ -107,35 +96,21 @@ test("hypothesis A: JSON key-order drift used to re-trigger clash gate on full h
   assert.equal(hubSchedulePlansSignature(serverPlans), hubSchedulePlansSignature(clientPlans));
 
   const legacyStringifyGate = wouldBlockReviewSave({ serverPlans, clientPlans });
-  agentLog("full payload clash gate (legacy stringify)", "A", {
-    blocked: legacyStringifyGate.blocked,
-    reason: legacyStringifyGate.reason,
-    clashError: legacyStringifyGate.clashError,
-    stringifyDiffers: true,
-    signatureEqual: true,
-  });
-
   assert.equal(legacyStringifyGate.blocked, true);
   assert.match(String(legacyStringifyGate.clashError), /Schedule clash blocked/);
 });
 
-test("post-fix: stable schedule signature treats key-order-only drift as unchanged", () => {
+test("stable schedule signature treats key-order-only drift as unchanged", () => {
   const serverPlans = { "job-a": [overlappingA], "job-b": [overlappingB] };
   const clientPlans = { "job-b": [overlappingB], "job-a": [overlappingA] };
-  const unchanged = hubSchedulePlansSignature(serverPlans) === hubSchedulePlansSignature(clientPlans);
-  agentLog("stable signature gate", "A", { unchanged, runId: "post-fix" });
-  assert.equal(unchanged, true);
+  assert.equal(hubSchedulePlansSignature(serverPlans), hubSchedulePlansSignature(clientPlans));
 });
 
-test("hypothesis A fix path: jobReviews-only payload skips schedule clash gate", () => {
+test("jobReviews-only payload skips schedule clash gate", () => {
   const serverPlans = { "job-a": [overlappingA], "job-b": [overlappingB] };
   const result = wouldBlockReviewSave({
     serverPlans,
     clientPlans: undefined, // omit jobSchedulePlans — approve should send reviews only
-  });
-  agentLog("reviews-only payload clash gate", "A", {
-    blocked: result.blocked,
-    reason: result.reason,
   });
   assert.equal(result.blocked, false);
   assert.equal(result.reason, "no-schedule-in-payload");
@@ -159,10 +134,6 @@ test("merge keeps server schedules when client sends jobReviews only", () => {
   });
   assert.ok(merged.jobSchedulePlans?.["job-a"]);
   assert.ok(merged.jobSchedulePlans?.["job-b"]);
-  agentLog("reviews-only merge preserves schedules", "A", {
-    reviewComplete: true,
-    scheduleJobs: Object.keys(merged.jobSchedulePlans || {}),
-  });
 });
 
 test("CoreApp approveSelectedJobForInvoice sends jobReviews-only hub PUT", async () => {
@@ -173,5 +144,4 @@ test("CoreApp approveSelectedJobForInvoice sends jobReviews-only hub PUT", async
   const fnBody = source.slice(fnStart, fnStart + 3500);
   assert.match(fnBody, /const reviewPayload = \{ jobReviews: nextReviews \}/);
   assert.doesNotMatch(fnBody, /buildHubDetailStatePayload\(\)/);
-  agentLog("approve uses reviews-only payload", "A", { runId: "post-fix", reviewsOnly: true });
 });
