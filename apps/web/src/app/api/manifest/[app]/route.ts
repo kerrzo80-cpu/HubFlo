@@ -18,6 +18,14 @@ const appConfig: Record<
     shortFallback: "Core",
     description: "Command center for leads, quotes, jobs, invoices and operations.",
   },
+  ayla: {
+    // Reuse the company's main app icon until Ayla gets a dedicated icon field in Personalising.
+    key: "core",
+    startUrl: "/blake",
+    scope: "/blake",
+    shortFallback: "Ask Ayla",
+    description: "Conversational AI office manager connected to the authorised Blake workspace.",
+  },
   field: {
     key: "field",
     startUrl: "/field",
@@ -71,13 +79,14 @@ export async function GET(_request: Request, { params }: Params) {
   }
 
   const brand = toPublicBranding(getHubDetailState().businessSettings);
-  const name = appDisplayName(brand, config.key);
+  const configuredName = appDisplayName(brand, config.key);
+  const name = app === "ayla" ? "Ask Ayla" : configuredName;
   const icon = resolveBrandIconUrl(brand, config.key);
   const theme = brand.brandPrimaryColor || "#157fa8";
 
   const manifest = {
     name,
-    short_name: name.length > 12 ? config.shortFallback : name,
+    short_name: app === "ayla" ? "Ask Ayla" : name.length > 12 ? config.shortFallback : name,
     description: `${brand.companyName} — ${config.description}`,
     start_url: config.startUrl,
     scope: config.scope,
