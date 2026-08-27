@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { ASSISTANT_ASK, ASSISTANT_NAME, PLATFORM_NAME } from "@/lib/product-brand";
+import AylaSurveyCapture from "./AylaSurveyCapture";
 import BlakeChatPage from "./BlakeChatPage";
 import launcherStyles from "./drive-launcher.module.css";
 
@@ -13,6 +14,7 @@ export default function BlakePage() {
   return (
     <>
       <BlakeChatPage />
+      <AylaSurveyCapture />
       <a href="/blake/knowledge" className={launcherStyles.knowledge}>
         {ASSISTANT_NAME} Knowledge
       </a>
