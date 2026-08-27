@@ -11,7 +11,6 @@ import {
   setJobReviewTick,
   type JobReviewKey,
 } from "@/lib/job-passaround";
-import { appendAuditEvent } from "@/lib/people-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,19 +57,8 @@ export async function POST(request: NextRequest, context: Ctx) {
       }
       const approved = Boolean(body.approved);
       const review = setJobReviewTick(jobId, key, approved);
-      try {
-        appendAuditEvent({
-          actor,
-          action: "reviewed",
-          recordType: "job",
-          recordId: jobId,
-          summary: `${key} ${approved ? "approved" : "unchecked"} via passaround API.`,
-          source: "job passaround api",
-          importance: "normal",
-        });
-      } catch {
-        // Audit must never turn a successful tick into a 502.
-      }
+      // No appendAuditEvent on the tick hot path — rewriting people-store OOMed live.
+      // Core UI already records the local timeline row.
       return NextResponse.json({ ok: true, review });
     }
 
