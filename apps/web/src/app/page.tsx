@@ -3689,8 +3689,10 @@ function makeDefaultEmployeeUsername(employee: Pick<EmployeeCard, "name" | "prof
 function makeDefaultEmployeeLogin(employee: EmployeeCard) {
   return {
     username: makeDefaultEmployeeUsername(employee),
-    password: "EWG2026",
-    enabled: true,
+    // Do not ship a shared default password. Operators set a password on the card
+    // or use NEXA_AUTH_MODE=users /auth-store accounts for production login.
+    password: "",
+    enabled: false,
   };
 }
 
@@ -3805,8 +3807,8 @@ const seedEmployees: EmployeeCard[] = [
     },
     login: {
       username: "brian.kerr",
-      password: "EWG2026",
-      enabled: true,
+      password: "",
+      enabled: false,
     },
   },
   {
@@ -3951,8 +3953,8 @@ const seedEmployees: EmployeeCard[] = [
     },
     login: {
       username: "chris.lawson",
-      password: "EWG2026",
-      enabled: true,
+      password: "",
+      enabled: false,
     },
   },
 ];
@@ -26515,7 +26517,7 @@ export default function Dashboard() {
     const enteredLoginPassword = employeeProfileDraft.loginPassword.trim();
     const savedLoginPassword = serverAuthMode === "users"
       ? ""
-      : enteredLoginPassword || activeEditingEmployee?.login?.password || "EWG2026";
+      : enteredLoginPassword || activeEditingEmployee?.login?.password || "";
 
     markEmployeeEdited();
     const nextEmployees = employees.map((employee) =>
@@ -30305,7 +30307,7 @@ export default function Dashboard() {
               ))}
             </div>
             <small className="employee-login-hint">
-              Default pilot password is EWG2026 unless it has been changed on the employee card. On iPhone, save the password to iCloud Keychain to use Face ID autofill.
+              Set a password on the employee card before using the employee login shell. On production (`NEXA_AUTH_MODE=users`), sign in at /login with your NeXa account. On iPhone, save the password to iCloud Keychain to use Face ID autofill.
             </small>
           </div>
         </section>

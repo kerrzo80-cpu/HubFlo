@@ -15,6 +15,7 @@ import {
   sendSurveyToEstimator,
   updateSurvey,
 } from "@/lib/survey-estimator-store";
+import { openAiFetch } from "@/lib/openai-fetch";
 
 export type AiQuotePackResult = {
   ok: boolean;
@@ -108,7 +109,7 @@ async function enrichSurveyWithAi(survey: SurveyRecord): Promise<{ enrichment: A
   };
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await openAiFetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,

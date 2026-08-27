@@ -2858,17 +2858,9 @@ export function queueSimproWebhookEvent(payload: unknown, headers: Headers): Sim
   return clone(event);
 }
 
-export function isValidWebhookSecret(headers: Headers) {
-  const expected = process.env.SIMPRO_WEBHOOK_SECRET?.trim();
-  if (!expected) return true;
+import { isValidWebhookSecret } from "@/lib/simpro-webhook-auth";
 
-  const headerSecret =
-    headers.get("x-simpro-secret") ||
-    headers.get("x-nexa-simpro-secret") ||
-    headers.get("x-webhook-secret") ||
-    headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  return headerSecret === expected;
-}
+export { isValidWebhookSecret };
 
 /**
  * Remove NeXa jobs/quotes that were created from simPRO imports so a clean re-import can run.

@@ -9,10 +9,11 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   experimental: {
-    // Survey/Takeoff uploads go through proxy.ts; keep the buffered body large enough for phone photos.
-    proxyClientMaxBodySize: "300mb",
+    // Survey/Takeoff uploads go through proxy.ts. Cap closer to server-side limits
+    // so Render/AWS starter memory is not pinned by 300MB buffered bodies.
+    proxyClientMaxBodySize: "50mb",
     serverActions: {
-      bodySizeLimit: "50mb",
+      bodySizeLimit: "40mb",
     },
   },
   transpilePackages: ["@hubflo/domain"],

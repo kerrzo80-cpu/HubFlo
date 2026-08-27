@@ -5,8 +5,8 @@ import { ensureGasCertTrialInCore } from "@/lib/gas-cert-trial-core";
 import { reconcileDayworkVariationsFromEvidence } from "@/lib/engineer-flow";
 import { getHubDetailState, saveHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
 import { mergeHubDetailState } from "@/lib/hub-state-merge";
+import { sanitizeHubStateForClient } from "@/lib/hub-state-sanitize";
 import { parseJsonRequestBody } from "@/lib/http";
-import { stripDayworkBlobsForPoll } from "@/lib/daywork-poll-strip";
 
 export async function GET(request: Request) {
   const access = getAccessProfileFromHeaders(request.headers);
@@ -20,8 +20,8 @@ export async function GET(request: Request) {
   } catch {
     // Best-effort backfill of Daywork variation cards from Field evidence.
   }
-  // Poll responses omit base64 signatures — PDF/valuation routes still load full sheets from disk.
-  return NextResponse.json(stripDayworkBlobsForPoll(getHubDetailState()));
+  // Poll responses omit base64 signatures and employee passwords.
+  return NextResponse.json(sanitizeHubStateForClient(getHubDetailState()));
 }
 
 export async function PUT(request: Request) {
@@ -36,12 +36,48 @@ export async function PUT(request: Request) {
   }
 
   const current = getHubDetailState();
-  const merged = mergeHubDetailState(current, payload);
+  // Never let a client wipe passwords by posting redacted hub-state back.
+  const safePayload = restoreEmployeePasswordsFromCurrent(current, payload);
+  const merged = mergeHubDetailState(current, safePayload);
   saveHubDetailState(merged);
   try {
     reconcileDayworkVariationsFromEvidence();
   } catch {
     // Best-effort: rebuild Daywork variation cards if Core omitted them.
   }
-  return NextResponse.json(stripDayworkBlobsForPoll(getHubDetailState()));
+  return NextResponse.json(sanitizeHubStateForClient(getHubDetailState()));
+}
+
+function restoreEmployeePasswordsFromCurrent(current: HubDetailState, payload: HubDetailState): HubDetailState {
+  if (!Array.isArray(payload.employees) || !Array.isArray(current.employees)) return payload;
+  const currentById = new Map<string, Record<string, unknown>>();
+  for (const row of current.employees) {
+    if (!row || typeof row !== "object") continue;
+    const employee = row as Record<string, unknown>;
+    const id = typeof employee.id === "string" ? employee.id : "";
+    if (id) currentById.set(id, employee);
+  }
+
+  const employees = payload.employees.map((row) => {
+    if (!row || typeof row !== "object") return row;
+    const employee = { ...(row as Record<string, unknown>) };
+    const id = typeof employee.id === "string" ? employee.id : "";
+    const existing = id ? currentById.get(id) : undefined;
+    const login = employee.login;
+    if (!login || typeof login !== "object" || Array.isArray(login)) return employee;
+    const loginRecord = { ...(login as Record<string, unknown>) };
+    const incomingPassword = typeof loginRecord.password === "string" ? loginRecord.password : "";
+    if (incomingPassword.trim()) return employee;
+    const existingLogin = existing?.login;
+    if (existingLogin && typeof existingLogin === "object" && !Array.isArray(existingLogin)) {
+      const existingPassword = (existingLogin as Record<string, unknown>).password;
+      if (typeof existingPassword === "string" && existingPassword.trim()) {
+        loginRecord.password = existingPassword;
+        employee.login = loginRecord;
+      }
+    }
+    return employee;
+  });
+
+  return { ...payload, employees: employees as HubDetailState["employees"] };
 }

@@ -17,7 +17,7 @@ services:
       - key: NODE_VERSION
         value: 24.14.0
       - key: NODE_OPTIONS
-        value: --max-old-space-size=3072
+        value: --max-old-space-size=384
       - key: NEXA_STORE_PATH
         value: /var/data/nexa-live.sqlite
       - key: NEXA_STORE_DIR
@@ -55,10 +55,13 @@ services:
         sync: false
       - key: SIMPRO_DEFAULT_SITE_ID
         sync: false
+      # Fail-closed in live mode — must be set in the Render dashboard
       - key: SIMPRO_WEBHOOK_SECRET
         sync: false
       # Shared with the EOD cron job — required for unattended simPRO refresh
       - key: NEXA_IMPORT_TICK_SECRET
+        sync: false
+      - key: HUBFLO_INTEGRATION_TOKEN
         sync: false
       # Optional temporary scheduler bridge fallback
       - key: SIMPRO_SCHEDULER_BASE_URL
