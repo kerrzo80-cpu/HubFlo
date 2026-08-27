@@ -11624,35 +11624,41 @@ export default function CoreApp() {
       const offlineReasons: string[] = [];
       try {
         const headers = requestHeadersRef.current;
-        // Live was OOMing when all 8 heavy routes hit SQLite/hub at once → clients/jobs/quotes 502.
-        // Fetch in small waves; retry once on transient 502/503.
+        // Live was OOMing when heavy routes hit SQLite together → clients/jobs/quotes 502 + health timeouts.
+        // Fetch ONE route at a time with a short gap; retry once on transient 502/503.
         const fetchWave = async (path: string) => {
           const run = () => fetch(path, { headers, credentials: "same-origin" });
           let response = await run();
           if ([502, 503, 504].includes(response.status)) {
-            await new Promise((resolve) => setTimeout(resolve, 400));
+            await new Promise((resolve) => setTimeout(resolve, 700));
             response = await run();
           }
           return response;
         };
+        const pause = () => new Promise((resolve) => setTimeout(resolve, 150));
 
-        const [jobsResponse, clientsResponse] = await Promise.all([
-          fetchWave("/api/jobs"),
-          fetchWave("/api/clients"),
-        ]);
+        const jobsResponse = await fetchWave("/api/jobs");
         if (stopped) return;
-        const [clientSitesResponse, quotesResponse] = await Promise.all([
-          fetchWave("/api/client-sites"),
-          fetchWave("/api/quotes"),
-        ]);
+        await pause();
+        const clientsResponse = await fetchWave("/api/clients");
         if (stopped) return;
+        await pause();
+        const clientSitesResponse = await fetchWave("/api/client-sites");
+        if (stopped) return;
+        await pause();
+        const quotesResponse = await fetchWave("/api/quotes");
+        if (stopped) return;
+        await pause();
         const hubStateResponse = await fetchWave("/api/hub-state");
         if (stopped) return;
-        const [leadsResponse, purchaseResponse, auditResponse] = await Promise.all([
-          fetchWave("/api/leads"),
-          fetchWave("/api/purchase-requests"),
-          fetchWave("/api/audit"),
-        ]);
+        await pause();
+        const leadsResponse = await fetchWave("/api/leads");
+        if (stopped) return;
+        await pause();
+        const purchaseResponse = await fetchWave("/api/purchase-requests");
+        if (stopped) return;
+        await pause();
+        const auditResponse = await fetchWave("/api/audit");
 
         if (stopped) return;
 

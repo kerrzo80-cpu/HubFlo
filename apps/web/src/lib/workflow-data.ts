@@ -368,9 +368,11 @@ const defaultStore: WorkflowStore = {
 };
 
 const workflowStore = loadServerStore("workflow-store", defaultStore);
+let workflowStoreHydrated = Array.isArray(workflowStore.jobs) && workflowStore.jobs.length > 0;
 
 function persistWorkflowStore() {
   writeServerStore("workflow-store", workflowStore);
+  workflowStoreHydrated = true;
 }
 
 function clone<T>(value: T): T {
@@ -381,11 +383,16 @@ function clone<T>(value: T): T {
 }
 
 function getStore(): WorkflowStore {
-  const persisted = readServerStoreSnapshot("workflow-store") as WorkflowStore | null;
-  if (persisted && Array.isArray(persisted.jobs) && Array.isArray(persisted.quotes) && Array.isArray(persisted.purchaseRequests)) {
-    workflowStore.jobs = clone(persisted.jobs);
-    workflowStore.quotes = clone(persisted.quotes);
-    workflowStore.purchaseRequests = clone(persisted.purchaseRequests);
+  // CRITICAL: do not JSON-clone the entire workflow store from disk on every GET.
+  // That pattern OOMed nexa-live (parallel clients/jobs/quotes → 502 + health timeouts).
+  if (!workflowStoreHydrated) {
+    const persisted = readServerStoreSnapshot("workflow-store") as WorkflowStore | null;
+    if (persisted && Array.isArray(persisted.jobs) && Array.isArray(persisted.quotes) && Array.isArray(persisted.purchaseRequests)) {
+      workflowStore.jobs = persisted.jobs;
+      workflowStore.quotes = persisted.quotes;
+      workflowStore.purchaseRequests = persisted.purchaseRequests;
+    }
+    workflowStoreHydrated = true;
   }
   return workflowStore;
 }
@@ -498,11 +505,10 @@ export function getJobs(): Job[] {
       // Trial bootstrap is best-effort.
     }
   }
-  // Read reviews once — calling getHubDetailState() per Ready-to-invoice job cloned the
-  // entire hub and OOMed live (parallel clients/jobs/quotes 502s).
+  // Shallow copy per row only — never deep-clone the whole jobs array for list GETs.
   const reviews = peekHubJobReviews();
-  return clone(getStore().jobs)
-    .map((job) => withEnforcedInvoiceReview(job, reviews))
+  return getStore()
+    .jobs.map((job) => withEnforcedInvoiceReview({ ...job }, reviews))
     .sort((left, right) => compareReferenceDesc(left.ref, right.ref));
 }
 
@@ -638,7 +644,9 @@ function backfillCreatedAtFromSimproLinks() {
 }
 
 export function getQuotes(): Quote[] {
-  return clone(getStore().quotes).sort((left, right) => compareReferenceDesc(left.ref, right.ref));
+  return getStore()
+    .quotes.map((quote) => ({ ...quote }))
+    .sort((left, right) => compareReferenceDesc(left.ref, right.ref));
 }
 
 export function createQuote(payload: Omit<Quote, "id" | "ref"> & { id?: string; ref?: string }): Quote {

@@ -73,19 +73,24 @@ export async function GET(request: Request) {
     return NextResponse.json([]);
   }
 
-  const search = new URL(request.url).searchParams.get("q")?.trim().toLowerCase() ?? "";
-  const clients = getClients();
+  try {
+    const search = new URL(request.url).searchParams.get("q")?.trim().toLowerCase() ?? "";
+    const clients = getClients();
 
-  if (!search) {
-    return NextResponse.json(clients);
+    if (!search) {
+      return NextResponse.json(clients);
+    }
+
+    const filtered = clients.filter((client) =>
+      [client.name, client.primaryContact, client.email, client.phone, client.billingAddress]
+        .some((value) => value.toLowerCase().includes(search)),
+    );
+
+    return NextResponse.json(filtered);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Clients unavailable";
+    return NextResponse.json({ error: message }, { status: 503 });
   }
-
-  const filtered = clients.filter((client) =>
-    [client.name, client.primaryContact, client.email, client.phone, client.billingAddress]
-      .some((value) => value.toLowerCase().includes(search)),
-  );
-
-  return NextResponse.json(filtered);
 }
 
 export async function POST(request: Request) {

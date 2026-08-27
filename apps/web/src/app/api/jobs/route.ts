@@ -96,7 +96,12 @@ export async function GET(request: Request) {
     return NextResponse.json([]);
   }
 
-  return NextResponse.json(getJobs());
+  try {
+    return NextResponse.json(getJobs());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Jobs unavailable";
+    return NextResponse.json({ error: message }, { status: 503 });
+  }
 }
 
 export async function POST(request: Request) {
