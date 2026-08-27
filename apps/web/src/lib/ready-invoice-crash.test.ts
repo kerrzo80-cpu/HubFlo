@@ -130,6 +130,8 @@ test("CoreApp passaround uses atomic API and patchJobRecord reads error field", 
   const fs = await import("node:fs/promises");
   const source = await fs.readFile(new URL("../app/CoreApp.tsx", import.meta.url), "utf8");
   assert.match(source, /seededJobCentresFromQuoteRef/);
+  assert.match(source, /passaroundHoldUntilRef/);
+  assert.match(source, /JobRecordErrorBoundary/);
   assert.match(source, /\/api\/jobs\/\$\{jobId\}\/passaround/);
   assert.match(source, /action: "set-review"/);
   assert.match(source, /action: "ready-to-invoice"/);
@@ -137,4 +139,57 @@ test("CoreApp passaround uses atomic API and patchJobRecord reads error field", 
   assert.match(source, /toggleSelectedJobReview/);
   assert.doesNotMatch(source, /agentDebugLog/);
   assert.doesNotMatch(source, /debug-agent-log/);
+});
+
+test("job value sync hold skips setJobs while passaround is in flight", () => {
+  let holdUntil = 0;
+  let setJobsCalls = 0;
+  const now = () => 1_000;
+  const PASSAROUND_HOLD_MS = 8000;
+
+  function runValueSync(forceValueChange: boolean) {
+    if (now() < holdUntil) return;
+    if (!forceValueChange) return;
+    setJobsCalls += 1;
+  }
+
+  holdUntil = now() + PASSAROUND_HOLD_MS;
+  runValueSync(true);
+  assert.equal(setJobsCalls, 0, "hold must block value sync setJobs");
+
+  holdUntil = 0;
+  runValueSync(true);
+  assert.equal(setJobsCalls, 1);
+});
+
+test("oscillating centre totals freeze further job value sync writes", () => {
+  const frozen = new Set<string>();
+  const historyByJob: Record<string, number[]> = {};
+  const writes: number[] = [];
+
+  function consider(jobId: string, nextValue: number) {
+    if (frozen.has(jobId)) return;
+    const history = [...(historyByJob[jobId] ?? []), nextValue].slice(-4);
+    historyByJob[jobId] = history;
+    if (
+      history.length >= 4 &&
+      history[0] === history[2] &&
+      history[1] === history[3] &&
+      history[0] !== history[1]
+    ) {
+      frozen.add(jobId);
+      return;
+    }
+    writes.push(nextValue);
+  }
+
+  consider("job-gas-cert-trial", 147.75);
+  consider("job-gas-cert-trial", 160.75);
+  consider("job-gas-cert-trial", 147.75);
+  consider("job-gas-cert-trial", 160.75); // oscillate → freeze
+  consider("job-gas-cert-trial", 147.75);
+  consider("job-gas-cert-trial", 160.75);
+
+  assert.equal(writes.length, 3);
+  assert.ok(frozen.has("job-gas-cert-trial"));
 });

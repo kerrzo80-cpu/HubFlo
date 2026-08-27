@@ -166,11 +166,55 @@ test("CoreApp approveSelectedJobForInvoice uses atomic passaround API", async ()
   const source = await fs.readFile(new URL("../app/CoreApp.tsx", import.meta.url), "utf8");
   const fnStart = source.indexOf("async function approveSelectedJobForInvoice()");
   assert.ok(fnStart > 0);
-  const fnBody = source.slice(fnStart, fnStart + 5500);
+  const brace = source.indexOf("{", fnStart);
+  let depth = 0;
+  let fnEnd = brace;
+  for (let i = brace; i < source.length; i += 1) {
+    if (source[i] === "{") depth += 1;
+    else if (source[i] === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        fnEnd = i + 1;
+        break;
+      }
+    }
+  }
+  const fnBody = source.slice(fnStart, fnEnd);
   assert.match(fnBody, /action: "ready-to-invoice"/);
   assert.match(fnBody, /postJobPassaround/);
   assert.doesNotMatch(fnBody, /persistJobReviewsForInvoice/);
   assert.doesNotMatch(fnBody, /buildHubDetailStatePayload\(\)/);
   // Must not auto-open invoice (that white-screened live after Ready to invoice).
+  assert.doesNotMatch(fnBody, /openInvoiceForJob\(/);
+  // Minimal hot path — folder switch / audit / review-edit were thrash vectors.
+  assert.doesNotMatch(fnBody, /setActiveJobFolderKey\(/);
+  assert.doesNotMatch(fnBody, /logAuditEvent\(/);
+  assert.doesNotMatch(fnBody, /markJobReviewEdited\(/);
+});
+
+test("CoreApp completeSelectedJob uses minimal hot path", async () => {
+  const fs = await import("node:fs/promises");
+  const source = await fs.readFile(new URL("../app/CoreApp.tsx", import.meta.url), "utf8");
+  const fnStart = source.indexOf("async function completeSelectedJob()");
+  assert.ok(fnStart > 0);
+  const brace = source.indexOf("{", fnStart);
+  let depth = 0;
+  let fnEnd = brace;
+  for (let i = brace; i < source.length; i += 1) {
+    if (source[i] === "{") depth += 1;
+    else if (source[i] === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        fnEnd = i + 1;
+        break;
+      }
+    }
+  }
+  const fnBody = source.slice(fnStart, fnEnd);
+  assert.match(fnBody, /action: "complete"/);
+  assert.match(fnBody, /postJobPassaround/);
+  assert.match(fnBody, /passaroundHoldUntilRef/);
+  assert.doesNotMatch(fnBody, /setActiveJobFolderKey\(/);
+  assert.doesNotMatch(fnBody, /logAuditEvent\(/);
   assert.doesNotMatch(fnBody, /openInvoiceForJob\(/);
 });
