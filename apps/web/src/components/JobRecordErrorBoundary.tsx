@@ -1,6 +1,6 @@
 "use client";
 
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Component, type ReactNode } from "react";
 
 type Props = {
   children: ReactNode;
@@ -22,45 +22,6 @@ export class JobRecordErrorBoundary extends Component<Props, State> {
     return { error };
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo) {
-    try {
-      console.error("[PASSAROUND_DEBUG]", "JobRecordErrorBoundary", {
-        hypothesisId: "H2,H3",
-        location: "JobRecordErrorBoundary.tsx:componentDidCatch",
-        message: error.message,
-        data: {
-          jobRef: this.props.jobRef ?? null,
-          stack: error.stack?.slice(0, 2500) ?? null,
-          componentStack: info.componentStack?.slice(0, 2500) ?? null,
-        },
-        timestamp: Date.now(),
-      });
-    } catch {
-      /* ignore */
-    }
-    try {
-      void fetch("/api/passaround-trace", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({
-          hypothesisId: "H2,H3",
-          location: "JobRecordErrorBoundary.tsx:componentDidCatch",
-          message: error.message,
-          data: {
-            jobRef: this.props.jobRef ?? null,
-            stack: error.stack?.slice(0, 2500) ?? null,
-            componentStack: info.componentStack?.slice(0, 2500) ?? null,
-          },
-          timestamp: Date.now(),
-          runId: "passaround-live-fail",
-        }),
-      }).catch(() => {});
-    } catch {
-      /* ignore */
-    }
-  }
-
   render() {
     if (this.state.error) {
       return (
@@ -73,8 +34,8 @@ export class JobRecordErrorBoundary extends Component<Props, State> {
           <span className="employee-record-eyebrow">Job record crashed</span>
           <h2 style={{ marginTop: 8 }}>This job panel hit an error</h2>
           <p style={{ lineHeight: 1.5, color: "#333" }}>
-            NeXa caught the crash so the rest of the app can keep running. The error message below
-            is the root cause we need for Complete / Ready-to-invoice.
+            NeXa caught the crash so the rest of the app can keep running. Retry this panel, or go
+            back to jobs.
           </p>
           <pre
             style={{
