@@ -58,15 +58,19 @@ export async function POST(request: NextRequest, context: Ctx) {
       }
       const approved = Boolean(body.approved);
       const review = setJobReviewTick(jobId, key, approved);
-      appendAuditEvent({
-        actor,
-        action: "reviewed",
-        recordType: "job",
-        recordId: jobId,
-        summary: `${key} ${approved ? "approved" : "unchecked"} via passaround API.`,
-        source: "job passaround api",
-        importance: "normal",
-      });
+      try {
+        appendAuditEvent({
+          actor,
+          action: "reviewed",
+          recordType: "job",
+          recordId: jobId,
+          summary: `${key} ${approved ? "approved" : "unchecked"} via passaround API.`,
+          source: "job passaround api",
+          importance: "normal",
+        });
+      } catch {
+        // Audit must never turn a successful tick into a 502.
+      }
       return NextResponse.json({ ok: true, review });
     }
 

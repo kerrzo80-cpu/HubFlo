@@ -13,6 +13,8 @@ import {
 import { leanCentresForTransport, leanJobCostCentresMap } from "@/lib/job-cost-centres-lean";
 
 const JOB_CC_INDEX_STORE = "nexa-job-cc-index-v1";
+/** Tiny reviews map — passaround ticks must never stringify the full hub (live 502/OOM). */
+const JOB_REVIEWS_STORE = "nexa-job-reviews-v1";
 
 function jobCcStoreName(jobId: string) {
   return `nexa-job-cc-v1:${jobId}`;
@@ -167,11 +169,58 @@ function rehydrateHubDetailStateFromDisk() {
   Object.assign(hubDetailState, diskHub);
 }
 
+function readJobReviewsSideStore(): Record<string, unknown> {
+  const snap = readServerStoreSnapshot(JOB_REVIEWS_STORE) as { reviews?: unknown } | null;
+  if (!snap || typeof snap !== "object" || !snap.reviews || typeof snap.reviews !== "object" || Array.isArray(snap.reviews)) {
+    return {};
+  }
+  return snap.reviews as Record<string, unknown>;
+}
+
+function overlayJobReviewsSideStore() {
+  const side = readJobReviewsSideStore();
+  if (!Object.keys(side).length) return;
+  const current =
+    hubDetailState.jobReviews && typeof hubDetailState.jobReviews === "object" && !Array.isArray(hubDetailState.jobReviews)
+      ? (hubDetailState.jobReviews as Record<string, unknown>)
+      : {};
+  hubDetailState.jobReviews = { ...current, ...side };
+}
+
+/**
+ * Persist one job's invoice-review ticks without cloning/stringifying hub-detail-store.
+ * Live was returning HTML 502 on /passaround when each Chris/Commercial/Carol tick
+ * deep-cloned the whole hub via getHubDetailState + saveHubDetailState.
+ */
+export function writeHubJobReview(jobId: string, review: Record<string, unknown>): Record<string, unknown> {
+  const id = String(jobId || "").trim();
+  if (!id) return review;
+  const current =
+    hubDetailState.jobReviews && typeof hubDetailState.jobReviews === "object" && !Array.isArray(hubDetailState.jobReviews)
+      ? (hubDetailState.jobReviews as Record<string, unknown>)
+      : {};
+  const nextReviews = { ...current, [id]: review };
+  hubDetailState.jobReviews = nextReviews;
+  hubDetailState.updatedAt = new Date().toISOString();
+  // Side store first — durable even if a later full-hub write OOMs.
+  try {
+    const side = readJobReviewsSideStore();
+    writeServerStore(JOB_REVIEWS_STORE, {
+      reviews: { ...side, [id]: review },
+      updatedAt: hubDetailState.updatedAt,
+    });
+  } catch {
+    // In-memory map still holds the tick for this process.
+  }
+  return review;
+}
+
 /**
  * Passaround / job list hot path — do NOT rehydrate/clone the full hub on every list.
- * In-memory reviews are updated by writeJobInvoiceReview; missing reviews demote Ready→Complete (safe).
+ * In-memory reviews are updated by writeHubJobReview; missing reviews demote Ready→Complete (safe).
  */
 export function peekHubJobReviews(): Record<string, unknown> {
+  overlayJobReviewsSideStore();
   const raw = hubDetailState.jobReviews;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   return raw as Record<string, unknown>;
@@ -307,7 +356,13 @@ export function saveHubDetailState(nextState: HubDetailState): HubDetailState {
   }
   const nextJobCostCentres = mergeCentresPreserveDaywork(hubDetailState.jobCostCentres, nextState.jobCostCentres);
   leanJobCostCentresMap(nextJobCostCentres);
+  overlayJobReviewsSideStore();
+  const mergedJobReviews = {
+    ...((hubDetailState.jobReviews || {}) as Record<string, unknown>),
+    ...((nextState.jobReviews || {}) as Record<string, unknown>),
+  };
   const updated: HubDetailState = {
+    ...hubDetailState,
     ...nextState,
     dayworkSheets: mergeDayworkSheets(liveSheets, nextState.dayworkSheets) as Record<string, unknown>,
     flowStepEvidence: mergeFlowStepEvidence(hubDetailState.flowStepEvidence, nextState.flowStepEvidence),
@@ -317,6 +372,8 @@ export function saveHubDetailState(nextState: HubDetailState): HubDetailState {
     },
     jobDeliveryEvents: mergeJobDeliveryEvents(hubDetailState.jobDeliveryEvents, nextState.jobDeliveryEvents),
     jobCostCentres: nextJobCostCentres,
+    // Keep passaround ticks from the lean side store + inbound hub PUT.
+    jobReviews: mergedJobReviews,
     // Field auto-drafts and office invoice edits must survive stale Core PUT payloads.
     invoices: mergeInvoicesById(hubDetailState.invoices, nextState.invoices) as unknown[],
     updatedAt: new Date().toISOString(),
@@ -327,6 +384,14 @@ export function saveHubDetailState(nextState: HubDetailState): HubDetailState {
   });
   Object.assign(hubDetailState, updated);
   prepareHubCostCentresForPersist(hubDetailState);
+  try {
+    writeServerStore(JOB_REVIEWS_STORE, {
+      reviews: mergedJobReviews,
+      updatedAt: updated.updatedAt,
+    });
+  } catch {
+    // Best-effort lean reviews mirror.
+  }
   try {
     writeServerStore("hub-detail-store", hubDetailState);
   } catch {
@@ -346,6 +411,7 @@ export function getHubDetailState(): HubDetailState {
   rehydrateDayworkFieldsFromDisk();
   // Prefer per-job side stores when a prior hub write failed after rebuild.
   overlayJobCcSideStores(hubDetailState);
+  overlayJobReviewsSideStore();
   // Lean oversized tender BoQ dumps BEFORE JSON clone — stringify of 400+ lines OOMs 512MB Render.
   if (leanJobCostCentresMap(hubDetailState.jobCostCentres)) {
     prepareHubCostCentresForPersist(hubDetailState);
