@@ -28,7 +28,6 @@ type AssistantResult = {
   action?: { id: string; title: string; detail: string; confirmLabel: string; kind?: string };
 };
 type WakeLockSentinelLike = { release: () => Promise<void> };
-
 type WebkitWindow = Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext };
 
 const SILENCE_MS = 900;
@@ -53,12 +52,7 @@ function stateLabel(state: DriveState) {
 
 function preferredMimeType() {
   if (typeof MediaRecorder === "undefined") return "";
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/mp4",
-    "audio/ogg;codecs=opus",
-  ];
+  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
   return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
 }
 
@@ -72,18 +66,15 @@ function localVoice(accent: BlakeVoiceAccent) {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return undefined;
   const voices = window.speechSynthesis.getVoices();
   if (!voices.length) return undefined;
-
   if (accent === "american") {
     return voices.find((voice) => /^en-US$/i.test(voice.lang))
       || voices.find((voice) => /^en[-_]US/i.test(voice.lang));
   }
-
   if (accent === "scottish") {
     return voices.find((voice) => /scot|scotland/i.test(`${voice.name} ${voice.lang}`))
       || voices.find((voice) => /^en-GB$/i.test(voice.lang))
       || voices.find((voice) => /^en[-_]GB/i.test(voice.lang));
   }
-
   return voices.find((voice) => /^en-GB$/i.test(voice.lang))
     || voices.find((voice) => /^en[-_]GB/i.test(voice.lang));
 }
@@ -120,14 +111,12 @@ export default function BlakeStandardDrivingMode() {
     const browser = typeof window !== "undefined" ? window as WebkitWindow : null;
     const supported = Boolean(
       browser
-      && navigator.mediaDevices?.getUserMedia
+      && navigator.mediaDevices
       && typeof MediaRecorder !== "undefined"
       && (browser.AudioContext || browser.webkitAudioContext),
     );
     if (!supported) setState("unsupported");
-    return () => {
-      void stopCall();
-    };
+    return () => { void stopCall(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -177,9 +166,7 @@ export default function BlakeStandardDrivingMode() {
     const chat = chatRef.current;
     if (!chat) return;
     const user: ChatMessage = { id: messageId(), role: "user", text: userText, createdAt: new Date().toISOString() };
-    const assistant: ChatMessage = {
-      id: messageId(), role: "assistant", text: assistantText, createdAt: new Date().toISOString(), action,
-    };
+    const assistant: ChatMessage = { id: messageId(), role: "assistant", text: assistantText, createdAt: new Date().toISOString(), action };
     historyRef.current = [...historyRef.current, user, assistant].slice(-80);
     const next = { ...chat, messages: historyRef.current, updatedAt: new Date().toISOString() };
     chatRef.current = next;
@@ -207,7 +194,6 @@ export default function BlakeStandardDrivingMode() {
       finishLocalSpeech();
       return;
     }
-
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(reply);
     const voice = localVoice(accent);
@@ -259,12 +245,7 @@ export default function BlakeStandardDrivingMode() {
     const mime = blob.type || "audio/webm";
     form.append("audio", blob, `ayla-turn.${extensionForMime(mime)}`);
     form.append("durationMs", String(Math.round(durationMs)));
-
-    const response = await fetch("/api/blake/transcribe", {
-      method: "POST",
-      credentials: "include",
-      body: form,
-    });
+    const response = await fetch("/api/blake/transcribe", { method: "POST", credentials: "include", body: form });
     const payload = await response.json().catch(() => ({})) as { text?: string; error?: string };
     if (!response.ok) throw new Error(payload.error || "Ayla could not transcribe that voice turn.");
     const text = payload.text?.trim() || "";
@@ -280,7 +261,6 @@ export default function BlakeStandardDrivingMode() {
   function startTurnRecorder() {
     const stream = micRef.current;
     if (!stream || recordingRef.current || processingRef.current || speakingRef.current || !activeRef.current) return;
-
     const mimeType = preferredMimeType();
     const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
     recorderRef.current = recorder;
@@ -289,10 +269,7 @@ export default function BlakeStandardDrivingMode() {
     recordingStartedAtRef.current = performance.now();
     lastVoiceAtRef.current = performance.now();
     setState("recording");
-
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) chunksRef.current.push(event.data);
-    };
+    recorder.ondataavailable = (event) => { if (event.data.size > 0) chunksRef.current.push(event.data); };
     recorder.onerror = () => {
       recordingRef.current = false;
       processingRef.current = false;
@@ -335,7 +312,6 @@ export default function BlakeStandardDrivingMode() {
     const analyser = analyserRef.current;
     if (!analyser) return;
     const samples = new Uint8Array(analyser.fftSize);
-
     const tick = () => {
       if (!activeRef.current || !analyserRef.current) return;
       analyserRef.current.getByteTimeDomainData(samples);
@@ -346,7 +322,6 @@ export default function BlakeStandardDrivingMode() {
       }
       const rms = Math.sqrt(sum / samples.length);
       const now = performance.now();
-
       if (!recordingRef.current && !processingRef.current && !speakingRef.current) {
         if (rms < 0.08) noiseFloorRef.current = (noiseFloorRef.current * 0.985) + (rms * 0.015);
         const startThreshold = Math.max(0.025, noiseFloorRef.current * 2.8);
@@ -357,7 +332,6 @@ export default function BlakeStandardDrivingMode() {
           startTurnRecorder();
         }
       }
-
       if (recordingRef.current) {
         const voiceThreshold = Math.max(0.018, noiseFloorRef.current * 1.8);
         if (rms >= voiceThreshold) lastVoiceAtRef.current = now;
@@ -365,10 +339,8 @@ export default function BlakeStandardDrivingMode() {
         const quietFor = now - lastVoiceAtRef.current;
         if ((elapsed >= MIN_TURN_MS && quietFor >= SILENCE_MS) || elapsed >= MAX_TURN_MS) stopTurnRecorder();
       }
-
       animationRef.current = window.requestAnimationFrame(tick);
     };
-
     animationRef.current = window.requestAnimationFrame(tick);
   }
 
@@ -381,20 +353,14 @@ export default function BlakeStandardDrivingMode() {
     activeRef.current = true;
     processingRef.current = false;
     speechSequenceRef.current = 0;
-
     try {
       await createDrivingChat();
       await requestWakeLock();
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         video: false,
       });
       micRef.current = stream;
-
       const browser = window as WebkitWindow;
       const AudioContextCtor = browser.AudioContext || browser.webkitAudioContext;
       if (!AudioContextCtor) throw new Error("This browser cannot monitor the microphone for hands-free turns.");
@@ -450,13 +416,11 @@ export default function BlakeStandardDrivingMode() {
         <span className={styles.title}>{conversationTitle}</span>
         <span className={`${styles.liveDot} ${active ? styles.live : ""}`} aria-label={active ? "Live" : "Offline"} />
       </header>
-
       <section className={styles.stage}>
         <div className={styles.modeBar}>
           <span className={styles.modeActive}><Gauge size={15} /> Standard Voice</span>
           <a href="/blake/drive/premium"><Sparkles size={15} /> Premium Realtime</a>
         </div>
-
         <div className={`${styles.orb} ${active ? styles.orbLive : ""} ${state === "thinking" ? styles.orbThinking : ""}`}>
           {state === "speaking" ? <Volume2 size={54} /> : <Mic size={54} />}
         </div>
@@ -466,7 +430,6 @@ export default function BlakeStandardDrivingMode() {
             ? "Talk naturally. Ayla sends only each finished voice turn for transcription, then your phone reads her answer aloud."
             : "Low-cost hands-free Ayla. Voice is transcribed per turn; Ayla still uses the full Blake tools and conversation."}
         </p>
-
         {!active ? (
           <div className={styles.voicePicker} aria-label="Local voice accent preference">
             {BLAKE_VOICE_ACCENTS.map((option) => (
@@ -476,7 +439,6 @@ export default function BlakeStandardDrivingMode() {
             ))}
           </div>
         ) : null}
-
         <button
           type="button"
           className={active ? styles.endButton : styles.startButton}
@@ -486,15 +448,12 @@ export default function BlakeStandardDrivingMode() {
           {active ? <PhoneOff size={25} /> : <Mic size={25} />}
           {active ? "End conversation" : "Start Standard Voice"}
         </button>
-
         <p className={styles.costNote}>Standard Voice uses low-cost transcription + Luna. Ayla’s spoken reply uses your device voice.</p>
-
         <div className={styles.transcript} aria-live="polite">
           {heard ? <div><span>You</span><p>{heard}</p></div> : null}
           {aylaSaid ? <div><span>Ayla</span><p>{aylaSaid}</p></div> : null}
           {!heard && !aylaSaid ? <p className={styles.empty}>Your latest exchange will appear here as a backup while Ayla speaks through the car.</p> : null}
         </div>
-
         {error ? <div className={styles.error}>{error}</div> : null}
         <p className={styles.safety}>Use voice while driving. Only interact with the screen when it is safe and legal to do so.</p>
       </section>
