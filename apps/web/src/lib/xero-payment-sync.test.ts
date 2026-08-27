@@ -27,7 +27,7 @@ test("invoiceEligibleForXeroPaymentSync requires exported invoice", () => {
       ref: "INV-3",
       accountsStatus: "Sent to Xero",
     }),
-    true,
+    false,
   );
   assert.equal(
     invoiceEligibleForXeroPaymentSync({

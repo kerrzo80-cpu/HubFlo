@@ -12592,12 +12592,18 @@ export default function CoreApp() {
     activeSetupSubItem,
     hasHydratedLocalData,
     homeView,
+    homeView,
     requestHeaders,
     xeroConnectionStatus?.configured,
   ]);
 
   useEffect(() => {
-    if (!hasHydratedLocalData || homeView !== "xero" || !xeroConnectionStatus?.configured) return;
+    const onXeroSetup =
+      (homeView === "settings" &&
+        ((activeSetupCategory === "finance" && activeSetupSubItem === "Xero") ||
+          (activeSetupCategory === "integrations" && activeSetupSubItem === "Xero"))) ||
+      homeView === "xero";
+    if (!hasHydratedLocalData || !onXeroSetup || !xeroConnectionStatus?.configured) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -12613,7 +12619,14 @@ export default function CoreApp() {
     return () => {
       cancelled = true;
     };
-  }, [hasHydratedLocalData, homeView, requestHeaders, xeroConnectionStatus?.configured]);
+  }, [
+    activeSetupCategory,
+    activeSetupSubItem,
+    hasHydratedLocalData,
+    homeView,
+    requestHeaders,
+    xeroConnectionStatus?.configured,
+  ]);
 
   useEffect(() => {
     // Stock cost rollup only matters for Reports / Stock — don't compete with hub hydrate.
@@ -44575,6 +44588,27 @@ export default function CoreApp() {
                       ? "Ready to connect"
                       : "CSV / setup needed"}
                 </span>
+                <div className="setup-template-actions">
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={
+                      isPullingXeroPayments ||
+                      !xeroConnectionStatus?.configured ||
+                      !(access.canEditInvoice || access.showFinance)
+                    }
+                    title={
+                      !xeroConnectionStatus?.configured
+                        ? "Connect Xero on the Connection tab first"
+                        : !(access.canEditInvoice || access.showFinance)
+                          ? "Finance or invoice edit access required"
+                          : "Pull payment records from Xero for exported invoices"
+                    }
+                    onClick={() => void syncAllInvoicePaymentsFromXero()}
+                  >
+                    {isPullingXeroPayments ? "Syncing…" : "Sync payments from Xero"}
+                  </button>
+                </div>
               </div>
 
               <div className="record-folder-grid record-folder-tabs" role="tablist" aria-label="Xero folders">
@@ -44582,7 +44616,7 @@ export default function CoreApp() {
                   { key: "sales" as const, label: "Sales to export", count: xeroSalesToExport.length, tone: "amber" },
                   { key: "bills" as const, label: "Bills to export", count: xeroBillsToExport.length, tone: "blue" },
                   { key: "exported" as const, label: "Exported", count: xeroSalesExported.length + xeroBillsExported.length, tone: "green" },
-                  { key: "connection" as const, label: "Connection", count: xeroConnectionStatus?.configured ? 1 : 0, tone: "blue" },
+                  { key: "connection" as const, label: "Connection & sync", count: xeroConnectionStatus?.configured ? 1 : 0, tone: "blue" },
                 ].map((tab) => (
                   <button
                     aria-selected={activeXeroTab === tab.key}
@@ -44911,7 +44945,7 @@ export default function CoreApp() {
                       <button
                         className="primary-button"
                         type="button"
-                        disabled={isPullingXeroPayments || !access.canEditInvoice}
+                        disabled={isPullingXeroPayments || !(access.canEditInvoice || access.showFinance)}
                         onClick={() => void syncAllInvoicePaymentsFromXero()}
                       >
                         {isPullingXeroPayments ? "Syncing…" : "Sync all payments from Xero now"}
@@ -49618,11 +49652,46 @@ export default function CoreApp() {
 	                              <small>Sales invoices and supplier bills after Connect.</small>
 	                            </article>
 	                            <article>
+	                              <span>Payment sync</span>
+	                              <strong>
+	                                {xeroConnectionStatus?.configured
+	                                  ? xeroPaymentSyncStatus?.lastSuccessfulAt
+	                                    ? `Last sync ${xeroPaymentSyncStatus.lastSuccessfulAt.slice(0, 16).replace("T", " ")} UTC`
+	                                    : "Automatic nightly 22:30 UTC"
+	                                  : "Connect Xero first"}
+	                              </strong>
+	                              <small>
+	                                {xeroConnectionStatus?.configured
+	                                  ? "When invoices are paid in Xero, NeXa updates overnight — or sync now."
+	                                  : "Export invoices to Xero before payments can sync back."}
+	                              </small>
+	                            </article>
+	                            <article>
 	                              <span>Other systems</span>
 	                              <strong>QuickBooks / Sage next</strong>
 	                              <small>Same Finance picker and Connect flow.</small>
 	                            </article>
 	                          </div>
+	                          {xeroConnectionStatus?.configured ? (
+	                            <div className="setup-template-actions" style={{ marginTop: "1rem" }}>
+	                              <button
+	                                className="primary-button"
+	                                type="button"
+	                                disabled={
+	                                  isPullingXeroPayments || !(access.canEditInvoice || access.showFinance)
+	                                }
+	                                onClick={() => void syncAllInvoicePaymentsFromXero()}
+	                              >
+	                                {isPullingXeroPayments ? "Syncing…" : "Sync payments from Xero now"}
+	                              </button>
+	                              {xeroPaymentSyncStatus?.lastRun ? (
+	                                <span className="muted" style={{ alignSelf: "center" }}>
+	                                  Last run: {xeroPaymentSyncStatus.lastRun.paymentsAdded ?? 0} payment(s) on{" "}
+	                                  {xeroPaymentSyncStatus.lastRun.updated ?? 0} invoice(s)
+	                                </span>
+	                              ) : null}
+	                            </div>
+	                          ) : null}
 	                        </article>
 
                         <XeroMappingPanel

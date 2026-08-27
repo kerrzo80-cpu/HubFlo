@@ -76,11 +76,10 @@ export function invoiceEligibleForXeroPaymentSync(row: Record<string, unknown>) 
   const claimType = String(row.claimType || "");
   if (status === "Draft" || status === "Cancelled") return false;
   if (claimType === "valuation") return false;
-  const exported =
-    Boolean(String(row.xeroInvoiceId || "").trim()) ||
-    Boolean(String(row.xeroExportedAt || "").trim()) ||
-    /sent|export|xero/i.test(String(row.accountsStatus || ""));
-  return exported;
+  // Must be linked to Xero — avoid simPRO "Sent" rows that were never exported.
+  return (
+    Boolean(String(row.xeroInvoiceId || "").trim()) || Boolean(String(row.xeroExportedAt || "").trim())
+  );
 }
 
 function prioritizeInvoices(invoices: XeroPullInvoiceInput[]) {
@@ -226,7 +225,7 @@ export async function runXeroPaymentSync(input?: { actor?: string; maxInvoices?:
     actor,
     startedAt,
     finishedAt,
-    ok: failed === 0,
+    ok: paymentsAdded > 0 || (failed === 0 && attempted > 0) || attempted === 0,
     scanned: eligible.length,
     attempted: targets.length,
     updated,
