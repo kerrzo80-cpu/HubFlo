@@ -17,6 +17,7 @@ import {
 import { createPortal } from "react-dom";
 import { CorePanelSkeleton } from "@/components/CorePanelSkeleton";
 import { FileDropZone } from "@/components/FileDropZone";
+import { RoomAreaNameFields, WorksAreaNameFields } from "@/components/PresetNameFields";
 import { RecordEditLockBanner } from "@/components/RecordEditLockBanner";
 import { activeRecordFromHomeView, useRecordEditLock } from "@/hooks/useRecordEditLock";
 import { downloadBlob } from "@/lib/download-blob";
@@ -8805,10 +8806,10 @@ export default function CoreApp() {
   const [quoteCostCentreNameDraft, setQuoteCostCentreNameDraft] = useState("");
   const [quoteCostCentreTemplateDraft, setQuoteCostCentreTemplateDraft] = useState(costCentreTemplates[0] ?? "General plumbing");
   const [quoteCostCentreSectionDraft, setQuoteCostCentreSectionDraft] = useState("");
-  const [quoteSectionNameDraft, setQuoteSectionNameDraft] = useState("");
+  const [quoteSectionNameDraft, setQuoteSectionNameDraft] = useState("Interior Works");
   const [quoteSectionDescriptionDraft, setQuoteSectionDescriptionDraft] = useState("");
   const [showQuoteCostCentreCreate, setShowQuoteCostCentreCreate] = useState(false);
-  const [jobSectionNameDraft, setJobSectionNameDraft] = useState("");
+  const [jobSectionNameDraft, setJobSectionNameDraft] = useState("Interior Works");
   const [jobSectionDescriptionDraft, setJobSectionDescriptionDraft] = useState("");
   const [editingJobSectionId, setEditingJobSectionId] = useState<string | null>(null);
   const [jobSectionEditName, setJobSectionEditName] = useState("");
@@ -27605,11 +27606,7 @@ export default function CoreApp() {
 
   function addJobSection() {
     if (!selectedJob) return;
-    const name = jobSectionNameDraft.trim();
-    if (!name) {
-      showNotice("Add a section name before creating it.");
-      return;
-    }
+    const name = jobSectionNameDraft.trim() || "Interior Works";
     const section: JobSection = {
       id: `${selectedJob.id}-section-${Date.now()}`,
       name,
@@ -27620,18 +27617,18 @@ export default function CoreApp() {
       ...current,
       [selectedJob.id]: [...(current[selectedJob.id] ?? makeDefaultJobSections(selectedJob)), section],
     }));
-    setJobSectionNameDraft("");
+    setJobSectionNameDraft("Interior Works");
     setJobSectionDescriptionDraft("");
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
       action: "created",
       recordType: "job",
       recordId: selectedJob.id,
-      summary: `Section ${name} added to ${selectedJob.ref}.`,
+      summary: `Works area ${name} added to ${selectedJob.ref}.`,
       source: "job cost centre list",
       importance: "normal",
     });
-    showNotice(`Section ${name} added.`);
+    showNotice(`${name} added.`);
   }
 
   function startEditingJobSection(section: JobSection) {
@@ -27651,7 +27648,7 @@ export default function CoreApp() {
     if (!selectedJob || !editingJobSectionId) return;
     const name = jobSectionEditName.trim();
     if (!name) {
-      showNotice("The section needs a name.");
+      showNotice("Give this works area a name.");
       return;
     }
     markCostCentreEdited();
@@ -27664,7 +27661,7 @@ export default function CoreApp() {
       ),
     }));
     cancelEditingJobSection();
-    showNotice(`Section renamed to ${name}.`);
+    showNotice(`Renamed to ${name}.`);
   }
 
   function addJobCostCentre(sectionId: string) {
@@ -28819,12 +28816,8 @@ export default function CoreApp() {
 
   function createQuoteSection() {
     if (!selectedQuote) return;
-    const name = quoteSectionNameDraft.trim();
+    const name = quoteSectionNameDraft.trim() || "Interior Works";
     const description = quoteSectionDescriptionDraft.trim();
-    if (!name && !description) {
-      showNotice("Add a section name or description first.");
-      return;
-    }
     const section: QuoteSection = {
       id: `${selectedQuote.id}-section-${Date.now()}`,
       name,
@@ -28836,23 +28829,23 @@ export default function CoreApp() {
       [selectedQuote.id]: [...(current[selectedQuote.id] ?? []), section],
     }));
     setQuoteCostCentreSectionDraft(section.id);
-    setQuoteSectionNameDraft("");
+    setQuoteSectionNameDraft("Interior Works");
     setQuoteSectionDescriptionDraft("");
-    showNotice(name ? `${name} section added.` : "Blank section added.");
+    showNotice(`${name} added.`);
   }
 
   function editQuoteSection(section: QuoteSection) {
     if (!selectedQuote) return;
-    const nextName = window.prompt("Section name", section.name);
+    const nextName = window.prompt("Works area name", section.name || "Interior Works");
     if (nextName === null) return;
-    const nextDescription = window.prompt("Section description", section.description);
+    const nextDescription = window.prompt("Works area description (optional)", section.description);
     if (nextDescription === null) return;
     markCostCentreEdited();
     setQuoteSections((current) => {
       const sections = current[selectedQuote.id] ?? [];
       const nextSection = {
         ...section,
-        name: nextName.trim(),
+        name: nextName.trim() || "Interior Works",
         description: nextDescription.trim(),
       };
       return {
@@ -28862,17 +28855,17 @@ export default function CoreApp() {
           : [nextSection, ...sections],
       };
     });
-    showNotice("Section updated.");
+    showNotice("Works area updated.");
   }
 
   function deleteQuoteSection(section: QuoteSection) {
     if (!selectedQuote) return;
     const baseSection = baseQuoteSection(selectedQuote.id);
     if (section.id === baseSection.id) {
-      showNotice("The blank base section stays on the quote. Rename it from Options if needed.");
+      showNotice("The blank base works area stays on the quote. Rename it from Options if needed.");
       return;
     }
-    if (!window.confirm(`Delete section ${section.name || "Untitled section"}? Cost centres will move into the blank base section.`)) return;
+    if (!window.confirm(`Delete ${section.name || "this works area"}? Cost centres will move into the blank base works area.`)) return;
     markCostCentreEdited();
     setQuoteSections((current) => ({
       ...current,
@@ -39006,27 +38999,17 @@ export default function CoreApp() {
                     </div>
 
                     <div className="simpro-section-heading">
-                      <h3>Sections</h3>
-                      <button className="simpro-grey-button" type="button">SECTIONS <ChevronDown size={14} /></button>
+                      <h3>Works areas</h3>
+                      <button className="simpro-grey-button" type="button">WORKS AREAS <ChevronDown size={14} /></button>
                     </div>
 
                     <div className="simpro-section-create">
-                      <label>
-                        Name
-                        <input
-                          placeholder="Interior works"
-                          value={quoteSectionNameDraft}
-                          onChange={(event) => setQuoteSectionNameDraft(event.target.value)}
-                        />
-                      </label>
-                      <label>
-                        Description <span>(Optional)</span>
-                        <input
-                          placeholder="Enter a description..."
-                          value={quoteSectionDescriptionDraft}
-                          onChange={(event) => setQuoteSectionDescriptionDraft(event.target.value)}
-                        />
-                      </label>
+                      <WorksAreaNameFields
+                        name={quoteSectionNameDraft}
+                        onNameChange={setQuoteSectionNameDraft}
+                        description={quoteSectionDescriptionDraft}
+                        onDescriptionChange={setQuoteSectionDescriptionDraft}
+                      />
                       <button className="simpro-blue-button" type="button" onClick={createQuoteSection}>ADD</button>
                     </div>
 
@@ -39035,7 +39018,7 @@ export default function CoreApp() {
                         <header>
                           <span className="simpro-drag-handle" aria-hidden="true" />
                           <span className="simpro-section-title">
-                            <strong>{section.name}</strong>
+                            <strong>{section.name || "Works area"}</strong>
                             {section.description ? <small>{section.description}</small> : null}
                           </span>
                           <div className="simpro-section-actions">
@@ -39055,7 +39038,7 @@ export default function CoreApp() {
                               Options <ChevronDown size={13} />
                             </button>
                             <button className="simpro-grey-button" type="button" onClick={() => deleteQuoteSection(section)}>
-                              DELETE SECTION
+                              DELETE
                             </button>
                           </div>
                         </header>
@@ -39063,13 +39046,13 @@ export default function CoreApp() {
                         {showQuoteCostCentreCreate && quoteCostCentreSectionDraft === section.id ? (
                           <div className="simpro-cost-centre-add">
                             <label>
-                              Section
+                              Works area
                               <select
                                 value={quoteCostCentreSectionDraft || section.id}
                                 onChange={(event) => setQuoteCostCentreSectionDraft(event.target.value)}
                               >
                                 {selectedQuoteSections.map((option) => (
-                                  <option key={option.id} value={option.id}>{option.name || "Blank section"}</option>
+                                  <option key={option.id} value={option.id}>{option.name || "Blank works area"}</option>
                                 ))}
                               </select>
                             </label>
@@ -39084,14 +39067,14 @@ export default function CoreApp() {
                                 ))}
                               </select>
                             </label>
-                            <label>
-                              Cost Centre Name <span>(Optional)</span>
-                              <input
-                                placeholder="Enter Name here..."
-                                value={quoteCostCentreNameDraft}
-                                onChange={(event) => setQuoteCostCentreNameDraft(event.target.value)}
-                              />
-                            </label>
+                            <RoomAreaNameFields
+                              name={quoteCostCentreNameDraft}
+                              onNameChange={setQuoteCostCentreNameDraft}
+                              worksAreaHint={
+                                selectedQuoteSections.find((option) => option.id === (quoteCostCentreSectionDraft || section.id))?.name
+                                || section.name
+                              }
+                            />
                             <button className="simpro-blue-button" type="button" onClick={() => addQuoteCostCentre(quoteCostCentreSectionDraft || section.id)}>ADD</button>
                           </div>
                         ) : null}
@@ -42406,27 +42389,17 @@ export default function CoreApp() {
                         </div>
 
                         <div className="simpro-section-heading">
-                          <h3>Sections</h3>
-                          <button className="simpro-grey-button" type="button">SECTIONS <ChevronDown size={14} /></button>
+                          <h3>Works areas</h3>
+                          <button className="simpro-grey-button" type="button">WORKS AREAS <ChevronDown size={14} /></button>
                         </div>
 
                         <div className="simpro-section-create">
-                          <label>
-                            Name
-                            <input
-                              value={jobSectionNameDraft}
-                              onChange={(event) => setJobSectionNameDraft(event.target.value)}
-                              placeholder="e.g. External works"
-                            />
-                          </label>
-                          <label>
-                            Description <span>(Optional)</span>
-                            <input
-                              value={jobSectionDescriptionDraft}
-                              onChange={(event) => setJobSectionDescriptionDraft(event.target.value)}
-                              placeholder="Enter a description..."
-                            />
-                          </label>
+                          <WorksAreaNameFields
+                            name={jobSectionNameDraft}
+                            onNameChange={setJobSectionNameDraft}
+                            description={jobSectionDescriptionDraft}
+                            onDescriptionChange={setJobSectionDescriptionDraft}
+                          />
                           <button className="simpro-blue-button" type="button" onClick={addJobSection}>ADD</button>
                         </div>
 
@@ -42435,7 +42408,7 @@ export default function CoreApp() {
                             <header>
                               <span className="simpro-section-anchor" aria-hidden="true" />
                               <div className="job-section-title">
-                                <strong>{section.name}</strong>
+                                <strong>{section.name || "Works area"}</strong>
                                 {section.description ? <small>{section.description}</small> : null}
                               </div>
                               <div className="simpro-section-actions">
@@ -42452,7 +42425,7 @@ export default function CoreApp() {
                                   type="button"
                                   onClick={() => startEditingJobSection(section)}
                                 >
-                                  EDIT SECTION
+                                  EDIT NAME
                                 </button>
                                 <div className="job-section-options-wrap">
                                   <button
@@ -42465,7 +42438,7 @@ export default function CoreApp() {
                                   </button>
                                   {jobSectionActionMenuId === section.id ? (
                                     <div className="cost-centre-options-menu">
-                                      <button type="button" onClick={() => startEditingJobSection(section)}>Rename section</button>
+                                      <button type="button" onClick={() => startEditingJobSection(section)}>Rename works area</button>
                                     </div>
                                   ) : null}
                                 </div>
@@ -42474,14 +42447,12 @@ export default function CoreApp() {
 
                             {editingJobSectionId === section.id ? (
                               <div className="job-section-edit-row">
-                                <label>
-                                  Section name
-                                  <input value={jobSectionEditName} onChange={(event) => setJobSectionEditName(event.target.value)} />
-                                </label>
-                                <label>
-                                  Description <span>(Optional)</span>
-                                  <input value={jobSectionEditDescription} onChange={(event) => setJobSectionEditDescription(event.target.value)} />
-                                </label>
+                                <WorksAreaNameFields
+                                  name={jobSectionEditName}
+                                  onNameChange={setJobSectionEditName}
+                                  description={jobSectionEditDescription}
+                                  onDescriptionChange={setJobSectionEditDescription}
+                                />
                                 <button className="simpro-blue-button" type="button" onClick={saveJobSection}>SAVE</button>
                                 <button className="simpro-grey-button" type="button" onClick={cancelEditingJobSection}>CANCEL</button>
                               </div>
@@ -42500,14 +42471,11 @@ export default function CoreApp() {
                                     ))}
                                   </select>
                                 </label>
-                                <label>
-                                  Cost Centre Name <span>(Optional)</span>
-                                  <input
-                                    placeholder="Enter Name here..."
-                                    value={jobCostCentreNameDraft}
-                                    onChange={(event) => setJobCostCentreNameDraft(event.target.value)}
-                                  />
-                                </label>
+                                <RoomAreaNameFields
+                                  name={jobCostCentreNameDraft}
+                                  onNameChange={setJobCostCentreNameDraft}
+                                  worksAreaHint={section.name}
+                                />
                                 <button className="simpro-blue-button" type="button" onClick={() => addJobCostCentre(section.id)}>ADD</button>
                               </div>
                             ) : null}
@@ -42682,14 +42650,13 @@ export default function CoreApp() {
                                   ))}
                                 </select>
                               </label>
-                              <label>
-                                Cost Centre / Quote Name <span>(Optional)</span>
-                                <input
-                                  value={jobVariationCostCentreNameDraft}
-                                  onChange={(event) => setJobVariationCostCentreNameDraft(event.target.value)}
-                                  placeholder="Additional pipework route"
-                                />
-                              </label>
+                              <RoomAreaNameFields
+                                name={jobVariationCostCentreNameDraft}
+                                onNameChange={setJobVariationCostCentreNameDraft}
+                                worksAreaHint={
+                                  selectedJobVariationSections.find((item) => item.id === jobVariationSectionDraft)?.name || ""
+                                }
+                              />
                               <button className="simpro-blue-button" type="button" onClick={addJobVariationCostCentre}>ADD COST CENTRE</button>
                               <button className="simpro-grey-button" type="button" onClick={() => { createLinkedVariationQuote().catch(() => showNotice("Unable to create linked variation quote.")); }}>
                                 CREATE QUOTE IN JOB

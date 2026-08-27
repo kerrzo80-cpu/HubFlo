@@ -225,7 +225,7 @@ export async function runXeroPaymentSync(input?: { actor?: string; maxInvoices?:
     actor,
     startedAt,
     finishedAt,
-    ok: paymentsAdded > 0 || (failed === 0 && attempted > 0) || attempted === 0,
+    ok: paymentsAdded > 0 || (failed === 0 && targets.length > 0) || targets.length === 0,
     scanned: eligible.length,
     attempted: targets.length,
     updated,

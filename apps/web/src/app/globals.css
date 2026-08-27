@@ -7526,6 +7526,7 @@ button.record-folder-card-button.is-active {
 
 .simpro-filter-band input,
 .simpro-section-create input,
+.simpro-section-create select,
 .simpro-cost-centre-add input,
 .simpro-cost-centre-add select,
 .simpro-inline-form input,
@@ -7574,8 +7575,8 @@ button.record-folder-card-button.is-active {
   align-items: end;
   border-bottom: 1px solid #c9cdd0;
   display: grid;
-  gap: 28px;
-  grid-template-columns: minmax(180px, 0.35fr) minmax(260px, 0.65fr) 110px;
+  gap: 16px;
+  grid-template-columns: minmax(150px, 0.7fr) minmax(160px, 0.9fr) minmax(180px, 1.1fr) 110px;
   padding: 10px 20px 14px;
 }
 
@@ -7956,7 +7957,7 @@ button.record-folder-card-button.is-active {
   border-bottom: 1px solid var(--line);
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(180px, 0.6fr) minmax(240px, 1fr) auto auto;
+  grid-template-columns: minmax(150px, 0.7fr) minmax(160px, 0.9fr) minmax(180px, 1.1fr) auto auto;
   padding: 14px 18px;
 }
 
@@ -7968,7 +7969,8 @@ button.record-folder-card-button.is-active {
   gap: 5px;
 }
 
-.job-section-edit-row input {
+.job-section-edit-row input,
+.job-section-edit-row select {
   border: 1px solid var(--line);
   min-height: 36px;
   padding: 0 10px;
@@ -7997,8 +7999,8 @@ button.record-folder-card-button.is-active {
   background: #f7fbfc;
   border-bottom: 1px solid var(--line);
   display: grid;
-  gap: 24px;
-  grid-template-columns: minmax(200px, 0.35fr) minmax(260px, 1fr) 110px;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   padding: 20px 26px 16px;
 }
 
@@ -21851,6 +21853,7 @@ body {
 .form-body textarea,
 .simpro-filter-band input,
 .simpro-section-create input,
+.simpro-section-create select,
 .simpro-cost-centre-add input,
 .simpro-cost-centre-add select,
 .simpro-inline-form input,
@@ -22378,6 +22381,7 @@ body {
 .form-body textarea,
 .simpro-filter-band input,
 .simpro-section-create input,
+.simpro-section-create select,
 .simpro-cost-centre-add input,
 .simpro-cost-centre-add select,
 .simpro-inline-form input,
