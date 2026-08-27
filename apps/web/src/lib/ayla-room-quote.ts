@@ -124,9 +124,18 @@ export function buildAylaRoomQuoteFromEstimate(input: {
   if (!groups.size) ensureGroup(fallbackArea);
 
   const due = survey.requiredByDate || new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
-  const linkedQuote = survey.jobLink?.type === "Quote"
-    ? getQuotes().find((quote) => quote.id === survey.jobLink?.id || quote.ref === survey.jobLink?.reference)
+  const allQuotes = getQuotes();
+  const estimateQuote = estimate.coreQuoteId || estimate.coreQuoteRef
+    ? allQuotes.find((quote) => quote.id === estimate.coreQuoteId || quote.ref === estimate.coreQuoteRef)
     : undefined;
+  const surveyQuote = survey.jobLink?.type === "Quote"
+    ? allQuotes.find((quote) => quote.id === survey.jobLink?.id || quote.ref === survey.jobLink?.reference)
+    : undefined;
+  const linkedQuote = estimateQuote || surveyQuote;
+  if (linkedQuote && linkedQuote.status !== "Draft") {
+    throw new Error(`${linkedQuote.ref} is ${linkedQuote.status}. Ayla will not silently rewrite a quote after it has left Draft.`);
+  }
+
   const overallDescription = survey.scopeItems.map((item) => bulletScope(item.taskType, item.notes, item.quantity)).join("\n")
     || survey.customerRequirements
     || survey.jobType;
@@ -221,10 +230,10 @@ export function buildAylaRoomQuoteFromEstimate(input: {
 
   appendAuditEvent({
     actor: input.actor,
-    action: "pushed",
+    action: linkedQuote ? "recalculated" : "pushed",
     recordType: "quote",
     recordId: quote.id,
-    summary: `${estimate.reference} created ${costCentres.length} room/work-area cost centre(s) in ${quote.ref}. Internal labour/material build-up is retained in Blake and excluded from the client scope display.`,
+    summary: `${estimate.reference} ${linkedQuote ? "updated" : "created"} ${costCentres.length} room/work-area cost centre(s) in ${quote.ref}. Internal labour/material build-up is retained in Blake and excluded from the client scope display.`,
     source: "Ask Ayla",
     importance: "normal",
   });
