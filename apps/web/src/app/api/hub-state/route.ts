@@ -9,6 +9,7 @@ import { mergeHubDetailState } from "@/lib/hub-state-merge";
 import { leanJobCostCentresMap } from "@/lib/job-cost-centres-lean";
 import { parseJsonRequestBody } from "@/lib/http";
 import { stripDayworkBlobsForPoll } from "@/lib/daywork-poll-strip";
+import { leanHubStateForOfficePoll } from "@/lib/hub-poll-lean";
 import { sanitizeHubStateForClient } from "@/lib/hub-state-sanitize";
 import { getLeads } from "@/lib/lead-store";
 import { assertRecordLockForWrite, type RecordLockType } from "@/lib/record-edit-locks";
@@ -61,12 +62,11 @@ export async function GET(request: Request) {
   // Render during office polls overlapping passaround ticks.
   // Daywork reconcile stays on Field daywork write/PDF routes only.
   try {
-    // Poll responses omit base64 signatures and lean job cost centres — never echo BoQ dumps.
+    // Poll responses omit base64 signatures and BoQ/takeoff maps — never echo fat dumps.
     // Use peek (no disk rehydrate + deep clone) so office polling does not OOM between passaround ticks.
-    const state = sanitizeHubStateForClient(stripDayworkBlobsForPoll(peekHubDetailState()));
-    if (state.jobCostCentres && typeof state.jobCostCentres === "object") {
-      leanJobCostCentresMap(state.jobCostCentres);
-    }
+    const state = leanHubStateForOfficePoll(
+      sanitizeHubStateForClient(stripDayworkBlobsForPoll(peekHubDetailState())),
+    );
     return NextResponse.json(state);
   } catch (error) {
     // Fat hub clone/OOM must not blank the office — return the slices passaround needs.
