@@ -1,13 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendFileSync, mkdirSync, readFileSync, unlinkSync, existsSync } from "node:fs";
-
-const LOG = "/opt/cursor/logs/debug.log";
-
-function agentLog(payload: Record<string, unknown>) {
-  mkdirSync("/opt/cursor/logs", { recursive: true });
-  appendFileSync(LOG, `${JSON.stringify({ ...payload, timestamp: Date.now() })}\n`);
-}
 
 /**
  * Mirrors CoreApp patchJobRecord 409 body handling (pre-fix used message only).
@@ -24,14 +16,8 @@ test("jobs Ready-to-invoice 409 body uses error field — client must read it", 
   const body = {
     error: "Chris, Commercial and Carol must all approve this job before it can move to Ready to invoice.",
   };
-  const legacy = body.message || "Selected slot is already taken.";
+  const legacy = (body as { message?: string }).message || "Selected slot is already taken.";
   const fixed = warningFromJobConflictBody(body);
-  agentLog({
-    hypothesisId: "D",
-    location: "ready-invoice-crash.test.ts",
-    message: "409 error-field handling",
-    data: { legacy, fixed },
-  });
   assert.equal(legacy, "Selected slot is already taken.");
   assert.match(fixed, /Chris, Commercial and Carol/);
 });
@@ -66,7 +52,6 @@ test("empty job centre arrays re-trigger seed changed=true (update-depth fuel)",
   const quotes = [{ id: "q-1", convertedJobId: "job-1" }];
   // Source centres present, but job map already has empty array from hub lean/collapse.
   let centres: Record<string, unknown[]> = { "job-1": [] };
-  const quoteCostCentres = { "q-1": [{ id: "c1" }] };
 
   let changes = 0;
   for (let i = 0; i < 25; i += 1) {
@@ -88,12 +73,6 @@ test("empty job centre arrays re-trigger seed changed=true (update-depth fuel)",
     if (centres === before && (forced["job-1"] ?? []).length > 0) break;
   }
 
-  agentLog({
-    hypothesisId: "A",
-    location: "ready-invoice-crash.test.ts",
-    message: "empty-array seed thrash",
-    data: { changes },
-  });
   assert.ok(changes >= 20, "empty arrays can thrash seed updater every pass");
 });
 
@@ -109,12 +88,6 @@ test("non-empty centres stabilize seed updater", () => {
     if (next !== centres) changes += 1;
     centres = next;
   }
-  agentLog({
-    hypothesisId: "A",
-    location: "ready-invoice-crash.test.ts",
-    message: "stable seed after first fill",
-    data: { changes, len: centres["job-1"]?.length ?? 0 },
-  });
   assert.equal(changes, 1);
   assert.equal(centres["job-1"]?.length, 1);
 });
@@ -150,12 +123,6 @@ test("seed-once guard stops empty-array thrash", () => {
     }
   }
 
-  agentLog({
-    hypothesisId: "A",
-    location: "ready-invoice-crash.test.ts",
-    message: "seed-once guard",
-    data: { changes, seeded: [...seeded] },
-  });
   assert.equal(changes, 1);
 });
 
@@ -166,10 +133,6 @@ test("CoreApp toggle persists jobReviews-only and patchJobRecord reads error fie
   assert.match(source, /body: JSON\.stringify\(\{ jobReviews: nextReviews \}\)/);
   assert.match(source, /conflict\.error/);
   assert.match(source, /toggleSelectedJobReview/);
-  agentLog({
-    hypothesisId: "D",
-    location: "ready-invoice-crash.test.ts",
-    message: "source guards for light review PUT + error field + seed-once",
-    data: { ok: true },
-  });
+  assert.doesNotMatch(source, /agentDebugLog/);
+  assert.doesNotMatch(source, /debug-agent-log/);
 });

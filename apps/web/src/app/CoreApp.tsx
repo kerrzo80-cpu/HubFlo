@@ -9061,18 +9061,8 @@ export default function CoreApp() {
   const pendingInvoiceSaveRef = useRef(false);
   const quoteCostCentresRef = useRef<Record<string, QuoteCostCentre[]>>({});
   const savedRecordFingerprintRef = useRef("");
-  // #region agent log
-  const quoteSeedLoopGuardRef = useRef({ runs: 0, lastChangedAt: 0, lastJobIds: "" });
   /** Jobs already seeded from a converted quote — prevents update-depth loops when jobs identity flaps. */
   const seededJobCentresFromQuoteRef = useRef<Set<string>>(new Set());
-  function agentDebugLog(hypothesisId: string, location: string, message: string, data: Record<string, unknown>) {
-    fetch("/api/debug-agent-log", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hypothesisId, location, message, data, timestamp: Date.now() }),
-    }).catch(() => {});
-  }
-  // #endregion
   /** Prevents double-click / overlapping manual record saves. */
   const recordSaveInFlightRef = useRef(false);
   const recordEditLockReadOnlyRef = useRef(false);
@@ -12029,9 +12019,6 @@ export default function CoreApp() {
     setJobEstimateCostCentres((current) => {
       let changed = false;
       const next = { ...current };
-      const seededJobIds: string[] = [];
-      let emptyExistingHits = 0;
-      let skippedAlreadySeeded = 0;
 
       quotes.forEach((quote) => {
         if (!quote.convertedJobId) return;
@@ -12041,52 +12028,18 @@ export default function CoreApp() {
 
         // Once we have attempted a seed for this job, never write again from this effect.
         // Re-running on every jobs[] identity change was a Maximum update depth source.
-        if (seededJobCentresFromQuoteRef.current.has(linkedJob.id)) {
-          skippedAlreadySeeded += 1;
-          return;
-        }
+        if (seededJobCentresFromQuoteRef.current.has(linkedJob.id)) return;
 
         const existingCentres = Array.isArray(next[linkedJob.id]) ? next[linkedJob.id] : [];
         if (existingCentres.length > 0) {
           seededJobCentresFromQuoteRef.current.add(linkedJob.id);
           return;
         }
-        emptyExistingHits += 1;
 
         next[linkedJob.id] = estimateCostCentresFromQuote(linkedJob, sourceCentres);
         seededJobCentresFromQuoteRef.current.add(linkedJob.id);
-        seededJobIds.push(linkedJob.id);
         changed = true;
       });
-
-      // #region agent log
-      {
-        const guard = quoteSeedLoopGuardRef.current;
-        guard.runs += 1;
-        if (changed) guard.lastChangedAt = guard.runs;
-        guard.lastJobIds = seededJobIds.join(",");
-        if (changed || guard.runs <= 3 || guard.runs - guard.lastChangedAt < 5) {
-          agentDebugLog("A", "CoreApp.tsx:quoteSeedEffect", "quote→job centre seed effect", {
-            run: guard.runs,
-            changed,
-            seededCount: seededJobIds.length,
-            emptyExistingHits,
-            skippedAlreadySeeded,
-            jobsCount: jobs.length,
-            quotesWithConverted: quotes.filter((q) => q.convertedJobId).length,
-            centreKeysBefore: Object.keys(current).length,
-            seededJobIds: seededJobIds.slice(0, 8),
-          });
-        }
-        if (guard.runs > 40 && changed) {
-          agentDebugLog("A", "CoreApp.tsx:quoteSeedEffect:LOOP", "seed still changing after many runs", {
-            run: guard.runs,
-            lastChangedAt: guard.lastChangedAt,
-            lastJobIds: guard.lastJobIds,
-          });
-        }
-      }
-      // #endregion
 
       return changed ? next : current;
     });
@@ -12147,7 +12100,6 @@ export default function CoreApp() {
 
     setJobs((current) => {
       let changed = false;
-      let nanValues = 0;
       const nextJobs = current.map((job) => {
         // Imported simPRO jobs keep API Total on the header — remapping from cost centres
         // was flickering values between Total and partial line sells.
@@ -12158,25 +12110,12 @@ export default function CoreApp() {
         const nextValue = roundCurrencyValue(
           centres.reduce((total, centre) => total + estimateCostCentreTotals(centre).totalSell, 0),
         );
-        if (!Number.isFinite(nextValue)) {
-          nanValues += 1;
-          return job;
-        }
+        if (!Number.isFinite(nextValue)) return job;
         if (Math.abs((job.value ?? 0) - nextValue) < 0.01) return job;
 
         changed = true;
         return { ...job, value: nextValue };
       });
-
-      // #region agent log
-      if (changed || nanValues > 0) {
-        agentDebugLog("A", "CoreApp.tsx:jobValueSyncEffect", "job value sync from centres", {
-          changed,
-          nanValues,
-          centreKeyCount: Object.keys(jobEstimateCostCentres).length,
-        });
-      }
-      // #endregion
 
       return changed ? nextJobs : current;
     });
@@ -22237,14 +22176,6 @@ export default function CoreApp() {
     const client = clients.find((item) => item.id === job.clientId) ?? null;
     const site = job.siteId ? clientSites.find((item) => item.id === job.siteId) ?? null : null;
     const sourceCentres = jobEstimateCostCentres[job.id] ?? makeDefaultEstimateCostCentres(job);
-    // #region agent log
-    agentDebugLog("C,E", "CoreApp.tsx:openInvoiceForJob", "creating invoice from job", {
-      jobId: job.id,
-      centreCount: sourceCentres.length,
-      materialLines: sourceCentres.reduce((n, c) => n + (Array.isArray(c.materials) ? c.materials.length : 0), 0),
-      labourLines: sourceCentres.reduce((n, c) => n + (Array.isArray(c.labour) ? c.labour.length : 0), 0),
-    });
-    // #endregion
     const sourceLineTotals = buildInvoiceLineTotalsFromEstimate(sourceCentres);
     const sourceTotals = sourceLineTotals.reduce(
       (acc, line) => ({
@@ -27107,14 +27038,6 @@ export default function CoreApp() {
       error?: string;
     };
 
-    // #region agent log
-    agentDebugLog("D", "CoreApp.tsx:patchJobRecord:start", "PATCH job", {
-      jobId,
-      status: patch.status ?? null,
-      next: patch.next ?? null,
-    });
-    // #endregion
-
     const response = await fetch(`/api/jobs/${jobId}`, {
       method: "PATCH",
       headers: { ...requestHeaders, "Content-Type": "application/json" },
@@ -27127,25 +27050,12 @@ export default function CoreApp() {
         (conflict && typeof conflict.message === "string" && conflict.message) ||
         (conflict && typeof conflict.error === "string" && conflict.error) ||
         "Selected slot is already taken.";
-      // #region agent log
-      agentDebugLog("D", "CoreApp.tsx:patchJobRecord:409", "job PATCH conflict", {
-        jobId,
-        warning,
-        bodyKeys: conflict && typeof conflict === "object" ? Object.keys(conflict) : [],
-      });
-      // #endregion
       setSectionError(warning);
       showNotice(warning);
       return null;
     }
 
     if (!response.ok) {
-      // #region agent log
-      agentDebugLog("D", "CoreApp.tsx:patchJobRecord:fail", "job PATCH failed", {
-        jobId,
-        status: response.status,
-      });
-      // #endregion
       throw new Error("Unable to update job");
     }
 
@@ -27560,15 +27470,6 @@ export default function CoreApp() {
     const allTicked = jobReviewChecks.every((item) => next[item.key]);
     const nextReviews = { ...jobReviewApprovals, [selectedJob.id]: next };
     setJobReviewApprovals(nextReviews);
-    // #region agent log
-    agentDebugLog("D,E", "CoreApp.tsx:toggleSelectedJobReview", "review toggled", {
-      jobId: selectedJob.id,
-      check,
-      next,
-      allTicked,
-      status: selectedJob.status,
-    });
-    // #endregion
     // Persist reviews immediately with a light payload — do not wait for the fat hub autosave
     // (schedules + cost centres) which can 409/OOM and leave the jobs API without approvals.
     void fetch("/api/hub-state", {
@@ -27576,17 +27477,7 @@ export default function CoreApp() {
       headers: { ...requestHeaders, "Content-Type": "application/json" },
       credentials: "same-origin",
       body: JSON.stringify({ jobReviews: nextReviews }),
-    })
-      .then((response) => {
-        // #region agent log
-        agentDebugLog("D", "CoreApp.tsx:toggleSelectedJobReview:persist", "review light PUT result", {
-          jobId: selectedJob.id,
-          ok: response.ok,
-          status: response.status,
-        });
-        // #endregion
-      })
-      .catch(() => {});
+    }).catch(() => {});
     const checkLabel = jobReviewChecks.find((item) => item.key === check)?.label ?? "Review";
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
@@ -27652,16 +27543,6 @@ export default function CoreApp() {
         [selectedJob.id]: selectedJobReviewState,
       };
       const reviewPayload = { jobReviews: nextReviews };
-      // #region agent log
-      agentDebugLog("C,D,E", "CoreApp.tsx:approveSelectedJobForInvoice:start", "approve begin", {
-        jobId: selectedJob.id,
-        jobRef: selectedJob.ref,
-        review: selectedJobReviewState,
-        payloadKeys: Object.keys(reviewPayload),
-        hasCentres: Boolean(jobEstimateCostCentres[selectedJob.id]?.length),
-        centreCount: jobEstimateCostCentres[selectedJob.id]?.length ?? 0,
-      });
-      // #endregion
       const reviewResponse = await fetch("/api/hub-state", {
         method: "PUT",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
@@ -27674,23 +27555,12 @@ export default function CoreApp() {
           failBody && typeof failBody === "object" && typeof (failBody as { error?: string }).error === "string"
             ? (failBody as { error: string }).error
             : null;
-        // #region agent log
-        agentDebugLog("D", "CoreApp.tsx:approveSelectedJobForInvoice:hubFail", "hub reviews PUT failed", {
-          status: reviewResponse.status,
-          detail,
-        });
-        // #endregion
         throw new Error(
           detail
             ? `The three approvals could not be saved (${detail}). This job has not been moved.`
             : "The three approvals could not be saved. This job has not been moved.",
         );
       }
-      // #region agent log
-      agentDebugLog("D", "CoreApp.tsx:approveSelectedJobForInvoice:hubOk", "hub reviews PUT ok; patching job", {
-        jobId: selectedJob.id,
-      });
-      // #endregion
       const updated = await patchSelectedJob(
         {
           status: "Ready to invoice",
@@ -27698,14 +27568,7 @@ export default function CoreApp() {
         },
         `${selectedJob.ref} approved and ready to invoice.`,
       );
-      if (!updated) {
-        // #region agent log
-        agentDebugLog("D", "CoreApp.tsx:approveSelectedJobForInvoice:patchNull", "patch returned null after hub ok", {
-          jobId: selectedJob.id,
-        });
-        // #endregion
-        return;
-      }
+      if (!updated) return;
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
         action: "approved",
@@ -27717,29 +27580,12 @@ export default function CoreApp() {
       });
       setActiveJobFolderKey("uninvoiced");
       try {
-        // #region agent log
-        agentDebugLog("C,E", "CoreApp.tsx:approveSelectedJobForInvoice:openInvoice", "opening invoice for job", {
-          jobId: updated.id,
-          status: updated.status,
-        });
-        // #endregion
         openInvoiceForJob(updated);
-      } catch (invoiceError) {
-        // #region agent log
-        agentDebugLog("C,E", "CoreApp.tsx:approveSelectedJobForInvoice:invoiceThrow", "openInvoiceForJob threw", {
-          jobId: updated.id,
-          err: invoiceError instanceof Error ? invoiceError.message : String(invoiceError),
-        });
-        // #endregion
+      } catch {
         showNotice(`${updated.ref} is ready to invoice, but the invoice screen could not be opened automatically.`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to approve job for invoice.";
-      // #region agent log
-      agentDebugLog("D,E", "CoreApp.tsx:approveSelectedJobForInvoice:catch", "approve caught error", {
-        message,
-      });
-      // #endregion
       setSectionError(message);
       showNotice(message);
     }
