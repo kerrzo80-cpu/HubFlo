@@ -89,7 +89,19 @@ describe("atomic job passaround", () => {
     const result = readyJobForInvoice(jobId, "Tester");
     assert.equal(result.job.status, "Ready to invoice");
     assert.equal(jobInvoiceReviewComplete(result.review), true);
+    assert.equal(jobInvoiceReviewComplete(readJobInvoiceReview(jobId)), true);
     assert.equal(jobInvoiceReviewComplete(getHubDetailState().jobReviews?.[jobId]), true);
     assert.equal(getJob(jobId)?.status, "Ready to invoice");
+  });
+
+  it("review ticks persist through lean side store without wiping hub", () => {
+    setJobReviewTick(jobId, "construction", true);
+    setJobReviewTick(jobId, "commercial", false);
+    const review = readJobInvoiceReview(jobId);
+    assert.equal(review.construction, true);
+    assert.equal(review.commercial, false);
+    // Full hub read must still see the tick (side-store overlay).
+    const fromHub = getHubDetailState().jobReviews?.[jobId] as { construction?: boolean } | undefined;
+    assert.equal(fromHub?.construction, true);
   });
 });

@@ -1,4 +1,4 @@
-import { getHubDetailState, saveHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
+import { peekHubJobReviews, writeHubJobReview } from "@/lib/hub-detail-store";
 import {
   jobInvoiceReviewComplete,
   type JobInvoiceReviewState,
@@ -15,7 +15,8 @@ export const emptyJobInvoiceReview: JobInvoiceReviewState = {
 };
 
 export function readJobInvoiceReview(jobId: string): JobInvoiceReviewState {
-  const raw = getHubDetailState().jobReviews?.[jobId];
+  // peekHubJobReviews overlays the lean side store — no full-hub clone.
+  const raw = peekHubJobReviews()?.[jobId];
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ...emptyJobInvoiceReview };
   const review = raw as Partial<JobInvoiceReviewState>;
   return {
@@ -26,25 +27,9 @@ export function readJobInvoiceReview(jobId: string): JobInvoiceReviewState {
 }
 
 export function writeJobInvoiceReview(jobId: string, review: JobInvoiceReviewState) {
-  const hub = getHubDetailState();
-  try {
-    saveHubDetailState({
-      ...hub,
-      jobReviews: {
-        ...((hub.jobReviews || {}) as Record<string, unknown>),
-        [jobId]: review,
-      },
-    });
-  } catch {
-    // Full hub write can OOM on live — still keep reviews in the in-memory hub map via a second try
-    // with a minimal payload (merge preserves other server fields).
-    saveHubDetailState({
-      jobReviews: {
-        ...((hub.jobReviews || {}) as Record<string, unknown>),
-        [jobId]: review,
-      },
-    } as HubDetailState);
-  }
+  // Never getHubDetailState()/saveHubDetailState() here — that deep-clones + stringifies the
+  // whole office hub and was HTML-502ing live on every Chris/Commercial/Carol tick.
+  writeHubJobReview(jobId, review as unknown as Record<string, unknown>);
   return review;
 }
 
@@ -106,7 +91,7 @@ export function readyJobForInvoice(jobId: string, actor: string): {
   }
 
   const review = forceJobReviewsComplete(jobId);
-  if (!jobInvoiceReviewComplete(getHubDetailState().jobReviews?.[jobId])) {
+  if (!jobInvoiceReviewComplete(readJobInvoiceReview(jobId))) {
     throw new Error("Approvals could not be saved on the server.");
   }
 
