@@ -29,6 +29,15 @@ function isOpenAiRequest(url: string) {
   }
 }
 
+function isMinutePricedTranscription(url: string) {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === "api.openai.com" && parsed.pathname === "/v1/audio/transcriptions";
+  } catch {
+    return false;
+  }
+}
+
 function bearerToken(init?: RequestInit) {
   const headers = new Headers(init?.headers);
   const auth = headers.get("authorization") || "";
@@ -79,6 +88,8 @@ async function fetchOpenAiWithConfiguredKeyFailover(
  * Server-side fetch to OpenAI with a hard timeout so hung calls cannot pin
  * Render/AWS memory indefinitely. OpenAI JSON calls are also metered here so
  * Ayla's usage guard applies consistently to chat, survey and takeoff AI.
+ * Minute-priced audio transcription is recorded by its owning route instead of
+ * the token meter so it is counted once at the published per-minute rate.
  *
  * Live can contain both the historic NEXA_OPENAI_API_KEY and a generic
  * OPENAI_API_KEY. If OpenAI rejects one credential (auth/quota/rate-limit),
@@ -110,7 +121,7 @@ export async function openAiFetch(
     ? await fetchOpenAiWithConfiguredKeyFailover(url, init, timeoutMs)
     : await fetchWithTimeout(url, init, timeoutMs);
 
-  if (meter && response.ok) {
+  if (meter && response.ok && !isMinutePricedTranscription(url)) {
     try {
       const body = await response.clone().json();
       const usage = extractOpenAiUsage(body, requestedModel(init));
