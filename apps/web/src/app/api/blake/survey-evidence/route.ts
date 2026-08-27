@@ -3,11 +3,16 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { NextResponse } from "next/server";
-import type { SurveyPhoto, SurveyPhotoCategory } from "@hubflo/domain";
+import type { SurveyPhoto, SurveyPhotoCategory, SurveyRecord } from "@hubflo/domain";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { getServerStoreDirectory } from "@/lib/server-store";
-import { getSurvey, getSurveys, upsertSurveyItem } from "@/lib/survey-estimator-store";
+import {
+  getSurvey,
+  getSurveys,
+  upsertSurveyItem,
+  type VersionedMutationResult,
+} from "@/lib/survey-estimator-store";
 
 export const runtime = "nodejs";
 
@@ -98,11 +103,12 @@ export async function POST(request: Request) {
   }
   const surveyId = String(form.get("surveyId") || "").trim();
   if (!surveyId) return NextResponse.json({ error: "Choose the survey these files belong to." }, { status: 400 });
-  let survey = getSurvey(context.tenantId, surveyId);
-  if (!survey) return NextResponse.json({ error: "Survey not found." }, { status: 404 });
-  if (survey.surveyorId && survey.surveyorId !== context.actorId && !context.access.canCustomize) {
+  const initialSurvey = getSurvey(context.tenantId, surveyId);
+  if (!initialSurvey) return NextResponse.json({ error: "Survey not found." }, { status: 404 });
+  if (initialSurvey.surveyorId && initialSurvey.surveyorId !== context.actorId && !context.access.canCustomize) {
     return NextResponse.json({ error: "That survey belongs to another user." }, { status: 403 });
   }
+  let currentSurvey: SurveyRecord = initialSurvey;
 
   const files = form.getAll("files").filter((entry): entry is File =>
     typeof entry === "object"
@@ -118,14 +124,14 @@ export async function POST(request: Request) {
   const requestedCategory = String(form.get("category") || "Room overview") as SurveyPhotoCategory;
   const category = categories.includes(requestedCategory) ? requestedCategory : "Other";
   const caption = String(form.get("caption") || "").trim();
-  const storageRoot = path.join(getServerStoreDirectory(), "survey-files", survey.id);
+  const storageRoot = path.join(getServerStoreDirectory(), "survey-files", currentSurvey.id);
   await mkdir(storageRoot, { recursive: true });
   const saved: SurveyPhoto[] = [];
 
   for (const file of files) {
     const id = `survey-photo-${randomUUID()}`;
     const storedFileName = `${id}-${safeFileName(file.name)}`;
-    const storageKey = ["survey-files", survey.id, storedFileName].join("/");
+    const storageKey = ["survey-files", currentSurvey.id, storedFileName].join("/");
     const buffer = Buffer.from(await file.arrayBuffer());
     await writeFile(path.join(storageRoot, storedFileName), buffer);
     const photo: SurveyPhoto = {
@@ -139,23 +145,30 @@ export async function POST(request: Request) {
       capturedAt: new Date().toISOString(),
       surveySection: "Ask Ayla evidence",
     };
-    const result = upsertSurveyItem(context.tenantId, survey.id, "photos", photo, survey.version, context.actorName);
-    if (!result.ok) {
-      return NextResponse.json({ error: result.message, reason: result.reason }, { status: result.reason === "version_conflict" ? 409 : 422 });
+    const mutation: VersionedMutationResult<SurveyRecord> = upsertSurveyItem(
+      context.tenantId,
+      currentSurvey.id,
+      "photos",
+      photo,
+      currentSurvey.version,
+      context.actorName,
+    );
+    if (!mutation.ok) {
+      return NextResponse.json({ error: mutation.message, reason: mutation.reason }, { status: mutation.reason === "version_conflict" ? 409 : 422 });
     }
-    survey = result.value;
+    currentSurvey = mutation.value;
     saved.push(photo);
   }
 
   return NextResponse.json({
     ok: true,
     survey: {
-      id: survey.id,
-      reference: survey.reference,
-      customerName: survey.customerName,
-      siteAddress: survey.siteAddress,
-      photoCount: survey.photos.length,
-      version: survey.version,
+      id: currentSurvey.id,
+      reference: currentSurvey.reference,
+      customerName: currentSurvey.customerName,
+      siteAddress: currentSurvey.siteAddress,
+      photoCount: currentSurvey.photos.length,
+      version: currentSurvey.version,
     },
     photos: saved.map((photo) => ({ id: photo.id, fileName: photo.fileName, category: photo.category })),
   }, { status: 201 });
