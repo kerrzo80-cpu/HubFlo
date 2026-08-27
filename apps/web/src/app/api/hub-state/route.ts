@@ -128,6 +128,10 @@ export async function PUT(request: Request) {
       leanJobCostCentresMap(payload.jobCostCentres);
     }
 
+    // Passaround owns jobReviews via /api/jobs/[id]/passaround + lean side store.
+    // Ignoring inbound reviews stops tick-driven hub autosaves from rewriting the fat hub.
+    delete (payload as { jobReviews?: unknown }).jobReviews;
+
     const current = getHubDetailState();
     const merged = mergeHubDetailState(current, payload);
 

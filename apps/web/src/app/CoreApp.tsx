@@ -389,7 +389,7 @@ const SETUP_SERVER_SYNC_HOLD_MS = 120000;
 const COST_CENTRE_SERVER_SYNC_HOLD_MS = 120000;
 const INVOICE_SERVER_SYNC_HOLD_MS = 120000;
 const JOB_REVIEW_SERVER_SYNC_HOLD_MS = 120000;
-const PASSAROUND_HOLD_MS = 8000;
+const PASSAROUND_HOLD_MS = 20_000;
 
 const dashboardPanelIds = [
   "jobs",
@@ -12423,6 +12423,9 @@ export default function CoreApp() {
       if (Date.now() < hubAutosaveHoldUntilRef.current) {
         return;
       }
+      if (Date.now() < passaroundHoldUntilRef.current) {
+        return;
+      }
       if (recordEditLockReadOnlyRef.current && activeRecordFingerprint) {
         return;
       }
@@ -17549,6 +17552,10 @@ export default function CoreApp() {
   function markJobReviewEdited() {
     lastLocalJobReviewEditAt.current = Date.now();
     pendingJobReviewSaveRef.current = true;
+    // Ticks must not kick the fat /api/hub-state PUT — that OOMs live alongside /passaround.
+    const holdUntil = Date.now() + PASSAROUND_HOLD_MS;
+    hubAutosaveHoldUntilRef.current = Math.max(hubAutosaveHoldUntilRef.current, holdUntil);
+    passaroundHoldUntilRef.current = Math.max(passaroundHoldUntilRef.current, holdUntil);
   }
 
   function markEmployeeEdited() {
@@ -27696,7 +27703,9 @@ export default function CoreApp() {
 
   async function completeSelectedJob() {
     if (!selectedJob) return;
-    passaroundHoldUntilRef.current = Date.now() + PASSAROUND_HOLD_MS;
+    const holdUntil = Date.now() + PASSAROUND_HOLD_MS;
+    passaroundHoldUntilRef.current = holdUntil;
+    hubAutosaveHoldUntilRef.current = Math.max(hubAutosaveHoldUntilRef.current, holdUntil);
     const jobId = selectedJob.id;
     const jobRef = selectedJob.ref;
     // Optimistic UI first — Enquiry/In progress jobs must show Completed immediately.
@@ -27830,6 +27839,10 @@ export default function CoreApp() {
       return;
     }
     passaroundHoldUntilRef.current = Date.now() + PASSAROUND_HOLD_MS;
+    hubAutosaveHoldUntilRef.current = Math.max(
+      hubAutosaveHoldUntilRef.current,
+      passaroundHoldUntilRef.current,
+    );
     try {
       let updated: Job | null | undefined = null;
       let review: JobReviewState | undefined;
