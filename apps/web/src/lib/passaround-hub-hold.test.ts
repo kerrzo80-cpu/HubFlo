@@ -16,5 +16,8 @@ describe("passaround holds fat hub autosave", () => {
     const hubRoute = readFileSync(path.join(process.cwd(), "src/app/api/hub-state/route.ts"), "utf8");
     assert.match(hubRoute, /delete \(payload as \{ jobReviews\?: unknown \}\)\.jobReviews/);
     assert.match(hubRoute, /peekHubDetailState\(\)/);
+    assert.doesNotMatch(hubRoute, /\bgetHubDetailState\s*\(/);
+    assert.doesNotMatch(hubRoute, /\breconcileDayworkVariationsFromEvidence\s*\(/);
+    assert.doesNotMatch(hubRoute, /from ["']@\/lib\/engineer-flow["']/);
   });
 });
