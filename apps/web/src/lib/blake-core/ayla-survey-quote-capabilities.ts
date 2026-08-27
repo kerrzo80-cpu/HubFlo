@@ -1,4 +1,4 @@
-import { surveyJobTypes, type SurveyRoom, type SurveyScopeItem } from "@hubflo/domain";
+import { surveyJobTypes, type SurveyRecord, type SurveyRoom, type SurveyScopeItem } from "@hubflo/domain";
 
 import { buildAylaRoomQuoteFromEstimate } from "@/lib/ayla-room-quote";
 import { buildAiQuotePack } from "@/lib/survey-ai-quote-pack";
@@ -9,6 +9,7 @@ import {
   getSurveyCompletionReview,
   updateSurvey,
   upsertSurveyItem,
+  type VersionedMutationResult,
 } from "@/lib/survey-estimator-store";
 
 import type { BlakeCapability } from "./types";
@@ -246,10 +247,11 @@ export const addSurveyScopeCapability: BlakeCapability = {
     };
   },
   execute(input, context) {
-    let survey = getSurvey(context.actor.tenantId, input.survey);
-    if (!survey) throw new Error("Survey not found.");
+    const initialSurvey = getSurvey(context.actor.tenantId, input.survey);
+    if (!initialSurvey) throw new Error("Survey not found.");
+    let currentSurvey: SurveyRecord = initialSurvey;
     for (const raw of input.items) {
-      const duplicate = survey.scopeItems.find((item) =>
+      const duplicate = currentSurvey.scopeItems.find((item) =>
         item.taskType.toLowerCase() === raw.taskType.toLowerCase()
         && item.roomOrArea.toLowerCase() === raw.roomOrArea.toLowerCase(),
       );
@@ -267,11 +269,18 @@ export const addSurveyScopeCapability: BlakeCapability = {
         notes: raw.notes,
         photoIds: duplicate?.photoIds || [],
       };
-      const result = upsertSurveyItem(context.actor.tenantId, survey.id, "scopeItems", item, survey.version, context.actor.name);
-      if (!result.ok) throw new Error(result.message);
-      survey = result.value;
+      const mutation: VersionedMutationResult<SurveyRecord> = upsertSurveyItem(
+        context.actor.tenantId,
+        currentSurvey.id,
+        "scopeItems",
+        item,
+        currentSurvey.version,
+        context.actor.name,
+      );
+      if (!mutation.ok) throw new Error(mutation.message);
+      currentSurvey = mutation.value;
     }
-    return survey;
+    return currentSurvey;
   },
 };
 
