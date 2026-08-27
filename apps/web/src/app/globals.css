@@ -172,7 +172,7 @@
   width: 11px;
 }
 
-/* NeXa Estimator */
+/* Blake Estimator */
 .estimator-app {
   --est-blue: #58acd5;
   --est-blue-dark: #287ea8;
@@ -3396,7 +3396,7 @@ a,
   transform: translateY(0);
 }
 
-/* NeXa AI key card (Core Setup -> Integrations) */
+/* Blake AI key card (Core Setup -> Integrations) */
 .ai-key-card {
   position: relative;
   overflow: hidden;
@@ -20658,7 +20658,7 @@ button.office-alert-card {
   }
 }
 
-/* NeXa premium brand layer */
+/* Blake premium brand layer */
 :root {
   --charcoal-950: #070809;
   --charcoal-900: #0a0a0c;
@@ -21224,7 +21224,7 @@ kbd,
   }
 }
 
-/* NeXa light refinement: keep the premium mark, restore the calmer workspace feel. */
+/* Blake light refinement: keep the premium mark, restore the calmer workspace feel. */
 :root {
   --charcoal-950: #1c1b1d;
   --charcoal-900: #252326;
@@ -21640,7 +21640,7 @@ kbd,
   }
 }
 
-/* NeXa white + navy executive brand */
+/* Blake white + navy executive brand */
 :root {
   --navy: #081d3a;
   --navy-900: #06162d;
@@ -23882,7 +23882,7 @@ body:has([data-takeoff-mode="page"]) {
   color: var(--nexa-slate) !important;
 }
 
-/* NeXa working-list refinement: cleaner rows, stronger text, collapsible left rail. */
+/* Blake working-list refinement: cleaner rows, stronger text, collapsible left rail. */
 .body-shell {
   transition: grid-template-columns 180ms ease;
 }
@@ -24022,7 +24022,7 @@ body:has([data-takeoff-mode="page"]) {
 
 .body-shell.sidebar-collapsed .support-panel::before {
   align-items: center;
-  background-image: url("/brand/nexa-command-mark-rail.svg");
+  background-image: url("/brand/blake-mark.svg");
   background-position: center;
   background-repeat: no-repeat;
   background-size: 82%;
@@ -27371,7 +27371,7 @@ img.markup-document-preview {
   }
 }
 
-/* NeXa markup drawing workspace: full-screen drawing surface with collapsible material tools and stable touch pan/zoom.
+/* Blake markup drawing workspace: full-screen drawing surface with collapsible material tools and stable touch pan/zoom.
    This block intentionally overrides earlier duplicates so iPad and desktop get the same predictable layout. */
 .takeoff-app.takeoff-drawing-mode {
   --nexa-markup-handle-size: 54px;
@@ -36427,7 +36427,7 @@ body {
 }
 
 
-/* NeXa simple survey workspace */
+/* Blake simple survey workspace */
 .survey-simple-app {
   --survey-ink: #173344;
   --survey-muted: #647985;
@@ -37220,7 +37220,7 @@ body {
 }
 
 
-/* NeXa Field live evidence on Core job Details */
+/* Blake Field live evidence on Core job Details */
 .job-field-live-panel {
   background: #fff;
   border: 1px solid var(--line);
@@ -37357,7 +37357,7 @@ body {
 }
 
 /* ============================================================
-   NeXa UI 2.0 — trendy, slick, minimalist design layer.
+   Blake UI 2.0 — trendy, slick, minimalist design layer.
    Appended last so it refreshes the default/light look app-wide
    (scoped theme variants keep their own styling).
    ============================================================ */

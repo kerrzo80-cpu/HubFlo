@@ -514,7 +514,7 @@ async function runOpenAiExtraction(project: TakeoffProject, actor: string, apiKe
           role: "developer",
           content: [{
             type: "input_text",
-            text: "You are a UK mechanical estimating assistant for NeXa Takeoff. Return conservative draft BOQ/takeoff data for office review only. Never claim the output is final or measured if the document evidence is unclear. Prefer the structured Excel BOQ text when present; do not collapse it into a few package allowances.",
+            text: "You are a UK mechanical estimating assistant for Blake Takeoff. Return conservative draft BOQ/takeoff data for office review only. Never claim the output is final or measured if the document evidence is unclear. Prefer the structured Excel BOQ text when present; do not collapse it into a few package allowances.",
           }],
         },
         {
@@ -587,7 +587,7 @@ export async function POST(
 
   const body = await parseJsonRequestBody<ExtractPayload>(request);
   const { id } = await params;
-  const actor = body?.actor?.trim() || request.headers.get(employeeHeaderName) || "NeXa Takeoff";
+  const actor = body?.actor?.trim() || request.headers.get(employeeHeaderName) || "Blake Takeoff";
   const openAiConfig = getTakeoffOpenAiConfig();
   const project = getTakeoffProject(id);
 

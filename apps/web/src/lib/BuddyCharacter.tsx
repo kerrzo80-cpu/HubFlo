@@ -12,29 +12,28 @@ type BuddyCharacterProps = {
 };
 
 /**
- * Blake pose sheet — one full still per mood.
- * No masked body parts: swap the photo when the situation changes.
+ * Ask Ayla pose sheet — one full still per mood (white / violet brand mascot).
  */
-const BLAKE_POSES: Record<BuddyMood, { src: string; label: string }> = {
+const AYLA_POSES: Record<BuddyMood, { src: string; label: string }> = {
   idle: {
-    src: "/brand/blake-poses/blake-idle.png",
-    label: "Blake ready",
+    src: "/brand/ayla-poses/ayla-idle.png",
+    label: "Ayla ready",
   },
   alert: {
-    src: "/brand/blake-poses/blake-alert.png",
-    label: "Blake spotted something",
+    src: "/brand/ayla-poses/ayla-alert.png",
+    label: "Ayla spotted something",
   },
   thinking: {
-    src: "/brand/blake-poses/blake-thinking.png",
-    label: "Blake working",
+    src: "/brand/ayla-poses/ayla-thinking.png",
+    label: "Ayla working",
   },
   guide: {
-    src: "/brand/blake-poses/blake-guide.png",
-    label: "Blake checking things over",
+    src: "/brand/ayla-poses/ayla-guide.png",
+    label: "Ayla checking things over",
   },
   good: {
-    src: "/brand/blake-poses/blake-good.png",
-    label: "Blake all good",
+    src: "/brand/ayla-poses/ayla-good.png",
+    label: "Ayla all good",
   },
 };
 
@@ -42,14 +41,15 @@ export function BuddyCharacter({
   mood = "idle",
   size = "md",
   className = "",
-  title = "Blake",
+  title = "Ayla",
   interactive = true,
 }: BuddyCharacterProps) {
-  const pose = BLAKE_POSES[mood] ?? BLAKE_POSES.idle;
+  const pose = AYLA_POSES[mood] ?? AYLA_POSES.idle;
 
   return (
     <span
       className={[
+        "ayla-character",
         "blake-character",
         `size-${size}`,
         `mood-${mood}`,
@@ -61,13 +61,13 @@ export function BuddyCharacter({
       title={title || pose.label}
       aria-hidden
     >
-      <span className="blake-character-stage">
+      <span className="ayla-character-stage blake-character-stage">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           key={pose.src}
           src={pose.src}
           alt=""
-          className="blake-pose"
+          className="ayla-pose blake-pose"
           draggable={false}
         />
       </span>

@@ -108,8 +108,8 @@ export default function ClientQuotePortal({ params }: { params: Promise<{ token:
       <section className="client-portal-card">
         <header>
           <span className="verrova-client-lockup">
-            <img src="/brand/nexa-command-mark.svg" alt="" aria-hidden="true" />
-            <strong>NeXa</strong>
+            <img src="/brand/blake-mark.svg" alt="" aria-hidden="true" />
+            <strong>Ayla</strong>
           </span>
           <span>Online quote review</span>
         </header>
@@ -143,7 +143,7 @@ export default function ClientQuotePortal({ params }: { params: Promise<{ token:
                 <CheckCircle2 size={24} />
                 <div>
                   <strong>Quote accepted</strong>
-                  <span>{jobRef ? `NeXa has created pending job ${jobRef}.` : "The office has been notified."}</span>
+                  <span>{jobRef ? `Blake has created pending job ${jobRef}.` : "The office has been notified."}</span>
                 </div>
               </div>
             ) : quote.status === "Declined" ? (

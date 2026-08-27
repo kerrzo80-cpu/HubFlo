@@ -545,9 +545,9 @@ export function AiFirstPrototype() {
       <div className="ai-first-shell">
         <header className="ai-first-topbar">
           <div className="ai-first-brand">
-            <img src="/brand/nexa-command-mark.svg" alt="NeXa" />
+            <img src="/brand/blake-mark.svg" alt="blake." />
             <div className="ai-first-brand-copy">
-              <strong>NeXa</strong>
+              <strong>Ayla</strong>
               <span>AI-first operating system · clickable prototype</span>
             </div>
           </div>
@@ -591,12 +591,12 @@ export function AiFirstPrototype() {
                       ? "Mandatory playbook questions"
                       : leadStatus === "ready"
                         ? "Intake complete"
-                        : "Tell NeXa what the customer needs…"}
+                        : "Tell Ayla what the customer needs…"}
                   </h1>
                   <p className="ai-first-lede">
                     {leadStatus === "draft" || leadStatus === "enriching"
-                      ? `NeXa loaded the ${playbook.name}. Answer each mandatory question here — nothing invented, nothing skipped.`
-                      : "No forms. Speak, type, attach a photo, or drop in an email — NeXa creates the lead, loads the playbook, and asks only the mandatory questions."}
+                      ? `Ayla loaded the ${playbook.name}. Answer each mandatory question here — nothing invented, nothing skipped.`
+                      : "No forms. Speak, type, attach a photo, or drop in an email — Ayla creates the lead, loads the playbook, and asks only the mandatory questions."}
                   </p>
                 </div>
                 <button className="ai-btn-ghost" type="button" onClick={resetFlow}>
@@ -634,7 +634,7 @@ export function AiFirstPrototype() {
                           disabled={!prompt.trim() || leadStatus === "thinking"}
                           onClick={() => runIntake(prompt)}
                         >
-                          <Sparkles size={16} /> Let NeXa handle it
+                          <Sparkles size={16} /> Let Ayla handle it
                         </button>
                       </div>
                       <input ref={fileRef} type="file" accept="image/*" hidden onChange={handlePhotoUpload} />
@@ -900,7 +900,7 @@ export function AiFirstPrototype() {
 
                   <h3 style={{ marginTop: 20 }}>AI summary</h3>
                   <p className="ai-summary">
-                    {customerName} requested a {playbook.jobType.toLowerCase()}. NeXa loaded the correct playbook
+                    {customerName} requested a {playbook.jobType.toLowerCase()}. Ayla loaded the correct playbook
                     and is collecting only mandatory commercial questions. No invented fields — human approval
                     stays on every commercial action.
                   </p>
@@ -1236,7 +1236,7 @@ export function AiFirstPrototype() {
                 <div>
                   <h1 className="ai-first-title">AI schedule suggestion</h1>
                   <p className="ai-first-lede">
-                    NeXa proposes the best engineer and slot. Nothing is booked until you approve.
+                    Ayla proposes the best engineer and slot. Nothing is booked until you approve.
                   </p>
                 </div>
                 <span className="ai-badge ai-badge-ai">

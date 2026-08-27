@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     subject,
     body: text,
     from,
-    to: typeof body?.to === "string" ? body.to : "NeXa",
+    to: typeof body?.to === "string" ? body.to : "Blake",
     messageId: typeof body?.messageId === "string" ? body.messageId : undefined,
     status: "Received",
   });

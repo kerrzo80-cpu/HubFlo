@@ -1,5 +1,13 @@
 /** Owner white-label / personalising settings shared across Core, Field, Survey, Takeoffs and Heat Design. */
 
+import {
+  DEFAULT_COMPANY_LOGO_URL,
+  PLATFORM_LOCKUP_LIGHT_URL,
+  PLATFORM_MARK_URL,
+  PLATFORM_NAME,
+  PLATFORM_WORDMARK_DARK_URL,
+} from "@/lib/product-brand";
+
 export type BusinessBrandingSettings = {
   companyName: string;
   tradingName: string;
@@ -24,7 +32,7 @@ export type BusinessBrandingSettings = {
   heatDesignLogoUrl: string;
   portalWelcomeText: string;
   portalAcceptanceText: string;
-  /** When true, NeXa product chrome is hidden — platform feels like the owner brand. */
+  /** When true, Blake product chrome is hidden — platform feels like the owner brand. */
   hidePlatformName: boolean;
   /** Short owner product label used when platform name is shown (e.g. EWG). */
   productName: string;
@@ -71,8 +79,8 @@ export const defaultBusinessBrandingSettings: BusinessBrandingSettings = {
   clientPortalBrandLine: "Control every moving part.",
   brandPrimaryColor: "#157fa8",
   brandAccentColor: "#0f5f7d",
-  logoUrl: "/ewg-logo.png",
-  appIconUrl: "/ewg-logo.png",
+  logoUrl: DEFAULT_COMPANY_LOGO_URL,
+  appIconUrl: DEFAULT_COMPANY_LOGO_URL,
   coreLogoUrl: "",
   fieldLogoUrl: "",
   surveyLogoUrl: "",
@@ -80,7 +88,7 @@ export const defaultBusinessBrandingSettings: BusinessBrandingSettings = {
   heatDesignLogoUrl: "",
   portalWelcomeText: "Welcome to your Errol Watson Group workspace. Review quotes, jobs and invoices in one place.",
   portalAcceptanceText: "By accepting this quotation online you confirm the scope, price and terms shown.",
-  hidePlatformName: true,
+  hidePlatformName: false,
   productName: "EWG",
   coreAppName: "EWG Core",
   fieldAppName: "EWG Field",
@@ -195,12 +203,12 @@ export function operationsLabel(brand: PublicBranding | BusinessBrandingSettings
   if (brand.hidePlatformName) {
     return `${brand.productName || brand.companyName} Operations`;
   }
-  return "NeXa Operations";
+  return `${PLATFORM_NAME} Operations`;
 }
 
 export function platformLabel(brand: PublicBranding | BusinessBrandingSettings): string {
   if (brand.hidePlatformName) return brand.productName || brand.companyName;
-  return "NeXa";
+  return PLATFORM_NAME;
 }
 
 function lightenHex(hex: string, amount: number): string {
@@ -244,20 +252,32 @@ export function applyBrandCssVariables(brand: Pick<PublicBranding, "brandPrimary
   root.style.setProperty("--blue-soft", lightenHex(primary, 0.88));
 }
 
-/** In-app header logo for an app (per-app → company logo). */
+/** Company / trading logo for PDFs, certificates and Customise Forms — never the blake. product mark. */
+export function resolveCompanyLogoUrl(brand: PublicBranding | BusinessBrandingSettings): string {
+  return trimLogoUrl(brand.logoUrl) || DEFAULT_COMPANY_LOGO_URL;
+}
+
+/** In-app product chrome logo (per-app upload → blake. wordmark). Not for customer-facing forms. */
 export function resolveBrandLogoUrl(brand: PublicBranding | BusinessBrandingSettings, app?: BrandAppKey): string {
   if (app) {
     const specific = trimLogoUrl(brand[brandAppLogoField(app)]);
     if (specific) return specific;
   }
-  return brand.logoUrl || defaultBusinessBrandingSettings.logoUrl;
+  return PLATFORM_WORDMARK_DARK_URL;
 }
 
-/** Home-screen / PWA icon for an app (per-app → shared app icon → company logo). */
+/** Home-screen / PWA icon for an app (per-app → blake. mark). Company logo stays on forms. */
 export function resolveBrandIconUrl(brand: PublicBranding | BusinessBrandingSettings, app?: BrandAppKey): string {
   if (app) {
     const specific = trimLogoUrl(brand[brandAppLogoField(app)]);
     if (specific) return specific;
   }
-  return brand.appIconUrl || brand.logoUrl || defaultBusinessBrandingSettings.logoUrl;
+  return PLATFORM_MARK_URL;
+}
+
+/** Dark-rail lockup for Core sidebar — blake. unless a Core-specific logo was uploaded. */
+export function resolvePlatformRailLockup(brand: PublicBranding | BusinessBrandingSettings): string {
+  const coreLogo = trimLogoUrl(brand.coreLogoUrl);
+  if (coreLogo) return coreLogo;
+  return PLATFORM_LOCKUP_LIGHT_URL;
 }

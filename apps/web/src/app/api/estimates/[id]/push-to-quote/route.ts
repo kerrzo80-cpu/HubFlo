@@ -88,7 +88,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     recordType: "quote",
     recordId: quote.id,
     summary: `${estimate.reference} created ${costCentres.length} itemised cost centre(s) in ${quote.ref}${unpricedCount ? ` · ${unpricedCount} supplier RFQ line(s) at £0 provisional` : ""}.`,
-    source: "NeXa Estimator",
+    source: "Blake Estimator",
     importance: "normal",
   });
   return NextResponse.json({ estimate: recorded.value, quote, costCentres, unpricedCount }, { status: 200 });

@@ -1,6 +1,6 @@
 "use client";
 
-/** Max long edge for Ask Blake uploads (keeps OpenAI / mobile uploads snappy). */
+/** Max long edge for Ask Ayla uploads (keeps OpenAI / mobile uploads snappy). */
 const MAX_EDGE = 1600;
 const JPEG_QUALITY = 0.72;
 const TARGET_MAX_CHARS = 900_000; // ~675KB binary after base64
@@ -104,7 +104,7 @@ function readFileAsDataUrl(file: File) {
 }
 
 /**
- * Shrink phone-camera photos (often 15–50MB) before Ask Blake attaches them.
+ * Shrink phone-camera photos (often 15–50MB) before Ask Ayla attaches them.
  * Prefer bitmap / object-URL decode so we never hold a 48MB base64 string in memory.
  */
 export async function compressAskBlakeFile(file: File): Promise<string> {
@@ -161,7 +161,7 @@ export async function compressAskBlakeFiles(files: File[]) {
   return next;
 }
 
-/** Grab a still frame from a short site video for Ask Blake vision. */
+/** Grab a still frame from a short site video for Ask Ayla vision. */
 export async function frameFromAskBlakeVideo(file: File): Promise<string> {
   if (typeof window === "undefined") {
     throw new Error("Video frame capture only runs in the browser.");

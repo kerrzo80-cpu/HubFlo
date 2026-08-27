@@ -24,7 +24,7 @@ export async function GET(request: Request) {
   );
   const body = JSON.stringify(
     {
-      product: "NeXa pilot",
+      product: "Blake pilot",
       purpose: "Stress-test backup",
       generatedAt,
       stores,

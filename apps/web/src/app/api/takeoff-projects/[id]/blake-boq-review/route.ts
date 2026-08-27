@@ -215,7 +215,7 @@ async function buildDrawingContent(project: TakeoffProject, billPrompt: string) 
       `Project: ${project.name}`,
       `Customer: ${project.customer}`,
       `Site: ${project.site}`,
-      "You are Blake, NeXa estimating co-pilot for UK mechanical / plumbing takeoffs.",
+      "You are Ayla, Blake estimating co-pilot for UK mechanical / plumbing takeoffs.",
       "Review EACH bill item below against the drawings.",
       "CRITICAL RULES:",
       "1) Do NOT restate or duplicate the parent bill quantity/description as an ancillary.",

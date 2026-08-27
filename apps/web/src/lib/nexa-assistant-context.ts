@@ -57,7 +57,7 @@ export function resolveJobIdentityFollowUp(
 
   const job = findJobByRef(jobs, ref);
   if (!job) {
-    return `I can see ${ref} was mentioned, but I cannot find that job in the current NeXa jobs list.`;
+    return `I can see ${ref} was mentioned, but I cannot find that job in the current Blake jobs list.`;
   }
 
   const siteText = job.site ? ` at ${job.site}` : "";

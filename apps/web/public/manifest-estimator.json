@@ -1,7 +1,7 @@
 {
-  "name": "NeXa Estimator",
+  "name": "Blake Estimator",
   "short_name": "Estimator",
-  "description": "NeXa estimator for site survey chat, room scans, heat loss and quote handoff.",
+  "description": "Blake estimator for site survey chat, room scans, heat loss and quote handoff.",
   "start_url": "/estimator",
   "scope": "/",
   "display": "standalone",

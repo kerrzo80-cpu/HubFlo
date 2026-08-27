@@ -497,7 +497,7 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
   };
 
   const prompt = [
-    "You are Blake building a NeXa estimating pack for UK plumbing and heating.",
+    "You are Ayla building a Blake estimating pack for UK plumbing and heating.",
     "From the works description, Blake answers already given, and evidence metadata, propose cost centres.",
     "Each cost centre needs name, jobDescription, trade, materials[{description,quantity,unit}], labour[{description,hours,trade}].",
     "Materials are for a supplier RFQ: itemise specific products a merchant can price.",

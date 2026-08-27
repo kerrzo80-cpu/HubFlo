@@ -58,7 +58,7 @@ export function getWhatsAppConfigStatus() {
     phoneNumberIdPresent: Boolean(phoneNumberId),
     verifyTokenPresent: Boolean(verifyToken),
     webhookSecretPresent: Boolean(webhookSecret),
-    displayFrom: "NeXa WhatsApp",
+    displayFrom: "Blake WhatsApp",
   };
 }
 

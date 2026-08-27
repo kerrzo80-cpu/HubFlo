@@ -24,7 +24,7 @@ export async function POST(
   }
 
   const { id } = await params;
-  const actor = body.actor?.trim() || request.headers.get(employeeHeaderName) || "NeXa Takeoff";
+  const actor = body.actor?.trim() || request.headers.get(employeeHeaderName) || "Blake Takeoff";
   const result = pushTakeoffProjectToQuote(id, body.quoteId, actor);
 
   if (!result) {

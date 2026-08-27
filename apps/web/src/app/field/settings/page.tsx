@@ -21,12 +21,12 @@ export default function SettingsPage() {
   return (
     <main className="field-screen">
       <header className="field-page-header">
-        <p className="eyebrow">{isCore ? "NeXa Core" : "Demo"}</p>
+        <p className="eyebrow">{isCore ? "Blake Core" : "Demo"}</p>
         <h1>{isCore ? "Connected" : "Connect later"}</h1>
         <p className="field-page-sub">
           {isCore
-            ? "Schedule and Blake hours come from NeXa Core on this same account."
-            : "Playing on mock jobs for now. NeXa wiring comes next."}
+            ? "Schedule and Blake hours come from Blake Core on this same account."
+            : "Playing on mock jobs for now. Blake wiring comes next."}
         </p>
       </header>
 
@@ -70,11 +70,11 @@ export default function SettingsPage() {
             <a href={fieldPath("/")}>/field</a> in Chrome → menu → <em>Install app</em> / <em>Add to Home screen</em>.
           </li>
           <li>
-            Use the home-screen icon for My Day, Ask Blake, and Hours — it opens full-screen without browser chrome.
+            Use the home-screen icon for My Day, Ask Ayla, and Hours — it opens full-screen without browser chrome.
           </li>
         </ol>
         <p className="settings-note">
-          The separate NeXa Field LiDAR app is only for Survey room scans on LiDAR iPads/iPhones — not this plumber schedule app.
+          The separate Blake Field LiDAR app is only for Survey room scans on LiDAR iPads/iPhones — not this plumber schedule app.
         </p>
       </section>
 
@@ -91,7 +91,7 @@ export default function SettingsPage() {
             <li>Open the next job from My Day.</li>
             <li>Tick a couple of checklist items.</li>
             <li>
-              Finish with <a href={fieldPath("/time-check")}>Blake</a> — amend one job longer.
+              Finish with <a href={fieldPath("/time-check")}>Hours</a> — amend one job longer.
             </li>
           </ul>
           <button className="primary-btn" type="button" onClick={resetDemo}>

@@ -72,7 +72,7 @@ export type EngineerFlowStep = {
   label: string;
   evidence: EngineerFlowEvidence;
   required: boolean;
-  /** Maps into the NeXa gas service / daywork record summary. */
+  /** Maps into the Blake gas service / daywork record summary. */
   formField?: string;
   validation?: EngineerFlowStepValidation;
 };

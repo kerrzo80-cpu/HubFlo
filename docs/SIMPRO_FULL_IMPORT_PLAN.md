@@ -1,7 +1,7 @@
 # Simpro Full Job & Quote Import — Implementation Plan
 
 **Branch:** `cursor/simpro-full-import-0e95`  
-**Scope:** Read-only historical + incremental import of Simpro jobs/quotes into NeXa  
+**Scope:** Read-only historical + incremental import of Simpro jobs/quotes into Blake  
 **Constraint:** No write-back to Simpro in this feature
 
 ---
@@ -48,7 +48,7 @@ Money: store minor units (integer pence) in mapped fields; never reconcile with 
 | Shared Simpro HTTP client | `simpro-client.ts` | Auth’d GET/POST, retries, backoff, rate-limit headers, pagination |
 | Discovery | `simpro-discovery.ts` | Phase A sample pull + sanitised fixtures |
 | Sanitiser | `simpro-sanitize.ts` | Strip tokens/secrets/PII from fixtures/logs |
-| Mapper | `simpro-import-map.ts` | Job/quote/section/CC/item → NeXa shapes |
+| Mapper | `simpro-import-map.ts` | Job/quote/section/CC/item → Blake shapes |
 | Import orchestrator | `simpro-import-service.ts` | Stages, checkpoints, upserts, transactions-per-record |
 | Reconciliation | `simpro-import-reconcile.ts` | Totals compare ±£0.02 |
 | Attachments | `simpro-import-attachments.ts` | Metadata first; file download optional |
@@ -111,7 +111,7 @@ Later: replace tick with a real queue (BullMQ / pg-boss) once Postgres is live.
 | Token refresh failures | Surface reconnect UI; pause run; no silent token logging |
 | JSON store size for full history | Store raw payloads as files; keep mapped fields in stores; migrate to Postgres |
 | Duplicate job numbers across years | Unique on Simpro entity ID only |
-| Outbound push collision | Imported records marked `importedReadOnly`; push continues for NeXa-native records |
+| Outbound push collision | Imported records marked `importedReadOnly`; push continues for Blake-native records |
 
 ---
 

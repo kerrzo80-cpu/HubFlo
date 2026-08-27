@@ -84,7 +84,7 @@ function surveyContext(survey: SurveyRecord, activeStep: string) {
 
 function recentTranscript(messages: SurveyAssistantMessage[]) {
   return messages.slice(-16).map((message) => (
-    `${message.role === "assistant" ? "NeXa" : "Surveyor"} [${message.step}]: ${message.text}`
+    `${message.role === "assistant" ? "Ayla" : "Surveyor"} [${message.step}]: ${message.text}`
   )).join("\n");
 }
 
@@ -127,7 +127,7 @@ function fallbackReply(survey: SurveyRecord, activeStep: string) {
   return [
     `For the ${activeStep} stage, the next useful checks are:`,
     ...items.slice(0, 3).map((item) => `- ${item}`),
-    "OpenAI is unavailable, so this reply is based on NeXa's structured completion checks.",
+    "OpenAI is unavailable, so this reply is based on Blake's structured completion checks.",
   ].join("\n");
 }
 
@@ -149,7 +149,7 @@ async function runOpenAi(
           content: [{
             type: "input_text",
             text: [
-              "You are Ask NeXa inside a structured site-survey workflow for a UK plumbing, heating and building contractor.",
+              "You are Ask Ayla inside a structured site-survey workflow for a UK plumbing, heating and building contractor.",
               "Do not behave like a fixed questionnaire. First identify the item/asset and the work type, then branch your next question from that.",
               "Examples: radiator like-for-like means ask isolation valves, drain-down, TRVs, inhibitor and system type; radiator relocation means ask new position, pipe route, floor type, route length and heat loss.",
               "Apply the same adaptive logic to boilers, toilets, baths, showers, basins, cylinders, pipework and heating systems.",
@@ -159,7 +159,7 @@ async function runOpenAi(
               "Ask no more than three targeted questions. Do not repeat a question already answered in the survey or transcript.",
               "If photo evidence is unclear or confidence is low, ask for another angle or a short video instead of guessing.",
               "Do not create generic four-part cost centres. Surveyor gathers facts; Estimator later creates materials, labour and cost centres from reviewed data.",
-              "If drawings, specifications or a contractor BOQ need quantity extraction, explain that they belong in NeXa Takeoffs and state exactly what should be handed over.",
+              "If drawings, specifications or a contractor BOQ need quantity extraction, explain that they belong in Blake Takeoffs and state exactly what should be handed over.",
               "When photographs exist, refer only to their captions/categories unless image content has been explicitly extracted.",
               "Keep the answer practical and concise for someone standing on site. Plain text and short dash bullets only.",
             ].join("\n"),
@@ -173,7 +173,7 @@ async function runOpenAi(
               "Current structured survey:",
               surveyContext(survey, activeStep),
               "",
-              "Recent Ask NeXa conversation:",
+              "Recent Ask Ayla conversation:",
               recentTranscript(messages),
               "",
               "Give the next useful response without repeating answered questions.",
@@ -194,14 +194,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const body = await parseJsonRequestBody<AskNexaBody>(request);
   if (!body) return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   const message = body.message?.trim();
-  if (!message) return NextResponse.json({ error: "Type a question for NeXa." }, { status: 400 });
+  if (!message) return NextResponse.json({ error: "Type a question for Blake." }, { status: 400 });
 
   const { tenantId, actor } = surveyRequestContext(request);
   const { id } = await params;
   const survey = getSurvey(tenantId, id);
   if (!survey) return NextResponse.json({ error: "Survey not found" }, { status: 404 });
   if (body.expectedVersion !== undefined && body.expectedVersion !== survey.version) {
-    return NextResponse.json({ error: "The survey changed before NeXa replied. Reload and try again.", current: survey }, { status: 409 });
+    return NextResponse.json({ error: "The survey changed before Blake replied. Reload and try again.", current: survey }, { status: 409 });
   }
 
   const activeStep = body.activeStep?.trim() || "details";
@@ -211,7 +211,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const transcript = [...(survey.assistantMessages || []), userMessage];
   const config = getTakeoffOpenAiConfig();
   let provider: "OpenAI" | "Pilot" = "Pilot";
-  let warning = config.connected ? "" : "OpenAI is not connected; NeXa used its structured survey checks.";
+  let warning = config.connected ? "" : "OpenAI is not connected; Blake used its structured survey checks.";
   let reply = fallbackReply(survey, activeStep);
 
   if (config.connected) {
@@ -219,7 +219,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       reply = await runOpenAi(survey, transcript, activeStep, config.apiKey, config.model);
       provider = "OpenAI";
     } catch (error) {
-      warning = error instanceof Error ? `${error.message} NeXa used its structured survey checks.` : "OpenAI failed; NeXa used its structured survey checks.";
+      warning = error instanceof Error ? `${error.message} Blake used its structured survey checks.` : "OpenAI failed; Blake used its structured survey checks.";
     }
   }
 
@@ -232,7 +232,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     { assistantMessages: [...transcript, assistantMessage].slice(-100) },
     body.expectedVersion,
     actor,
-    { action: "Asked NeXa", detail: `Ask NeXa used on the ${activeStep} stage (${provider}).` },
+    { action: "Asked Ayla", detail: `Ask Ayla used on the ${activeStep} stage (${provider}).` },
   );
   if (!result.ok) {
     const status = result.reason === "version_conflict" ? 409 : result.reason === "not_found" ? 404 : 422;

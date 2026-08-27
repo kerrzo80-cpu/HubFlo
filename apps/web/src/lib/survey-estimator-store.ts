@@ -267,7 +267,7 @@ function migrateTakeoffProject(project: TakeoffProject, tenantId = "pilot-ewg"):
       : project.linkedQuoteId
         ? { type: "Quote", id: project.linkedQuoteId, reference: project.linkedQuoteRef || project.linkedQuoteId }
         : undefined,
-    surveyorName: "NeXa legacy import",
+    surveyorName: "Blake legacy import",
     surveyDate: project.createdAt.slice(0, 10),
     customerRequirements: project.description,
     occupancy: "Unknown",
@@ -283,7 +283,7 @@ function migrateTakeoffProject(project: TakeoffProject, tenantId = "pilot-ewg"):
     assumptions: ["Imported from the previous Survey/Takeoff record for review."],
     assistantMessages: [],
     legacyTakeoffProjectId: project.id,
-    audit: [audit("NeXa migration", "Imported", `${project.reference} evidence imported without generated estimate prices.`)],
+    audit: [audit("Blake migration", "Imported", `${project.reference} evidence imported without generated estimate prices.`)],
     createdAt: project.createdAt,
     updatedAt,
   };

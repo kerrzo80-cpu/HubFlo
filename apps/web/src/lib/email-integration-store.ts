@@ -255,14 +255,14 @@ export async function sendEmailMessage(input: OutboundEmailInput) {
 export async function testEmailIntegrationConnection() {
   const result = await sendEmailMessage({
     to: emailIntegrationStore.senderEmail,
-    subject: "NeXa email connection test",
+    subject: "Blake email connection test",
     text: [
-      "This test email was sent by NeXa.",
+      "This test email was sent by Blake.",
       "",
       `Provider: ${emailIntegrationStore.provider}`,
       `Sent: ${new Date().toISOString()}`,
       "",
-      "Receiving this message confirms that NeXa authenticated with your email provider and sent successfully.",
+      "Receiving this message confirms that Blake authenticated with your email provider and sent successfully.",
     ].join("\n"),
   });
   emailIntegrationStore.lastTestedAt = result.sentAt;

@@ -268,7 +268,7 @@ export async function POST(request: NextRequest) {
     const supplierPaymentStatus =
       paidPence <= 0 ? "Unpaid" : paidPence >= totalPence - 1 ? "Paid" : "Part paid";
 
-    const actor = request.headers.get(employeeHeaderName) || "NeXa";
+    const actor = request.headers.get(employeeHeaderName) || "Blake";
 
     return NextResponse.json({
       ok: true,

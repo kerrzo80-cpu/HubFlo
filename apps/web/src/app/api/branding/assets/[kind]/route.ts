@@ -8,7 +8,7 @@ import {
   readBrandingAsset,
   saveBrandingAsset,
 } from "@/lib/branding-assets";
-import { normalizeBusinessBranding, resolveBrandIconUrl, resolveBrandLogoUrl, type BrandAppKey } from "@/lib/branding";
+import { normalizeBusinessBranding, resolveBrandIconUrl, type BrandAppKey } from "@/lib/branding";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 
 export const runtime = "nodejs";
@@ -55,10 +55,18 @@ export async function GET(request: Request, { params }: Params) {
       }
     }
     const brand = normalizeBusinessBranding(getHubDetailState().businessSettings);
+    // Company "logo" asset must never fall through to the blake. product mark.
+    // App icons (logo-field, etc.) may use the product mark when nothing was uploaded.
     const fallback =
-      kind === "logo" ? resolveBrandLogoUrl(brand) : resolveBrandIconUrl(brand, appKeyForKind(kind));
+      kind === "logo"
+        ? brand.logoUrl || "/ewg-logo.png"
+        : resolveBrandIconUrl(brand, appKeyForKind(kind));
     const safeFallback =
-      !fallback || fallback.startsWith("/api/branding/assets/") ? "/ewg-logo.png" : fallback;
+      !fallback || fallback.startsWith("/api/branding/assets/")
+        ? kind === "logo"
+          ? "/ewg-logo.png"
+          : "/brand/blake-mark.svg"
+        : fallback;
     return NextResponse.redirect(new URL(safeFallback, request.url), 302);
   }
 

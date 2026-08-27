@@ -23,12 +23,12 @@ const OFFICE_ROLES: HubRole[] = ["Office", "Manager", "Owner/Admin", "Finance"];
 export const blakeTrainerSeedMaterials: TrainerMaterial[] = [
   {
     id: "mat-nexa-what-is",
-    title: "What NeXa is",
+    title: "What Blake is",
     kind: "guide",
     content: [
-      "NeXa is the command center for service operations.",
+      "Blake is the command center for service operations.",
       "It binds quotes, jobs, engineers, customers, documents and invoices into one operational view.",
-      "Staff should work in NeXa rather than splitting work across spreadsheets, WhatsApp threads and disconnected tools.",
+      "Staff should work in Blake rather than splitting work across spreadsheets, WhatsApp threads and disconnected tools.",
       "Core is the office command center. Field is the engineer phone app. Surveyor and Takeoffs are specialist modules.",
     ].join(" "),
     tags: ["overview", "nexa", "core"],
@@ -44,7 +44,7 @@ export const blakeTrainerSeedMaterials: TrainerMaterial[] = [
     title: "Company rule — no guessing",
     kind: "company_rule",
     content: [
-      "Blake and all NeXa training answers must only use approved NeXa materials:",
+      "Blake and all Blake training answers must only use approved Blake materials:",
       "guides, screenshots, videos, FAQs and company rules.",
       "If the answer is not in approved materials, say you do not have that in the approved pack and ask the learner to check with their manager or Brian.",
       "Never invent prices, Gas Safe advice outside the pack, customer details, or process steps that are not written down.",
@@ -62,10 +62,10 @@ export const blakeTrainerSeedMaterials: TrainerMaterial[] = [
     title: "Field — My Day",
     kind: "guide",
     content: [
-      "In NeXa Field, My Day shows the engineer’s scheduled jobs for today.",
+      "In Blake Field, My Day shows the engineer’s scheduled jobs for today.",
       "Open a job to see the job pack: customer, address, cost centre, notes and attachments.",
       "Start and finish work from the job screen so office can see live status.",
-      "Use Ask Blake on site for fault help. Use Hours (time check) at the end of the day to confirm actual times.",
+      "Use Ask Ayla on site for fault help. Use Hours (time check) at the end of the day to confirm actual times.",
     ].join(" "),
     tags: ["field", "my-day", "engineer"],
     roles: FIELD_ROLES,
@@ -96,13 +96,13 @@ export const blakeTrainerSeedMaterials: TrainerMaterial[] = [
   },
   {
     id: "mat-field-ask-blake",
-    title: "Field — Ask Blake",
+    title: "Field — Ask Ayla",
     kind: "faq",
     content: [
-      "Ask Blake is the on-site co-pilot for qualified engineers.",
+      "Ask Ayla is the on-site co-pilot for qualified engineers.",
       "Describe a fault or attach site photos. Blake gives likely cause, checks and next steps.",
       "Talk mode uses voice: tap Start talking, speak, then I’m done.",
-      "Ask Blake is for trade peer help — it is not a substitute for Gas Safe competence or company method statements.",
+      "Ask Ayla is for trade peer help — it is not a substitute for Gas Safe competence or company method statements.",
       "For gas smell or CO alarm emergencies follow company emergency process and National Gas Emergency 0800 111 999, then notify the office.",
     ].join(" "),
     tags: ["field", "ask-blake", "voice"],
@@ -118,7 +118,7 @@ export const blakeTrainerSeedMaterials: TrainerMaterial[] = [
     title: "Core — Quotes overview",
     kind: "guide",
     content: [
-      "In NeXa Core, Quotes hold the commercial offer before a job is raised.",
+      "In Blake Core, Quotes hold the commercial offer before a job is raised.",
       "Open a quote to review cost centres, labour, materials and sell totals.",
       "Send quotes through the approved quote flow — do not invent discounts outside company pricing rules.",
       "When a quote is accepted, convert it to a job using the Core convert action so scheduling and field can pick it up.",
@@ -154,11 +154,11 @@ export const blakeTrainerSeedMaterials: TrainerMaterial[] = [
     title: "Screenshot — Field tab bar",
     kind: "screenshot",
     content: [
-      "Approved Field tab bar (bottom): My Day, Ask Blake, Hours, Connect.",
-      "My Day = today’s jobs. Ask Blake = fault help. Hours = time check. Connect = link / settings for Core.",
+      "Approved Field tab bar (bottom): My Day, Ask Ayla, Hours, Connect.",
+      "My Day = today’s jobs. Ask Ayla = fault help. Hours = time check. Connect = link / settings for Core.",
       "Trainers should point learners to these four tabs only — do not invent extra Field tabs.",
     ].join(" "),
-    mediaUrl: "/brand/nexa-command-mark.svg",
+    mediaUrl: "/brand/blake-mark.svg",
     tags: ["field", "screenshot", "ui"],
     roles: FIELD_ROLES,
     approved: true,
@@ -211,24 +211,24 @@ export const blakeTrainerSeedMaterials: TrainerMaterial[] = [
 export const blakeTrainerSeedModules: TrainerModule[] = [
   {
     id: "mod-nexa-welcome",
-    title: "Welcome to NeXa",
-    summary: "What NeXa is, and how Blake training works.",
+    title: "Welcome to Blake",
+    summary: "What Blake is, and how Blake training works.",
     estimatedMinutes: 8,
     steps: [
       {
         id: "step-welcome-intro",
         kind: "teach",
-        title: "Meet Blake",
+        title: "Meet Ayla",
         script:
-          "Hi — I’m Blake, your NeXa trainer. I’ll talk you through each module, pause to check you understand, and answer questions from approved NeXa materials only. If it’s not in the pack, I’ll say so.",
+          "Hi — I’m Ayla, your Blake trainer. I’ll talk you through each module, pause to check you understand, and answer questions from approved Blake materials only. If it’s not in the pack, I’ll say so.",
         materialIds: ["mat-nexa-what-is", "mat-company-rule-no-guess"],
       },
       {
         id: "step-welcome-what",
         kind: "teach",
-        title: "What NeXa binds together",
+        title: "What Blake binds together",
         script:
-          "NeXa is the command center for service work. Core for office, Field for engineers on the tools, plus Surveyor and Takeoffs when you need them. One place for quotes, jobs, people and invoices.",
+          "Blake is the command center for service work. Core for office, Field for engineers on the tools, plus Surveyor and Takeoffs when you need them. One place for quotes, jobs, people and invoices.",
         materialIds: ["mat-nexa-what-is"],
       },
       {
@@ -236,12 +236,12 @@ export const blakeTrainerSeedModules: TrainerModule[] = [
         kind: "check",
         title: "Quick check",
         script:
-          "Quick check — in your own words, what is NeXa for, and what should I do if you ask something that isn’t in the approved materials?",
+          "Quick check — in your own words, what is Blake for, and what should I do if you ask something that isn’t in the approved materials?",
         materialIds: ["mat-nexa-what-is", "mat-company-rule-no-guess"],
         check: {
           id: "chk-welcome",
           prompt:
-            "What is NeXa for, and what happens if a question isn’t in the approved materials?",
+            "What is Blake for, and what happens if a question isn’t in the approved materials?",
           expectedPoints: [
             "command center",
             "quotes",
@@ -260,7 +260,7 @@ export const blakeTrainerSeedModules: TrainerModule[] = [
   {
     id: "mod-field-basics",
     title: "Field basics",
-    summary: "My Day, Ask Blake, Hours, and the tab bar.",
+    summary: "My Day, Ask Ayla, Hours, and the tab bar.",
     estimatedMinutes: 12,
     steps: [
       {
@@ -268,7 +268,7 @@ export const blakeTrainerSeedModules: TrainerModule[] = [
         kind: "demo",
         title: "Field tabs",
         script:
-          "On Field you’ll see four tabs: My Day, Ask Blake, Hours, and Connect. That’s the whole bottom bar — learn those four first.",
+          "On Field you’ll see four tabs: My Day, Ask Ayla, Hours, and Connect. That’s the whole bottom bar — learn those four first.",
         materialIds: ["mat-screenshot-field-tabs"],
       },
       {
@@ -282,9 +282,9 @@ export const blakeTrainerSeedModules: TrainerModule[] = [
       {
         id: "step-field-ask",
         kind: "teach",
-        title: "Ask Blake on site",
+        title: "Ask Ayla on site",
         script:
-          "Ask Blake helps with faults. Type or use Talk: Start talking, say the fault, I’m done. Attach photos if you have them. It doesn’t replace your Gas Safe ticket or method statements.",
+          "Ask Ayla helps with faults. Type or use Talk: Start talking, say the fault, I’m done. Attach photos if you have them. It doesn’t replace your Gas Safe ticket or method statements.",
         materialIds: ["mat-field-ask-blake"],
       },
       {
@@ -373,7 +373,7 @@ export const blakeTrainerSeedFlows: TrainerFlow[] = [
   {
     id: "flow-engineer-onboarding",
     title: "Engineer onboarding",
-    description: "Voice-first Field training for engineers — NeXa overview plus Field basics.",
+    description: "Voice-first Field training for engineers — Ayla overview plus Field basics.",
     roles: ["Engineer", "Manager", "Owner/Admin"],
     status: "published",
     moduleIds: ["mod-nexa-welcome", "mod-field-basics"],
@@ -384,7 +384,7 @@ export const blakeTrainerSeedFlows: TrainerFlow[] = [
   {
     id: "flow-office-onboarding",
     title: "Office onboarding",
-    description: "NeXa overview plus quotes and scheduling for office staff.",
+    description: "Blake overview plus quotes and scheduling for office staff.",
     roles: ["Office", "Finance", "Manager", "Owner/Admin"],
     status: "published",
     moduleIds: ["mod-nexa-welcome", "mod-office-quotes-schedule"],

@@ -114,7 +114,7 @@ export function TrainHomeClient() {
           <h1>Blake trains your team by voice</h1>
           <p>
             Blake talks staff through each module, pauses to check understanding, and answers
-            questions only from approved NeXa guides, screenshots, videos, FAQs and company rules.
+            questions only from approved Blake guides, screenshots, videos, FAQs and company rules.
           </p>
           <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             <label style={{ fontSize: "0.86rem", fontWeight: 650 }}>
@@ -206,7 +206,7 @@ function TrainSession({
 
   useEffect(() => {
     setSupported(speechSupported());
-    void fetch("/api/field/ask-blake")
+    void fetch("/api/field/ask-ayla")
       .then((res) => res.json())
       .then((data: { connected?: boolean }) => setOpenaiOk(Boolean(data.connected)))
       .catch(() => setOpenaiOk(false));
@@ -271,7 +271,7 @@ function TrainSession({
       await unlockBlakeVoice();
       await new Promise<void>((resolve, reject) => {
         void speakBlakeReply(text, {
-          speakPath: "/api/field/ask-blake/speak",
+          speakPath: "/api/field/ask-ayla/speak",
           onEnd: () => resolve(),
         })
           .then((stop) => {
@@ -371,7 +371,7 @@ function TrainSession({
         setVoiceState("idle");
         return;
       }
-      const text = await transcribeBlakeAudio(blob, "/api/field/ask-blake/transcribe");
+      const text = await transcribeBlakeAudio(blob, "/api/field/ask-ayla/transcribe");
       const trimmed = text.trim();
       if (!trimmed) {
         setError("Could not transcribe — try again or type.");
@@ -500,7 +500,7 @@ function TrainSession({
                   void onSubmitText();
                 }
               }}
-              placeholder={step?.kind === "check" ? "Type your check answer…" : "Ask Blake or type next…"}
+              placeholder={step?.kind === "check" ? "Type your check answer…" : "Ask Ayla or type next…"}
               aria-label="Message Blake"
             />
             <button type="button" className="blake-train-btn" onClick={() => void onSubmitText()} disabled={!draft.trim()}>
@@ -531,7 +531,7 @@ function TrainSession({
           <div className="blake-train-panel">
             <h3>Grounding rule</h3>
             <p style={{ margin: 0, color: "#5d6673", fontSize: "0.88rem", lineHeight: 1.45 }}>
-              Blake only answers from approved NeXa materials. No guessing. If it isn’t in the pack, Blake says so.
+              Blake only answers from approved Blake materials. No guessing. If it isn’t in the pack, Blake says so.
             </p>
           </div>
         </aside>

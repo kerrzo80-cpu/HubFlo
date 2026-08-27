@@ -74,7 +74,7 @@ function fileEntries(entries: FormDataEntryValue[]): File[] {
 
 function uploadNotes(kind: TakeoffDocumentKind) {
   if (kind === "Drawing") return ["Uploaded for OpenAI/takeoff scan; confirm scale and revision."];
-  if (kind === "Marked-up drawing") return ["Saved from NeXa Takeoffs with engineer-visible pipe routes and symbols."];
+  if (kind === "Marked-up drawing") return ["Saved from Blake Takeoffs with engineer-visible pipe routes and symbols."];
   if (kind === "Specification") return ["Uploaded for OpenAI/specification scan; confirm named manufacturer requirements."];
   if (kind === "Survey note") return ["Uploaded for OpenAI survey quote draft; confirm handwriting, scope and exclusions."];
   if (kind === "Survey photo") return ["Uploaded for OpenAI survey quote draft; confirm room condition and visible measurements."];

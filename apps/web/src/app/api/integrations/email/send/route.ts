@@ -84,7 +84,7 @@ async function createDocumentPdf(document: NonNullable<SendEmailBody["document"]
     y -= options?.gap ?? 3;
   };
 
-  write(cleanText(document.businessName, "NeXa"), { size: 11, isBold: true, color: rgb(0.08, 0.45, 0.62), gap: 10 });
+  write(cleanText(document.businessName, "Blake"), { size: 11, isBold: true, color: rgb(0.08, 0.45, 0.62), gap: 10 });
   write(cleanText(document.title, "Document"), { size: 20, isBold: true, gap: 10 });
   write(`Reference: ${cleanText(document.reference, "To confirm")}`, { isBold: true });
   write(`Prepared for: ${cleanText(document.recipient, "Client")}`, { gap: 8 });

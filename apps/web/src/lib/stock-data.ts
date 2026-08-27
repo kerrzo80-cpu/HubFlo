@@ -225,7 +225,7 @@ export function recordStockMovement(input: {
     jobRef: input.jobRef,
     poNumber: input.poNumber,
     note: input.note,
-    actor: input.actor?.trim() || "NeXa",
+    actor: input.actor?.trim() || "Blake",
   });
 
   return writeStore(store);

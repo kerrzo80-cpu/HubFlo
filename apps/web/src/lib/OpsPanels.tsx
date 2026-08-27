@@ -71,7 +71,7 @@ export function StockOpsPanel({
   requestHeaders,
   onNotice,
   jobs = [],
-  actorName = "NeXa",
+  actorName = "Blake",
   defaultSupplier = "Plumbase",
   onPurchaseRequestCreated,
 }: {

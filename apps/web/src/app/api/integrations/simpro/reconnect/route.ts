@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     const result = await exchangeSimproAuthorizationCode(code);
     return NextResponse.json({
       ok: true,
-      actor: request.headers.get(employeeHeaderName) || "NeXa user",
+      actor: request.headers.get(employeeHeaderName) || "Blake user",
       result,
       reconnect: getSimproReconnectStatus(),
       sync: getSimproSyncStatus(),

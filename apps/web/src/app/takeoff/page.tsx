@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
+import { resolveBrandLogoUrl } from "@/lib/branding";
+import { useBrand } from "@/components/BrandProvider";
 import {
   ArrowLeft,
   Check,
@@ -55,6 +57,7 @@ function stepIndex(step: TakeoffSkillStep) {
 }
 
 export default function TakeoffSkillPage() {
+  const brand = useBrand();
   const [authState, setAuthState] = useState<AuthState>("checking");
   const [authName, setAuthName] = useState<string | null>(null);
   const [projects, setProjects] = useState<TakeoffProject[]>([]);
@@ -144,7 +147,7 @@ export default function TakeoffSkillPage() {
       } catch {
         if (active) {
           setAuthState("signed-out");
-          setError("Unable to reach NeXa auth. Refresh and try again.");
+          setError("Unable to reach Blake auth. Refresh and try again.");
         }
       }
     })();
@@ -333,7 +336,7 @@ export default function TakeoffSkillPage() {
             status: "Approved",
             review: {
               ...selected.review,
-              approvedBy: "NeXa Takeoff",
+              approvedBy: "Blake Takeoff",
               approvedAt: new Date().toISOString(),
             },
           }),
@@ -362,12 +365,14 @@ export default function TakeoffSkillPage() {
     <div className="takeoff-skill-shell">
       <header className="takeoff-skill-topbar">
         <div className="takeoff-skill-brand">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={resolveBrandLogoUrl(brand, "takeoffs")} alt={brand.takeoffsAppName || "blake."} width={40} height={40} />
           <Link href="/" className="takeoff-skill-back">
             <ArrowLeft size={16} />
             Core
           </Link>
           <div>
-            <strong>NeXa Takeoff</strong>
+            <strong>{brand.takeoffsAppName || "Blake Takeoff"}</strong>
             <span>Quantity takeoff · count fixtures on drawings</span>
           </div>
         </div>
@@ -392,7 +397,7 @@ export default function TakeoffSkillPage() {
       {authState === "checking" ? (
         <section className="takeoff-skill-auth">
           <h1>Opening Takeoff…</h1>
-          <p>Checking your NeXa sign-in.</p>
+          <p>Checking your Blake sign-in.</p>
         </section>
       ) : null}
 
@@ -405,7 +410,7 @@ export default function TakeoffSkillPage() {
           </p>
           <p className="takeoff-skill-note">No special AI setup is required to start — vector PDF text-tag counts work without OpenAI.</p>
           <a className="takeoff-skill-primary" href="/login?next=/takeoff">
-            Sign in to NeXa
+            Sign in to Blake
           </a>
         </section>
       ) : null}

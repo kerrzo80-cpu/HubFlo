@@ -1,4 +1,4 @@
-# NeXa Brand Kit
+# Blake Brand Kit
 
 ## Brand Idea
 
@@ -6,32 +6,32 @@
 
 The name positions the software as an elite executive command center: a calm, precise place where quotes, jobs, engineers, customers, documents, invoices and decisions are bound into one operational view.
 
-NeXa should feel like the system a serious service business graduates into when spreadsheets, WhatsApp threads, separate job tools and half-connected finance processes stop being good enough.
+Blake should feel like the system a serious service business graduates into when spreadsheets, WhatsApp threads, separate job tools and half-connected finance processes stop being good enough.
 
 ## Core Positioning
 
-**NeXa binds service operations into one command center.**
+**Blake binds service operations into one command center.**
 
 Short pitch:
 
-> NeXa helps service businesses quote, schedule, deliver and invoice work from one clear operational command center.
+> Blake helps service businesses quote, schedule, deliver and invoice work from one clear operational command center.
 
 Expanded pitch:
 
-> NeXa gives owners, managers and field teams one place to see every quote, job, engineer, customer, document and invoice. It binds the moving parts of a service business into a controlled workflow, so the team knows what is happening, what is blocked and what needs action next.
+> Blake gives owners, managers and field teams one place to see every quote, job, engineer, customer, document and invoice. It binds the moving parts of a service business into a controlled workflow, so the team knows what is happening, what is blocked and what needs action next.
 
 ## Tagline Options
 
 Preferred:
 
-**NeXa - Bound into one command center.**
+**Blake - Bound into one command center.**
 
 Alternatives:
 
-- **NeXa - Every job, bound together.**
-- **NeXa - The command center for service work.**
-- **NeXa - Quote, schedule, deliver, invoice. Bound.**
-- **NeXa - One system for moving work.**
+- **Blake - Every job, bound together.**
+- **Blake - The command center for service work.**
+- **Blake - Quote, schedule, deliver, invoice. Bound.**
+- **Blake - One system for moving work.**
 
 ## Name Usage
 
@@ -39,7 +39,7 @@ Use:
 
 - **NeXa** in headlines, product UI, website copy and sales materials.
 - **NEXA** only for very small labels, favicon use, or legal/trademark-style references.
-- **NeXa Command Center** as a product descriptor when extra clarity is needed.
+- **Blake Command Center** as a product descriptor when extra clarity is needed.
 
 Avoid:
 
@@ -47,17 +47,17 @@ Avoid:
 - NEXa
 - NeXA
 - The Nexa
-- NeXa.ai unless that domain is actually owned and approved.
+- Blake.ai unless that domain is actually owned and approved.
 
 ## Logo Concept
 
-The NeXa mark is built around a central **X-node**.
+The Blake mark is built around a central **X-node**.
 
 Meaning:
 
 - Four directional strokes represent workstreams: quote, schedule, field delivery and finance.
 - The central diamond represents control, decision-making and verified truth.
-- The capital **X** in NeXa acts as the fastening point: the place where everything connects.
+- The capital **X** in Blake acts as the fastening point: the place where everything connects.
 
 The wordmark uses a composed, executive tone: sharp enough for software, restrained enough for serious service businesses.
 
@@ -127,7 +127,7 @@ Headline style:
 
 ## Voice
 
-NeXa should sound:
+Blake should sound:
 
 - Clear
 - Controlled
@@ -155,7 +155,7 @@ Avoid:
 
 ## UI Direction
 
-NeXa should look like a command center for real work:
+Blake should look like a command center for real work:
 
 - Dense but readable dashboards
 - Strong status hierarchy
@@ -197,7 +197,7 @@ Bind quotes, schedules, engineers, documents and invoices into one clear operati
 
 Sales one-liner:
 
-NeXa gives service businesses one command center for the full job lifecycle, from enquiry to invoice.
+Blake gives service businesses one command center for the full job lifecycle, from enquiry to invoice.
 
 Email signature:
 
