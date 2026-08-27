@@ -51,11 +51,41 @@
   width: min(720px, calc(100% - 32px));
   min-height: calc(100dvh - 66px);
   margin: 0 auto;
-  padding: 46px 0 32px;
+  padding: 34px 0 32px;
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
+}
+
+.modeBar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 28px;
+  padding: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(37, 38, 35, 0.08);
+}
+
+.modeBar span,
+.modeBar a {
+  min-height: 38px;
+  padding: 0 13px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #657177;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.modeBar .modeActive {
+  color: #0b668b;
+  background: #e1f3f9;
 }
 
 .orb {
@@ -151,6 +181,14 @@
 .endButton { background: #30383c; box-shadow: 0 12px 30px rgba(31, 39, 43, 0.18); }
 .startButton:disabled { opacity: 0.45; cursor: not-allowed; }
 
+.costNote {
+  max-width: 520px;
+  margin: 12px 0 0;
+  color: #6f7b80;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .transcript {
   width: 100%;
   margin-top: 34px;
@@ -211,7 +249,9 @@
 @media (max-width: 620px) {
   .header { padding: 0 15px; grid-template-columns: auto 1fr auto; gap: 10px; }
   .title { justify-self: center; max-width: 52vw; }
-  .stage { width: min(100% - 24px, 720px); padding-top: 34px; }
+  .stage { width: min(100% - 24px, 720px); padding-top: 24px; }
+  .modeBar { width: 100%; justify-content: stretch; margin-bottom: 24px; }
+  .modeBar span, .modeBar a { flex: 1; justify-content: center; padding-inline: 7px; }
   .orb { width: 132px; height: 132px; }
   .startButton, .endButton { width: 100%; min-height: 64px; }
   .voicePicker { width: 100%; justify-content: stretch; }
