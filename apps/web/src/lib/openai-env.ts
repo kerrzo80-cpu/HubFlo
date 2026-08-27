@@ -18,10 +18,11 @@ export function resolveOpenAiApiKeyCandidates(): OpenAiKeyCandidate[] {
     { key: process.env.NEXA_OPENAI_API_KEY?.trim() || "", source: "NEXA_OPENAI_API_KEY" },
     { key: process.env.OPENAI_API_KEY?.trim() || "", source: "OPENAI_API_KEY" },
     { key: getStoredOpenAiKey()?.trim() || "", source: "in-app" },
-  ].filter((item) => Boolean(item.key));
+  ];
+  const configured = raw.filter((item) => Boolean(item.key));
 
   const seen = new Set<string>();
-  return raw.filter((item) => {
+  return configured.filter((item) => {
     if (seen.has(item.key)) return false;
     seen.add(item.key);
     return true;
