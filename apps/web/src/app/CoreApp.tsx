@@ -11628,13 +11628,34 @@ export default function CoreApp() {
       let hasOfflineFallback = false;
       const offlineReasons: string[] = [];
       try {
+        // Chris/Commercial/Carol + Ready-to-invoice must not compete with the office boot poll.
+        // Polling through 502 retries during passaround was death-spiraling live into HTML 502s.
+        if (
+          Date.now() < passaroundHoldUntilRef.current ||
+          Date.now() < hubAutosaveHoldUntilRef.current
+        ) {
+          return;
+        }
         const headers = requestHeadersRef.current;
         // Live was OOMing when heavy routes hit SQLite together → clients/jobs/quotes 502 + health timeouts.
         // Fetch ONE route at a time with a short gap; retry once on transient 502/503.
         const fetchWave = async (path: string) => {
+          if (
+            Date.now() < passaroundHoldUntilRef.current ||
+            Date.now() < hubAutosaveHoldUntilRef.current
+          ) {
+            throw new Error("passaround_hold");
+          }
           const run = () => fetch(path, { headers, credentials: "same-origin" });
           let response = await run();
           if ([502, 503, 504].includes(response.status)) {
+            // Do not retry while passaround is holding — retries were stacking 502s on live.
+            if (
+              Date.now() < passaroundHoldUntilRef.current ||
+              Date.now() < hubAutosaveHoldUntilRef.current
+            ) {
+              return response;
+            }
             await new Promise((resolve) => setTimeout(resolve, 700));
             response = await run();
           }
@@ -12003,18 +12024,23 @@ export default function CoreApp() {
         } else {
           setSectionError(null);
         }
-      } catch {
-        if (!stopped) {
-          setSectionError("Could not reach live workflow APIs, so local data is shown.");
-        }
+      } catch (error) {
+        if (stopped) return;
+        if (error instanceof Error && error.message === "passaround_hold") return;
+        setSectionError("Could not reach live workflow APIs, so local data is shown.");
       }
     };
 
     loadLiveData().catch(() => {});
     const timer = setInterval(() => {
-      if (!stopped) {
-        loadLiveData().catch(() => {});
+      if (
+        stopped ||
+        Date.now() < passaroundHoldUntilRef.current ||
+        Date.now() < hubAutosaveHoldUntilRef.current
+      ) {
+        return;
       }
+      loadLiveData().catch(() => {});
     }, 60_000);
 
     return () => {
@@ -27807,16 +27833,29 @@ export default function CoreApp() {
         setSectionError(message);
         showNotice(message);
       });
+    // Local timeline only — do NOT POST /api/audit on the tick hot path (stacks with passaround + hub poll).
     const checkLabel = jobReviewChecks.find((item) => item.key === check)?.label ?? "Review";
-    logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
-      action: "reviewed",
-      recordType: "job",
-      recordId: selectedJob.id,
-      summary: `${checkLabel} ${existing[check] ? "unchecked" : "approved"} for ${selectedJob.ref}.`,
-      source: "completion review",
-      importance: "normal",
-    });
+    const stamp = new Date().toLocaleString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).replace(",", "");
+    setAuditEvents((current) => [
+      {
+        id: `audit-local-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+        createdAt: stamp,
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "reviewed",
+        recordType: "job",
+        recordId: selectedJob.id,
+        summary: `${checkLabel} ${existing[check] ? "unchecked" : "approved"} for ${selectedJob.ref}.`,
+        source: "completion review",
+        importance: "normal",
+      },
+      ...current,
+    ]);
 
     // Progress → Complete when passaround is fully ticked (Ready to invoice stays a separate approve step).
     const progressStatuses = [
@@ -27865,18 +27904,43 @@ export default function CoreApp() {
       return;
     }
     armPassaroundHubHold();
+    const jobId = selectedJob.id;
+    const jobRef = selectedJob.ref;
+    const optimisticReview: JobReviewState = {
+      construction: true,
+      commercial: true,
+      office: true,
+    };
+    // Optimistic UI first — Ready must stick even if the passaround request is slow or 502s.
+    setJobReviewApprovals((current) => ({
+      ...current,
+      [jobId]: optimisticReview,
+    }));
+    setJobs((current) =>
+      current.map((job) =>
+        job.id === jobId
+          ? {
+              ...job,
+              status: "Ready to invoice",
+              next: "Raise and email final invoice.",
+              health: "green",
+            }
+          : job,
+      ),
+    );
+    showNotice(`${jobRef} is Ready to invoice. Open it from Uninvoiced when you want to raise the invoice.`);
     try {
       let updated: Job | null | undefined = null;
       let review: JobReviewState | undefined;
       try {
-        const result = await postJobPassaround(selectedJob.id, {
+        const result = await postJobPassaround(jobId, {
           action: "ready-to-invoice",
           by: activeEmployee?.name ?? "NeXa user",
         });
         updated = result?.job;
         review = result?.review;
       } catch {
-        await postJobPassaround(selectedJob.id, {
+        await postJobPassaround(jobId, {
           action: "force-reviews",
           by: activeEmployee?.name ?? "NeXa user",
         }).catch(() => undefined);
@@ -27885,23 +27949,20 @@ export default function CoreApp() {
             status: "Ready to invoice",
             next: "Raise and email final invoice.",
           },
-          `${selectedJob.ref} is Ready to invoice. Open it from Uninvoiced when you want to raise the invoice.`,
+          `${jobRef} is Ready to invoice. Open it from Uninvoiced when you want to raise the invoice.`,
         );
-        review = { construction: true, commercial: true, office: true };
+        review = optimisticReview;
       }
-      if (!updated) throw new Error("Unable to approve job for invoice.");
-      // Hot path: ONLY setJobs for this id + local review mirror + notice.
-      // Do NOT switch job folders, write audit rows, mark review dirty, or open invoices.
+      if (!updated) {
+        // Keep optimistic Ready status — server may catch up; avoid rolling back into a white-screen thrash.
+        showNotice(`${jobRef} marked Ready locally. If it does not stick after refresh, try again in a moment.`);
+        return;
+      }
       setJobReviewApprovals((current) => ({
         ...current,
-        [selectedJob.id]: review ?? {
-          construction: true,
-          commercial: true,
-          office: true,
-        },
+        [jobId]: review ?? optimisticReview,
       }));
       setJobs((current) => current.map((job) => (job.id === updated!.id ? updated! : job)));
-      showNotice(`${updated.ref} is Ready to invoice. Open it from Uninvoiced when you want to raise the invoice.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to approve job for invoice.";
       setSectionError(message);
