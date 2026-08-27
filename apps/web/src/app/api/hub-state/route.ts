@@ -4,8 +4,7 @@ import { getAccessProfileFromHeaders } from "@/lib/access";
 import { getAuthenticatedUser } from "@/lib/auth-request";
 import { ensureGasCertTrialInCore } from "@/lib/gas-cert-trial-core";
 import { ensureDomesticStopGoSeed } from "@/lib/domestic-stop-go/seed";
-import { reconcileDayworkVariationsFromEvidence } from "@/lib/engineer-flow";
-import { getHubDetailState, peekHubDetailState, saveHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
+import { peekHubDetailState, saveHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
 import { mergeHubDetailState } from "@/lib/hub-state-merge";
 import { leanJobCostCentresMap } from "@/lib/job-cost-centres-lean";
 import { parseJsonRequestBody } from "@/lib/http";
@@ -58,11 +57,9 @@ export async function GET(request: Request) {
     ensureGasCertTrialInCore();
     ensureDomesticStopGoSeed();
   }
-  try {
-    reconcileDayworkVariationsFromEvidence();
-  } catch {
-    // Best-effort backfill of Daywork variation cards from Field evidence.
-  }
+  // Do NOT run daywork reconcile on hub poll — it deep-clones the full hub and can OOM
+  // Render during office polls overlapping passaround ticks.
+  // Daywork reconcile stays on Field daywork write/PDF routes only.
   try {
     // Poll responses omit base64 signatures and lean job cost centres — never echo BoQ dumps.
     // Use peek (no disk rehydrate + deep clone) so office polling does not OOM between passaround ticks.
@@ -133,7 +130,9 @@ export async function PUT(request: Request) {
     // Ignoring inbound reviews stops tick-driven hub autosaves from rewriting the fat hub.
     delete (payload as { jobReviews?: unknown }).jobReviews;
 
-    const current = getHubDetailState();
+    // Peek (in-memory) — never full rehydrate+deep-clone on autosave. That path OOMs live when
+    // a poll/PUT overlaps passaround. saveHubDetailState still rehydrates daywork fields from disk.
+    const current = peekHubDetailState();
     const merged = mergeHubDetailState(current, payload);
 
     if (payload.jobSchedulePlans !== undefined) {
@@ -156,11 +155,6 @@ export async function PUT(request: Request) {
     }
 
     const saved = saveHubDetailState(merged);
-    try {
-      reconcileDayworkVariationsFromEvidence();
-    } catch {
-      // Best-effort: rebuild Daywork variation cards if Core omitted them.
-    }
     // Autosave callers only check ok — never echo the full hub (that OOMed Render on volume jobs).
     return NextResponse.json({
       ok: true,

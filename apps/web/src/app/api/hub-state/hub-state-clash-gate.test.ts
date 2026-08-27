@@ -13,5 +13,9 @@ describe("hub-state schedule clash gate", () => {
     assert.match(source, /assertNoHubScheduleClashes/);
     assert.match(source, /Pre-existing imported/);
     assert.match(source, /hubSchedulePlansSignature/);
+    // Hub poll/PUT must stay lean — daywork reconcile clones the full hub and OOMs live.
+    assert.doesNotMatch(source, /\breconcileDayworkVariationsFromEvidence\s*\(/);
+    assert.doesNotMatch(source, /\bgetHubDetailState\s*\(/);
+    assert.doesNotMatch(source, /from ["']@\/lib\/engineer-flow["']/);
   });
 });
