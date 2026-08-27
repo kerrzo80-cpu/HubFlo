@@ -2,7 +2,9 @@ import type { Employee } from "@/lib/access";
 import { getHubDetailState } from "@/lib/hub-detail-store";
 import { getLeads, type LeadRecord } from "@/lib/lead-store";
 import { getClientSites, getClients, type ClientRecord, type ClientSite } from "@/lib/people-data";
-import { getJobs, getQuotes, type Job, type Quote } from "@/lib/workflow-data";
+import type { Job, Quote } from "@/lib/workflow-data";
+
+import { getFreshJobsForHumanLookup, getFreshQuotesForHumanLookup } from "./fresh-workflow-records";
 
 const genericQueryWords = new Set([
   "a", "an", "the", "job", "jobs", "quote", "quotes", "lead", "leads", "customer", "customers", "client", "clients",
@@ -80,15 +82,9 @@ export function entityMatchScore(query: unknown, value: unknown) {
   const vSet = new Set(valueTokens);
   if (queryTokens.length >= 2 && qSet.size === vSet.size && [...qSet].every((token) => vSet.has(token))) return 98;
 
-  // The identifier can be a clean fragment ("Dee View Road") contained in a longer stored value.
   if (allTokensMatch(queryTokens, valueTokens)) return queryTokens.length >= 2 ? 86 : 58;
-
-  // Or it can be a conversational wrapper around the complete meaningful entity value
-  // ("can you open Helen Ball's job" or "show me J-1141").
   if (valueTokens.length >= 2 && allTokensMatch(valueTokens, queryTokens)) return 82;
 
-  // Finally tolerate extra conversational words around a multi-token fragment without
-  // making a single common token enough to resolve a real record.
   const matchedQueryTokens = matchedTokenCount(queryTokens, valueTokens);
   if (matchedQueryTokens >= 2 && matchedQueryTokens / queryTokens.length >= 0.5) return 72;
   return 0;
@@ -141,7 +137,7 @@ export function resolveJobFromHumanReference(identifier: string): HumanEntityRes
   const clients = new Map(getClients().map((client) => [client.id, client.name]));
   const sites = new Map(getClientSites().map((site) => [site.id, site]));
   return resolveRecord({
-    records: getJobs(),
+    records: getFreshJobsForHumanLookup(),
     identifier,
     exactValues: (job) => [job.id, job.ref],
     rankedValues: (job) => [
@@ -162,7 +158,7 @@ export function resolveJobFromHumanReference(identifier: string): HumanEntityRes
 export function resolveQuoteFromHumanReference(identifier: string): HumanEntityResolution<Quote> {
   const clients = new Map(getClients().map((client) => [client.id, client.name]));
   return resolveRecord({
-    records: getQuotes(),
+    records: getFreshQuotesForHumanLookup(),
     identifier,
     exactValues: (quote) => [quote.id, quote.ref],
     rankedValues: (quote) => [
