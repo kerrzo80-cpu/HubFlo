@@ -389,7 +389,7 @@ const SETUP_SERVER_SYNC_HOLD_MS = 120000;
 const COST_CENTRE_SERVER_SYNC_HOLD_MS = 120000;
 const INVOICE_SERVER_SYNC_HOLD_MS = 120000;
 const JOB_REVIEW_SERVER_SYNC_HOLD_MS = 120000;
-const PASSAROUND_HOLD_MS = 20_000;
+const PASSAROUND_HOLD_MS = 60_000;
 
 const dashboardPanelIds = [
   "jobs",
@@ -9065,6 +9065,8 @@ export default function CoreApp() {
   const lastLocalCostCentreEditAt = useRef(0);
   /** Block hub PUT after BoQ rebuild — autosave was re-stringifying fat hubs and crashing Render. */
   const hubAutosaveHoldUntilRef = useRef(0);
+  /** Suppress hub autosave while applying a live hub poll — setEmployees/invoices alone re-fired fat PUTs. */
+  const suppressHubAutosaveFromPollUntilRef = useRef(0);
   const lastLocalEmployeeEditAt = useRef(0);
   const lastLocalInvoiceEditAt = useRef(0);
   const lastLocalJobReviewEditAt = useRef(0);
@@ -11731,6 +11733,9 @@ export default function CoreApp() {
 
         if (hubState) {
           // Keep hub apply outside the first transition so lists paint first.
+          // Poll apply must not schedule a fat hub PUT (employees/invoices are autosave deps).
+          suppressHubAutosaveFromPollUntilRef.current = Date.now() + 3_000;
+          const hubPollLean = Boolean((hubState as { hubPollLean?: unknown }).hubPollLean);
           const hasRecentLocalSetupEdit = Date.now() - lastLocalSetupEditAt.current < SETUP_SERVER_SYNC_HOLD_MS;
           const hasRecentLocalCostCentreEdit = Date.now() - lastLocalCostCentreEditAt.current < COST_CENTRE_SERVER_SYNC_HOLD_MS;
           const hasRecentLocalEmployeeEdit = Date.now() - lastLocalEmployeeEditAt.current < SETUP_SERVER_SYNC_HOLD_MS;
@@ -11793,11 +11798,12 @@ export default function CoreApp() {
           if (hubState.flowStepCompletion) setFlowStepCompletion(hubState.flowStepCompletion);
           if (hubState.flowStepEvidence) setFlowStepEvidence(hubState.flowStepEvidence);
           if (!hasRecentLocalCostCentreEdit && !pendingCostCentreSaveRef.current) {
-            if (hubState.quoteCostCentres) setQuoteCostCentres(hubState.quoteCostCentres);
-            if (hubState.quoteSections) setQuoteSections(hubState.quoteSections);
+            // Lean office poll omits BoQ/takeoff maps — do not wipe local centres with empty applies.
+            if (!hubPollLean && hubState.quoteCostCentres) setQuoteCostCentres(hubState.quoteCostCentres);
+            if (!hubPollLean && hubState.quoteSections) setQuoteSections(hubState.quoteSections);
             if (hubState.quoteSchedulePlans) setQuoteSchedulePlans(hubState.quoteSchedulePlans);
             if (hubState.jobSchedulePlans) setJobSchedulePlans(hubState.jobSchedulePlans);
-            if (hubState.jobCostCentres) {
+            if (!hubPollLean && hubState.jobCostCentres) {
               const nextCentres: Record<string, EstimateCostCentre[]> = {};
               for (const [jobId, centres] of Object.entries(hubState.jobCostCentres)) {
                 if (!Array.isArray(centres)) {
@@ -12425,6 +12431,9 @@ export default function CoreApp() {
         return;
       }
       if (Date.now() < passaroundHoldUntilRef.current) {
+        return;
+      }
+      if (Date.now() < suppressHubAutosaveFromPollUntilRef.current) {
         return;
       }
       if (recordEditLockReadOnlyRef.current && activeRecordFingerprint) {

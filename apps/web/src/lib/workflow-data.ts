@@ -546,6 +546,34 @@ export function updateJob(id: string, patch: Partial<Job>): Job | null {
   if (index < 0) return null;
   const current = store.jobs[index];
   if (!current) return null;
+
+  // Status/health-only patches (passaround complete / ready) must not map-copy the full
+  // clients catalogue — that overlaps hub poll stringify and OOMs live.
+  const patchKeys = Object.keys(patch).filter((key) => (patch as Record<string, unknown>)[key] !== undefined);
+  const statusOnly =
+    patchKeys.length > 0 &&
+    patchKeys.every((key) => key === "status" || key === "health" || key === "updatedAt" || key === "next");
+
+  if (statusOnly) {
+    const nextHealth =
+      patch.status || patch.health
+        ? patch.health ??
+          deriveJobHealth(patch.status ?? current.status, {
+            scheduledDate: current.scheduledDate,
+            due: current.due,
+          })
+        : current.health;
+    const updated: Job = {
+      ...current,
+      ...patch,
+      id: current.id,
+      health: nextHealth,
+    };
+    store.jobs[index] = updated;
+    persistWorkflowStore();
+    return clone(updated);
+  }
+
   const resolvedClient = (patch.clientId ?? current.clientId)
     ? findClient(patch.clientId ?? current.clientId, patch.customer ?? current.customer)
     : undefined;
