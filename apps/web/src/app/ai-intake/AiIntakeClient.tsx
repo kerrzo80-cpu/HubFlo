@@ -132,7 +132,7 @@ function modeFromSearch(): RecordMode | null {
   return null;
 }
 
-function blakeOpener(mode: RecordMode | null) {
+function aylaOpener(mode: RecordMode | null) {
   if (mode === "quote") {
     return "Hi — I’m Ayla. We’re creating a quote (no lead). In a sentence, what is the work?";
   }
@@ -160,10 +160,10 @@ function stageCopy(mode: RecordMode | null) {
       titleDone: "Quote saved",
       lede: "Describe the work in your own words, pick the customer (existing or new), then the site address for this job.",
       detailsLabel: "quote details",
-      saveLabel: "Save quote into Blake",
+      saveLabel: "Save quote into Core",
       classicHref: "/?view=quote-create",
       classicLabel: "Use classic form instead",
-      completeMessage: "Quote details are complete. Confirm and I’ll save a Draft quote into Blake Core.",
+      completeMessage: "Quote details are complete. Confirm and I’ll save a Draft quote into Core.",
       fillMessage: "I’ve filled the remaining details. Confirm when ready to save the quote.",
       flowHighlight: "Quote" as const,
     };
@@ -176,10 +176,10 @@ function stageCopy(mode: RecordMode | null) {
       titleDone: "Job saved",
       lede: "Describe the work in your own words, pick the customer (existing or new), then the site address for this job.",
       detailsLabel: "job details",
-      saveLabel: "Save job into Blake",
+      saveLabel: "Save job into Core",
       classicHref: "/?view=job-create",
       classicLabel: "Use classic form instead",
-      completeMessage: "Job details are complete. Confirm and I’ll create the job in Blake Core.",
+      completeMessage: "Job details are complete. Confirm and I’ll create the job in Core.",
       fillMessage: "I’ve filled the remaining details. Confirm when ready to save the job.",
       flowHighlight: "Job" as const,
     };
@@ -191,10 +191,10 @@ function stageCopy(mode: RecordMode | null) {
     titleDone: "Lead saved",
     lede: "Describe the work in your own words, then customer / site / phone / email. Survey detail comes after the visit.",
     detailsLabel: "lead details",
-    saveLabel: "Save lead into Blake",
+    saveLabel: "Save lead into Core",
     classicHref: "/?view=lead-create",
     classicLabel: "Use classic form instead",
-    completeMessage: "Lead details are complete. Book the surveyor and I’ll save this into Blake Core.",
+    completeMessage: "Lead details are complete. Book the surveyor and I’ll save this into Core.",
     fillMessage: "I’ve filled the remaining lead details. Book the surveyor when ready.",
     flowHighlight: "Lead" as const,
   };
@@ -220,7 +220,7 @@ export function AiIntakeClient() {
   const [customerName, setCustomerName] = useState("");
   const [fields, setFields] = useState<MandatoryField[]>(() => cloneIntakeFields());
   const [conversation, setConversation] = useState<Array<{ role: "customer" | "ai"; text: string }>>([
-    { role: "ai", text: blakeOpener(null) },
+    { role: "ai", text: aylaOpener(null) },
   ]);
   const [source, setSource] = useState<LeadSource>("Phone call");
   const [surveyor, setSurveyor] = useState("");
@@ -243,7 +243,7 @@ export function AiIntakeClient() {
       setRecordMode(mode);
       setPhase("workType");
       setSavedKind(mode);
-      setConversation([{ role: "ai", text: blakeOpener(mode) }]);
+      setConversation([{ role: "ai", text: aylaOpener(mode) }]);
     }
     setSurveyDate(tomorrowIso());
   }, []);
@@ -371,7 +371,7 @@ export function AiIntakeClient() {
     setSelectedClient(null);
     setCustomerName("");
     setFields(cloneIntakeFields());
-    setConversation([{ role: "ai", text: blakeOpener(mode) }]);
+    setConversation([{ role: "ai", text: aylaOpener(mode) }]);
     setError("");
     setSavedLead(null);
     setSavedRef("");
@@ -387,7 +387,7 @@ export function AiIntakeClient() {
     setConversation((prev) => [
       ...prev,
       { role: "customer", text: modeLabel(mode) },
-      { role: "ai", text: blakeOpener(mode) },
+      { role: "ai", text: aylaOpener(mode) },
     ]);
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
@@ -628,7 +628,7 @@ export function AiIntakeClient() {
         phone: fieldValue(fields, "phone"),
         email: fieldValue(fields, "email"),
         notes: selectedClient
-          ? `Existing client ${selectedClient.name}; new site via Blake`
+          ? `Existing client ${selectedClient.name}; new site via Core`
           : "Captured via Ayla AI intake",
       },
     };
@@ -778,7 +778,7 @@ export function AiIntakeClient() {
       await saveLead(name, address);
     } catch (err) {
       setPhase("book");
-      setError(err instanceof Error ? err.message : "Blake could not be reached. Check you are signed in and try again.");
+      setError(err instanceof Error ? err.message : "Core could not be reached. Check you are signed in and try again.");
     }
   }
 
@@ -805,21 +805,21 @@ export function AiIntakeClient() {
       <div className="ai-first-shell">
         <header className="ai-first-topbar">
           <div className="ai-first-brand">
-            <img src="/brand/blake-mark.svg" alt="blake." />
+            <img src="/brand/blake-wordmark-dark.svg" alt="blake." />
             <div className="ai-first-brand-copy">
               <strong>Ayla</strong>
               <span>{brandSubtitle}</span>
             </div>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-            <div className="ai-first-principle">Blake · Human Approved</div>
+            <div className="ai-first-principle">Ayla · Office intake</div>
             <a className="ai-btn-ghost" href="/" style={{ textDecoration: "none" }}>
-              <ArrowLeft size={16} /> Command Center
+              <ArrowLeft size={16} /> Back to Core
             </a>
           </div>
         </header>
 
-        <div className="ai-flow-strip" aria-label="Blake operating flow">
+        <div className="ai-flow-strip" aria-label="Job operating flow">
           {(
             [
               "Lead",
@@ -840,13 +840,13 @@ export function AiIntakeClient() {
 
         <main className="ai-first-stage">
           <section className="ai-first-panel">
-            <p className="ai-first-eyebrow">Ayla · Live Blake intake</p>
+            <p className="ai-first-eyebrow">Ayla · Create in Core</p>
             <div className="ai-header-row">
               <div>
                 <h1 className="ai-first-title">{pageTitle}</h1>
                 <p className="ai-first-lede">
                   {phase === "recordType"
-                    ? "Same Blake setup either way — pick whether we’re starting a Lead, skipping straight to a Quote, or creating a Job."
+                    ? "Same Core setup either way — pick whether we’re starting a Lead, skipping straight to a Quote, or creating a Job."
                     : copy.lede}
                 </p>
               </div>
