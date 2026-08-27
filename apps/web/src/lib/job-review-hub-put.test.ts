@@ -213,7 +213,8 @@ test("CoreApp completeSelectedJob uses minimal hot path", async () => {
   const fnBody = source.slice(fnStart, fnEnd);
   assert.match(fnBody, /action: "complete"/);
   assert.match(fnBody, /postJobPassaround/);
+  assert.match(fnBody, /passaroundHoldUntilRef/);
   assert.doesNotMatch(fnBody, /setActiveJobFolderKey\(/);
   assert.doesNotMatch(fnBody, /logAuditEvent\(/);
-  assert.doesNotMatch(fnBody, /patchSelectedJob\(/);
+  assert.doesNotMatch(fnBody, /openInvoiceForJob\(/);
 });
