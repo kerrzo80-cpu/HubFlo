@@ -1,28 +1,48 @@
 import { getStoredOpenAiKey } from "@/lib/openai-key-store";
 
+type OpenAiKeyCandidate = {
+  key: string;
+  source: "NEXA_OPENAI_API_KEY" | "OPENAI_API_KEY" | "in-app";
+};
+
 /**
- * Resolve the OpenAI API key. Environment variables win (Render / production),
- * then the in-app key saved in Core Setup, then empty. Preferring env keeps
- * hosted deployments authoritative while letting operators enable AI in-app.
+ * Return every configured OpenAI key without duplicates. The Blake-specific
+ * Render key is tried first because older live deployments may still have a
+ * stale generic OPENAI_API_KEY alongside the current NEXA_OPENAI_API_KEY.
+ * Callers that support failover can try the next candidate only when OpenAI
+ * rejects the current credential/quota; keys are never logged or returned to
+ * the browser.
+ */
+export function resolveOpenAiApiKeyCandidates(): OpenAiKeyCandidate[] {
+  const raw: OpenAiKeyCandidate[] = [
+    { key: process.env.NEXA_OPENAI_API_KEY?.trim() || "", source: "NEXA_OPENAI_API_KEY" },
+    { key: process.env.OPENAI_API_KEY?.trim() || "", source: "OPENAI_API_KEY" },
+    { key: getStoredOpenAiKey()?.trim() || "", source: "in-app" },
+  ].filter((item) => Boolean(item.key));
+
+  const seen = new Set<string>();
+  return raw.filter((item) => {
+    if (seen.has(item.key)) return false;
+    seen.add(item.key);
+    return true;
+  });
+}
+
+/**
+ * Resolve one OpenAI API key for legacy callers. Blake-specific environment
+ * configuration wins, then the generic environment key, then the in-app key.
  */
 export function resolveOpenAiApiKey() {
-  return (
-    process.env.OPENAI_API_KEY?.trim()
-    || process.env.NEXA_OPENAI_API_KEY?.trim()
-    || getStoredOpenAiKey()
-    || ""
-  );
+  return resolveOpenAiApiKeyCandidates()[0]?.key || "";
 }
 
 export function openAiApiKeyEnvName() {
-  if (process.env.OPENAI_API_KEY?.trim()) return "OPENAI_API_KEY";
-  if (process.env.NEXA_OPENAI_API_KEY?.trim()) return "NEXA_OPENAI_API_KEY";
-  return "OPENAI_API_KEY or NEXA_OPENAI_API_KEY";
+  return resolveOpenAiApiKeyCandidates()[0]?.source || "OPENAI_API_KEY or NEXA_OPENAI_API_KEY";
 }
 
 /** Where the active key comes from: an environment variable, the in-app Setup key, or nowhere. */
 export function openAiKeySource(): "env" | "in-app" | "none" {
-  if (process.env.OPENAI_API_KEY?.trim() || process.env.NEXA_OPENAI_API_KEY?.trim()) return "env";
-  if (getStoredOpenAiKey()) return "in-app";
-  return "none";
+  const candidate = resolveOpenAiApiKeyCandidates()[0];
+  if (!candidate) return "none";
+  return candidate.source === "in-app" ? "in-app" : "env";
 }
