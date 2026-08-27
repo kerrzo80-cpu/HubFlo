@@ -162,6 +162,11 @@ import {
   totalDayworkLabourHours,
   type DayworkAccountRecord,
 } from "@/lib/daywork-account-form";
+import {
+  decideJobValueSync,
+  JOB_VALUE_SYNC_CIRCUIT_BREAKER,
+  PASSAROUND_HOLD_MS,
+} from "@/lib/job-value-sync";
 
 const invoiceReadiness = checkInvoiceReadiness({
   requiredTasks: { complete: 7, total: 8 },
@@ -8120,6 +8125,16 @@ export default function Dashboard() {
   const pendingInvoiceSaveRef = useRef(false);
   const quoteCostCentresRef = useRef<Record<string, QuoteCostCentre[]>>({});
   const savedRecordFingerprintRef = useRef("");
+  /** Detect job value sync thrash (>20 setState cycles). */
+  const jobValueSyncLoopGuardRef = useRef({ runs: 0, changedRuns: 0 });
+  /** Last centre-derived value written per job — breaks value sync ↔ setJobs ping-pong. */
+  const lastSyncedJobValueRef = useRef<Record<string, number>>({});
+  /** Recent nextValues per job — detect A↔B oscillation from remapping fights. */
+  const jobValueSyncHistoryRef = useRef<Record<string, number[]>>({});
+  /** Jobs frozen after detected value oscillation (centre remaps fighting hub/header). */
+  const valueSyncFrozenJobsRef = useRef<Set<string>>(new Set());
+  /** After Complete/Ready, skip value-sync setJobs so status/next patches don't ping-pong. */
+  const passaroundHoldUntilRef = useRef(0);
   const [costCentreInputDrafts, setCostCentreInputDrafts] = useState<Record<string, string>>({});
 
   const activeEmployee = useMemo(
@@ -10845,22 +10860,54 @@ export default function Dashboard() {
     });
 
     setJobs((current) => {
+      jobValueSyncLoopGuardRef.current.runs += 1;
+      // Hold after Complete / Ready-to-invoice so status patches don't re-enter value sync.
+      if (Date.now() < passaroundHoldUntilRef.current) {
+        return current;
+      }
+      // Hard circuit-breaker — runaway value sync white-screens Complete/Ready.
+      if (jobValueSyncLoopGuardRef.current.changedRuns > JOB_VALUE_SYNC_CIRCUIT_BREAKER) {
+        return current;
+      }
+
       let changed = false;
       const nextJobs = current.map((job) => {
-        // Imported simPRO jobs keep API Total on the header — remapping from cost centres
-        // was flickering values between Total and partial line sells.
-        if (job.simproJobId) return job;
         const centres = jobEstimateCostCentres[job.id];
         if (!centres?.length) return job;
 
         const nextValue = roundCurrencyValue(
           centres.reduce((total, centre) => total + estimateCostCentreTotals(centre).totalSell, 0),
         );
-        if (Math.abs((job.value ?? 0) - nextValue) < 0.01) return job;
+        const decision = decideJobValueSync({
+          headerValue: job.value ?? 0,
+          nextValue,
+          lastSynced: lastSyncedJobValueRef.current[job.id],
+          history: jobValueSyncHistoryRef.current[job.id],
+          frozen: valueSyncFrozenJobsRef.current.has(job.id),
+          holdActive: Date.now() < passaroundHoldUntilRef.current,
+          isSimpro: Boolean(job.simproJobId),
+        });
 
+        if (decision.action === "skip") return job;
+        if (decision.action === "freeze") {
+          jobValueSyncHistoryRef.current[job.id] = decision.history;
+          valueSyncFrozenJobsRef.current.add(job.id);
+          return job;
+        }
+        if (decision.action === "noop") {
+          lastSyncedJobValueRef.current[job.id] = decision.nextValue;
+          return job;
+        }
+
+        jobValueSyncHistoryRef.current[job.id] = decision.history;
+        lastSyncedJobValueRef.current[job.id] = decision.nextValue;
         changed = true;
-        return { ...job, value: nextValue };
+        return { ...job, value: decision.nextValue };
       });
+
+      if (changed) {
+        jobValueSyncLoopGuardRef.current.changedRuns += 1;
+      }
 
       return changed ? nextJobs : current;
     });
@@ -16955,6 +17002,9 @@ export default function Dashboard() {
   async function updateJobFromDirectory(job: Job, patch: Partial<Job>, message: string) {
     closeDirectoryActionMenu();
     const previous = job;
+    if (patch.status === "Completed" || patch.status === "Ready to invoice") {
+      passaroundHoldUntilRef.current = Date.now() + PASSAROUND_HOLD_MS;
+    }
     setJobs((current) => current.map((item) => (item.id === job.id ? { ...item, ...patch } : item)));
 
     try {
@@ -16966,15 +17016,19 @@ export default function Dashboard() {
       if (!response.ok) throw new Error("Unable to update job");
       const updated = (await response.json()) as Job;
       setJobs((current) => current.map((item) => (item.id === updated.id ? updated : item)));
-      logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
-        action: patch.status ? String(patch.status).toLowerCase() : "updated",
-        recordType: "job",
-        recordId: job.id,
-        summary: `${job.ref} updated from directory actions.`,
-        source: "directory actions",
-        importance: patch.status === "Closed" || patch.status === "Ready to invoice" ? "high" : "normal",
-      });
+      try {
+        logAuditEvent({
+          actor: activeEmployee?.name ?? "NeXa user",
+          action: patch.status ? String(patch.status).toLowerCase() : "updated",
+          recordType: "job",
+          recordId: job.id,
+          summary: `${job.ref} updated from directory actions.`,
+          source: "directory actions",
+          importance: patch.status === "Closed" || patch.status === "Ready to invoice" ? "high" : "normal",
+        });
+      } catch {
+        // Status already saved — ignore audit failures.
+      }
       showNotice(message);
     } catch {
       setJobs((current) => current.map((item) => (item.id === job.id ? previous : item)));
@@ -18881,14 +18935,20 @@ export default function Dashboard() {
   }
 
   function buildVariationsForJob(job: Job) {
-    const synthesisedDaywork = synthesiseDayworkDeliveryEventsFromEvidence({
-      jobId: job.id,
-      jobRef: job.ref,
-      flowStepEvidence,
-      jobCostCentres: jobEstimateCostCentres[job.id] ?? [],
-      existingEvents: jobDeliveryEvents,
-      dayworkSheets,
-    });
+    let synthesisedDaywork: JobDeliveryEvent[] = [];
+    try {
+      synthesisedDaywork = synthesiseDayworkDeliveryEventsFromEvidence({
+        jobId: job.id,
+        jobRef: job.ref,
+        flowStepEvidence,
+        jobCostCentres: jobEstimateCostCentres[job.id] ?? [],
+        existingEvents: jobDeliveryEvents,
+        dayworkSheets,
+      });
+    } catch {
+      // Daywork synthesis must never block Ready-to-invoice / invoice create.
+      synthesisedDaywork = [];
+    }
     const capturedVariations = [...jobDeliveryEvents, ...synthesisedDaywork]
       .filter((event) => event.jobId === job.id && event.kind === "variation")
       .map((event, index) => buildEventVariationFromDeliveryEvent(event, index));
@@ -18931,45 +18991,62 @@ export default function Dashboard() {
 
   function openInvoiceForJob(job: Job) {
     if (!job) return;
-    const existing = invoiceSourceMap.byJob.get(job.id) ?? null;
-    if (existing) {
-      openInvoiceRecord(existing.id);
-      showNotice(`Opening existing invoice ${existing.ref} for ${job.ref}.`);
-      return;
+    try {
+      const existing = invoiceSourceMap.byJob.get(job.id) ?? null;
+      if (existing) {
+        openInvoiceRecord(existing.id);
+        showNotice(`Opening existing invoice ${existing.ref} for ${job.ref}.`);
+        return;
+      }
+
+      const client = clients.find((item) => item.id === job.clientId) ?? null;
+      const site = job.siteId ? clientSites.find((item) => item.id === job.siteId) ?? null : null;
+      const sourceCentres = jobEstimateCostCentres[job.id] ?? makeDefaultEstimateCostCentres(job);
+      const sourceLineTotals = buildInvoiceLineTotalsFromEstimate(sourceCentres);
+      const sourceTotals = sourceLineTotals.reduce(
+        (acc, line) => ({
+          cost: acc.cost + line.costToUs,
+          charge: acc.charge + line.chargeToClient,
+          lineItems: [...acc.lineItems, line],
+        }),
+        { cost: 0, charge: 0, lineItems: [] as InvoiceLine[] },
+      );
+
+      let variations: JobVariation[] = [];
+      try {
+        variations = buildVariationsForJob(job);
+      } catch {
+        variations = [];
+      }
+
+      const created = makeInvoiceFromJobTotals(job, client, site, sourceTotals, invoices, variations, normalizedFinanceSettings);
+
+      if (!sourceLineTotals.length) {
+        showNotice(`Job ${job.ref} does not yet have cost centre lines; invoice created from current values.`);
+      }
+
+      markInvoiceEdited();
+      setInvoices((current) => [created, ...current]);
+      try {
+        logAuditEvent({
+          actor: activeEmployee?.name ?? "NeXa user",
+          action: "created",
+          recordType: "invoice",
+          recordId: created.id,
+          summary: `Invoice ${created.ref} created from ${job.ref} job estimate and variations.`,
+          source: "web",
+          importance: "high",
+        });
+      } catch {
+        // Never roll back a successful invoice create because audit logging failed.
+      }
+      openInvoiceRecord(created.id);
+      showNotice(`Invoice ${created.ref} created from ${job.ref}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to create invoice from job.";
+      setSectionError(message);
+      showNotice(message);
     }
-
-    const client = clients.find((item) => item.id === job.clientId) ?? null;
-    const site = job.siteId ? clientSites.find((item) => item.id === job.siteId) ?? null : null;
-    const sourceCentres = jobEstimateCostCentres[job.id] ?? makeDefaultEstimateCostCentres(job);
-    const sourceLineTotals = buildInvoiceLineTotalsFromEstimate(sourceCentres);
-    const sourceTotals = sourceLineTotals.reduce(
-      (acc, line) => ({
-        cost: acc.cost + line.costToUs,
-        charge: acc.charge + line.chargeToClient,
-        lineItems: [...acc.lineItems, line],
-      }),
-      { cost: 0, charge: 0, lineItems: [] as InvoiceLine[] },
-    );
-
-    const created = makeInvoiceFromJobTotals(job, client, site, sourceTotals, invoices, buildVariationsForJob(job), normalizedFinanceSettings);
-
-    if (!sourceLineTotals.length) {
-      showNotice(`Job ${job.ref} does not yet have cost centre lines; invoice created from current values.`);
-    }
-
-    markInvoiceEdited();
-    setInvoices((current) => [created, ...current]);
-    logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
-      action: "created",
-      recordType: "invoice",
-      recordId: created.id,
-      summary: `Invoice ${created.ref} created from ${job.ref} job estimate and variations.`,
-      source: "web",
-      importance: "high",
-    });
-    openInvoiceRecord(created.id);
-    showNotice(`Invoice ${created.ref} created from ${job.ref}.`);
   }
 
   function openJobInvoiceCreator(job: Job) {
@@ -23452,6 +23529,7 @@ export default function Dashboard() {
 
   async function completeSelectedJob() {
     if (!selectedJob) return;
+    passaroundHoldUntilRef.current = Date.now() + PASSAROUND_HOLD_MS;
     try {
       const updated = await patchSelectedJob(
         {
@@ -23461,16 +23539,21 @@ export default function Dashboard() {
         `${selectedJob.ref} marked Complete — tick pass around, then approve for invoice.`,
       );
       if (!updated) return;
-      setActiveJobFolderKey("review");
-      logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
-        action: "completed",
-        recordType: "job",
-        recordId: updated.id,
-        summary: `${updated.ref} marked Complete and awaiting pass around.`,
-        source: "job completion",
-        importance: "high",
-      });
+      // Hot path: keep to setJobs (via patch) + notice. Folder switch and audit are optional.
+      try {
+        setActiveJobFolderKey("review");
+        logAuditEvent({
+          actor: activeEmployee?.name ?? "NeXa user",
+          action: "completed",
+          recordType: "job",
+          recordId: updated.id,
+          summary: `${updated.ref} marked Complete and awaiting pass around.`,
+          source: "job completion",
+          importance: "high",
+        });
+      } catch {
+        // Never fail Complete because folder/audit side effects threw.
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to complete job.";
       setSectionError(message);
@@ -23485,15 +23568,19 @@ export default function Dashboard() {
     const allTicked = jobReviewChecks.every((item) => next[item.key]);
     setJobReviewApprovals((current) => ({ ...current, [selectedJob.id]: next }));
     const checkLabel = jobReviewChecks.find((item) => item.key === check)?.label ?? "Review";
-    logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
-      action: "reviewed",
-      recordType: "job",
-      recordId: selectedJob.id,
-      summary: `${checkLabel} ${existing[check] ? "unchecked" : "approved"} for ${selectedJob.ref}.`,
-      source: "completion review",
-      importance: "normal",
-    });
+    try {
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "reviewed",
+        recordType: "job",
+        recordId: selectedJob.id,
+        summary: `${checkLabel} ${existing[check] ? "unchecked" : "approved"} for ${selectedJob.ref}.`,
+        source: "completion review",
+        importance: "normal",
+      });
+    } catch {
+      // Checkbox UI must stay responsive even if audit logging fails.
+    }
 
     // Progress → Complete when passaround is fully ticked (Ready to invoice stays a separate approve step).
     const progressStatuses = [
@@ -23504,6 +23591,7 @@ export default function Dashboard() {
       "Approval required",
     ];
     if (allTicked && progressStatuses.includes(selectedJob.status)) {
+      passaroundHoldUntilRef.current = Date.now() + PASSAROUND_HOLD_MS;
       void patchSelectedJob(
         {
           status: "Completed",
@@ -23512,15 +23600,19 @@ export default function Dashboard() {
         `${selectedJob.ref} moved to Complete after full pass around.`,
       ).then((updated) => {
         if (!updated) return;
-        logAuditEvent({
-          actor: activeEmployee?.name ?? "NeXa user",
-          action: "completed",
-          recordType: "job",
-          recordId: updated.id,
-          summary: `${updated.ref} moved to Complete after site, commercial and finance pass around.`,
-          source: "completion review",
-          importance: "high",
-        });
+        try {
+          logAuditEvent({
+            actor: activeEmployee?.name ?? "NeXa user",
+            action: "completed",
+            recordType: "job",
+            recordId: updated.id,
+            summary: `${updated.ref} moved to Complete after site, commercial and finance pass around.`,
+            source: "completion review",
+            importance: "high",
+          });
+        } catch {
+          // Status already saved — ignore audit failures.
+        }
       });
     }
   }
@@ -23539,26 +23631,32 @@ export default function Dashboard() {
       showNotice("Commercial review must be logged before this job can be marked ready to invoice.");
       return;
     }
+    // Hold value sync while status flips — thrash here previously white-screened Ready to invoice.
+    passaroundHoldUntilRef.current = Date.now() + PASSAROUND_HOLD_MS;
     try {
       const updated = await patchSelectedJob(
         {
           status: "Ready to invoice",
           next: "Raise and email final invoice.",
         },
-        `${selectedJob.ref} approved and ready to invoice.`,
+        `${selectedJob.ref} is Ready to invoice. Open it from Uninvoiced when you want to raise the invoice.`,
       );
       if (!updated) return;
-      logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
-        action: "approved",
-        recordType: "job",
-        recordId: updated.id,
-        summary: `${updated.ref} passed pass around and moved to Ready to invoice.`,
-        source: "completion review",
-        importance: "high",
-      });
-      setActiveJobFolderKey("uninvoiced");
-      openInvoiceForJob(updated);
+      // Hot path: ONLY keep jobs[] + notice from patchSelectedJob.
+      // Do NOT auto-open the invoice (that render path crashed live), switch folders, or require audit.
+      try {
+        logAuditEvent({
+          actor: activeEmployee?.name ?? "NeXa user",
+          action: "approved",
+          recordType: "job",
+          recordId: updated.id,
+          summary: `${updated.ref} passed pass around and moved to Ready to invoice.`,
+          source: "completion review",
+          importance: "high",
+        });
+      } catch {
+        // Status already saved — ignore audit failures.
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to approve job for invoice.";
       setSectionError(message);
