@@ -12,5 +12,6 @@ describe("hub-state schedule clash gate", () => {
     assert.match(source, /before !== after/);
     assert.match(source, /assertNoHubScheduleClashes/);
     assert.match(source, /Pre-existing imported/);
+    assert.match(source, /hubSchedulePlansSignature/);
   });
 });

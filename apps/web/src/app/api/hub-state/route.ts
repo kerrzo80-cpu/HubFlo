@@ -21,6 +21,33 @@ import {
 } from "@/lib/schedule-clash";
 import { useDemoSeedData } from "@/lib/workspace-mode";
 
+/** Stable compare for schedule plans — ignores object key insertion order. */
+function hubSchedulePlansSignature(plans: unknown): string {
+  if (!plans || typeof plans !== "object") return "";
+  const rows: string[] = [];
+  for (const [jobId, list] of Object.entries(plans as Record<string, unknown>)) {
+    if (!Array.isArray(list)) continue;
+    for (const raw of list) {
+      if (!raw || typeof raw !== "object") continue;
+      const row = raw as Record<string, unknown>;
+      rows.push(
+        [
+          jobId,
+          String(row.id || ""),
+          String(row.employeeId || ""),
+          String(row.employeeName || ""),
+          String(row.startDate || ""),
+          String(row.startTime || ""),
+          String(row.endDate || ""),
+          String(row.endTime || ""),
+        ].join("|"),
+      );
+    }
+  }
+  rows.sort();
+  return rows.join("\n");
+}
+
 export async function GET(request: Request) {
   const access = getAccessProfileFromHeaders(request.headers);
   if (!access.showJobs && !access.showQuotes && !access.showFinance) {
@@ -47,6 +74,18 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   const access = getAccessProfileFromHeaders(request.headers);
   if (!access.canEditJobs && !access.canCreateQuote && !access.canEditInvoice) {
+    // #region agent log
+    try {
+      const { appendFileSync, mkdirSync } = await import("node:fs");
+      mkdirSync("/opt/cursor/logs", { recursive: true });
+      appendFileSync(
+        "/opt/cursor/logs/debug.log",
+        `${JSON.stringify({ location: "hub-state/route.ts:PUT", message: "forbidden", hypothesisId: "C", data: { canEditJobs: access.canEditJobs, canCreateQuote: access.canCreateQuote, canEditInvoice: access.canEditInvoice }, timestamp: Date.now() })}\n`,
+      );
+    } catch {
+      /* ignore debug log failures */
+    }
+    // #endregion
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -61,6 +100,32 @@ export async function PUT(request: Request) {
     const recordLockContext = raw.recordLockContext;
     const payload: HubDetailState = { ...raw };
     delete (payload as { recordLockContext?: unknown }).recordLockContext;
+
+    // #region agent log
+    try {
+      const { appendFileSync, mkdirSync } = await import("node:fs");
+      const planKeys = Object.keys(payload.jobSchedulePlans || {});
+      mkdirSync("/opt/cursor/logs", { recursive: true });
+      appendFileSync(
+        "/opt/cursor/logs/debug.log",
+        `${JSON.stringify({
+          location: "hub-state/route.ts:PUT",
+          message: "hub PUT received",
+          hypothesisId: "A,B",
+          data: {
+            payloadKeys: Object.keys(payload),
+            hasJobReviews: payload.jobReviews !== undefined,
+            hasJobSchedulePlans: payload.jobSchedulePlans !== undefined,
+            schedulePlanJobCount: planKeys.length,
+            hasRecordLock: Boolean(recordLockContext?.recordId),
+          },
+          timestamp: Date.now(),
+        })}\n`,
+      );
+    } catch {
+      /* ignore debug log failures */
+    }
+    // #endregion
 
     const authUser = getAuthenticatedUser(request);
     if (authUser && recordLockContext?.recordId) {
@@ -82,14 +147,39 @@ export async function PUT(request: Request) {
     if (payload.jobSchedulePlans !== undefined) {
       // Only hard-block when schedule plans actually change. Pre-existing imported
       // clashes must not fail every unrelated hub autosave (Setup, invoices, etc.).
-      const before = JSON.stringify(current.jobSchedulePlans ?? {});
-      const after = JSON.stringify(payload.jobSchedulePlans ?? {});
+      // Use a sorted assignment signature — JSON.stringify key order alone is unstable
+      // across client rebuilds and was re-blocking review/invoice saves on live data.
+      const before = hubSchedulePlansSignature(current.jobSchedulePlans);
+      const after = hubSchedulePlansSignature(payload.jobSchedulePlans);
       if (before !== after) {
         const leadAssignments = leadSurveysToAssignments(getLeads());
         const clashError = assertNoHubScheduleClashes(
           (merged.jobSchedulePlans || {}) as Record<string, HubScheduleAssignment[]>,
           leadAssignments,
         );
+        // #region agent log
+        try {
+          const { appendFileSync, mkdirSync } = await import("node:fs");
+          mkdirSync("/opt/cursor/logs", { recursive: true });
+          appendFileSync(
+            "/opt/cursor/logs/debug.log",
+            `${JSON.stringify({
+              location: "hub-state/route.ts:PUT",
+              message: "schedule plans considered changed",
+              hypothesisId: "A",
+              data: {
+                beforeLen: before.length,
+                afterLen: after.length,
+                clashError: clashError || null,
+                leadAssignmentCount: leadAssignments.length,
+              },
+              timestamp: Date.now(),
+            })}\n`,
+          );
+        } catch {
+          /* ignore debug log failures */
+        }
+        // #endregion
         if (clashError) {
           return NextResponse.json({ error: clashError, code: "SCHEDULE_CLASH" }, { status: 409 });
         }
@@ -109,9 +199,35 @@ export async function PUT(request: Request) {
     });
   } catch (error) {
     const locked = recordLockErrorResponse(error);
-    if (locked) return locked;
+    if (locked) {
+      // #region agent log
+      try {
+        const { appendFileSync, mkdirSync } = await import("node:fs");
+        mkdirSync("/opt/cursor/logs", { recursive: true });
+        appendFileSync(
+          "/opt/cursor/logs/debug.log",
+          `${JSON.stringify({ location: "hub-state/route.ts:PUT", message: "record lock reject", hypothesisId: "D", data: {}, timestamp: Date.now() })}\n`,
+        );
+      } catch {
+        /* ignore */
+      }
+      // #endregion
+      return locked;
+    }
     const message = error instanceof Error ? error.message : "Hub save failed";
     const oom = /heap|out of memory|ENOMEM|allocation/i.test(message);
+    // #region agent log
+    try {
+      const { appendFileSync, mkdirSync } = await import("node:fs");
+      mkdirSync("/opt/cursor/logs", { recursive: true });
+      appendFileSync(
+        "/opt/cursor/logs/debug.log",
+        `${JSON.stringify({ location: "hub-state/route.ts:PUT", message: "hub PUT exception", hypothesisId: "B", data: { message, oom }, timestamp: Date.now() })}\n`,
+      );
+    } catch {
+      /* ignore */
+    }
+    // #endregion
     return NextResponse.json(
       { error: oom ? "Hub save too large — try again after closing fat BoQ views." : message },
       { status: oom ? 413 : 500 },
