@@ -1,3 +1,4 @@
+// Monday pilot release gate: this test intentionally exercises the real room-quote and edit capabilities.
 import test from "node:test";
 import assert from "node:assert/strict";
 
