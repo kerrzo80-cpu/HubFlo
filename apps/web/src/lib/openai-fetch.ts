@@ -1,4 +1,5 @@
 import { extractOpenAiUsage, getBlakeAiSpendGuard, recordBlakeAiUsage } from "@/lib/blake-ai-usage";
+import { resolveOpenAiApiKeyCandidates } from "@/lib/openai-env";
 import { fetchWithTimeout } from "@/lib/fetch-timeout";
 
 /** Default cap for most OpenAI Responses / chat calls. */
@@ -28,10 +29,61 @@ function isOpenAiRequest(url: string) {
   }
 }
 
+function bearerToken(init?: RequestInit) {
+  const headers = new Headers(init?.headers);
+  const auth = headers.get("authorization") || "";
+  const match = auth.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || "";
+}
+
+function withBearer(init: RequestInit | undefined, key: string): RequestInit {
+  const headers = new Headers(init?.headers);
+  headers.set("Authorization", `Bearer ${key}`);
+  return { ...init, headers };
+}
+
+async function shouldTryAlternateKey(response: Response) {
+  if (response.status === 401 || response.status === 403) return true;
+  if (response.status !== 429) return false;
+  try {
+    const text = (await response.clone().text()).toLowerCase();
+    return text.includes("quota")
+      || text.includes("billing")
+      || text.includes("api key")
+      || text.includes("rate_limit")
+      || text.includes("rate limit");
+  } catch {
+    return true;
+  }
+}
+
+async function fetchOpenAiWithConfiguredKeyFailover(
+  url: string,
+  init: RequestInit | undefined,
+  timeoutMs: number,
+) {
+  let response = await fetchWithTimeout(url, init, timeoutMs);
+  if (response.ok || !(await shouldTryAlternateKey(response))) return response;
+
+  const currentKey = bearerToken(init);
+  const alternates = resolveOpenAiApiKeyCandidates().filter((item) => item.key !== currentKey);
+  for (const alternate of alternates) {
+    console.warn(`OpenAI rejected the active credential; retrying with ${alternate.source}.`);
+    response = await fetchWithTimeout(url, withBearer(init, alternate.key), timeoutMs);
+    if (response.ok || !(await shouldTryAlternateKey(response))) return response;
+  }
+  return response;
+}
+
 /**
  * Server-side fetch to OpenAI with a hard timeout so hung calls cannot pin
  * Render/AWS memory indefinitely. OpenAI JSON calls are also metered here so
  * Ayla's usage guard applies consistently to chat, survey and takeoff AI.
+ *
+ * Live can contain both the historic NEXA_OPENAI_API_KEY and a generic
+ * OPENAI_API_KEY. If OpenAI rejects one credential (auth/quota/rate-limit),
+ * retry the same request with the other configured credential before failing.
+ * No key values are logged or returned to the browser.
  */
 export async function openAiFetch(
   url: string,
@@ -54,7 +106,10 @@ export async function openAiFetch(
     }
   }
 
-  const response = await fetchWithTimeout(url, init, timeoutMs);
+  const response = meter
+    ? await fetchOpenAiWithConfiguredKeyFailover(url, init, timeoutMs)
+    : await fetchWithTimeout(url, init, timeoutMs);
+
   if (meter && response.ok) {
     try {
       const body = await response.clone().json();
