@@ -5,7 +5,7 @@ import {
   type AuditEvent,
 } from "@/lib/people-data";
 import { checkQuoteConversion } from "@hubflo/domain";
-import { getHubDetailState } from "@/lib/hub-detail-store";
+import { peekHubJobReviews, getHubDetailState } from "@/lib/hub-detail-store";
 import { compareReferenceDesc, numberedReference } from "@/lib/numbering";
 import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
 import { useDemoSeedData } from "@/lib/workspace-mode";
@@ -84,9 +84,9 @@ export interface Job {
 }
 
 /** Legacy Ready-to-invoice records without the mandatory three-person review belong in Complete. */
-function withEnforcedInvoiceReview(job: Job): Job {
+function withEnforcedInvoiceReview(job: Job, reviews?: Record<string, unknown>): Job {
   if (job.status !== "Ready to invoice") return job;
-  const review = getHubDetailState().jobReviews?.[job.id];
+  const review = (reviews ?? peekHubJobReviews())[job.id];
   if (jobInvoiceReviewComplete(review)) return job;
   return {
     ...job,
@@ -498,8 +498,11 @@ export function getJobs(): Job[] {
       // Trial bootstrap is best-effort.
     }
   }
+  // Read reviews once — calling getHubDetailState() per Ready-to-invoice job cloned the
+  // entire hub and OOMed live (parallel clients/jobs/quotes 502s).
+  const reviews = peekHubJobReviews();
   return clone(getStore().jobs)
-    .map(withEnforcedInvoiceReview)
+    .map((job) => withEnforcedInvoiceReview(job, reviews))
     .sort((left, right) => compareReferenceDesc(left.ref, right.ref));
 }
 
@@ -515,7 +518,7 @@ export function resetWorkflowStore(): WorkflowStore {
 export function getJob(id: string): Job | undefined {
   const match = getStore().jobs.find((job) => job.id === id);
   if (!match) return undefined;
-  return clone(withEnforcedInvoiceReview(match));
+  return clone(withEnforcedInvoiceReview(match, peekHubJobReviews()));
 }
 
 export function saveJob(job: Job): Job {

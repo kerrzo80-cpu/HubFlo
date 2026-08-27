@@ -168,6 +168,16 @@ function rehydrateHubDetailStateFromDisk() {
 }
 
 /**
+ * Passaround / job list hot path — do NOT clone the full hub (that OOMed live getJobs).
+ */
+export function peekHubJobReviews(): Record<string, unknown> {
+  rehydrateHubDetailStateFromDisk();
+  const raw = hubDetailState.jobReviews;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return raw as Record<string, unknown>;
+}
+
+/**
  * Pull Field daywork sheets / evidence / events from SQLite before mutating memory.
  * Prevents a Core worker with a stale module cache from wiping another worker’s Field save.
  */
