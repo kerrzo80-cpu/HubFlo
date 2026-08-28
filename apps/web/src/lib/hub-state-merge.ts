@@ -1,4 +1,6 @@
 import type { HubDetailState } from "@/lib/hub-detail-store";
+import { normalizeBusinessBranding, type BusinessBrandingSettings } from "@/lib/branding";
+import { isPlaceholderCompanyNumber, isPlaceholderVatNumber } from "@/lib/commercial-safeguards";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -573,14 +575,55 @@ export function mergeJobReviews(serverValue: unknown, clientValue: unknown) {
   return merged;
 }
 
+function preferSetupTextField(
+  serverValue: string | undefined,
+  clientValue: string | undefined,
+  isPlaceholder: (value?: string) => boolean,
+) {
+  const client = String(clientValue || "").trim();
+  const server = String(serverValue || "").trim();
+  if (!client) return server;
+  if (isPlaceholder(client) && server && !isPlaceholder(server)) return server;
+  return client;
+}
+
+/** Prevent stale Core autosaves from wiping real company details with demo placeholders. */
+export function mergeBusinessSettings(serverValue: unknown, clientValue: unknown): BusinessBrandingSettings {
+  const server = normalizeBusinessBranding(serverValue as Partial<BusinessBrandingSettings>);
+  const client = normalizeBusinessBranding(clientValue as Partial<BusinessBrandingSettings>);
+  const isBlankCompanyName = (value?: string) => !String(value || "").trim() || String(value || "").trim() === "Company";
+  const isBlankUtr = (value?: string) => !String(value || "").trim() || /^0+$/.test(String(value || "").replace(/\D/g, ""));
+
+  return normalizeBusinessBranding({
+    ...server,
+    ...client,
+    companyName: preferSetupTextField(server.companyName, client.companyName, isBlankCompanyName),
+    tradingName: preferSetupTextField(server.tradingName, client.tradingName, () => false),
+    workspaceName: preferSetupTextField(server.workspaceName, client.workspaceName, () => false),
+    contactEmail: preferSetupTextField(server.contactEmail, client.contactEmail, () => false),
+    defaultFromEmail: preferSetupTextField(server.defaultFromEmail, client.defaultFromEmail, () => false),
+    phone: preferSetupTextField(server.phone, client.phone, () => false),
+    address: preferSetupTextField(server.address, client.address, () => false),
+    vatNumber: preferSetupTextField(server.vatNumber, client.vatNumber, isPlaceholderVatNumber),
+    companyNumber: preferSetupTextField(server.companyNumber, client.companyNumber, isPlaceholderCompanyNumber),
+    utrNumber: preferSetupTextField(server.utrNumber, client.utrNumber, isBlankUtr),
+  });
+}
+
 /**
  * Merge a Core client hub PUT onto the live server hub so Field/daywork writes
  * are not wiped by a stale browser tab.
  */
 export function mergeHubDetailState(serverState: HubDetailState, clientState: HubDetailState): HubDetailState {
+  const mergedSetup =
+    clientState.businessSettings !== undefined
+      ? mergeBusinessSettings(serverState.businessSettings, clientState.businessSettings)
+      : serverState.businessSettings;
+
   return {
     ...serverState,
     ...clientState,
+    ...(mergedSetup !== undefined ? { businessSettings: mergedSetup } : {}),
     flowStepEvidence: mergeFlowStepEvidence(serverState.flowStepEvidence, clientState.flowStepEvidence),
     flowStepCompletion: mergeStringKeyedRecords(serverState.flowStepCompletion, clientState.flowStepCompletion),
     jobDeliveryEvents: mergeJobDeliveryEvents(serverState.jobDeliveryEvents, clientState.jobDeliveryEvents),

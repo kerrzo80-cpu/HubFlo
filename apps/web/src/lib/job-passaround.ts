@@ -100,7 +100,12 @@ export function readyJobForInvoice(jobId: string, actor: string): {
     next: "Raise and email final invoice.",
   });
   if (!updated) throw new Error("Job not found");
+  if (updated.status !== "Ready to invoice") {
+    throw new Error("Approvals could not be saved on the server.");
+  }
 
+  // Audit is best-effort and deferred — never re-read the workflow store here.
+  // A second getJob() + people-store write overlapped office polls and HTML-502'd live.
   safeAudit({
     actor,
     action: "approved",
@@ -111,11 +116,5 @@ export function readyJobForInvoice(jobId: string, actor: string): {
     importance: "high",
   });
 
-  // Re-read through withEnforcedInvoiceReview — must stay Ready to invoice with ticks saved.
-  const confirmed = getJob(jobId) ?? updated;
-  if (confirmed.status !== "Ready to invoice") {
-    throw new Error("Approvals could not be saved on the server.");
-  }
-
-  return { job: confirmed, review };
+  return { job: updated, review };
 }

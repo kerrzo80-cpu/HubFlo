@@ -17,6 +17,8 @@ export type BusinessBrandingSettings = {
   address: string;
   vatNumber: string;
   companyNumber: string;
+  /** Unique Taxpayer Reference (UTR) for HMRC / subcontractor CIS where applicable. */
+  utrNumber: string;
   defaultFromEmail: string;
   clientPortalBrandLine: string;
   brandPrimaryColor: string;
@@ -80,6 +82,7 @@ export const defaultBusinessBrandingSettings: BusinessBrandingSettings = {
   address: "",
   vatNumber: "",
   companyNumber: "",
+  utrNumber: "",
   defaultFromEmail: "",
   clientPortalBrandLine: "Control every moving part.",
   brandPrimaryColor: "#157fa8",

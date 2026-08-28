@@ -123,6 +123,7 @@ export function isPlaceholderCompanyNumber(companyNumber?: string): boolean {
   return (
     !company ||
     company === "00000000" ||
+    company === "sc000000" ||
     company === "companynumber" ||
     company === "tba" ||
     company === "n/a" ||
