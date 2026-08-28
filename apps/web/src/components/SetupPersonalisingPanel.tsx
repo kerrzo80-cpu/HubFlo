@@ -10,6 +10,7 @@ import {
   type BusinessBrandingSettings,
 } from "@/lib/branding";
 import type { BrandingAssetKind } from "@/lib/branding-assets";
+import { prepareBrandingImage } from "@/lib/branding-image";
 
 type Props = {
   businessSettings: BusinessBrandingSettings;
@@ -56,7 +57,25 @@ const APP_LOGO_ROWS: AppLogoRow[] = [
     label: "Heat Design",
     href: "/heat-design",
   },
+  {
+    key: "trainer",
+    kind: "logo-trainer",
+    field: "trainerLogoUrl",
+    nameField: "trainerAppName",
+    label: "Trainer",
+    href: "/train",
+  },
 ];
+
+const UPLOAD_TIMEOUT_MS = 45_000;
+
+function authHeadersOnly(headers: HeadersInit): HeadersInit {
+  const source = new Headers(headers);
+  // Never force Content-Type on FormData — the browser must set the multipart boundary.
+  source.delete("Content-Type");
+  source.delete("content-type");
+  return source;
+}
 
 export function SetupPersonalisingPanel({
   businessSettings,
@@ -73,24 +92,39 @@ export function SetupPersonalisingPanel({
   const showCompany = !focus || focus === "Company";
   const showPersonalising = !focus || focus === "Personalising";
   const showPortal = !focus || focus === "Portal";
+  const busy = uploading !== null;
 
   async function uploadAsset(kind: BrandingAssetKind, file: File | null | undefined, notice: string) {
-    if (!file) return;
+    if (!file || busy) return;
     setUploading(kind);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
     try {
+      const prepared = await prepareBrandingImage(file, {
+        // Company + per-app header logos stay wide on a white plate (avoids black JPEG backgrounds).
+        // Only the shared home-screen icon is squared; it keeps transparency when possible.
+        maxEdge: kind === "icon" ? 512 : 1024,
+        square: kind === "icon",
+        background: kind === "icon" ? "transparent" : "white",
+      });
       const body = new FormData();
-      body.append("file", file);
+      body.append("file", prepared);
       const response = await fetch(`/api/branding/assets/${kind}`, {
         method: "POST",
-        headers: requestHeaders,
+        headers: authHeadersOnly(requestHeaders),
         body,
+        signal: controller.signal,
       });
-      const result = (await response.json().catch(() => null)) as {
-        error?: string;
-        url?: string;
-        businessSettings?: BusinessBrandingSettings;
-      } | null;
-      if (!response.ok) throw new Error(result?.error || "Upload failed.");
+      const raw = await response.text();
+      let result: { error?: string; url?: string; businessSettings?: BusinessBrandingSettings } | null = null;
+      try {
+        result = raw ? (JSON.parse(raw) as typeof result) : null;
+      } catch {
+        result = null;
+      }
+      if (!response.ok) {
+        throw new Error(result?.error || `Upload failed (${response.status}).`);
+      }
       if (result?.businessSettings) {
         onChange(result.businessSettings);
       } else if (result?.url) {
@@ -100,11 +134,18 @@ export function SetupPersonalisingPanel({
           const row = APP_LOGO_ROWS.find((item) => item.kind === kind);
           if (row) onChange({ [row.field]: result.url });
         }
+      } else {
+        throw new Error("Upload finished but no image URL was returned.");
       }
       onNotice(notice);
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "Could not upload image.");
+      if (error instanceof DOMException && error.name === "AbortError") {
+        onNotice("Upload timed out — try a smaller PNG or JPG.");
+      } else {
+        onNotice(error instanceof Error ? error.message : "Could not upload image.");
+      }
     } finally {
+      window.clearTimeout(timeout);
       setUploading(null);
     }
   }
@@ -125,8 +166,8 @@ export function SetupPersonalisingPanel({
           </h2>
           {showPersonalising ? (
             <p className="setup-panel-lead">
-              Make Core, Field, Survey, Takeoffs and Heat Design feel like your company — logos per app, colours, app
-              names and home-screen icons. NeXa stays hidden when white-label is on.
+              Make Core, Field, Survey, Takeoffs, Heat Design and Trainer feel like your company — logos per app,
+              colours, app names and home-screen icons. NeXa stays hidden when white-label is on.
             </p>
           ) : null}
         </div>
@@ -253,15 +294,16 @@ export function SetupPersonalisingPanel({
                   accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
                   hidden
                   onChange={(event) => {
-                    void uploadAsset("logo", event.target.files?.[0], "Company logo uploaded.");
+                    const selected = event.target.files?.[0];
                     event.target.value = "";
+                    void uploadAsset("logo", selected, "Company logo uploaded.");
                   }}
                 />
                 <div className="personalising-upload-actions">
                   <button
                     className="secondary-button"
                     type="button"
-                    disabled={uploading === "logo"}
+                    disabled={busy}
                     onClick={() => logoInputRef.current?.click()}
                   >
                     <ImagePlus size={16} />
@@ -293,15 +335,16 @@ export function SetupPersonalisingPanel({
                   accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
                   hidden
                   onChange={(event) => {
-                    void uploadAsset("icon", event.target.files?.[0], "Default home-screen icon uploaded.");
+                    const selected = event.target.files?.[0];
                     event.target.value = "";
+                    void uploadAsset("icon", selected, "Default home-screen icon uploaded.");
                   }}
                 />
                 <div className="personalising-upload-actions">
                   <button
                     className="secondary-button"
                     type="button"
-                    disabled={uploading === "icon"}
+                    disabled={busy}
                     onClick={() => iconInputRef.current?.click()}
                   >
                     <Smartphone size={16} />
@@ -324,7 +367,11 @@ export function SetupPersonalisingPanel({
             <Smartphone size={18} />
             <div>
               <strong>App names & logos</strong>
-              <small>Each app can have its own logo for headers and the home-screen icon. Leave blank to use the default icon.</small>
+              <small>
+                Each app can have its own logo for headers (and as the home-screen icon). Uploads keep the
+                original shape — wide logos stay wide so they fill the app top bar. Leave blank to use the
+                company logo / default icon.
+              </small>
             </div>
           </div>
 
@@ -335,7 +382,7 @@ export function SetupPersonalisingPanel({
               const logoValue = businessSettings[app.field];
               return (
                 <article key={app.kind} className="personalising-app-logo-card">
-                  <div className="personalising-upload-preview personalising-upload-preview-icon" style={{ borderColor: businessSettings.brandPrimaryColor }}>
+                  <div className="personalising-upload-preview" style={{ borderColor: businessSettings.brandPrimaryColor }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={preview} alt={`${app.label} logo preview`} />
                   </div>
@@ -356,15 +403,16 @@ export function SetupPersonalisingPanel({
                       accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
                       hidden
                       onChange={(event) => {
-                        void uploadAsset(app.kind, event.target.files?.[0], `${app.label} logo uploaded.`);
+                        const selected = event.target.files?.[0];
                         event.target.value = "";
+                        void uploadAsset(app.kind, selected, `${app.label} logo uploaded.`);
                       }}
                     />
                     <div className="personalising-upload-actions">
                       <button
                         className="secondary-button"
                         type="button"
-                        disabled={uploading === app.kind}
+                        disabled={busy}
                         onClick={() => appInputRefs.current[app.kind]?.click()}
                       >
                         <ImagePlus size={16} />
@@ -374,6 +422,7 @@ export function SetupPersonalisingPanel({
                         <button
                           className="secondary-button"
                           type="button"
+                          disabled={busy}
                           onClick={() => onChange({ [app.field]: "" })}
                         >
                           Use default
