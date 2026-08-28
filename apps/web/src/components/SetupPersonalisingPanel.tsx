@@ -212,6 +212,15 @@ export function SetupPersonalisingPanel({
             Company number
             <input value={businessSettings.companyNumber} onChange={(event) => onChange({ companyNumber: event.target.value })} />
           </label>
+          <label>
+            UTR (Unique Taxpayer Reference)
+            <input
+              value={businessSettings.utrNumber}
+              onChange={(event) => onChange({ utrNumber: event.target.value })}
+              placeholder="10-digit HMRC UTR"
+              inputMode="numeric"
+            />
+          </label>
         </div>
       ) : null}
 
@@ -456,6 +465,7 @@ export function SetupPersonalisingPanel({
         <small>{businessSettings.portalWelcomeText}</small>
         <small>
           {businessSettings.address} · {businessSettings.contactEmail} · VAT {businessSettings.vatNumber}
+          {businessSettings.utrNumber ? ` · UTR ${businessSettings.utrNumber}` : ""}
         </small>
       </div>
     </section>

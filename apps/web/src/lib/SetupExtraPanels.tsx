@@ -168,6 +168,7 @@ export function SetupConfigPanel({
   const [config, setConfig] = useState<SetupConfig | null>(null);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const editingTemplateId = draft.id || "";
 
   async function load() {
     setError("");
@@ -355,19 +356,35 @@ export function SetupConfigPanel({
           <div>
             <span className="permission-heading">Communications</span>
             <h2>Email templates</h2>
-            <p>Default subjects and bodies for quote, invoice, overdue chase, PO, follow-up and job confirmation.</p>
+            <p>Default subjects and bodies for quote, invoice, overdue chase, PO, follow-up and job confirmation. Click Edit on any row to change premade templates.</p>
           </div>
           <button className="secondary-button" type="button" onClick={() => void load()}><RefreshCw size={15} /> Refresh</button>
         </header>
         {error ? <p className="ops-module-error">{error}</p> : null}
         <div className="ops-table">
-          <div className="ops-table-head"><span>Template</span><span>Subject</span><span>Key</span><span /><span /></div>
+          <div className="ops-table-head"><span>Template</span><span>Subject</span><span>Key</span><span>Actions</span><span /></div>
           {(config?.emailTemplates || []).map((row) => (
             <div className="ops-table-row" key={row.id}>
               <strong>{row.name}</strong>
               <span>{row.subject}</span>
               <span>{row.key}</span>
-              <span />
+              <div className="ops-row-actions">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() =>
+                    setDraft({
+                      id: row.id,
+                      name: row.name,
+                      key: row.key,
+                      subject: row.subject,
+                      body: row.body,
+                    })
+                  }
+                >
+                  Edit
+                </button>
+              </div>
               <span />
             </div>
           ))}
@@ -376,7 +393,7 @@ export function SetupConfigPanel({
           <label>Name<input value={draft.name || ""} onChange={(e) => setDraft((c) => ({ ...c, name: e.target.value }))} /></label>
           <label>
             Key
-            <select value={draft.key || "follow-up"} onChange={(e) => setDraft((c) => ({ ...c, key: e.target.value }))}>
+            <select value={draft.key || "follow-up"} onChange={(e) => setDraft((c) => ({ ...c, key: e.target.value }))} disabled={Boolean(editingTemplateId)}>
               <option value="quote">quote</option>
               <option value="invoice">invoice</option>
               <option value="invoice-overdue">invoice-overdue</option>
@@ -392,20 +409,28 @@ export function SetupConfigPanel({
           <label className="full">Subject<input value={draft.subject || ""} onChange={(e) => setDraft((c) => ({ ...c, subject: e.target.value }))} /></label>
           <label className="full">Body<textarea value={draft.body || ""} onChange={(e) => setDraft((c) => ({ ...c, body: e.target.value }))} rows={5} /></label>
         </div>
-        <button
-          className="primary-button"
-          type="button"
-          onClick={() =>
-            void upsert("emailTemplates", {
-              name: draft.name || "Custom template",
-              key: draft.key || "follow-up",
-              subject: draft.subject || "",
-              body: draft.body || "",
-            })
-          }
-        >
-          <Plus size={15} /> Add template
-        </button>
+        <div className="setup-template-actions">
+          <button
+            className="primary-button"
+            type="button"
+            onClick={() =>
+              void upsert("emailTemplates", {
+                ...(editingTemplateId ? { id: editingTemplateId } : {}),
+                name: draft.name || "Custom template",
+                key: draft.key || "follow-up",
+                subject: draft.subject || "",
+                body: draft.body || "",
+              })
+            }
+          >
+            <Plus size={15} /> {editingTemplateId ? "Update template" : "Add template"}
+          </button>
+          {editingTemplateId ? (
+            <button className="secondary-button" type="button" onClick={() => setDraft({})}>
+              Cancel edit
+            </button>
+          ) : null}
+        </div>
       </section>
     );
   }
