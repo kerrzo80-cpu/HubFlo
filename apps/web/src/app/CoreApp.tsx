@@ -28,6 +28,7 @@ import {
   payrollSummaryToCsv,
   summarizePayrollByEngineer,
 } from "@/lib/payroll-export";
+import type { BrandedCommercialPdfInput } from "@/lib/commercial-form-pdf";
 import type { SimpleDocumentPdfInput } from "@/lib/simple-document-pdf";
 import { homeViewForPath } from "@/lib/core-routes";
 import {
@@ -1665,25 +1666,30 @@ function invoiceOutstandingBalance(invoice: Pick<Invoice, "chargeTotal" | "vatRa
   return Math.max(0, invoiceGrossTotal(invoice) - (invoice.paidAmount ?? 0));
 }
 
-function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "Company"): InvoiceEmailDraft {
+function invoiceEmailTemplateVars(
+  invoice: Invoice,
+  client: ClientRecord | null | undefined,
+  companyName: string,
+) {
   const contactName = client?.primaryContact?.split(" ")[0] || "there";
-  const totalDue = currency(invoiceGrossTotal(invoice));
-  const outstanding = currency(invoiceOutstandingBalance(invoice));
-  const paid = currency(invoice.paidAmount ?? 0);
   const daysOverdue = Math.max(0, daysSinceDate(invoice.dueDate) ?? 0);
-  const vatNote = invoice.vatNote ? `\n\n${invoice.vatNote}` : "";
-  const vars = {
+  return {
     ref: invoice.ref,
     description: invoice.title,
     contact: contactName,
     company: companyName,
-    total: totalDue,
-    outstanding,
-    paid,
+    total: currency(invoiceGrossTotal(invoice)),
+    outstanding: currency(invoiceOutstandingBalance(invoice)),
+    paid: currency(invoice.paidAmount ?? 0),
     dueDate: invoice.dueDate || invoice.issuedDate || "",
     date: invoice.dueDate || invoice.issuedDate || "",
     daysOverdue: String(daysOverdue),
   };
+}
+
+function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "Company"): InvoiceEmailDraft {
+  const vars = invoiceEmailTemplateVars(invoice, client, companyName);
+  const vatNote = invoice.vatNote ? `\n\n${invoice.vatNote}` : "";
   return {
     to: client?.email ?? invoice.sentTo ?? "",
     cc: "",
@@ -1692,7 +1698,7 @@ function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null, t
       : `${invoice.ref} - ${invoice.title}`,
     body: template?.body
       ? `${fillEmailTemplate(template.body, vars)}${vatNote}`
-      : `Hi ${contactName},\n\nPlease find attached invoice ${invoice.ref} for ${invoice.title}.\n\nTotal due including VAT: ${totalDue}.${vatNote}\n\nKind regards,\n${companyName}`,
+      : `Hi ${vars.contact},\n\nPlease find attached invoice ${invoice.ref} for ${invoice.title}.\n\nTotal due including VAT: ${vars.total}.${vatNote}\n\nKind regards,\n${companyName}`,
     attachPdf: true,
     templateId: invoice.claimType === "valuation" ? "form-template-application-payment" : "form-template-invoice",
   };
@@ -1710,6 +1716,47 @@ type SetupEmailTemplateRow = {
 
 function fillEmailTemplate(text: string, vars: Record<string, string>) {
   return text.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => vars[key] ?? "");
+}
+
+function buildBrandedCommercialDocument(input: {
+  formTemplate: FormTemplate;
+  filename: string;
+  reference: string;
+  recipient: string;
+  recipientAddress?: string;
+  issueLine?: string;
+  subject: string;
+  rows: PdfDocumentRow[];
+  subtotal: number;
+  vat: number;
+  total: number;
+  business: BusinessSettings;
+  bankDetails?: string;
+}): BrandedCommercialPdfInput {
+  return {
+    filename: input.filename,
+    title: input.formTemplate.title,
+    businessName: displayCompanyName(input.business),
+    reference: input.reference,
+    recipient: input.recipient,
+    subject: input.subject,
+    rows: input.rows.map((row) => ({
+      description: row.description,
+      detail: row.detail,
+      value: row.value || "",
+    })),
+    subtotal: currency(input.subtotal),
+    vat: currency(input.vat),
+    total: currency(input.total),
+    subtotalAmount: input.subtotal,
+    vatAmount: input.vat,
+    totalAmount: input.total,
+    formTemplate: input.formTemplate,
+    businessSettings: input.business,
+    recipientAddress: input.recipientAddress,
+    issueLine: input.issueLine,
+    bankDetails: input.bankDetails,
+  };
 }
 
 type DocumentFolderTemplate = {
@@ -17348,7 +17395,7 @@ export default function CoreApp() {
     cc?: string;
     subject: string;
     text: string;
-    document?: SimpleDocumentPdfInput;
+    document?: BrandedCommercialPdfInput | SimpleDocumentPdfInput;
     extraAttachments?: Array<{
       filename: string;
       contentBase64: string;
@@ -23066,7 +23113,7 @@ export default function CoreApp() {
     saveHubDetailStateWithInvoices(nextInvoices, "Could not save approved valuation to the shared workspace, so local fallback is being used.");
     setInvoiceEmailDrafts((current) => ({
       ...current,
-      [selectedInvoice.id]: makeInvoiceEmailDraft(approvedInvoice, selectedInvoiceClient),
+      [selectedInvoice.id]: makeInvoiceEmailDraft(approvedInvoice, selectedInvoiceClient, null, displayCompanyName(businessSettings)),
     }));
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
@@ -23301,7 +23348,7 @@ export default function CoreApp() {
     overrides?: { paidAmount?: number; outstanding?: number },
   ): SimpleDocumentPdfInput | null {
     if (!selectedInvoice) return null;
-    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const companyName = displayCompanyName(businessSettings);
     const outstanding = overrides?.outstanding ?? invoiceOutstandingBalance(selectedInvoice);
     const paidToDate = overrides?.paidAmount ?? selectedInvoice.paidAmount ?? 0;
     return {
@@ -23391,7 +23438,7 @@ export default function CoreApp() {
       return;
     }
 
-    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const companyName = displayCompanyName(businessSettings);
     const contactName =
       selectedInvoiceClient?.primaryContact?.split(" ")[0] ||
       selectedInvoice.customer.split(" ")[0] ||
@@ -24076,7 +24123,7 @@ export default function CoreApp() {
 
   function updateSelectedInvoiceEmailDraft(patch: Partial<InvoiceEmailDraft>) {
     if (!selectedInvoice) return;
-    const existing = invoiceEmailDrafts[selectedInvoice.id] ?? makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient);
+    const existing = invoiceEmailDrafts[selectedInvoice.id] ?? makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient, null, displayCompanyName(businessSettings));
     setInvoiceEmailDrafts((current) => ({
       ...current,
       [selectedInvoice.id]: { ...existing, ...patch },
@@ -24101,39 +24148,37 @@ export default function CoreApp() {
       invoiceLines: selectedInvoice.lines,
       formatMoney: currency,
     });
+    const companyName = displayCompanyName(businessSettings);
+    const templateVars = invoiceEmailTemplateVars(selectedInvoice, selectedInvoiceClient, companyName);
+    const emailSubject = fillEmailTemplate(selectedInvoiceEmailDraft.subject, templateVars);
+    const emailBody = fillEmailTemplate(selectedInvoiceEmailDraft.body, templateVars);
+    const bankDetails = isPlaceholderBankDetails(normalizedFinanceSettings)
+      ? undefined
+      : `${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · ${normalizedFinanceSettings.sortCode} · ${normalizedFinanceSettings.accountNumber}`;
     setIsSendingLiveEmail(true);
     let delivery: LiveEmailDelivery;
     try {
       delivery = await sendThroughLiveOutbox({
         to: selectedInvoiceEmailDraft.to,
         cc: selectedInvoiceEmailDraft.cc,
-        subject: selectedInvoiceEmailDraft.subject,
-        text: selectedInvoiceEmailDraft.body,
+        subject: emailSubject,
+        text: emailBody,
         document: selectedInvoiceEmailDraft.attachPdf
-          ? {
+          ? buildBrandedCommercialDocument({
+              formTemplate,
               filename: `${selectedInvoice.ref}.pdf`,
-              title:
-                formTemplate.title ||
-                (selectedInvoice.claimType === "valuation"
-                  ? "Application for payment"
-                  : selectedInvoice.claimType === "retention-release"
-                    ? "Retention release"
-                    : selectedInvoice.claimType === "credit-note"
-                      ? "Credit note"
-                      : "Invoice"),
-              businessName: businessSettings.tradingName || businessSettings.companyName,
               reference: selectedInvoice.ref,
               recipient: selectedInvoice.customer,
+              recipientAddress: selectedInvoiceSite?.address || selectedInvoiceSite?.name,
+              issueLine: `Issued ${selectedInvoice.issuedDate || currentOperatingDate}${selectedInvoice.dueDate ? ` · Due ${selectedInvoice.dueDate}` : ""}`,
               subject: selectedInvoice.title,
-              rows: documentRows.map((row) => ({
-                description: row.description,
-                detail: row.detail,
-                value: row.value || "",
-              })),
-              subtotal: currency(selectedInvoice.chargeTotal),
-              vat: currency(selectedInvoiceFinancials.vatAmount),
-              total: currency(selectedInvoiceFinancials.grandTotal),
-            }
+              rows: documentRows,
+              subtotal: selectedInvoice.chargeTotal,
+              vat: selectedInvoiceFinancials.vatAmount,
+              total: selectedInvoiceFinancials.grandTotal,
+              business: businessSettings,
+              bankDetails: formTemplate.includeBankDetails ? bankDetails : undefined,
+            })
           : undefined,
       });
     } catch (error) {
@@ -24207,8 +24252,8 @@ export default function CoreApp() {
       relatedJobId: selectedInvoice.sourceType === "job" ? selectedInvoice.sourceId : undefined,
       direction: "outbound",
       channel: "Outlook",
-      subject: selectedInvoiceEmailDraft.subject,
-      body: selectedInvoiceEmailDraft.body,
+      subject: emailSubject,
+      body: emailBody,
       from: delivery.from,
       to: selectedInvoiceEmailDraft.to.trim(),
       cc: selectedInvoiceEmailDraft.cc.trim(),
@@ -24230,7 +24275,7 @@ export default function CoreApp() {
       showNotice(`${selectedInvoice.ref} has no outstanding balance to chase.`);
       return;
     }
-    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const companyName = displayCompanyName(businessSettings);
     try {
       const response = await fetch("/api/setup-config", { headers: requestHeaders });
       const body = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
@@ -24239,7 +24284,7 @@ export default function CoreApp() {
         templates.find((row) => row.key === "invoice-overdue") ||
         templates.find((row) => row.key === "invoice") ||
         null;
-      const existing = invoiceEmailDrafts[selectedInvoice.id] ?? makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient);
+      const existing = invoiceEmailDrafts[selectedInvoice.id] ?? makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient, null, displayCompanyName(businessSettings));
       const next = makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient, template, companyName);
       setInvoiceEmailDrafts((current) => ({
         ...current,
@@ -24265,7 +24310,7 @@ export default function CoreApp() {
     if (!selectedInvoice) return null;
     const outstanding = invoiceOutstandingBalance(selectedInvoice);
     const daysOverdue = Math.max(0, daysSinceDate(selectedInvoice.dueDate) ?? 0);
-    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const companyName = displayCompanyName(businessSettings);
     return {
       filename: `${selectedInvoice.ref}-payment-chase.pdf`,
       title: "Invoice payment reminder",
@@ -25079,7 +25124,7 @@ export default function CoreApp() {
   }
 
   async function applySetupEmailTemplate(kind: "quote" | "invoice" | "invoice-overdue" | "follow-up") {
-    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const companyName = displayCompanyName(businessSettings);
     try {
       const response = await fetch("/api/setup-config", { headers: requestHeaders });
       const body = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
@@ -25095,7 +25140,7 @@ export default function CoreApp() {
       }
       if (kind === "invoice" || kind === "invoice-overdue") {
         if (!selectedInvoice) return;
-        const existing = invoiceEmailDrafts[selectedInvoice.id] ?? makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient);
+        const existing = invoiceEmailDrafts[selectedInvoice.id] ?? makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient, null, displayCompanyName(businessSettings));
         const next = makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient, template, companyName);
         setInvoiceEmailDrafts((current) => ({
           ...current,
@@ -25294,7 +25339,7 @@ export default function CoreApp() {
       return;
     }
 
-    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const companyName = displayCompanyName(businessSettings);
     const contactName =
       selectedJobClient?.primaryContact?.split(" ")[0] ||
       selectedJob.customer.split(" ")[0] ||
@@ -25482,7 +25527,7 @@ export default function CoreApp() {
       return;
     }
 
-    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const companyName = displayCompanyName(businessSettings);
     const contactName =
       selectedJobClient?.primaryContact?.split(" ")[0] ||
       selectedJob.customer.split(" ")[0] ||
@@ -25663,7 +25708,7 @@ export default function CoreApp() {
       return;
     }
 
-    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const companyName = displayCompanyName(businessSettings);
     const contactName =
       selectedJobClient?.primaryContact?.split(" ")[0] ||
       selectedJob.customer.split(" ")[0] ||
@@ -26121,8 +26166,8 @@ export default function CoreApp() {
     const portalToken = quote.portalToken ?? makeQuotePortalToken(quote);
     const portalBaseUrl = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
     const portalUrl = quote.portalUrl ?? `${portalBaseUrl}/client/quotes/${portalToken}`;
-    const emailText = `${draft.body}\n\nView and accept your quote online: ${portalUrl}`;
     const costCentres = quoteCostCentres[quote.id] ?? [];
+    const client = quote.clientId ? clients.find((record) => record.id === quote.clientId) ?? null : null;
     const formTemplate = formTemplateById(draft.templateId, draft.layout || "quote");
     const presentation = resolveFormPresentation(formTemplate);
     const subtotal = costCentres.length
@@ -26136,31 +26181,45 @@ export default function CoreApp() {
       costCentres,
       formatMoney: currency,
     });
+    const companyName = displayCompanyName(businessSettings);
+    const quoteVars = {
+      ref: quote.ref,
+      description: quote.description,
+      contact: client?.primaryContact?.split(" ")[0] || "there",
+      company: companyName,
+      total: currency(subtotal),
+      date: quote.due || "",
+    };
+    const emailSubject = fillEmailTemplate(draft.subject, quoteVars);
+    const emailBody = fillEmailTemplate(draft.body, quoteVars);
+    const emailText = `${emailBody}\n\nView and accept your quote online: ${portalUrl}`;
+    const bankDetails = isPlaceholderBankDetails(normalizedFinanceSettings)
+      ? undefined
+      : `${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · ${normalizedFinanceSettings.sortCode} · ${normalizedFinanceSettings.accountNumber}`;
     setIsSendingLiveEmail(true);
     let delivery: LiveEmailDelivery;
     try {
       delivery = await sendThroughLiveOutbox({
         to: draft.to,
         cc: draft.cc,
-        subject: draft.subject,
+        subject: emailSubject,
         text: emailText,
         document: draft.attachPdf
-          ? {
+          ? buildBrandedCommercialDocument({
+              formTemplate,
               filename: `${quote.ref}.pdf`,
-              title: formTemplate.title || "Quotation",
-              businessName: businessSettings.tradingName || businessSettings.companyName,
               reference: quote.ref,
               recipient: quote.customer,
+              recipientAddress: client?.billingAddress || undefined,
+              issueLine: `Prepared by ${quote.owner} · ${quote.due || "To confirm"}`,
               subject: quote.description,
-              rows: documentRows.map((row) => ({
-                description: row.description,
-                detail: row.detail,
-                value: row.value || "",
-              })),
-              subtotal: currency(subtotal),
-              vat: currency(vatAmount),
-              total: currency(subtotal + vatAmount),
-            }
+              rows: documentRows,
+              subtotal,
+              vat: vatAmount,
+              total: subtotal + vatAmount,
+              business: businessSettings,
+              bankDetails: formTemplate.includeBankDetails ? bankDetails : undefined,
+            })
           : undefined,
       });
     } catch (error) {
@@ -31720,7 +31779,7 @@ export default function CoreApp() {
 
   function buildActiveClientStatementDocument(): { document: SimpleDocumentPdfInput; totalOutstanding: number; invoiceCount: number } | null {
     if (!activeClient || !activeClientOutstandingInvoices.length) return null;
-    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const companyName = displayCompanyName(businessSettings);
     const asAt = currentOperatingDate;
     const rows = activeClientOutstandingInvoices.map((invoice) => {
       const outstanding = invoiceOutstandingBalance(invoice);
@@ -31784,7 +31843,7 @@ export default function CoreApp() {
       return;
     }
 
-    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const companyName = displayCompanyName(businessSettings);
     const asAt = currentOperatingDate;
     const totalOutstanding = built.totalOutstanding;
     const contactName = activeClient.primaryContact?.split(" ")[0] || "there";
