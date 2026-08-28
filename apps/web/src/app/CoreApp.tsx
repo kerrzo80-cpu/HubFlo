@@ -174,6 +174,7 @@ import {
   type XeroMappedSlot,
   type XeroTaxCodeMapping,
 } from "@/lib/xero-mapping";
+import { invoiceDraftPendingXeroSend, invoiceEligibleForXeroExport } from "@/lib/xero-export-queue";
 import { XeroMappingPanel } from "@/lib/XeroMappingPanel";
 import {
   DIRECTORY_ALPHABET_LETTERS,
@@ -14712,12 +14713,16 @@ export default function CoreApp() {
   const xeroSalesToExport = useMemo(
     () =>
       invoices
-        .filter((invoice) => {
-          if (invoice.claimType === "valuation") return false;
-          if (invoice.status === "Cancelled" || invoice.status === "Draft") return false;
-          if (!invoice.lines.length) return false;
-          return (invoice.accountsStatus || "Not sent") !== "Sent";
-        })
+        .filter((invoice) => invoiceEligibleForXeroExport(invoice))
+        .sort((left, right) => right.issuedDate.localeCompare(left.issuedDate)),
+    [invoices],
+  );
+
+  /** Draft invoices with lines — excluded from Xero until emailed or recorded as sent. */
+  const xeroSalesDraftPendingSend = useMemo(
+    () =>
+      invoices
+        .filter((invoice) => invoiceDraftPendingXeroSend(invoice))
         .sort((left, right) => right.issuedDate.localeCompare(left.issuedDate)),
     [invoices],
   );
@@ -24112,6 +24117,97 @@ export default function CoreApp() {
         : `Invoice ${selectedInvoice.ref} sent and logged.`,
     );
     setIsSendingLiveEmail(false);
+  }
+
+  function recordSelectedInvoiceSentWithoutEmail() {
+    if (!selectedInvoice) return;
+    if (selectedInvoice.claimType === "valuation") {
+      showNotice("Valuations use Submit valuation, not invoice send.");
+      return;
+    }
+    if (selectedInvoice.status === "Cancelled") {
+      showNotice("Cancelled invoices cannot be marked sent.");
+      return;
+    }
+    if (!selectedInvoice.lines.length) {
+      showNotice("Add invoice lines before marking as sent.");
+      return;
+    }
+    const sentTo =
+      selectedInvoiceEmailDraft?.to?.trim() ||
+      selectedInvoiceClient?.email?.trim() ||
+      selectedInvoice.sentTo?.trim() ||
+      "printed / handed over";
+    const sentAt = currentOperatingDate;
+    const sourceJob =
+      selectedInvoice.sourceType === "job"
+        ? jobs.find((job) => job.id === selectedInvoice.sourceId) ?? null
+        : null;
+    const shouldMarkJobInvoiced = Boolean(
+      sourceJob && (!selectedInvoice.claimType || selectedInvoice.claimType === "full"),
+    );
+    markInvoiceEdited();
+    setInvoices((current) => {
+      const next = current.map((invoice) =>
+        invoice.id === selectedInvoice.id
+          ? {
+              ...invoice,
+              status: "Sent" as InvoiceStatus,
+              sentTo,
+              sentAt,
+            }
+          : invoice,
+      );
+      saveHubDetailStateWithInvoices(next, "Could not save invoice send record.");
+      return next;
+    });
+    if (sourceJob && shouldMarkJobInvoiced) {
+      void persistJobPatch(sourceJob.id, {
+        status: "Invoiced",
+        health: "green",
+        next: `Invoice ${selectedInvoice.ref} sent. Await payment.`,
+        due: selectedInvoice.dueDate,
+      }).catch(() => {
+        showNotice(`Invoice ${selectedInvoice.ref} marked Sent, but ${sourceJob.ref} could not be updated to Invoiced — retry from Jobs.`);
+      });
+    }
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "sent",
+      recordType: "invoice",
+      recordId: selectedInvoice.id,
+      summary: `${selectedInvoice.ref} marked Sent (no email) · to ${sentTo}.`,
+      source: "web",
+      importance: "high",
+    });
+    if (sourceJob && shouldMarkJobInvoiced) {
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "invoiced",
+        recordType: "job",
+        recordId: sourceJob.id,
+        summary: `${sourceJob.ref} marked Invoiced after ${selectedInvoice.ref} was recorded as sent (no email).`,
+        source: "invoice send",
+        importance: "high",
+      });
+    }
+    addCommunicationRecord({
+      recordType: "invoice",
+      recordId: selectedInvoice.id,
+      relatedJobId: selectedInvoice.sourceType === "job" ? selectedInvoice.sourceId : undefined,
+      direction: "outbound",
+      channel: "Note",
+      subject: selectedInvoiceEmailDraft?.subject || `Invoice ${selectedInvoice.ref}`,
+      body: selectedInvoiceEmailDraft?.body || `Invoice recorded as sent offline / printed.`,
+      from: activeEmployee?.name ?? "NeXa user",
+      to: sentTo,
+      status: "Logged",
+    });
+    showNotice(
+      sourceJob && shouldMarkJobInvoiced
+        ? `${selectedInvoice.ref} marked Sent — ${sourceJob.ref} is Invoiced and will appear under Xero → Sales to export.`
+        : `${selectedInvoice.ref} marked Sent — it will appear under Xero → Sales to export.`,
+    );
   }
 
   async function prepareSelectedInvoicePaymentChase() {
@@ -45078,7 +45174,23 @@ export default function CoreApp() {
                         </span>
                       </div>
                     ))}
-                    {!xeroSalesToExport.length ? <p className="muted">Nothing waiting to export. Sent invoices and credits appear here until marked or pushed to Xero.</p> : null}
+                    {!xeroSalesToExport.length ? (
+                      <div className="muted">
+                        <p>Nothing waiting to export. Sent invoices and credits appear here until marked or pushed to Xero.</p>
+                        {xeroSalesDraftPendingSend.length ? (
+                          <p>
+                            {xeroSalesDraftPendingSend.length} draft invoice
+                            {xeroSalesDraftPendingSend.length === 1 ? "" : "s"} waiting to be sent first:{" "}
+                            {xeroSalesDraftPendingSend
+                              .slice(0, 6)
+                              .map((invoice) => invoice.ref)
+                              .join(", ")}
+                            {xeroSalesDraftPendingSend.length > 6 ? "…" : ""}. Open each in Invoices, then{" "}
+                            <strong>Email invoice</strong> or <strong>Record sent (no email)</strong> before exporting to Xero.
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 </section>
               ) : null}
@@ -46532,6 +46644,17 @@ export default function CoreApp() {
                               >
                                 Prepare chase
                               </button>
+                              {selectedInvoice.status === "Draft" ? (
+                                <button
+                                  className="secondary-button"
+                                  type="button"
+                                  disabled={!access.canEditInvoice || !selectedInvoice.lines.length}
+                                  title="Mark invoice Sent without email — job moves to Invoiced and invoice appears in Xero → Sales to export"
+                                  onClick={() => recordSelectedInvoiceSentWithoutEmail()}
+                                >
+                                  Record sent (no email)
+                                </button>
+                              ) : null}
                               <button
                                 className="secondary-button"
                                 type="button"
