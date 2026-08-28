@@ -6,6 +6,8 @@ import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/li
 export const nexaSessionCookie = "nexa_session";
 /** Individual-user sessions expire after 12 hours (was 30 days). */
 export const nexaSessionMaxAgeSeconds = 60 * 60 * 12;
+/** Keep normal office sign-ins usable across a bounded set of browsers and devices. */
+export const maximumActiveSessionsPerUser = 10;
 
 type AuthUserRecord = {
   id: string;
@@ -210,17 +212,28 @@ export function authenticateUser(username: string, password: string): AuthUser |
   return safeUser(user);
 }
 
+function persistBoundedUserSession(userId: string, token: string, createdAt: string, expiresAt: string) {
+  const otherUsers = authStore.sessions.filter((session) => session.userId !== userId);
+  const existingForUser = authStore.sessions
+    .filter((session) => session.userId === userId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, maximumActiveSessionsPerUser - 1);
+
+  authStore.sessions = [
+    { tokenHash: hashSessionToken(token), userId, createdAt, expiresAt },
+    ...existingForUser,
+    ...otherUsers,
+  ];
+  persist();
+}
+
 export function createUserSession(userId: string) {
   refresh();
   pruneExpiredSessions();
   const token = randomBytes(32).toString("base64url");
   const createdAt = nowIso();
   const expiresAt = new Date(Date.now() + nexaSessionMaxAgeSeconds * 1000).toISOString();
-  authStore.sessions = [
-    { tokenHash: hashSessionToken(token), userId, createdAt, expiresAt },
-    ...authStore.sessions.filter((session) => session.userId !== userId),
-  ];
-  persist();
+  persistBoundedUserSession(userId, token, createdAt, expiresAt);
   return { token, expiresAt };
 }
 
@@ -237,11 +250,7 @@ export function createAdditionalUserSession(userId: string) {
   const token = randomBytes(32).toString("base64url");
   const createdAt = nowIso();
   const expiresAt = new Date(Date.now() + nexaSessionMaxAgeSeconds * 1000).toISOString();
-  authStore.sessions = [
-    { tokenHash: hashSessionToken(token), userId, createdAt, expiresAt },
-    ...authStore.sessions,
-  ];
-  persist();
+  persistBoundedUserSession(userId, token, createdAt, expiresAt);
   return { token, expiresAt };
 }
 
