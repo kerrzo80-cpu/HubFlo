@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import nodemailer from "nodemailer";
 
+import { formatOutboundEmailError } from "@/lib/outbound-email-errors";
 import { getHubDetailState } from "@/lib/hub-detail-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
@@ -318,9 +319,10 @@ export async function sendEmailMessage(input: OutboundEmailInput) {
         sentAt: emailIntegrationStore.lastSentAt,
       };
     } catch (error) {
-      emailIntegrationStore.lastError = error instanceof Error ? error.message : "Email authentication or send failed.";
+      const raw = error instanceof Error ? error.message : "Email authentication or send failed.";
+      emailIntegrationStore.lastError = formatOutboundEmailError(raw, emailIntegrationStore.provider);
       persist(emailIntegrationStore);
-      throw error;
+      throw new Error(emailIntegrationStore.lastError);
     } finally {
       transport.close();
     }
