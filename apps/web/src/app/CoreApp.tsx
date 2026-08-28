@@ -3645,7 +3645,7 @@ const quoteBuildTabs: Array<{ key: QuoteBuildTab; label: string }> = [
   { key: "summary", label: "Scope summary" },
   { key: "survey-tools", label: "Ask Ayla · Survey" },
   { key: "takeoff", label: "Takeoff" },
-  { key: "catalogue", label: "Catalogue" },
+  { key: "catalogue", label: "Kits" },
   { key: "one-off", label: "One-off items" },
   { key: "labour", label: "Labour" },
 ];
@@ -3655,7 +3655,7 @@ const QUOTE_SUMMARY_CATALOG_MODAL_KEY = "__quote-summary-catalog__";
 
 const jobBuildTabs: Array<{ key: JobBuildTab; label: string }> = [
   { key: "summary", label: "Scope summary" },
-  { key: "catalogue", label: "Catalogue" },
+  { key: "catalogue", label: "Kits" },
   { key: "one-off", label: "One-off items" },
   { key: "labour", label: "Labour" },
 ];
