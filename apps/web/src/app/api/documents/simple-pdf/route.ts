@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
+import { createEmailAttachmentPdf, type BrandedCommercialPdfInput } from "@/lib/commercial-form-pdf";
 import {
-  createSimpleDocumentPdf,
   simpleDocumentFilename,
   type SimpleDocumentPdfInput,
 } from "@/lib/simple-document-pdf";
@@ -17,14 +17,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = await parseJsonRequestBody<{ document?: SimpleDocumentPdfInput }>(request);
+  const body = await parseJsonRequestBody<{ document?: BrandedCommercialPdfInput }>(request);
   const document = body?.document;
   if (!document?.title && !document?.reference) {
     return NextResponse.json({ error: "Document title or reference is required." }, { status: 422 });
   }
 
   try {
-    const pdf = await createSimpleDocumentPdf(document);
+    const pdf = await createEmailAttachmentPdf(document);
     const filename = simpleDocumentFilename(document);
     return new NextResponse(new Uint8Array(pdf), {
       status: 200,

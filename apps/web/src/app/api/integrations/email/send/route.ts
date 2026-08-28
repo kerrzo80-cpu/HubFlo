@@ -3,9 +3,11 @@ import { NextResponse } from "next/server";
 import { getAccessProfileFromHeaders, employeeHeaderName } from "@/lib/access";
 import { sendEmailMessage } from "@/lib/email-integration-store";
 import {
-  createSimpleDocumentPdf,
+  createEmailAttachmentPdf,
+  type BrandedCommercialPdfInput,
+} from "@/lib/commercial-form-pdf";
+import {
   simpleDocumentFilename,
-  type SimpleDocumentPdfInput,
 } from "@/lib/simple-document-pdf";
 
 type SendEmailBody = {
@@ -14,7 +16,7 @@ type SendEmailBody = {
   subject?: string;
   text?: string;
   employeeId?: string;
-  document?: SimpleDocumentPdfInput;
+  document?: BrandedCommercialPdfInput;
   /** Extra PDFs (e.g. signed Daywork Account sheets) as base64. */
   extraAttachments?: Array<{
     filename?: string;
@@ -46,7 +48,7 @@ export async function POST(request: Request) {
     if (body.document) {
       attachments.push({
         filename: simpleDocumentFilename(body.document),
-        content: await createSimpleDocumentPdf(body.document),
+        content: await createEmailAttachmentPdf(body.document),
         contentType: "application/pdf",
       });
     }
