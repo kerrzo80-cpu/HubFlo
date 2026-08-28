@@ -127,6 +127,7 @@ import {
   normalizeBusinessBranding,
   operationsLabel,
   platformLabel,
+  resolveBrandLogoUrl,
   type BusinessBrandingSettings,
 } from "@/lib/branding";
 import {
@@ -2386,6 +2387,7 @@ const TRUSTED_EMPLOYEE_SESSION_DAYS = 60;
 
 const modules: ModuleItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, active: true },
+  { label: "Blake Trainer", icon: MessageCircle, href: "/train" },
   { label: "Leads", icon: Mail },
   { label: "Quotes", icon: FileText },
   { label: "Jobs", icon: Wrench },
@@ -7835,7 +7837,7 @@ export default function Dashboard() {
   const [createMenuPosition, setCreateMenuPosition] = useState({ left: 0, top: 0 });
   const [openModuleMenu, setOpenModuleMenu] = useState<string | null>(null);
   const [openDirectoryActionMenu, setOpenDirectoryActionMenu] = useState<{ scope: DirectoryRecordScope; id: string } | null>(null);
-  const [contextSidebarCollapsed, setContextSidebarCollapsed] = useState(true);
+  const [contextSidebarCollapsed, setContextSidebarCollapsed] = useState(false);
   const [homeView, setHomeView] = useState<HomeView>("dashboard");
   const [activeEmployeeTab, setActiveEmployeeTab] = useState<EmployeeTab>("details");
   const [activeClientTab, setActiveClientTab] = useState<ClientTab>("overview");
@@ -8054,6 +8056,14 @@ export default function Dashboard() {
     receivedPercent: string;
   }> | null>(null);
   const [poGoodsSaving, setPoGoodsSaving] = useState(false);
+  const poGoodsDirtyRef = useRef(false);
+  const poGoodsSeededIdRef = useRef<string | null>(null);
+  const poSupplierDraftDirtyRef = useRef(false);
+  const poSupplierDraftSeededIdRef = useRef<string | null>(null);
+  const invoicePaymentDraftDirtyRef = useRef(false);
+  const invoicePaymentDraftSeededIdRef = useRef<string | null>(null);
+  const retentionReleaseDraftDirtyRef = useRef(false);
+  const retentionReleaseDraftSeededIdRef = useRef<string | null>(null);
   const [isExportingInvoiceToXero, setIsExportingInvoiceToXero] = useState(false);
   const [isPullingXeroPayments, setIsPullingXeroPayments] = useState(false);
   const [isExportingPoBillToXero, setIsExportingPoBillToXero] = useState(false);
@@ -8106,8 +8116,10 @@ export default function Dashboard() {
   const [hasHydratedLocalData, setHasHydratedLocalData] = useState(false);
   const [hasLoadedHubDetailState, setHasLoadedHubDetailState] = useState(false);
   const [recordSaveStatus, setRecordSaveStatus] = useState<RecordSaveStatus>("saved");
+  const [setupSaveStatus, setSetupSaveStatus] = useState<RecordSaveStatus>("saved");
   const [handledInitialRoute, setHandledInitialRoute] = useState(false);
   const noticeClearTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setupManualSaveInFlightRef = useRef(false);
   const lastLocalSetupEditAt = useRef(0);
   const lastLocalCostCentreEditAt = useRef(0);
   const lastLocalEmployeeEditAt = useRef(0);
@@ -8470,6 +8482,12 @@ export default function Dashboard() {
     if (!selectedPurchaseOrder) {
       setPoSupplierInvoiceDraft({ amount: "", reference: "" });
       setPoSupplierPaymentDraft({ amount: "", method: "Bank transfer", reference: "" });
+      poSupplierDraftDirtyRef.current = false;
+      poSupplierDraftSeededIdRef.current = null;
+      return;
+    }
+    // Keep in-progress supplier invoice / pay fields while live poll refreshes the PO.
+    if (poSupplierDraftDirtyRef.current && poSupplierDraftSeededIdRef.current === selectedPurchaseOrder.id) {
       return;
     }
     setPoSupplierInvoiceDraft({
@@ -8488,6 +8506,8 @@ export default function Dashboard() {
       method: "Bank transfer",
       reference: "",
     });
+    poSupplierDraftSeededIdRef.current = selectedPurchaseOrder.id;
+    poSupplierDraftDirtyRef.current = false;
   }, [
     selectedPurchaseOrder?.id,
     selectedPurchaseOrder?.supplierInvoiceAmount,
@@ -8501,6 +8521,13 @@ export default function Dashboard() {
   useEffect(() => {
     if (!selectedPurchaseOrder) {
       setPoGoodsEditLines(null);
+      poGoodsDirtyRef.current = false;
+      poGoodsSeededIdRef.current = null;
+      return;
+    }
+    // Only seed when opening a different PO, or after a clean save.
+    // Live poll used to rebuild `lines` every 60s and wipe in-progress % / £ edits.
+    if (poGoodsDirtyRef.current && poGoodsSeededIdRef.current === selectedPurchaseOrder.id) {
       return;
     }
     const lines = selectedPurchaseOrder.lines?.length
@@ -8528,15 +8555,9 @@ export default function Dashboard() {
         receivedPercent: String(line.receivedPercent ?? 0),
       })),
     );
-  }, [
-    selectedPurchaseOrder?.id,
-    selectedPurchaseOrder?.updatedAt,
-    selectedPurchaseOrder?.status,
-    selectedPurchaseOrder?.item,
-    selectedPurchaseOrder?.estimatedCost,
-    selectedPurchaseOrder?.actualCost,
-    selectedPurchaseOrder?.lines,
-  ]);
+    poGoodsSeededIdRef.current = selectedPurchaseOrder.id;
+    poGoodsDirtyRef.current = false;
+  }, [selectedPurchaseOrder?.id, selectedPurchaseOrder?.updatedAt]);
 
   const selectedInvoice = useMemo(
     () => (selectedInvoiceId ? invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? null : null),
@@ -9563,6 +9584,12 @@ export default function Dashboard() {
       setInvoicePaymentAmountDraft("");
       setInvoiceCreditAmountDraft("");
       setInvoiceCreditReasonDraft("");
+      invoicePaymentDraftDirtyRef.current = false;
+      invoicePaymentDraftSeededIdRef.current = null;
+      return;
+    }
+    // Do not wipe payment / credit fields mid-edit when poll refreshes paidAmount / totals.
+    if (invoicePaymentDraftDirtyRef.current && invoicePaymentDraftSeededIdRef.current === selectedInvoice.id) {
       return;
     }
     const remaining = Math.max(0, selectedInvoiceFinancials.grandTotal - (selectedInvoice.paidAmount ?? 0));
@@ -9574,10 +9601,14 @@ export default function Dashboard() {
     ) {
       setInvoiceCreditAmountDraft("");
       setInvoiceCreditReasonDraft("");
+      invoicePaymentDraftSeededIdRef.current = selectedInvoice.id;
+      invoicePaymentDraftDirtyRef.current = false;
       return;
     }
     setInvoiceCreditAmountDraft(remaining > 0 ? remaining.toFixed(2) : selectedInvoiceFinancials.grandTotal.toFixed(2));
     setInvoiceCreditReasonDraft("");
+    invoicePaymentDraftSeededIdRef.current = selectedInvoice.id;
+    invoicePaymentDraftDirtyRef.current = false;
   }, [selectedInvoice?.id, selectedInvoice?.paidAmount, selectedInvoice?.claimType, selectedInvoice?.status, selectedInvoiceFinancials.grandTotal]);
 
   const selectedRetentionBalances = useMemo(() => {
@@ -9590,10 +9621,17 @@ export default function Dashboard() {
   useEffect(() => {
     if (!selectedInvoice || selectedInvoice.sourceType !== "job") {
       setRetentionReleaseAmountDraft("");
+      retentionReleaseDraftDirtyRef.current = false;
+      retentionReleaseDraftSeededIdRef.current = null;
       return;
     }
     if (selectedInvoice.claimType !== "progress-claim" && selectedInvoice.claimType !== "retention-release") {
       setRetentionReleaseAmountDraft("");
+      retentionReleaseDraftDirtyRef.current = false;
+      retentionReleaseDraftSeededIdRef.current = selectedInvoice.id;
+      return;
+    }
+    if (retentionReleaseDraftDirtyRef.current && retentionReleaseDraftSeededIdRef.current === selectedInvoice.id) {
       return;
     }
     setRetentionReleaseAmountDraft(
@@ -9601,6 +9639,8 @@ export default function Dashboard() {
         ? String(Math.round(selectedRetentionBalances.available * 100) / 100)
         : "",
     );
+    retentionReleaseDraftSeededIdRef.current = selectedInvoice.id;
+    retentionReleaseDraftDirtyRef.current = false;
   }, [selectedInvoice?.id, selectedInvoice?.claimType, selectedInvoice?.sourceType, selectedRetentionBalances.available]);
 
   const selectedValuationTotals = useMemo(
@@ -10969,6 +11009,8 @@ export default function Dashboard() {
     const controller = new AbortController();
     const timer = setTimeout(() => {
       const payload = buildHubDetailStatePayload();
+      // Background autosave must not flip the Save button to "Saving…" — that state
+      // was getting stuck when rapid Setup edits aborted in-flight requests.
 
       fetch("/api/hub-state", {
         method: "PUT",
@@ -10983,8 +11025,9 @@ export default function Dashboard() {
           setSectionError((current) =>
             current === "Could not save shared hub detail state, so local fallback is being used." ? null : current,
           );
-          if (setupSaveIncludesRecentEdit) {
+          if ((setupSaveIncludesRecentEdit || pendingSetupSaveRef.current) && !setupManualSaveInFlightRef.current) {
             pendingSetupSaveRef.current = false;
+            setSetupSaveStatus("saved");
           }
           if (costCentreSaveIncludesRecentEdit) {
             pendingCostCentreSaveRef.current = false;
@@ -10994,18 +11037,18 @@ export default function Dashboard() {
           }
         })
         .catch(() => {
-          if (!controller.signal.aborted) {
-            if (setupSaveIncludesRecentEdit) {
-              pendingSetupSaveRef.current = false;
-            }
-            if (costCentreSaveIncludesRecentEdit) {
-              pendingCostCentreSaveRef.current = false;
-            }
-            if (invoiceSaveIncludesRecentEdit) {
-              pendingInvoiceSaveRef.current = false;
-            }
-            setSectionError("Could not save shared hub detail state, so local fallback is being used.");
+          if (controller.signal.aborted) return;
+          if ((setupSaveIncludesRecentEdit || pendingSetupSaveRef.current) && !setupManualSaveInFlightRef.current) {
+            pendingSetupSaveRef.current = true;
+            setSetupSaveStatus("unsaved");
           }
+          if (costCentreSaveIncludesRecentEdit) {
+            pendingCostCentreSaveRef.current = false;
+          }
+          if (invoiceSaveIncludesRecentEdit) {
+            pendingInvoiceSaveRef.current = false;
+          }
+          setSectionError("Could not save shared hub detail state, so local fallback is being used.");
         });
     }, 700);
 
@@ -14757,6 +14800,65 @@ export default function Dashboard() {
     lastLocalSetupEditAt.current = Date.now();
     pendingSetupSaveRef.current = true;
     hasAppliedHubSetupState.current = true;
+    if (!setupManualSaveInFlightRef.current) {
+      setSetupSaveStatus("unsaved");
+    }
+  }
+
+  async function saveSetupNow() {
+    if (!hasLoadedHubDetailState) {
+      showNotice("Setup is still loading — try again in a moment.");
+      return;
+    }
+    if (setupManualSaveInFlightRef.current) return;
+    setupManualSaveInFlightRef.current = true;
+    setSetupSaveStatus("saving");
+    lastLocalSetupEditAt.current = Date.now();
+    pendingSetupSaveRef.current = true;
+    hasAppliedHubSetupState.current = true;
+    try {
+      const response = await fetch("/api/hub-state", {
+        method: "PUT",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify(buildHubDetailStatePayload()),
+      });
+      if (!response.ok) throw new Error(`Setup save failed (${response.status}).`);
+      pendingSetupSaveRef.current = false;
+      setSetupSaveStatus("saved");
+      showNotice("Setup saved.");
+    } catch (error) {
+      pendingSetupSaveRef.current = true;
+      setSetupSaveStatus("error");
+      showNotice(error instanceof Error ? error.message : "Could not save setup.");
+    } finally {
+      setupManualSaveInFlightRef.current = false;
+    }
+  }
+
+  function renderSetupSaveControls() {
+    const statusLabel =
+      setupSaveStatus === "saving"
+        ? "Saving to workspace…"
+        : setupSaveStatus === "unsaved"
+          ? "Unsaved changes"
+          : setupSaveStatus === "error"
+            ? "Save failed — tap Save setup"
+            : "All changes saved";
+    return (
+      <div className="setup-save-controls">
+        <span className={`setup-save-status ${setupSaveStatus}`} aria-live="polite">
+          {statusLabel}
+        </span>
+        <button
+          className="primary-button"
+          type="button"
+          disabled={setupSaveStatus === "saving"}
+          onClick={() => void saveSetupNow()}
+        >
+          {setupSaveStatus === "saving" ? "Saving…" : setupSaveStatus === "saved" ? "Saved" : "Save setup"}
+        </button>
+      </div>
+    );
   }
 
   function markCostCentreEdited() {
@@ -19483,6 +19585,7 @@ export default function Dashboard() {
       importance: "high",
     });
     setRetentionReleaseAmountDraft("");
+    retentionReleaseDraftDirtyRef.current = false;
     setActiveInvoiceFolderKey("unpaid");
     openInvoiceRecord(created.id);
     showNotice(`${created.ref} created for ${currency(amount)} retention release on ${job.ref}.`);
@@ -19538,6 +19641,8 @@ export default function Dashboard() {
         importance: "normal",
       });
       showNotice(`${selectedInvoice.ref} marked unpaid.`);
+      invoicePaymentDraftDirtyRef.current = false;
+      setInvoicePaymentAmountDraft(grandTotal > 0 ? grandTotal.toFixed(2) : "");
       return;
     }
 
@@ -19589,6 +19694,7 @@ export default function Dashboard() {
     });
     setInvoicePaymentReferenceDraft("");
     const stillRemaining = Math.max(0, grandTotal - nextPaid);
+    invoicePaymentDraftDirtyRef.current = false;
     setInvoicePaymentAmountDraft(stillRemaining > 0 ? stillRemaining.toFixed(2) : "");
     showNotice(`${selectedInvoice.ref}: recorded ${currency(amount)} · paid to date ${currency(nextPaid)}.`);
     if (invoiceRemittanceAfterPayment) {
@@ -19887,6 +19993,7 @@ export default function Dashboard() {
     });
     setInvoiceCreditAmountDraft("");
     setInvoiceCreditReasonDraft("");
+    invoicePaymentDraftDirtyRef.current = false;
     setActiveInvoiceFolderKey("credits");
     openInvoiceRecord(creditNote.id);
     showNotice(
@@ -20173,6 +20280,7 @@ export default function Dashboard() {
 
       const grandTotal = selectedInvoice.chargeTotal * (1 + selectedInvoice.vatRate / 100);
       const stillRemaining = Math.max(0, grandTotal - (body.paidAmount ?? 0));
+      invoicePaymentDraftDirtyRef.current = false;
       setInvoicePaymentAmountDraft(stillRemaining > 0 ? stillRemaining.toFixed(2) : "");
 
       logAuditEvent({
@@ -28516,6 +28624,7 @@ export default function Dashboard() {
             ? `${selectedPurchaseOrder.poNumber || "PO"} goods received / cost updated.`
             : `${selectedPurchaseOrder.poNumber || "PO"} receipt lines saved.`,
       );
+      poGoodsDirtyRef.current = false;
     } finally {
       setPoGoodsSaving(false);
     }
@@ -30343,7 +30452,7 @@ export default function Dashboard() {
       ) : null}
       <header className="global-header">
         <div className="brand-lockup">
-          <img className="company-logo" src={businessSettings.logoUrl || "/ewg-logo.png"} alt={businessSettings.companyName} />
+          <img className="company-logo" src={resolveBrandLogoUrl(businessSettings, "core")} alt={businessSettings.companyName} />
         </div>
 
         <label className="global-search">
@@ -30584,7 +30693,10 @@ export default function Dashboard() {
         </button>
       </div>
 
-      <nav className="module-bar" aria-label="Main modules">
+      <nav
+        className={openModuleMenu ? "module-bar is-menu-open" : "module-bar"}
+        aria-label="Main modules"
+      >
         <button
           className="mobile-menu sidebar-toggle"
           aria-label={contextSidebarCollapsed ? "Open navigation" : "Close navigation"}
@@ -30626,7 +30738,16 @@ export default function Dashboard() {
                       type="button"
                       className={`${isOpen || isActiveModule ? "module-link active" : "module-link"} module-dropdown-trigger`}
                       aria-expanded={isOpen}
-                      onClick={() => setOpenModuleMenu(isOpen ? null : module.label)}
+                      onClick={() => {
+                        // Always open a useful People view — menu alone looked broken when
+                        // overflow clipping hid the submenu after the iPad nav scroll fix.
+                        if (module.label === "People") {
+                          goToPeopleSection("Employees");
+                          setOpenModuleMenu(module.label);
+                          return;
+                        }
+                        setOpenModuleMenu(isOpen ? null : module.label);
+                      }}
                     >
                       <Icon size={16} strokeWidth={1.8} />
                       <span>{module.label}</span>
@@ -30827,6 +30948,10 @@ export default function Dashboard() {
 
           <div className="sidebar-divider" />
           <p className="sidebar-label">Addons</p>
+          <a href="/train" className="context-link" aria-label="Blake Trainer" data-tooltip="Blake Trainer">
+            <MessageCircle size={17} />
+            <span>Blake Trainer</span>
+          </a>
           <a href="/survey" className="context-link" aria-label="Surveyor" data-tooltip="Surveyor">
             <Sparkles size={17} />
             <span>Surveyor</span>
@@ -30845,17 +30970,9 @@ export default function Dashboard() {
           </a>
 
           <div className="support-panel">
-            {businessSettings.hidePlatformName ? (
-              <>
-                <img src={businessSettings.logoUrl || "/ewg-logo.png"} alt={businessSettings.companyName} />
-                <small>{businessSettings.productName || businessSettings.companyName}</small>
-              </>
-            ) : (
-              <>
-                <img src="/brand/nexa-command-lockup-rail.svg" alt="NeXa - Bound into one command center" />
-                <small>Service command center</small>
-              </>
-            )}
+            {/* Owner brand only — no NeXa mark in the rail. */}
+            <img src={resolveBrandLogoUrl(businessSettings, "core")} alt={businessSettings.companyName} />
+            <small>{businessSettings.productName || businessSettings.companyName}</small>
           </div>
         </aside>
 
@@ -31407,10 +31524,7 @@ export default function Dashboard() {
                   <button className="secondary-button" onClick={returnToDashboard}>
                     Back to dashboard
                   </button>
-                  <button className="primary-button" onClick={addDocumentFolderTemplate}>
-                    <Plus size={16} />
-                    Add folder
-                  </button>
+                  {renderSetupSaveControls()}
                 </>
               ) : homeView === "addons" ? (
                 <>
@@ -32788,26 +32902,28 @@ export default function Dashboard() {
                             Item {index + 1}
                             <input
                               value={line.description}
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                poGoodsDirtyRef.current = true;
                                 setPoGoodsEditLines((current) =>
                                   (current || []).map((row) =>
                                     row.id === line.id ? { ...row, description: event.target.value } : row,
                                   ),
-                                )
-                              }
+                                );
+                              }}
                             />
                           </label>
                           <label>
                             Qty
                             <input
                               value={line.quantity}
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                poGoodsDirtyRef.current = true;
                                 setPoGoodsEditLines((current) =>
                                   (current || []).map((row) =>
                                     row.id === line.id ? { ...row, quantity: event.target.value } : row,
                                   ),
-                                )
-                              }
+                                );
+                              }}
                             />
                           </label>
                           <label>
@@ -32816,13 +32932,14 @@ export default function Dashboard() {
                               <span>£</span>
                               <input
                                 value={line.estimatedCost}
-                                onChange={(event) =>
+                                onChange={(event) => {
+                                  poGoodsDirtyRef.current = true;
                                   setPoGoodsEditLines((current) =>
                                     (current || []).map((row) =>
                                       row.id === line.id ? { ...row, estimatedCost: event.target.value } : row,
                                     ),
-                                  )
-                                }
+                                  );
+                                }}
                               />
                             </div>
                           </label>
@@ -32832,13 +32949,14 @@ export default function Dashboard() {
                               <span>£</span>
                               <input
                                 value={line.actualCost}
-                                onChange={(event) =>
+                                onChange={(event) => {
+                                  poGoodsDirtyRef.current = true;
                                   setPoGoodsEditLines((current) =>
                                     (current || []).map((row) =>
                                       row.id === line.id ? { ...row, actualCost: event.target.value } : row,
                                     ),
-                                  )
-                                }
+                                  );
+                                }}
                                 placeholder="Invoice / received cost"
                               />
                             </div>
@@ -32851,13 +32969,14 @@ export default function Dashboard() {
                               max="100"
                               step="1"
                               value={line.receivedPercent}
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                poGoodsDirtyRef.current = true;
                                 setPoGoodsEditLines((current) =>
                                   (current || []).map((row) =>
                                     row.id === line.id ? { ...row, receivedPercent: event.target.value } : row,
                                   ),
-                                )
-                              }
+                                );
+                              }}
                             />
                           </label>
                         </div>
@@ -32867,7 +32986,8 @@ export default function Dashboard() {
                       <button
                         className="secondary-button"
                         type="button"
-                        onClick={() =>
+                        onClick={() => {
+                          poGoodsDirtyRef.current = true;
                           setPoGoodsEditLines((current) => [
                             ...(current || []),
                             {
@@ -32878,8 +32998,8 @@ export default function Dashboard() {
                               actualCost: "",
                               receivedPercent: "0",
                             },
-                          ])
-                        }
+                          ]);
+                        }}
                       >
                         Add line
                       </button>
@@ -32925,9 +33045,10 @@ export default function Dashboard() {
                               min="0"
                               step="0.01"
                               value={poSupplierInvoiceDraft.amount}
-                              onChange={(event) =>
-                                setPoSupplierInvoiceDraft((current) => ({ ...current, amount: event.target.value }))
-                              }
+                              onChange={(event) => {
+                                poSupplierDraftDirtyRef.current = true;
+                                setPoSupplierInvoiceDraft((current) => ({ ...current, amount: event.target.value }));
+                              }}
                               aria-label="Supplier invoice amount"
                             />
                           </label>
@@ -32935,9 +33056,10 @@ export default function Dashboard() {
                             <span>Supplier invoice ref</span>
                             <input
                               value={poSupplierInvoiceDraft.reference}
-                              onChange={(event) =>
-                                setPoSupplierInvoiceDraft((current) => ({ ...current, reference: event.target.value }))
-                              }
+                              onChange={(event) => {
+                                poSupplierDraftDirtyRef.current = true;
+                                setPoSupplierInvoiceDraft((current) => ({ ...current, reference: event.target.value }));
+                              }}
                               placeholder="Supplier INV / remittance"
                               aria-label="Supplier invoice reference"
                             />
@@ -32969,9 +33091,10 @@ export default function Dashboard() {
                               min="0"
                               step="0.01"
                               value={poSupplierPaymentDraft.amount}
-                              onChange={(event) =>
-                                setPoSupplierPaymentDraft((current) => ({ ...current, amount: event.target.value }))
-                              }
+                              onChange={(event) => {
+                                poSupplierDraftDirtyRef.current = true;
+                                setPoSupplierPaymentDraft((current) => ({ ...current, amount: event.target.value }));
+                              }}
                               aria-label="Supplier payment amount"
                             />
                           </label>
@@ -32979,9 +33102,10 @@ export default function Dashboard() {
                             <span>Method</span>
                             <select
                               value={poSupplierPaymentDraft.method}
-                              onChange={(event) =>
-                                setPoSupplierPaymentDraft((current) => ({ ...current, method: event.target.value }))
-                              }
+                              onChange={(event) => {
+                                poSupplierDraftDirtyRef.current = true;
+                                setPoSupplierPaymentDraft((current) => ({ ...current, method: event.target.value }));
+                              }}
                               aria-label="Supplier payment method"
                             >
                               <option>Bank transfer</option>
@@ -32995,9 +33119,10 @@ export default function Dashboard() {
                             <span>Payment ref</span>
                             <input
                               value={poSupplierPaymentDraft.reference}
-                              onChange={(event) =>
-                                setPoSupplierPaymentDraft((current) => ({ ...current, reference: event.target.value }))
-                              }
+                              onChange={(event) => {
+                                poSupplierDraftDirtyRef.current = true;
+                                setPoSupplierPaymentDraft((current) => ({ ...current, reference: event.target.value }));
+                              }}
                               placeholder="BACS / remittance"
                               aria-label="Supplier payment reference"
                             />
@@ -33037,6 +33162,7 @@ export default function Dashboard() {
                                   showNotice("Enter a valid supplier invoice amount.");
                                   return;
                                 }
+                                poSupplierDraftDirtyRef.current = false;
                                 void patchPurchaseRequest(
                                   selectedPurchaseOrder.id,
                                   {
@@ -33086,6 +33212,7 @@ export default function Dashboard() {
                                   actor: activeEmployee?.name ?? "NeXa user",
                                   source: "manual" as const,
                                 };
+                                poSupplierDraftDirtyRef.current = false;
                                 void patchPurchaseRequest(
                                   selectedPurchaseOrder.id,
                                   {
@@ -40205,7 +40332,10 @@ export default function Dashboard() {
                                 step="0.01"
                                 max={selectedRetentionBalances.available}
                                 value={retentionReleaseAmountDraft}
-                                onChange={(event) => setRetentionReleaseAmountDraft(event.target.value)}
+                                onChange={(event) => {
+                                  retentionReleaseDraftDirtyRef.current = true;
+                                  setRetentionReleaseAmountDraft(event.target.value);
+                                }}
                               />
                             </label>
                             <button className="primary-button" type="button" onClick={createRetentionReleaseInvoice}>
@@ -40244,13 +40374,23 @@ export default function Dashboard() {
                               min="0"
                               step="0.01"
                               value={invoicePaymentAmountDraft}
-                              onChange={(event) => setInvoicePaymentAmountDraft(event.target.value)}
+                              onChange={(event) => {
+                                invoicePaymentDraftDirtyRef.current = true;
+                                setInvoicePaymentAmountDraft(event.target.value);
+                              }}
                               aria-label="Payment amount"
                             />
                           </label>
                           <label className="accounts-payment-amount">
                             <span>Method</span>
-                            <select value={invoicePaymentMethodDraft} onChange={(event) => setInvoicePaymentMethodDraft(event.target.value)} aria-label="Payment method">
+                            <select
+                              value={invoicePaymentMethodDraft}
+                              onChange={(event) => {
+                                invoicePaymentDraftDirtyRef.current = true;
+                                setInvoicePaymentMethodDraft(event.target.value);
+                              }}
+                              aria-label="Payment method"
+                            >
                               <option>Bank transfer</option>
                               <option>Card</option>
                               <option>Cash</option>
@@ -40263,7 +40403,10 @@ export default function Dashboard() {
                             <span>Reference</span>
                             <input
                               value={invoicePaymentReferenceDraft}
-                              onChange={(event) => setInvoicePaymentReferenceDraft(event.target.value)}
+                              onChange={(event) => {
+                                invoicePaymentDraftDirtyRef.current = true;
+                                setInvoicePaymentReferenceDraft(event.target.value);
+                              }}
                               placeholder="Bank ref / remittance"
                               aria-label="Payment reference"
                             />
@@ -40289,7 +40432,10 @@ export default function Dashboard() {
                                   min="0"
                                   step="0.01"
                                   value={invoiceCreditAmountDraft}
-                                  onChange={(event) => setInvoiceCreditAmountDraft(event.target.value)}
+                                  onChange={(event) => {
+                                    invoicePaymentDraftDirtyRef.current = true;
+                                    setInvoiceCreditAmountDraft(event.target.value);
+                                  }}
                                   aria-label="Credit note amount including VAT"
                                 />
                               </label>
@@ -40297,7 +40443,10 @@ export default function Dashboard() {
                                 <span>Credit reason</span>
                                 <input
                                   value={invoiceCreditReasonDraft}
-                                  onChange={(event) => setInvoiceCreditReasonDraft(event.target.value)}
+                                  onChange={(event) => {
+                                    invoicePaymentDraftDirtyRef.current = true;
+                                    setInvoiceCreditReasonDraft(event.target.value);
+                                  }}
                                   placeholder="Defect / omission / commercial"
                                   aria-label="Credit note reason"
                                 />
@@ -41359,48 +41508,61 @@ export default function Dashboard() {
             <section className="setup-workspace setup-page-shell">
               <div className="setup-layout">
                 <aside className="setup-category-nav" aria-label="Setup categories">
-                  {setupCategories.map((category) => (
-                    <div className="setup-category-item" key={category.key}>
-                      <button
-                        className={activeSetupCategory === category.key ? "setup-category-trigger active" : "setup-category-trigger"}
-                        type="button"
-                        onClick={() => {
-                          setActiveSetupCategory(category.key);
-                          setActiveSetupSubItem(null);
-                          scrollWorkspaceToTop();
-                        }}
+                  {setupCategories.map((category) => {
+                    const isActiveCategory = activeSetupCategory === category.key;
+                    return (
+                      <div
+                        className={isActiveCategory ? "setup-category-item is-open" : "setup-category-item"}
+                        key={category.key}
                       >
-                        <strong>{category.label}</strong>
-                      </button>
-                      {category.subItems?.length ? (
-                        <div className="setup-category-submenu" role="menu" aria-label={`${category.label} options`}>
-                          {category.subItems.map((item) => (
-                            <button
-                              className={
-                                activeSetupCategory === category.key && activeSetupSubItem === item
-                                  ? "setup-submenu-option active"
-                                  : "setup-submenu-option"
-                              }
-                              key={item}
-                              type="button"
-                              role="menuitem"
-                              onClick={() => handleSetupSubItemClick(category, item)}
-                            >
-                              {item}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  ))}
+                        <button
+                          className={isActiveCategory ? "setup-category-trigger active" : "setup-category-trigger"}
+                          type="button"
+                          onClick={() => {
+                            setActiveSetupCategory(category.key);
+                            setActiveSetupSubItem(category.subItems?.[0] || null);
+                            if (category.subItems?.[0]) {
+                              handleSetupSubItemClick(category, category.subItems[0]);
+                            } else {
+                              scrollWorkspaceToTop();
+                            }
+                          }}
+                        >
+                          <strong>{category.label}</strong>
+                        </button>
+                        {category.subItems?.length && isActiveCategory ? (
+                          <div className="setup-category-submenu-inline" role="menu" aria-label={`${category.label} options`}>
+                            {category.subItems.map((item) => (
+                              <button
+                                className={
+                                  activeSetupSubItem === item
+                                    ? "setup-submenu-option active"
+                                    : "setup-submenu-option"
+                                }
+                                key={item}
+                                type="button"
+                                role="menuitem"
+                                onClick={() => handleSetupSubItemClick(category, item)}
+                              >
+                                {item}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
                 </aside>
 
                 <div className="setup-category-content">
                   <div className="setup-category-heading">
-                    <span className="permission-heading">
-                      {activeSetupSubItem ? `${activeSetupCategoryMeta.label} / ${activeSetupSubItem}` : "Setup page"}
-                    </span>
-                    <h2>{activeSetupSubItem ?? activeSetupCategoryMeta.label}</h2>
+                    <div>
+                      <span className="permission-heading">
+                        {activeSetupSubItem ? `${activeSetupCategoryMeta.label} / ${activeSetupSubItem}` : "Setup page"}
+                      </span>
+                      <h2>{activeSetupSubItem ?? activeSetupCategoryMeta.label}</h2>
+                    </div>
+                    {renderSetupSaveControls()}
                   </div>
 
                   {activeSetupSubItemMeta && !(activeSetupCategory === "communications" && (activeSetupSubItem === "Outlook" || activeSetupSubItem === "WhatsApp")) ? (

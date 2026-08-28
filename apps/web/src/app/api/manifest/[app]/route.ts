@@ -53,6 +53,13 @@ const appConfig: Record<
     shortFallback: "Heat Design",
     description: "Floor plan, emitters and heat kit linked to quotes and jobs.",
   },
+  trainer: {
+    key: "trainer",
+    startUrl: "/train",
+    scope: "/train",
+    shortFallback: "Trainer",
+    description: "Voice-first staff trainer with role-aware modules and checks.",
+  },
 };
 
 /** Dynamic PWA manifest using owner Personalising settings. */
