@@ -11606,9 +11606,7 @@ export default function CoreApp() {
     setPurchaseRequests(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.purchaseRequests, []));
     setInvoices(isLiveWorkspace ? [] : normalizeInvoiceList(safeLoadStoredJson(STORAGE_KEYS.invoices, demoInvoices)));
     setBusinessSettings(
-      isLiveWorkspace
-        ? defaultBusinessSettings
-        : normalizeBusinessBranding(safeLoadStoredJson(STORAGE_KEYS.businessSettings, defaultBusinessSettings)),
+      normalizeBusinessBranding(safeLoadStoredJson(STORAGE_KEYS.businessSettings, defaultBusinessSettings)),
     );
     const storedFormTemplates = normalizeFormTemplates(safeLoadStoredJson(STORAGE_KEYS.formTemplates, defaultFormTemplates));
     setFormTemplates(storedFormTemplates);
@@ -12100,7 +12098,7 @@ export default function CoreApp() {
     // bootAuthFingerprint — not requestHeaders object — so employee object churn does not restart boot.
   }, [hasHydratedLocalData, bootAuthFingerprint, serverWorkspaceMode]);
 
-  function buildHubDetailStatePayload(options?: { includeBoqMaps?: boolean }): HubDetailStatePayload {
+  function buildHubDetailStatePayload(options?: { includeBoqMaps?: boolean; includeSetupFields?: boolean }): HubDetailStatePayload {
     const savedEmployees = removeRetiredPilotEmployeeWhenReplaced(
       newEmployeeId ? employees.filter((employee) => employee.id !== newEmployeeId) : employees,
     );
@@ -12109,22 +12107,27 @@ export default function CoreApp() {
     const dayworkSheetsPayload =
       dayworkSheets && Object.keys(dayworkSheets).length > 0 ? dayworkSheets : undefined;
     const includeBoqMaps = options?.includeBoqMaps === true;
+    const includeSetupFields = options?.includeSetupFields === true;
     return {
       employees: savedEmployees,
-      businessSettings,
-      formTemplates,
-      activeFormTemplateId,
-      workflowRules,
-      financeSettings,
-      integrationSettings,
-      documentFolderTemplates,
-      engineerFlowTemplate,
-      engineerFlowTemplates,
-      activeEngineerFlowTemplateId,
-      costCentreTypes: costCentreTypeOptions,
-      costCentreFlowAssignmentDrafts,
-      flowStepCompletion,
-      flowStepEvidence,
+      ...(includeSetupFields
+        ? {
+            businessSettings,
+            formTemplates,
+            activeFormTemplateId,
+            workflowRules,
+            financeSettings,
+            integrationSettings,
+            documentFolderTemplates,
+            engineerFlowTemplate,
+            engineerFlowTemplates,
+            activeEngineerFlowTemplateId,
+            costCentreTypes: costCentreTypeOptions,
+            costCentreFlowAssignmentDrafts,
+            flowStepCompletion,
+            flowStepEvidence,
+          }
+        : {}),
       // Autosave must omit BoQ/takeoff maps — overlapping fat hub PUTs OOMed live during passaround.
       // Manual Save / cost-centre persist passes includeBoqMaps: true. Server merge keeps omitted keys.
       ...(includeBoqMaps
@@ -12526,8 +12529,9 @@ export default function CoreApp() {
         return;
       }
       const includeBoqMaps = costCentreSaveIncludesRecentEdit || pendingCostCentreSaveRef.current;
+      const includeSetupFields = setupSaveIncludesRecentEdit || pendingSetupSaveRef.current;
       const payload = {
-        ...buildHubDetailStatePayload({ includeBoqMaps }),
+        ...buildHubDetailStatePayload({ includeBoqMaps, includeSetupFields }),
         ...(activeRecordForLock ? { recordLockContext: activeRecordForLock } : {}),
       };
       // Background autosave must not flip the Save button to "Saving…" — that state
@@ -17625,7 +17629,7 @@ export default function CoreApp() {
         method: "PUT",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify(buildHubDetailStatePayload({ includeBoqMaps: true })),
+        body: JSON.stringify(buildHubDetailStatePayload({ includeBoqMaps: true, includeSetupFields: true })),
       });
       if (!response.ok) throw new Error(`Setup save failed (${response.status}).`);
       pendingSetupSaveRef.current = false;
