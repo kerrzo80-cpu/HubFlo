@@ -47,7 +47,7 @@ function normalizeHeader(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function detectColumns(header: string[]) {
+export function detectKitColumns(header: string[]) {
   const normalized = header.map(normalizeHeader);
   const find = (...aliases: string[]) =>
     normalized.findIndex((cell) => aliases.some((alias) => cell === alias || cell.includes(alias)));
@@ -59,6 +59,12 @@ function detectColumns(header: string[]) {
     quantity: find("quantity", "qty", "q"),
     kind: find("kind", "type", "line type"),
   };
+}
+
+/** First row of a Blake CSV template or Excel export of that template. */
+export function looksLikeCsvKitHeader(row: string[]) {
+  const columns = detectKitColumns(row);
+  return columns.kitName >= 0 && columns.description >= 0;
 }
 
 function defaultCategory(kitName: string) {
@@ -84,13 +90,12 @@ function parseQty(raw: string): number | null {
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
-export function parseKitsFromCsvText(text: string, fileName = "kits.csv"): KitXlsxImportResult {
-  const rows = parseCsvText(text);
+export function parseKitsFromTabularRows(rows: string[][], fileName = "kits.csv"): KitXlsxImportResult {
   if (!rows.length) {
     throw new Error(`No rows found in ${fileName}.`);
   }
 
-  const columns = detectColumns(rows[0] ?? []);
+  const columns = detectKitColumns(rows[0] ?? []);
   const normalizedHeader = (rows[0] ?? []).map(normalizeHeader);
   const headerLooksLikeHeader = normalizedHeader.some(
     (cell) =>
@@ -105,7 +110,7 @@ export function parseKitsFromCsvText(text: string, fileName = "kits.csv"): KitXl
       `${fileName} needs a kit_name column. Download the kits CSV template from Setup → Kits.`,
     );
   }
-  const hasHeader = columns.kitName >= 0 && columns.description >= 0;
+  const hasHeader = looksLikeCsvKitHeader(rows[0] ?? []);
   const dataRows = hasHeader ? rows.slice(1) : rows;
 
   if (hasHeader && (columns.kitName < 0 || columns.description < 0)) {
@@ -191,6 +196,11 @@ export function parseKitsFromCsvText(text: string, fileName = "kits.csv"): KitXl
     rowErrors,
     sheetName: fileName,
   };
+}
+
+export function parseKitsFromCsvText(text: string, fileName = "kits.csv"): KitXlsxImportResult {
+  const rows = parseCsvText(text);
+  return parseKitsFromTabularRows(rows, fileName);
 }
 
 export function parseKitsFromCsvBuffer(buffer: Buffer, fileName = "kits.csv"): KitXlsxImportResult {
