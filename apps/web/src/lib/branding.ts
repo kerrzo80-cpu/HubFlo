@@ -1,4 +1,4 @@
-/** Owner white-label / personalising settings shared across Core, Field, Survey, Takeoffs and Heat Design. */
+/** Owner white-label / personalising settings shared across Core, Field, Survey, Takeoffs, Heat Design and Trainer. */
 
 export type BusinessBrandingSettings = {
   companyName: string;
@@ -22,6 +22,7 @@ export type BusinessBrandingSettings = {
   surveyLogoUrl: string;
   takeoffsLogoUrl: string;
   heatDesignLogoUrl: string;
+  trainerLogoUrl: string;
   portalWelcomeText: string;
   portalAcceptanceText: string;
   /** When true, NeXa product chrome is hidden — platform feels like the owner brand. */
@@ -33,6 +34,7 @@ export type BusinessBrandingSettings = {
   surveyAppName: string;
   takeoffsAppName: string;
   heatDesignAppName: string;
+  trainerAppName: string;
 };
 
 export type PublicBranding = {
@@ -50,11 +52,13 @@ export type PublicBranding = {
   surveyLogoUrl: string;
   takeoffsLogoUrl: string;
   heatDesignLogoUrl: string;
+  trainerLogoUrl: string;
   coreAppName: string;
   fieldAppName: string;
   surveyAppName: string;
   takeoffsAppName: string;
   heatDesignAppName: string;
+  trainerAppName: string;
   clientPortalBrandLine: string;
 };
 
@@ -72,12 +76,13 @@ export const defaultBusinessBrandingSettings: BusinessBrandingSettings = {
   brandPrimaryColor: "#157fa8",
   brandAccentColor: "#0f5f7d",
   logoUrl: "/ewg-logo.png",
-  appIconUrl: "/ewg-logo.png",
+  appIconUrl: "/ewg-mark.png",
   coreLogoUrl: "",
   fieldLogoUrl: "",
   surveyLogoUrl: "",
   takeoffsLogoUrl: "",
   heatDesignLogoUrl: "",
+  trainerLogoUrl: "",
   portalWelcomeText: "Welcome to your Errol Watson Group workspace. Review quotes, jobs and invoices in one place.",
   portalAcceptanceText: "By accepting this quotation online you confirm the scope, price and terms shown.",
   hidePlatformName: true,
@@ -87,16 +92,18 @@ export const defaultBusinessBrandingSettings: BusinessBrandingSettings = {
   surveyAppName: "EWG Survey",
   takeoffsAppName: "EWG Takeoffs",
   heatDesignAppName: "EWG Heat Design",
+  trainerAppName: "EWG Trainer",
 };
 
-export type BrandAppKey = "core" | "field" | "survey" | "estimator" | "takeoffs" | "heat-design";
+export type BrandAppKey = "core" | "field" | "survey" | "estimator" | "takeoffs" | "heat-design" | "trainer";
 
 export type BrandAppLogoField =
   | "coreLogoUrl"
   | "fieldLogoUrl"
   | "surveyLogoUrl"
   | "takeoffsLogoUrl"
-  | "heatDesignLogoUrl";
+  | "heatDesignLogoUrl"
+  | "trainerLogoUrl";
 
 export function brandAppLogoField(app: BrandAppKey): BrandAppLogoField {
   switch (app) {
@@ -111,6 +118,8 @@ export function brandAppLogoField(app: BrandAppKey): BrandAppLogoField {
       return "takeoffsLogoUrl";
     case "heat-design":
       return "heatDesignLogoUrl";
+    case "trainer":
+      return "trainerLogoUrl";
     default:
       return "coreLogoUrl";
   }
@@ -138,12 +147,14 @@ export function normalizeBusinessBranding(raw?: Partial<BusinessBrandingSettings
     surveyLogoUrl: trimLogoUrl(source.surveyLogoUrl),
     takeoffsLogoUrl: trimLogoUrl(source.takeoffsLogoUrl),
     heatDesignLogoUrl: trimLogoUrl(source.heatDesignLogoUrl),
+    trainerLogoUrl: trimLogoUrl(source.trainerLogoUrl),
     productName: String(source.productName || defaultBusinessBrandingSettings.productName).trim() || defaultBusinessBrandingSettings.productName,
     coreAppName: String(source.coreAppName || defaultBusinessBrandingSettings.coreAppName).trim() || defaultBusinessBrandingSettings.coreAppName,
     fieldAppName: String(source.fieldAppName || defaultBusinessBrandingSettings.fieldAppName).trim() || defaultBusinessBrandingSettings.fieldAppName,
     surveyAppName: String(source.surveyAppName || defaultBusinessBrandingSettings.surveyAppName).trim() || defaultBusinessBrandingSettings.surveyAppName,
     takeoffsAppName: String(source.takeoffsAppName || defaultBusinessBrandingSettings.takeoffsAppName).trim() || defaultBusinessBrandingSettings.takeoffsAppName,
     heatDesignAppName: String(source.heatDesignAppName || defaultBusinessBrandingSettings.heatDesignAppName).trim() || defaultBusinessBrandingSettings.heatDesignAppName,
+    trainerAppName: String(source.trainerAppName || defaultBusinessBrandingSettings.trainerAppName).trim() || defaultBusinessBrandingSettings.trainerAppName,
   };
 }
 
@@ -164,11 +175,13 @@ export function toPublicBranding(settings?: Partial<BusinessBrandingSettings> | 
     surveyLogoUrl: brand.surveyLogoUrl,
     takeoffsLogoUrl: brand.takeoffsLogoUrl,
     heatDesignLogoUrl: brand.heatDesignLogoUrl,
+    trainerLogoUrl: brand.trainerLogoUrl,
     coreAppName: brand.coreAppName,
     fieldAppName: brand.fieldAppName,
     surveyAppName: brand.surveyAppName,
     takeoffsAppName: brand.takeoffsAppName,
     heatDesignAppName: brand.heatDesignAppName,
+    trainerAppName: brand.trainerAppName,
     clientPortalBrandLine: brand.clientPortalBrandLine,
   };
 }
@@ -186,6 +199,8 @@ export function appDisplayName(brand: PublicBranding | BusinessBrandingSettings,
       return brand.takeoffsAppName;
     case "heat-design":
       return brand.heatDesignAppName;
+    case "trainer":
+      return brand.trainerAppName;
     default:
       return brand.productName;
   }
