@@ -23914,9 +23914,17 @@ kbd,
 
 .verrova-client-lockup img {
   border-radius: 8px;
-  height: 34px;
+  height: 52px;
+  width: auto;
+  max-width: 200px;
   object-fit: contain;
-  width: 34px;
+}
+
+.client-portal-card header .verrova-client-lockup {
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .engineer-brand-bar img {
