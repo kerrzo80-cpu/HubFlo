@@ -103,9 +103,9 @@ function sheetRowsFromXml(xml: string, shared: string[]): BoqSheetRow[] {
   let maxRow = 0;
   let maxCol = 0;
 
-  for (const match of xml.matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>|<c\b([^>]*)\/>/g)) {
-    const attrs = match[1] || match[3] || "";
-    const body = match[2] || "";
+  for (const match of xml.matchAll(/<c\b([^>]*)\/>|<c\b([^>]*)>([\s\S]*?)<\/c>/g)) {
+    const attrs = (match[1] ?? match[2] ?? "").trim();
+    const body = match[1] ? "" : (match[3] ?? "");
     const refMatch = attrs.match(/\br="([A-Z]+\d+)"/i);
     if (!refMatch?.[1]) continue;
     const ref = refMatch[1].toUpperCase();

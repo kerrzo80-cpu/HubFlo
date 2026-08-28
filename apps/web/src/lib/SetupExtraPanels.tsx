@@ -615,15 +615,17 @@ export function SetupPrebuildsPanel({
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (!/\.xlsx$/i.test(file.name)) {
-      onNotice("Use an Excel .xlsx kits file (the Pre builds template).");
+    const isCsv = /\.csv$/i.test(file.name);
+    const isXlsx = /\.xlsx$/i.test(file.name);
+    if (!isCsv && !isXlsx) {
+      onNotice("Use a kits .csv template or your Pre builds .xlsx file.");
       return;
     }
     setBusy(true);
     setError("");
     try {
       const form = new FormData();
-      form.set("action", "import-xlsx");
+      form.set("action", isCsv ? "import-csv" : "import-xlsx");
       form.set("mode", importMode);
       form.set("file", file);
       const response = await fetch("/api/prebuilds", {
@@ -660,7 +662,7 @@ export function SetupPrebuildsPanel({
           <p>
             Reusable assemblies: name the kit (e.g. Bath), list catalogue parts + labour hours.
             Applying it on a job cost centre explodes every child line — it does not post as one “Bath” sell item.
-            Optional blank rows (TMV?) are skipped instead of crashing.
+            Use the CSV template for reliable imports, or your existing Pre builds .xlsx.
           </p>
         </div>
         <button className="secondary-button" type="button" onClick={() => void load()} disabled={busy}>
@@ -681,15 +683,23 @@ export function SetupPrebuildsPanel({
           </select>
         </label>
         <label className="full">
-          Import kits .xlsx
+          Import kits (.csv or .xlsx)
           <input
-            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             type="file"
             disabled={busy}
             onChange={(event) => void importKitsFile(event)}
           />
-          <small>Column A = kit name, B = item, D = qty. Labour rows are detected automatically.</small>
+          <small>
+            CSV: repeat <strong>kit_name</strong> on every row to keep items in one package.
+            Xlsx: column A = kit name (first row only), B = item, D = qty.
+          </small>
         </label>
+        <div className="full">
+          <a className="secondary-button" href="/api/prebuilds/template" download="blake-kits-template.csv">
+            Download CSV template
+          </a>
+        </div>
       </div>
 
       <div className="ops-table">
@@ -705,7 +715,7 @@ export function SetupPrebuildsPanel({
             </button>
           </div>
         ))}
-        {!kits.length ? <p className="muted">No kits yet — import your Excel template or add one below.</p> : null}
+        {!kits.length ? <p className="muted">No kits yet — download the CSV template or import your Pre builds file.</p> : null}
       </div>
       <div className="ops-form-grid">
         <label>Name<input value={draft.name} onChange={(e) => setDraft((c) => ({ ...c, name: e.target.value }))} placeholder="e.g. Close coupled toilet" /></label>

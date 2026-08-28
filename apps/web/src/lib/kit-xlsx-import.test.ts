@@ -62,6 +62,22 @@ test("office Pre builds template imports as bathroom kits", () => {
   );
 });
 
+test("EWG Pre builds xlsx groups bath kit lines instead of one row per item", () => {
+  const fixture = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../fixtures/pre-builds-template-ewg.xlsx",
+  );
+  const buffer = readFileSync(fixture);
+  const parsed = parseKitsFromXlsxBuffer(buffer, "pre-builds-template-ewg.xlsx");
+  const bath = parsed.kits.find((kit) => /^bath$/i.test(kit.name));
+  assert.ok(bath, "expected BATH kit");
+  assert.ok((bath?.lines.length || 0) >= 15, `BATH should bundle many lines, got ${bath?.lines.length}`);
+  assert.ok(
+    parsed.kits.length < 20,
+    `expected grouped kits, not ${parsed.kits.length} one-line kits`,
+  );
+});
+
 const BATH_KIT_ROWS: string[][] = [
   ["Bath"],
   ["1700x700mm bath", "1"],

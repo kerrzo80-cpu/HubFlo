@@ -4,6 +4,7 @@ import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import {
   archivePrebuild,
+  importKitsFromCsv,
   importKitsFromXlsx,
   listPrebuilds,
   upsertPrebuild,
@@ -32,20 +33,22 @@ export async function POST(request: NextRequest) {
     try {
       const form = await request.formData();
       const action = String(form.get("action") || "import-xlsx");
+      const modeRaw = String(form.get("mode") || "merge");
+      const mode = modeRaw === "replace" ? "replace" : "merge";
+      const file = form.get("file");
+      if (!file || typeof file === "string") {
+        return NextResponse.json({ error: "Upload a kits .xlsx or .csv file." }, { status: 400 });
+      }
+      const buffer = Buffer.from(await file.arrayBuffer());
+      const fileName = typeof file.name === "string" ? file.name : "kits";
+      if (action === "import-csv" || /\.csv$/i.test(fileName)) {
+        const result = importKitsFromCsv(buffer, { mode, fileName });
+        return NextResponse.json(result);
+      }
       if (action !== "import-xlsx") {
         return NextResponse.json({ error: "Unknown kit import action." }, { status: 400 });
       }
-      const file = form.get("file");
-      if (!file || typeof file === "string") {
-        return NextResponse.json({ error: "Upload an Excel .xlsx kits file." }, { status: 400 });
-      }
-      const modeRaw = String(form.get("mode") || "merge");
-      const mode = modeRaw === "replace" ? "replace" : "merge";
-      const buffer = Buffer.from(await file.arrayBuffer());
-      const result = importKitsFromXlsx(buffer, {
-        mode,
-        fileName: typeof file.name === "string" ? file.name : "kits.xlsx",
-      });
+      const result = importKitsFromXlsx(buffer, { mode, fileName: fileName.endsWith(".xlsx") ? fileName : "kits.xlsx" });
       return NextResponse.json(result);
     } catch (error) {
       return NextResponse.json(
@@ -56,7 +59,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await parseJsonRequestBody<{
-    action?: "upsert" | "archive" | "import-xlsx";
+    action?: "upsert" | "archive" | "import-xlsx" | "import-csv";
     id?: string;
     name?: string;
     category?: string;
@@ -78,6 +81,14 @@ export async function POST(request: NextRequest) {
   try {
     if (body?.action === "archive" && body.id) {
       return NextResponse.json({ kits: archivePrebuild(body.id).kits.filter((kit) => !kit.archived) });
+    }
+    if (body?.action === "import-csv" && body.fileBase64) {
+      const buffer = Buffer.from(body.fileBase64, "base64");
+      const result = importKitsFromCsv(buffer, {
+        mode: body.mode === "replace" ? "replace" : "merge",
+        fileName: body.fileName || "kits.csv",
+      });
+      return NextResponse.json(result);
     }
     if (body?.action === "import-xlsx" && body.fileBase64) {
       const buffer = Buffer.from(body.fileBase64, "base64");

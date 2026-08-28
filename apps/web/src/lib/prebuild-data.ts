@@ -1,5 +1,6 @@
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
-import { draftsToPrebuildKits, parseKitsFromXlsxBuffer } from "@/lib/kit-xlsx-import";
+import { parseKitsFromCsvBuffer } from "@/lib/kit-csv-import";
+import { draftsToPrebuildKits, parseKitsFromXlsxBuffer, type KitXlsxImportResult } from "@/lib/kit-xlsx-import";
 
 export type PrebuildLineKind = "Material" | "Labour";
 
@@ -160,12 +161,8 @@ export function archivePrebuild(id: string) {
  * Import kits from the office Pre builds .xlsx template.
  * merge = upsert by kit name (case-insensitive); replace = archive existing then insert imported.
  */
-export function importKitsFromXlsx(
-  buffer: Buffer,
-  options?: { mode?: "merge" | "replace"; fileName?: string },
-) {
+function importParsedKits(parsed: KitXlsxImportResult, options?: { mode?: "merge" | "replace" }) {
   const mode = options?.mode === "replace" ? "replace" : "merge";
-  const parsed = parseKitsFromXlsxBuffer(buffer, options?.fileName || "kits.xlsx");
   const store = readStore();
 
   if (mode === "replace") {
@@ -222,4 +219,20 @@ export function importKitsFromXlsx(
     sheetName: parsed.sheetName,
     mode,
   };
+}
+
+export function importKitsFromXlsx(
+  buffer: Buffer,
+  options?: { mode?: "merge" | "replace"; fileName?: string },
+) {
+  const parsed = parseKitsFromXlsxBuffer(buffer, options?.fileName || "kits.xlsx");
+  return importParsedKits(parsed, options);
+}
+
+export function importKitsFromCsv(
+  buffer: Buffer,
+  options?: { mode?: "merge" | "replace"; fileName?: string },
+) {
+  const parsed = parseKitsFromCsvBuffer(buffer, options?.fileName || "kits.csv");
+  return importParsedKits(parsed, options);
 }
