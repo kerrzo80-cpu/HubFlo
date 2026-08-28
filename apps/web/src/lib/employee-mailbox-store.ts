@@ -313,7 +313,7 @@ export function resolveEmployeeMailboxTransport(employeeId: string): ResolvedMai
   if (!record.senderEmail.trim() || !record.username.trim()) return null;
   if (!secret) {
     throw new Error(
-      "Saved mailbox password cannot be read on this server. Open Setup → Communications, paste the app password again, and Save.",
+      "Saved mailbox password cannot be read on this server. Open People → Mailbox, paste the app password again, and Save.",
     );
   }
   const provider = normalizeProvider(record.provider);
