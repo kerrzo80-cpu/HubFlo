@@ -8853,7 +8853,9 @@ export default function CoreApp() {
 
   useEffect(() => {
     if (activeQuoteBuildTab !== "catalogue" && activeJobBuildTab !== "catalogue") return;
-    void ensurePrebuildKitsLoaded();
+    void ensurePrebuildKitsLoaded().then((kits) => {
+      if (kits[0]?.id && !activeCatalogueKitId) selectCatalogueKit(kits[0].id);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeQuoteBuildTab, activeJobBuildTab]);
 
@@ -28578,7 +28580,6 @@ export default function CoreApp() {
 
   function selectCatalogueKit(kitId: string) {
     setActiveCatalogueKitId(kitId);
-    setActiveCatalogueFolder(CATALOGUE_FOLDER_ALL);
     setSelectedKitLineIdsByKit((current) => {
       if (current[kitId]?.length) return current;
       const kit = prebuildKits.find((row) => row.id === kitId);
@@ -41611,90 +41612,50 @@ export default function CoreApp() {
 
                     {activeQuoteBuildTab === "catalogue" ? (
                       (() => {
-                        const onQuoteItems = onQuoteCatalogueItems();
-                        const libraryItems = availableQuoteCatalog.filter((item) => item.type !== "Labour");
                         const search = catalogueSearch.trim().toLowerCase();
-                        const browserSource =
-                          activeCatalogueFolder === CATALOGUE_FOLDER_ON_QUOTE
-                            ? onQuoteItems
-                            : activeCatalogueFolder === CATALOGUE_FOLDER_ALL
-                              ? libraryItems
-                              : libraryItems.filter((item) => inferCatalogFolder(item) === activeCatalogueFolder);
-                        const visibleCatalogItems = browserSource
-                          .filter((item) => !search || item.name.toLowerCase().includes(search))
+                        const visibleKits = (prebuildKits.length ? prebuildKits : [])
+                          .filter((kit) => !search || kit.name.toLowerCase().includes(search) || kit.category.toLowerCase().includes(search))
                           .sort((first, second) => first.name.localeCompare(second.name));
-                        const folderButtons = [
-                          { id: CATALOGUE_FOLDER_ALL, label: CATALOGUE_FOLDER_ALL, count: libraryItems.length },
-                          { id: CATALOGUE_FOLDER_ON_QUOTE, label: CATALOGUE_FOLDER_ON_QUOTE, count: onQuoteItems.length },
-                          ...catalogFolders.map((folder) => ({
-                            id: folder,
-                            label: folder,
-                            count: libraryItems.filter((item) => inferCatalogFolder(item) === folder).length,
-                          })),
-                        ];
+                        const activeKit = prebuildKits.find((row) => row.id === activeCatalogueKitId);
 
                         return (
                           <div className="quote-catalogue-workspace">
                             <div className="quote-catalogue-toolbar">
                               <div>
-                                <h2>Catalogue</h2>
+                                <h2>Kits</h2>
                                 <span>
-                                  ADD items into <strong>{selectedQuoteCostCentre.name}</strong>. The table below shows this cost centre only.
-                                  Quote-wide materials ({onQuoteItems.length}) are under <strong>{CATALOGUE_FOLDER_ON_QUOTE}</strong>.
+                                  Pick a kit on the left, tick the lines you want, then add them to <strong>{selectedQuoteCostCentre.name}</strong>.
+                                  Use One-off for anything not in a kit.
                                 </span>
                               </div>
                               <label className="quote-catalogue-search">
                                 <Search size={15} />
                                 <input
-                                  aria-label="Search catalogue"
-                                  placeholder="Search catalogue..."
+                                  aria-label="Search kits"
+                                  placeholder="Search kits..."
                                   value={catalogueSearch}
                                   onChange={(event) => setCatalogueSearch(event.target.value)}
                                 />
                               </label>
                               <button
-                                className="simpro-grey-button"
+                                className="secondary-button"
                                 type="button"
-                                onClick={() => openCatalogueSetup("Create folders and import supplier price lists in Setup → Catalogue.")}
+                                onClick={() => {
+                                  setHomeView("settings");
+                                  setActiveSetupCategory("prebuilds");
+                                }}
                               >
-                                CREATE GROUP
-                              </button>
-                              <button
-                                className="simpro-blue-button"
-                                type="button"
-                                onClick={() => openCatalogueSetup("Add or import catalogue items in Setup → Catalogue, then return here to ADD them to the quote.")}
-                              >
-                                CREATE ITEM
+                                Manage kits
                               </button>
                             </div>
 
                             <div className="quote-catalogue-layout">
                               <div className="quote-catalogue-groups">
                                 <div className="quote-catalogue-head">
-                                  <strong>Groups</strong>
-                                  <span>Group name</span>
-                                </div>
-                                {folderButtons.map((folder) => (
-                                  <button
-                                    className={!activeCatalogueKitId && activeCatalogueFolder === folder.id ? "active" : ""}
-                                    key={folder.id}
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveCatalogueKitId("");
-                                      setActiveCatalogueFolder(folder.id);
-                                      scrollWorkspaceToTop();
-                                    }}
-                                  >
-                                    <span>{folder.label}</span>
-                                    <small>{folder.count} item(s)</small>
-                                    <MoreHorizontal size={15} />
-                                  </button>
-                                ))}
-                                <div className="quote-catalogue-head quote-catalogue-head-kits">
                                   <strong>Kits</strong>
                                   <span>Pre-build assemblies</span>
                                 </div>
-                                {(prebuildKits.length ? prebuildKits : []).map((kit) => (
+                                {visibleKits.map((kit) => (
                                   <button
                                     className={activeCatalogueKitId === kit.id ? "active" : ""}
                                     key={kit.id}
@@ -41712,46 +41673,32 @@ export default function CoreApp() {
                                     <MoreHorizontal size={15} />
                                   </button>
                                 ))}
-                                {!prebuildKits.length ? (
-                                  <button
-                                    className={activeCatalogueKitId === "__manage__" ? "active" : ""}
-                                    type="button"
-                                    onClick={() => void ensurePrebuildKitsLoaded()}
-                                  >
-                                    <span>Load kits…</span>
-                                    <small>Setup → Kits</small>
-                                  </button>
+                                {!visibleKits.length ? (
+                                  <div className="quote-catalogue-empty">
+                                    <strong>{prebuildKits.length ? "No kits match your search" : "No kits yet"}</strong>
+                                    <span>
+                                      {prebuildKits.length
+                                        ? "Try another search term."
+                                        : "Import kits in Setup → Kits, then return here to add them to this cost centre."}
+                                    </span>
+                                  </div>
                                 ) : null}
-                                <button
-                                  className="quote-catalogue-manage-kits"
-                                  type="button"
-                                  onClick={() => {
-                                    setHomeView("settings");
-                                    setActiveSetupCategory("prebuilds");
-                                  }}
-                                >
-                                  Manage kits
-                                </button>
                               </div>
 
                               <div className="quote-catalogue-items">
-                                {activeCatalogueKitId ? (() => {
-                                  const kit = prebuildKits.find((row) => row.id === activeCatalogueKitId);
-                                  if (!kit) {
-                                    return (
-                                      <div className="quote-catalogue-empty">
-                                        <strong>Select a kit</strong>
-                                        <span>Choose a kit on the left to tick items before adding them to this cost centre.</span>
-                                      </div>
-                                    );
-                                  }
-                                  const selectedKeys = new Set(selectedKitLineIdsByKit[kit.id] ?? []);
-                                  const allSelected = kit.lines.length > 0 && selectedKeys.size === kit.lines.length;
+                                {!activeKit ? (
+                                  <div className="quote-catalogue-empty">
+                                    <strong>Select a kit</strong>
+                                    <span>Choose a kit on the left to tick items before adding them to this cost centre.</span>
+                                  </div>
+                                ) : (() => {
+                                  const selectedKeys = new Set(selectedKitLineIdsByKit[activeKit.id] ?? []);
+                                  const allSelected = activeKit.lines.length > 0 && selectedKeys.size === activeKit.lines.length;
                                   return (
                                     <>
                                       <div className="quote-catalogue-head">
-                                        <strong>{kit.name} kit items</strong>
-                                        <span>{selectedKeys.size} of {kit.lines.length} selected</span>
+                                        <strong>{activeKit.name} kit items</strong>
+                                        <span>{selectedKeys.size} of {activeKit.lines.length} selected</span>
                                       </div>
                                       <div className="quote-catalogue-kit-actions">
                                         <button
@@ -41760,9 +41707,9 @@ export default function CoreApp() {
                                           onClick={() =>
                                             setSelectedKitLineIdsByKit((current) => ({
                                               ...current,
-                                              [kit.id]: allSelected
+                                              [activeKit.id]: allSelected
                                                 ? []
-                                                : kit.lines.map((line, index) => kitLineSelectionKey(kit.id, line, index)),
+                                                : activeKit.lines.map((line, index) => kitLineSelectionKey(activeKit.id, line, index)),
                                             }))
                                           }
                                         >
@@ -41780,15 +41727,15 @@ export default function CoreApp() {
                                           Add selected to cost centre
                                         </button>
                                       </div>
-                                      {kit.lines.map((line, index) => {
-                                        const lineKey = kitLineSelectionKey(kit.id, line, index);
+                                      {activeKit.lines.map((line, index) => {
+                                        const lineKey = kitLineSelectionKey(activeKit.id, line, index);
                                         const checked = selectedKeys.has(lineKey);
                                         return (
                                           <label className="quote-catalogue-item-row quote-catalogue-kit-line" key={lineKey}>
                                             <input
                                               type="checkbox"
                                               checked={checked}
-                                              onChange={(event) => toggleKitLineSelection(kit.id, lineKey, event.target.checked)}
+                                              onChange={(event) => toggleKitLineSelection(activeKit.id, lineKey, event.target.checked)}
                                             />
                                             <div>
                                               <strong>{line.description}</strong>
@@ -41799,53 +41746,7 @@ export default function CoreApp() {
                                       })}
                                     </>
                                   );
-                                })() : (
-                                  <>
-                                <div className="quote-catalogue-head">
-                                  <strong>Items menu - {activeCatalogueFolder}</strong>
-                                  <span>{visibleCatalogItems.length} matching item(s)</span>
-                                </div>
-                                {visibleCatalogItems.map((item) => {
-                                  const onQuoteOnly = activeCatalogueFolder === CATALOGUE_FOLDER_ON_QUOTE || item.category === CATALOGUE_FOLDER_ON_QUOTE;
-                                  const inLibrary = Boolean(availableQuoteCatalogById.get(item.id));
-                                  return (
-                                    <div className="quote-catalogue-item-row" key={item.id}>
-                                      <div>
-                                        <strong>{item.name}</strong>
-                                        <span>
-                                          {[
-                                            onQuoteOnly ? "On quote" : item.supplierName,
-                                            item.type,
-                                            item.unit,
-                                            `Cost ${currency(item.costRate)}`,
-                                            `Sell ${currency(item.sellRate)}`,
-                                          ]
-                                            .filter(Boolean)
-                                            .join(" · ")}
-                                        </span>
-                                      </div>
-                                      {onQuoteOnly && !inLibrary ? (
-                                        <span className="status-pill amber">On quote</span>
-                                      ) : (
-                                        <button className="simpro-options-button" type="button" onClick={() => addQuoteLine(selectedQuoteCostCentre.id, item.id)}>
-                                          ADD
-                                        </button>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                                {!visibleCatalogItems.length ? (
-                                  <div className="quote-catalogue-empty">
-                                    <strong>No items in this group yet</strong>
-                                    <span>
-                                      {activeCatalogueFolder === CATALOGUE_FOLDER_ON_QUOTE
-                                        ? "Material lines appear here once they are on the quote (catalogue, one-off, takeoff or simPRO import)."
-                                        : "Create an item or save selected quote rows into this catalogue folder."}
-                                    </span>
-                                  </div>
-                                ) : null}
-                                  </>
-                                )}
+                                })()}
                               </div>
                             </div>
                           </div>
@@ -44678,83 +44579,50 @@ export default function CoreApp() {
 
                     {activeJobBuildTab === "catalogue" ? (
                       (() => {
-                        const libraryItems = availableQuoteCatalog.filter((item) => item.type !== "Labour");
                         const search = catalogueSearch.trim().toLowerCase();
-                        const browserSource =
-                          activeCatalogueFolder === CATALOGUE_FOLDER_ALL || activeCatalogueFolder === CATALOGUE_FOLDER_ON_QUOTE
-                            ? libraryItems
-                            : libraryItems.filter((item) => inferCatalogFolder(item) === activeCatalogueFolder);
-                        const visibleCatalogItems = browserSource
-                          .filter((item) => !search || item.name.toLowerCase().includes(search))
+                        const visibleKits = (prebuildKits.length ? prebuildKits : [])
+                          .filter((kit) => !search || kit.name.toLowerCase().includes(search) || kit.category.toLowerCase().includes(search))
                           .sort((first, second) => first.name.localeCompare(second.name));
-                        const folderButtons = [
-                          { id: CATALOGUE_FOLDER_ALL, label: CATALOGUE_FOLDER_ALL, count: libraryItems.length },
-                          ...catalogFolders.map((folder) => ({
-                            id: folder,
-                            label: folder,
-                            count: libraryItems.filter((item) => inferCatalogFolder(item) === folder).length,
-                          })),
-                        ];
+                        const activeKit = prebuildKits.find((row) => row.id === activeCatalogueKitId);
 
                         return (
                           <div className="quote-catalogue-workspace">
                             <div className="quote-catalogue-toolbar">
                               <div>
-                                <h2>Catalogue</h2>
-                                <span>Open All groups or a folder, then ADD items to this cost centre. Job materials for the active centre are listed below.</span>
+                                <h2>Kits</h2>
+                                <span>
+                                  Pick a kit on the left, tick the lines you want, then add them to this cost centre.
+                                  Job materials for the active centre are listed below. Use One-off for anything not in a kit.
+                                </span>
                               </div>
                               <label className="quote-catalogue-search">
                                 <Search size={15} />
                                 <input
-                                  aria-label="Search catalogue"
-                                  placeholder="Search catalogue..."
+                                  aria-label="Search kits"
+                                  placeholder="Search kits..."
                                   value={catalogueSearch}
                                   onChange={(event) => setCatalogueSearch(event.target.value)}
                                 />
                               </label>
                               <button
-                                className="simpro-grey-button"
+                                className="secondary-button"
                                 type="button"
-                                onClick={() => openCatalogueSetup("Create folders and import supplier price lists in Setup → Catalogue.")}
+                                onClick={() => {
+                                  setHomeView("settings");
+                                  setActiveSetupCategory("prebuilds");
+                                }}
                               >
-                                CREATE GROUP
-                              </button>
-                              <button
-                                className="simpro-blue-button"
-                                type="button"
-                                onClick={() => openCatalogueSetup("Add or import catalogue items in Setup → Catalogue, then return here to ADD them to the job.")}
-                              >
-                                CREATE ITEM
+                                Manage kits
                               </button>
                             </div>
 
                             <div className="quote-catalogue-layout">
                               <div className="quote-catalogue-groups">
                                 <div className="quote-catalogue-head">
-                                  <strong>Groups</strong>
-                                  <span>Group name</span>
-                                </div>
-                                {folderButtons.map((folder) => (
-                                  <button
-                                    className={!activeCatalogueKitId && activeCatalogueFolder === folder.id ? "active" : ""}
-                                    key={folder.id}
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveCatalogueKitId("");
-                                      setActiveCatalogueFolder(folder.id);
-                                      scrollWorkspaceToTop();
-                                    }}
-                                  >
-                                    <span>{folder.label}</span>
-                                    <small>{folder.count} item(s)</small>
-                                    <MoreHorizontal size={15} />
-                                  </button>
-                                ))}
-                                <div className="quote-catalogue-head quote-catalogue-head-kits">
                                   <strong>Kits</strong>
                                   <span>Pre-build assemblies</span>
                                 </div>
-                                {(prebuildKits.length ? prebuildKits : []).map((kit) => (
+                                {visibleKits.map((kit) => (
                                   <button
                                     className={activeCatalogueKitId === kit.id ? "active" : ""}
                                     key={kit.id}
@@ -44772,46 +44640,32 @@ export default function CoreApp() {
                                     <MoreHorizontal size={15} />
                                   </button>
                                 ))}
-                                {!prebuildKits.length ? (
-                                  <button
-                                    className={activeCatalogueKitId === "__manage__" ? "active" : ""}
-                                    type="button"
-                                    onClick={() => void ensurePrebuildKitsLoaded()}
-                                  >
-                                    <span>Load kits…</span>
-                                    <small>Setup → Kits</small>
-                                  </button>
+                                {!visibleKits.length ? (
+                                  <div className="quote-catalogue-empty">
+                                    <strong>{prebuildKits.length ? "No kits match your search" : "No kits yet"}</strong>
+                                    <span>
+                                      {prebuildKits.length
+                                        ? "Try another search term."
+                                        : "Import kits in Setup → Kits, then return here to add them to this cost centre."}
+                                    </span>
+                                  </div>
                                 ) : null}
-                                <button
-                                  className="quote-catalogue-manage-kits"
-                                  type="button"
-                                  onClick={() => {
-                                    setHomeView("settings");
-                                    setActiveSetupCategory("prebuilds");
-                                  }}
-                                >
-                                  Manage kits
-                                </button>
                               </div>
 
                               <div className="quote-catalogue-items">
-                                {activeCatalogueKitId ? (() => {
-                                  const kit = prebuildKits.find((row) => row.id === activeCatalogueKitId);
-                                  if (!kit) {
-                                    return (
-                                      <div className="quote-catalogue-empty">
-                                        <strong>Select a kit</strong>
-                                        <span>Choose a kit on the left to tick items before adding them to this cost centre.</span>
-                                      </div>
-                                    );
-                                  }
-                                  const selectedKeys = new Set(selectedKitLineIdsByKit[kit.id] ?? []);
-                                  const allSelected = kit.lines.length > 0 && selectedKeys.size === kit.lines.length;
+                                {!activeKit ? (
+                                  <div className="quote-catalogue-empty">
+                                    <strong>Select a kit</strong>
+                                    <span>Choose a kit on the left to tick items before adding them to this cost centre.</span>
+                                  </div>
+                                ) : (() => {
+                                  const selectedKeys = new Set(selectedKitLineIdsByKit[activeKit.id] ?? []);
+                                  const allSelected = activeKit.lines.length > 0 && selectedKeys.size === activeKit.lines.length;
                                   return (
                                     <>
                                       <div className="quote-catalogue-head">
-                                        <strong>{kit.name} kit items</strong>
-                                        <span>{selectedKeys.size} of {kit.lines.length} selected</span>
+                                        <strong>{activeKit.name} kit items</strong>
+                                        <span>{selectedKeys.size} of {activeKit.lines.length} selected</span>
                                       </div>
                                       <div className="quote-catalogue-kit-actions">
                                         <button
@@ -44820,9 +44674,9 @@ export default function CoreApp() {
                                           onClick={() =>
                                             setSelectedKitLineIdsByKit((current) => ({
                                               ...current,
-                                              [kit.id]: allSelected
+                                              [activeKit.id]: allSelected
                                                 ? []
-                                                : kit.lines.map((line, index) => kitLineSelectionKey(kit.id, line, index)),
+                                                : activeKit.lines.map((line, index) => kitLineSelectionKey(activeKit.id, line, index)),
                                             }))
                                           }
                                         >
@@ -44840,15 +44694,15 @@ export default function CoreApp() {
                                           Add selected to cost centre
                                         </button>
                                       </div>
-                                      {kit.lines.map((line, index) => {
-                                        const lineKey = kitLineSelectionKey(kit.id, line, index);
+                                      {activeKit.lines.map((line, index) => {
+                                        const lineKey = kitLineSelectionKey(activeKit.id, line, index);
                                         const checked = selectedKeys.has(lineKey);
                                         return (
                                           <label className="quote-catalogue-item-row quote-catalogue-kit-line" key={lineKey}>
                                             <input
                                               type="checkbox"
                                               checked={checked}
-                                              onChange={(event) => toggleKitLineSelection(kit.id, lineKey, event.target.checked)}
+                                              onChange={(event) => toggleKitLineSelection(activeKit.id, lineKey, event.target.checked)}
                                             />
                                             <div>
                                               <strong>{line.description}</strong>
@@ -44859,35 +44713,7 @@ export default function CoreApp() {
                                       })}
                                     </>
                                   );
-                                })() : (
-                                  <>
-                                <div className="quote-catalogue-head">
-                                  <strong>Items menu - {activeCatalogueFolder}</strong>
-                                  <span>{visibleCatalogItems.length} matching item(s)</span>
-                                </div>
-                                {visibleCatalogItems.map((item) => (
-                                  <div className="quote-catalogue-item-row" key={item.id}>
-                                    <div>
-                                      <strong>{item.name}</strong>
-                                      <span>
-                                        {[item.supplierName, item.type, item.unit, `Cost ${currency(item.costRate)}`, `Sell ${currency(item.sellRate)}`]
-                                          .filter(Boolean)
-                                          .join(" · ")}
-                                      </span>
-                                    </div>
-                                    <button className="simpro-options-button" type="button" onClick={() => addEstimateMaterialLine(selectedCostCentre.id, item.id)}>
-                                      ADD
-                                    </button>
-                                  </div>
-                                ))}
-                                {!visibleCatalogItems.length ? (
-                                  <div className="quote-catalogue-empty">
-                                    <strong>No items in this group yet</strong>
-                                    <span>Create an item or save selected one-off rows into this catalogue folder.</span>
-                                  </div>
-                                ) : null}
-                                  </>
-                                )}
+                                })()}
                               </div>
                             </div>
                           </div>
