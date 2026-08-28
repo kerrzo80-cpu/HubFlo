@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { appendAuditEvent } from "@/lib/people-data";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
+import { findInvoiceByPortalToken, withPersistedInvoicePortalToken } from "@/lib/invoice-portal";
 import { isSumUpConfigured } from "@/lib/sumup-key-store";
 
 type RouteContext = {
@@ -33,14 +34,7 @@ function listInvoices(): PortalInvoice[] {
 }
 
 function findInvoiceByToken(token: string) {
-  const cleaned = token.trim().toLowerCase();
-  return (
-    listInvoices().find((invoice) => {
-      const portal = String(invoice.portalToken || "").toLowerCase();
-      const ref = String(invoice.ref || "").toLowerCase();
-      return portal === cleaned || ref === cleaned;
-    }) ?? null
-  );
+  return findInvoiceByPortalToken(listInvoices(), token);
 }
 
 function owedAmount(invoice: PortalInvoice) {
@@ -91,7 +85,11 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 
   if (!invoice.portalViewedAt) {
-    patchInvoice(invoice.id, { portalViewedAt: new Date().toISOString() });
+    const stamped = withPersistedInvoicePortalToken(invoice);
+    patchInvoice(invoice.id, {
+      portalToken: stamped.portalToken,
+      portalViewedAt: new Date().toISOString(),
+    });
     appendAuditEvent({
       actor: invoice.customer,
       action: "viewed",

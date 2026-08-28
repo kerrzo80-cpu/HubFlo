@@ -29,6 +29,10 @@ import {
   summarizePayrollByEngineer,
 } from "@/lib/payroll-export";
 import type { BrandedCommercialPdfInput } from "@/lib/commercial-form-pdf";
+import {
+  invoicePortalUrl,
+  withPersistedInvoicePortalToken,
+} from "@/lib/invoice-portal";
 import type { SimpleDocumentPdfInput } from "@/lib/simple-document-pdf";
 import { homeViewForPath } from "@/lib/core-routes";
 import {
@@ -1670,6 +1674,7 @@ function invoiceEmailTemplateVars(
   invoice: Invoice,
   client: ClientRecord | null | undefined,
   companyName: string,
+  portalLink = "",
 ) {
   const contactName = client?.primaryContact?.split(" ")[0] || "there";
   const daysOverdue = Math.max(0, daysSinceDate(invoice.dueDate) ?? 0);
@@ -1684,11 +1689,25 @@ function invoiceEmailTemplateVars(
     dueDate: invoice.dueDate || invoice.issuedDate || "",
     date: invoice.dueDate || invoice.issuedDate || "",
     daysOverdue: String(daysOverdue),
+    portalLink,
   };
 }
 
+function invoicePortalLink(invoice: { id: string; ref: string; portalToken?: string }) {
+  const baseUrl = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
+  return invoicePortalUrl(invoice, baseUrl);
+}
+
+function appendInvoicePortalPaymentLink(body: string, portalLink: string) {
+  const link = portalLink.trim();
+  if (!link) return body;
+  if (body.includes(link)) return body;
+  return `${body.trim()}\n\nPay online securely (card or bank transfer):\n${link}`;
+}
+
 function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "Company"): InvoiceEmailDraft {
-  const vars = invoiceEmailTemplateVars(invoice, client, companyName);
+  const portalLink = invoicePortalLink(invoice);
+  const vars = invoiceEmailTemplateVars(invoice, client, companyName, portalLink);
   const vatNote = invoice.vatNote ? `\n\n${invoice.vatNote}` : "";
   return {
     to: client?.email ?? invoice.sentTo ?? "",
@@ -8310,16 +8329,6 @@ function formatVariationPortalCopyNotice(response: { portalToken?: string | null
 
 function makeQuotePortalToken(quote: Quote) {
   return `${quote.ref.toLowerCase()}-${quote.id.slice(0, 8)}`;
-}
-
-function makeInvoicePortalToken(invoice: { id: string; ref: string }) {
-  return `${invoice.ref.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${invoice.id.slice(0, 8)}`;
-}
-
-function invoicePortalLink(invoice: { id: string; ref: string; portalToken?: string }) {
-  const baseUrl = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
-  const token = invoice.portalToken || makeInvoicePortalToken(invoice);
-  return `${baseUrl}/client/invoices/${token}`;
 }
 
 function clientHubLink(token: string) {
@@ -15986,12 +15995,12 @@ export default function CoreApp() {
   }
 
   function ensureInvoicePortalToken(invoice: Invoice): Invoice {
-    if (invoice.portalToken) return invoice;
-    const portalToken = makeInvoicePortalToken(invoice);
-    const next = invoices.map((row) => (row.id === invoice.id ? { ...row, portalToken } : row));
+    const stamped = withPersistedInvoicePortalToken(invoice);
+    if (invoice.portalToken === stamped.portalToken) return invoice;
+    const next = invoices.map((row) => (row.id === invoice.id ? { ...row, portalToken: stamped.portalToken } : row));
     setInvoices(next);
     saveHubDetailStateWithInvoices(next, "Could not save invoice portal token.");
-    return { ...invoice, portalToken };
+    return { ...invoice, portalToken: stamped.portalToken };
   }
 
   async function copyInvoicePortalLink(invoice: Invoice) {
@@ -24148,10 +24157,15 @@ export default function CoreApp() {
       invoiceLines: selectedInvoice.lines,
       formatMoney: currency,
     });
+    const invoicedForPortal = ensureInvoicePortalToken(selectedInvoice);
+    const portalLink = invoicePortalLink(invoicedForPortal);
     const companyName = displayCompanyName(businessSettings);
-    const templateVars = invoiceEmailTemplateVars(selectedInvoice, selectedInvoiceClient, companyName);
+    const templateVars = invoiceEmailTemplateVars(invoicedForPortal, selectedInvoiceClient, companyName, portalLink);
     const emailSubject = fillEmailTemplate(selectedInvoiceEmailDraft.subject, templateVars);
-    const emailBody = fillEmailTemplate(selectedInvoiceEmailDraft.body, templateVars);
+    const emailBody = appendInvoicePortalPaymentLink(
+      fillEmailTemplate(selectedInvoiceEmailDraft.body, templateVars),
+      portalLink,
+    );
     const bankDetails = isPlaceholderBankDetails(normalizedFinanceSettings)
       ? undefined
       : `${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · ${normalizedFinanceSettings.sortCode} · ${normalizedFinanceSettings.accountNumber}`;
@@ -24451,14 +24465,24 @@ export default function CoreApp() {
       return;
     }
 
+    const invoicedForPortal = ensureInvoicePortalToken(selectedInvoice);
+    const portalLink = invoicePortalLink(invoicedForPortal);
+    const companyName = displayCompanyName(businessSettings);
+    const templateVars = invoiceEmailTemplateVars(invoicedForPortal, selectedInvoiceClient, companyName, portalLink);
+    const chaseSubject = fillEmailTemplate(selectedInvoiceEmailDraft.subject, templateVars);
+    const chaseBody = appendInvoicePortalPaymentLink(
+      fillEmailTemplate(selectedInvoiceEmailDraft.body, templateVars),
+      portalLink,
+    );
+
     setIsSendingLiveEmail(true);
     let delivery: LiveEmailDelivery;
     try {
       delivery = await sendThroughLiveOutbox({
         to: selectedInvoiceEmailDraft.to,
         cc: selectedInvoiceEmailDraft.cc,
-        subject: selectedInvoiceEmailDraft.subject,
-        text: selectedInvoiceEmailDraft.body,
+        subject: chaseSubject,
+        text: chaseBody,
         document: selectedInvoiceEmailDraft.attachPdf
           ? buildSelectedInvoiceChaseDocument() || undefined
           : undefined,
@@ -24504,8 +24528,8 @@ export default function CoreApp() {
       relatedJobId: selectedInvoice.sourceType === "job" ? selectedInvoice.sourceId : undefined,
       direction: "outbound",
       channel: "Outlook",
-      subject: selectedInvoiceEmailDraft.subject,
-      body: selectedInvoiceEmailDraft.body,
+      subject: chaseSubject,
+      body: chaseBody,
       from: delivery.from,
       to: selectedInvoiceEmailDraft.to.trim(),
       cc: selectedInvoiceEmailDraft.cc.trim(),

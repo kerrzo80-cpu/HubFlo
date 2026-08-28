@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
+import { findInvoiceByPortalToken, withPersistedInvoicePortalToken } from "@/lib/invoice-portal";
 import { rememberSumUpCheckout } from "@/lib/sumup-checkout-store";
 import { isSumUpConfigured } from "@/lib/sumup-key-store";
 import { createSumUpHostedCheckout, invoiceOwed } from "@/lib/sumup-payments";
@@ -31,14 +32,7 @@ function listInvoices(): PortalInvoice[] {
 }
 
 function findInvoiceByToken(token: string) {
-  const cleaned = token.trim().toLowerCase();
-  return (
-    listInvoices().find((invoice) => {
-      const portal = String(invoice.portalToken || "").toLowerCase();
-      const ref = String(invoice.ref || "").toLowerCase();
-      return portal === cleaned || ref === cleaned;
-    }) ?? null
-  );
+  return findInvoiceByPortalToken(listInvoices(), token);
 }
 
 export async function POST(request: Request, context: RouteContext) {
@@ -60,9 +54,8 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "This invoice is already paid." }, { status: 400 });
   }
 
-  let portalToken = invoice.portalToken;
-  if (!portalToken) {
-    portalToken = `${invoice.ref.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${invoice.id.slice(0, 8)}`;
+  let portalToken = withPersistedInvoicePortalToken(invoice).portalToken;
+  if (!invoice.portalToken) {
     const hub = getHubDetailState();
     const next = listInvoices().map((row) => (row.id === invoice.id ? { ...row, portalToken } : row));
     saveHubDetailState({ ...hub, invoices: next });
