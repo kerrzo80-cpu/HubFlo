@@ -54,6 +54,12 @@ export default function MyDayPage() {
   const [alerts, setAlerts] = useState<FieldAlert[]>([]);
 
   useEffect(() => {
+    // This route can be statically rendered during deployment. Re-read the device's
+    // local date after hydration so My Day never stays pinned to the build date.
+    setSelectedDate(isoDate());
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     async function loadMeta() {
       try {
