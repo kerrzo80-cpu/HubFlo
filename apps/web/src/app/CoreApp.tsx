@@ -2634,7 +2634,6 @@ const TRUSTED_EMPLOYEE_SESSION_DAYS = 60;
 
 const modules: ModuleItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, active: true },
-  { label: TRAINER_APP_NAME, icon: MessageCircle, href: "/train" },
   { label: "Leads", icon: Mail },
   { label: "Quotes", icon: FileText },
   { label: "Tenders", icon: ClipboardList },
@@ -13710,7 +13709,6 @@ export default function CoreApp() {
     if (!hasCoreOfficeAccess(access)) return [];
     return modules.filter((module) => {
       if (module.label === "Dashboard") return true;
-      if (module.label === TRAINER_APP_NAME) return access.showSurveyor || access.canCustomize;
       if (module.label === "Leads") return access.canCreateLead || access.showCustomers || access.showQuotes;
       if (module.label === "People" && !access.showCustomers) return false;
       if (module.label === "Jobs" && !access.showJobs) return false;
@@ -35528,15 +35526,6 @@ export default function CoreApp() {
           </div>
 
           <nav aria-label="Dashboard navigation">
-            <a
-              href="/train"
-              className="context-link"
-              aria-label={TRAINER_APP_NAME}
-              data-tooltip="Ayla voice-first staff trainer"
-            >
-              <MessageCircle size={17} />
-              <span>{TRAINER_APP_NAME}</span>
-            </a>
             {visibleSideNav.map((item) => {
               const Icon = item.icon;
               const isActiveSide =

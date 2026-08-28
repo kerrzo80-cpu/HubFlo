@@ -3406,7 +3406,7 @@ export default function TakeoffStudioPage() {
             </>
           ) : (
             <div className="nexa-studio-empty-main">
-              <h1>Start a Ayla takeoff</h1>
+              <h1>Start an Ayla takeoff</h1>
               <p>Create a project, upload drawings, set scale, then Count / Linear / Area — or Ask Ayla.</p>
             </div>
           )}
