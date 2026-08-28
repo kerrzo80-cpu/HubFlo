@@ -356,7 +356,7 @@ export function SetupConfigPanel({
           <div>
             <span className="permission-heading">Communications</span>
             <h2>Email templates</h2>
-            <p>Default subjects and bodies for quote, invoice, overdue chase, PO, follow-up and job confirmation. Invoice emails include a unique {{portalLink}} per invoice for SumUp pay-online. Click Edit on any row to change premade templates.</p>
+            <p>Default subjects and bodies for quote, invoice, overdue chase, PO, follow-up and job confirmation. Invoice emails include a unique {'{{portalLink}}'} per invoice for SumUp pay-online. Click Edit on any row to change premade templates.</p>
           </div>
           <button className="secondary-button" type="button" onClick={() => void load()}><RefreshCw size={15} /> Refresh</button>
         </header>
