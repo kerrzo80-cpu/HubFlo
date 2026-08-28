@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 import nodemailer from "nodemailer";
 
 import { emailProviderSmtpDefaults, type EmailProvider } from "@/lib/email-integration-store";
+import { formatOutboundEmailError } from "@/lib/outbound-email-errors";
 import { readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
 
 const STORE_NAME = "employee-mailboxes";
@@ -365,13 +366,7 @@ export function markEmployeeMailboxTested(employeeId: string, recipient: string,
 
 function formatMailboxSendError(mailbox: ResolvedMailboxTransport, error: unknown) {
   const raw = error instanceof Error ? error.message : "Email authentication or send failed.";
-  if (mailbox.provider === "iCloud") {
-    return [
-      raw,
-      "iCloud needs: full Apple Mail address (@icloud.com / @me.com / @mac.com), an app-specific password from appleid.apple.com (not your Apple ID password), and 2FA turned on.",
-    ].join(" — ");
-  }
-  return raw;
+  return formatOutboundEmailError(raw, mailbox.provider);
 }
 
 export async function sendViaResolvedMailbox(
