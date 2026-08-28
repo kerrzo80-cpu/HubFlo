@@ -35772,7 +35772,7 @@ export default function CoreApp() {
                   : homeView === "faults"
                     ? "Report, prioritise and track NeXa faults, improvements and features"
                   : homeView === "invoices"
-                    ? `${filteredInvoices.length} invoices · ${invoiceStatusFilter}`
+                    ? `${visibleInvoiceDirectoryGroups.reduce((total, group) => total + group.items.length, 0)} invoices · ${visibleInvoiceDirectoryGroups[0]?.label ?? invoiceStatusFilter}`
                   : homeView === "xero"
                     ? `${xeroSalesToExport.length} sales to export · ${xeroBillsToExport.length} bills to export`
                   : homeView === "reports"
