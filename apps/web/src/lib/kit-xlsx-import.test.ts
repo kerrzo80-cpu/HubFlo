@@ -4,6 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { KITS_CSV_TEMPLATE, parseKitsFromTabularRows } from "./kit-csv-import";
 import { parseKitsFromXlsxBuffer, parseKitsFromXlsxRows } from "./kit-xlsx-import";
 import { explodeKitOntoJob } from "./kit-apply";
 
@@ -125,6 +126,21 @@ test("blank TMV row does not crash or become its own kit", () => {
   assert.equal(parsed.kits[0]?.lines.filter((line) => line.kind === "Material").length, 1);
   assert.equal(parsed.kits[0]?.lines.at(-1)?.kind, "Labour");
   assert.equal(parsed.kits[0]?.lines.at(-1)?.quantity, 4);
+});
+
+test("CSV-style header rows in xlsx grid import as grouped kits", () => {
+  const rows = KITS_CSV_TEMPLATE.trim()
+    .split(/\r?\n/)
+    .map((line) => line.split(","));
+  const parsed = parseKitsFromXlsxRows(rows, "Sheet1");
+  // parseKitsFromXlsxRows is the legacy layout parser — buffer entry point handles CSV headers.
+  assert.equal(parsed.rowErrors.some((row) => /category/i.test(row.message)), true);
+
+  const fromBuffer = parseKitsFromTabularRows(rows, "template.xlsx");
+  assert.equal(fromBuffer.kits.length, 2);
+  const bath = fromBuffer.kits.find((kit) => /^bath$/i.test(kit.name));
+  assert.ok(bath);
+  assert.ok((bath?.lines.length || 0) >= 9);
 });
 
 test("upload Bath spreadsheet then apply to a cost centre explodes materials plus 4h labour", () => {

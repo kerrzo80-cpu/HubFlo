@@ -638,11 +638,25 @@ export function SetupPrebuildsPanel({
       setKits(normalizeLoadedKits(body.kits));
       const optionalNote = body.skippedOptional ? ` · skipped ${body.skippedOptional} optional/blank row(s)` : "";
       const rowErrors = Array.isArray(body.rowErrors) ? body.rowErrors as Array<{ row?: number; message?: string }> : [];
-      if (rowErrors.length) {
+      const importedCount = Number(body.imported) || 0;
+      const blockingErrors = rowErrors.filter(
+        (row) => !/optional row|missing kit_name|missing description/i.test(String(row.message || "")),
+      );
+      if (importedCount > 0) {
+        setError("");
+        if (blockingErrors.length) {
+          onNotice(
+            `Imported ${importedCount} kit(s) with ${blockingErrors.length} row warning(s): ${blockingErrors
+              .slice(0, 3)
+              .map((row) => row.message || `Row ${row.row}`)
+              .join(" · ")}`,
+          );
+        }
+      } else if (rowErrors.length) {
         setError(rowErrors.slice(0, 8).map((row) => row.message || `Row ${row.row} skipped`).join(" "));
       }
       onNotice(
-        `Imported ${body.imported || 0} kit(s)${
+        `Imported ${importedCount} kit(s)${
           body.created ? ` · ${body.created} new` : ""
         }${body.updated ? ` · ${body.updated} updated` : ""}${optionalNote}. Apply from quote/job cost centres — the kit explodes into catalogue lines, not one sell item.`,
       );
@@ -692,7 +706,7 @@ export function SetupPrebuildsPanel({
           />
           <small>
             CSV: repeat <strong>kit_name</strong> on every row to keep items in one package.
-            Xlsx: column A = kit name (first row only), B = item, D = qty.
+            Xlsx: column A = kit name (first row only), B = item, D = qty — or save the CSV template as .xlsx.
           </small>
         </label>
         <div className="full">

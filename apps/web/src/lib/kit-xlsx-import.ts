@@ -11,6 +11,7 @@
  */
 
 import { readXlsxFirstSheet } from "@/lib/boq-xlsx";
+import { looksLikeCsvKitHeader, parseKitsFromTabularRows } from "@/lib/kit-csv-import";
 import type { PrebuildKit, PrebuildLine, PrebuildLineKind } from "@/lib/prebuild-data";
 
 export type ParsedKitDraft = {
@@ -255,10 +256,19 @@ export function parseKitsFromXlsxRows(rows: string[][], sheetName = "Sheet1"): K
 
 export function parseKitsFromXlsxBuffer(buffer: Buffer, fileName = "kits.xlsx"): KitXlsxImportResult {
   const { sheetName, rows } = readXlsxFirstSheet(buffer);
+  if (rows.length && looksLikeCsvKitHeader(rows[0])) {
+    const parsed = parseKitsFromTabularRows(rows, fileName || sheetName);
+    if (!parsed.kits.length) {
+      throw new Error(
+        `No kits found in ${fileName}. Fill in kit_name and description on every row — download the CSV template from Setup → Kits.`,
+      );
+    }
+    return parsed;
+  }
   const parsed = parseKitsFromXlsxRows(rows, sheetName);
   if (!parsed.kits.length) {
     throw new Error(
-      `No kits found in ${fileName}. Expected a kit name (e.g. Bath) then item rows with quantities. Optional blank rows such as TMV? are skipped.`,
+      `No kits found in ${fileName}. Expected a kit name (e.g. Bath) then item rows with quantities, or use the CSV template (kit_name column). Optional blank rows such as TMV? are skipped.`,
     );
   }
   return parsed;
