@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getHubDetailState } from "@/lib/hub-detail-store";
+import { findInvoiceByPortalToken } from "@/lib/invoice-portal";
 import {
   latestCheckoutForInvoice,
   lookupSumUpCheckout,
@@ -30,15 +31,7 @@ type PortalInvoice = {
 function findInvoiceByToken(token: string) {
   const raw = getHubDetailState().invoices;
   if (!Array.isArray(raw)) return null;
-  const cleaned = token.trim().toLowerCase();
-  return (
-    (raw as PortalInvoice[]).find((invoice) => {
-      if (!invoice || typeof invoice !== "object") return false;
-      const portal = String(invoice.portalToken || "").toLowerCase();
-      const ref = String(invoice.ref || "").toLowerCase();
-      return portal === cleaned || ref === cleaned;
-    }) ?? null
-  );
+  return findInvoiceByPortalToken(raw as PortalInvoice[], token);
 }
 
 /** After SumUp redirect, confirm PAID status and post to NeXa ledger (+ Xero push). */

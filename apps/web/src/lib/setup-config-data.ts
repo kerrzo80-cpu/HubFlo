@@ -112,14 +112,14 @@ const defaults: SetupConfigStore = {
       key: "invoice",
       name: "Invoice send",
       subject: "Invoice {{ref}} from {{company}}",
-      body: "Hi {{contact}},\n\nPlease find invoice {{ref}}.\nAmount due: {{total}}.\n\nKind regards,\n{{company}}",
+      body: "Hi {{contact}},\n\nPlease find invoice {{ref}}.\nAmount due: {{total}}.\n\nPay online: {{portalLink}}\n\nKind regards,\n{{company}}",
     },
     {
       id: "em-invoice-overdue",
       key: "invoice-overdue",
       name: "Invoice overdue chase",
       subject: "Payment reminder · {{ref}} · {{daysOverdue}} days overdue",
-      body: "Hi {{contact}},\n\nOur records show invoice {{ref}} is {{daysOverdue}} days overdue (due {{dueDate}}).\n\nOutstanding balance: {{outstanding}}.\nOriginal total: {{total}}.\nPaid to date: {{paid}}.\n\nPlease arrange payment or let us know if there is a query.\n\nKind regards,\n{{company}}",
+      body: "Hi {{contact}},\n\nOur records show invoice {{ref}} is {{daysOverdue}} days overdue (due {{dueDate}}).\n\nOutstanding balance: {{outstanding}}.\nOriginal total: {{total}}.\nPaid to date: {{paid}}.\n\nPay online: {{portalLink}}\n\nPlease arrange payment or let us know if there is a query.\n\nKind regards,\n{{company}}",
     },
     {
       id: "em-statement",
