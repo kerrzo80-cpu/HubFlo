@@ -119,6 +119,11 @@ import {
 } from "@/lib/commercial-terms";
 import { explodeKitOntoJob, explodeKitOntoQuote, kitLineSelectionKey, kitLinesOf } from "@/lib/kit-apply";
 import {
+  jobIsArchivedStatus,
+  jobPatchAfterFullInvoiceSent,
+  shouldMarkJobInvoicedForClaim,
+} from "@/lib/job-invoice-archive";
+import {
   applyRetentionWithCap,
   buildRetentionPortfolio,
   jobRetentionBalances,
@@ -24140,6 +24145,44 @@ export default function CoreApp() {
     }));
   }
 
+  async function archiveJobAfterFullInvoice(invoice: Invoice, options?: { switchFolder?: boolean }) {
+    if (invoice.sourceType !== "job" || !shouldMarkJobInvoicedForClaim(invoice.claimType)) {
+      return null;
+    }
+    const sourceJob = jobs.find((job) => job.id === invoice.sourceId) ?? null;
+    if (!sourceJob) return null;
+    if (jobIsArchivedStatus(sourceJob.status)) {
+      if (options?.switchFolder !== false) setActiveJobFolderKey("archived");
+      return sourceJob;
+    }
+    const patch = jobPatchAfterFullInvoiceSent(invoice.ref, invoice.dueDate);
+    try {
+      const updated = await persistJobPatch(sourceJob.id, patch);
+      if (updated) {
+        logAuditEvent({
+          actor: activeEmployee?.name ?? "NeXa user",
+          action: "invoiced",
+          recordType: "job",
+          recordId: updated.id,
+          summary: `${updated.ref} moved to Archived after ${invoice.ref} was issued.`,
+          source: "invoice",
+          importance: "high",
+        });
+        if (options?.switchFolder !== false) setActiveJobFolderKey("archived");
+      }
+      return updated;
+    } catch (error) {
+      setJobs((current) => current.map((job) => (job.id === sourceJob.id ? { ...job, ...patch } : job)));
+      if (options?.switchFolder !== false) setActiveJobFolderKey("archived");
+      showNotice(
+        error instanceof Error
+          ? `${error.message} Job marked invoiced locally — retry or refresh to confirm.`
+          : "Job marked invoiced locally — refresh to confirm save.",
+      );
+      return { ...sourceJob, ...patch };
+    }
+  }
+
   async function sendSelectedInvoiceEmail() {
     if (!selectedInvoice || !selectedInvoiceEmailDraft) return;
     if (!selectedInvoiceEmailDraft.to.trim()) {
@@ -24209,9 +24252,7 @@ export default function CoreApp() {
       selectedInvoice.sourceType === "job"
         ? jobs.find((job) => job.id === selectedInvoice.sourceId) ?? null
         : null;
-    const shouldMarkJobInvoiced = Boolean(
-      sourceJob && (!selectedInvoice.claimType || selectedInvoice.claimType === "full"),
-    );
+    const shouldMarkJobInvoiced = Boolean(sourceJob && shouldMarkJobInvoicedForClaim(selectedInvoice.claimType));
     markInvoiceEdited();
     setInvoices((current) =>
       current.map((invoice) =>
@@ -24226,20 +24267,14 @@ export default function CoreApp() {
           : invoice,
       ),
     );
-    if (sourceJob && shouldMarkJobInvoiced) {
-      setJobs((current) =>
-        current.map((job) =>
-          job.id === sourceJob.id
-            ? {
-                ...job,
-                status: "Invoiced",
-                health: "green",
-                next: `Invoice ${selectedInvoice.ref} sent. Await payment.`,
-                due: selectedInvoice.dueDate,
-              }
-            : job,
-        ),
-      );
+    if (shouldMarkJobInvoiced) {
+      await archiveJobAfterFullInvoice({
+        ...selectedInvoice,
+        status: "Sent",
+        sentTo: selectedInvoiceEmailDraft.to.trim(),
+        sentAt,
+        outlookMessageId,
+      });
     }
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
@@ -24250,17 +24285,6 @@ export default function CoreApp() {
       source: "outlook draft",
       importance: "high",
     });
-    if (sourceJob && shouldMarkJobInvoiced) {
-      logAuditEvent({
-        actor: activeEmployee?.name ?? "NeXa user",
-        action: "invoiced",
-        recordType: "job",
-        recordId: sourceJob.id,
-        summary: `${sourceJob.ref} marked Invoiced after ${selectedInvoice.ref} was emailed to ${selectedInvoiceEmailDraft.to}.`,
-        source: "invoice email",
-        importance: "high",
-      });
-    }
     addCommunicationRecord({
       recordType: "invoice",
       recordId: selectedInvoice.id,
@@ -24277,7 +24301,7 @@ export default function CoreApp() {
     });
     showNotice(
       sourceJob && shouldMarkJobInvoiced
-        ? `Invoice ${selectedInvoice.ref} sent and ${sourceJob.ref} marked invoiced.`
+        ? `Invoice ${selectedInvoice.ref} sent and ${sourceJob.ref} moved to Archived jobs.`
         : `Invoice ${selectedInvoice.ref} sent and logged.`,
     );
     setIsSendingLiveEmail(false);
@@ -36479,8 +36503,8 @@ export default function CoreApp() {
                     </button>
                   ) : null}
                   {homeView === "job-record" && selectedJob?.status === "Invoiced" ? (
-                    <button className="primary-button" onClick={closeSelectedJobToCompleteFolder}>
-                      Move to archived
+                    <button className="secondary-button" onClick={closeSelectedJobToCompleteFolder}>
+                      Mark closed
                     </button>
                   ) : null}
                   {homeView === "quote-record" && selectedQuote?.status === "Accepted" && access.canCreateJob ? (
@@ -46888,8 +46912,8 @@ export default function CoreApp() {
                               ? `Last chased ${selectedInvoice.lastChasedAt} to ${selectedInvoice.lastChasedTo ?? "recipient"} · chase #${selectedInvoice.chaseCount ?? 0}`
                               : selectedInvoice.sentAt
                                 ? `Last sent ${selectedInvoice.sentAt} to ${selectedInvoice.sentTo ?? "recipient"}`
-                                : selectedInvoiceSourceJob && (!selectedInvoice.claimType || selectedInvoice.claimType === "full")
-                                  ? `Sending will mark ${selectedInvoiceSourceJob.ref} as Invoiced.`
+                                : selectedInvoiceSourceJob && shouldMarkJobInvoicedForClaim(selectedInvoice.claimType)
+                                  ? `Sending will move ${selectedInvoiceSourceJob.ref} to Archived jobs.`
                                   : "Not sent yet"}
                           </small>
                           {selectedInvoice.claimType === "valuation" ? (
