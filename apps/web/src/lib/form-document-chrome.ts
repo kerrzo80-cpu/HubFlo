@@ -10,6 +10,7 @@ export type FormDocumentLayout =
   | "purchase-order"
   | "daywork-account"
   | "gas-safe-lgsr"
+  | "gas-safe-domestic"
   | "gas-safe-warning-notice"
   | "gas-safe-installation";
 
@@ -89,6 +90,7 @@ const defaultChromeFields = {
 export function isGasSafeFormLayout(layout: FormDocumentLayout | string): boolean {
   return (
     layout === "gas-safe-lgsr" ||
+    layout === "gas-safe-domestic" ||
     layout === "gas-safe-warning-notice" ||
     layout === "gas-safe-installation"
   );

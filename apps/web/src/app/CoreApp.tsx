@@ -292,6 +292,10 @@ const GasSafeLgsrCertificate = dynamic(
   () => import("@/components/GasSafeLgsrCertificate").then((mod) => mod.GasSafeLgsrCertificate),
   { ssr: false, loading: () => panelSkeleton("Loading gas certificate…") },
 );
+const ReportFaultModal = dynamic(
+  () => import("@/components/ReportFaultModal").then((mod) => mod.ReportFaultModal),
+  { ssr: false },
+);
 const DayworkAccountForm = dynamic(
   () => import("@/components/DayworkAccountForm").then((mod) => mod.DayworkAccountForm),
   { ssr: false, loading: () => panelSkeleton("Loading daywork…") },
@@ -2779,6 +2783,7 @@ const documentLayouts: Array<{ key: QuoteDocumentLayout; label: string; detail: 
   { key: "purchase-order", label: "Purchase order", detail: "Supplier-facing order, delivery reference, line items and totals." },
   { key: "daywork-account", label: "Daywork", detail: "Daywork Account sheet — labour, materials, plant and dual sign-off." },
   { key: "gas-safe-lgsr", label: "Gas Safe LGSR", detail: "Landlord’s Gas Safety Record / CP12 — link to boiler / service cost centres." },
+  { key: "gas-safe-domestic", label: "Gas Safe domestic", detail: "Homeowner gas safety / service record — same Field data as LGSR with domestic wording." },
   { key: "gas-safe-warning-notice", label: "Gas warning notice", detail: "Warning / advice notice for unsafe or at-risk appliances." },
   { key: "gas-safe-installation", label: "Gas installation cert", detail: "Installation / commissioning certificate for new gas work." },
 ];
@@ -3008,9 +3013,27 @@ const defaultFormTemplates: FormTemplate[] = [
     includePnl: false,
     includeAcceptance: false,
     includeBankDetails: false,
-    linkedCostCentreTypes: ["Boiler servicing", "Boiler service", "Boiler"],
+    linkedCostCentreTypes: ["Boiler servicing", "Boiler service", "Gas Boiler Service", "Landlord Gas Safety Record"],
     ...formChromeDefaults,
     headerNote: "Gas Safe Register style record",
+  },
+  {
+    id: "form-template-gas-safe-domestic",
+    layout: "gas-safe-domestic",
+    name: "Gas Safe · Domestic service record",
+    title: "Domestic Gas Safety / Service Record",
+    intro: "Homeowner gas safety and service record completed from Field stop/go on boiler servicing.",
+    footer: "Office review copy of the domestic gas safety record completed from Field.",
+    terms: "Statutory Gas Safe requirements remain the engineer’s responsibility on site.",
+    defaultAudience: "Office",
+    presentation: "description",
+    includeCostCentreBreakdown: false,
+    includePnl: false,
+    includeAcceptance: false,
+    includeBankDetails: false,
+    linkedCostCentreTypes: ["Boiler servicing", "Boiler service", "Gas Boiler Service", "Domestic Gas Safety Record"],
+    ...formChromeDefaults,
+    headerNote: "Domestic gas safety record",
   },
   {
     id: "form-template-gas-warning",
@@ -3563,6 +3586,8 @@ const jobCostCentreTabs: Array<{ key: CostCentreTab; label: string }> = [
 
 const quoteBuildTabs: Array<{ key: QuoteBuildTab; label: string }> = [
   { key: "summary", label: "Scope summary" },
+  { key: "survey-tools", label: "Ask Ayla · Survey" },
+  { key: "takeoff", label: "Takeoff" },
   { key: "catalogue", label: "Catalogue" },
   { key: "one-off", label: "One-off items" },
   { key: "labour", label: "Labour" },
@@ -3582,9 +3607,11 @@ const JOB_SUMMARY_SUPPLIER_DRAFT_KEY = "__job-summary__";
 const JOB_SUMMARY_CATALOG_MODAL_KEY = "__job-summary-catalog__";
 
 const costCentreTemplates = [
+  "Rooms (with drop)",
   "Bathroom refurbishment",
   "Boiler servicing",
   "Boiler replacement",
+  "Boiler service",
   "Daywork account",
   "General plumbing",
   "Heating remedials",
@@ -3592,6 +3619,7 @@ const costCentreTemplates = [
   "Gas Boiler Installation & Commissioning",
   "Gas Boiler Service",
   "Landlord Gas Safety Record",
+  "Domestic Gas Safety Record",
   "Gas Warning / Unsafe Situation Record",
   "Gas Repair and Breakdown",
   "Oil Boiler Installation & Commissioning",
@@ -3601,7 +3629,7 @@ const costCentreTemplates = [
 const setupCategories: Array<{ key: SetupCategory; label: string; detail: string; subItems?: string[] }> = [
   { key: "overview", label: "Overview", detail: "Backups, system readiness and live setup position" },
   { key: "business", label: "Business profile", detail: "Company details, personalising, logos and colours across all apps", subItems: ["Company", "Personalising", "Portal"] },
-  { key: "forms", label: "Customise forms", detail: "Headers, logos and wording for quotes, jobs, invoices, POs, dayworks and Gas Safe certs", subItems: ["Quote", "Job sheet", "Application for payment", "Invoice", "Purchase order", "Daywork", "Gas Safe", "Gas warning notice", "Gas installation cert"] },
+  { key: "forms", label: "Customise forms", detail: "Headers, logos and wording for quotes, jobs, invoices, POs, dayworks and Gas Safe certs", subItems: ["Quote", "Job sheet", "Application for payment", "Invoice", "Purchase order", "Daywork", "Gas Safe", "Gas Safe domestic", "Gas warning notice", "Gas installation cert"] },
   { key: "documents", label: "Documents", detail: "Default folders, visibility and record scopes", subItems: ["Folders", "Visibility", "Engineer pack"] },
   { key: "cost-centres", label: "Cost centre types", detail: "Default categories and assigned engineer checklists", subItems: ["Types", "Boiler", "Bathroom", "Reactive"] },
   { key: "engineer-checklists", label: "Engineer checklists", detail: "Stop/go flows used inside cost centres", subItems: ["Boiler service", "Boiler replacement", "General works"] },
@@ -3626,7 +3654,7 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
   business: {
     Company: {
       summary: "Control the company identity, registered details and default contact details used across forms, emails and portals.",
-      focus: ["Company and trading names", "VAT and company numbers", "Default sender and contact details"],
+      focus: ["Company and trading names", "VAT, company and UTR numbers", "Default sender and contact details"],
       status: "Editable now",
     },
     Personalising: {
@@ -3676,6 +3704,11 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       focus: ["Header and logo", "LGSR title", "Cost centre links"],
       status: "Editable now",
     },
+    "Gas Safe domestic": {
+      summary: "Customise the domestic homeowner gas safety / service record — same Field stop/go data as LGSR with domestic wording.",
+      focus: ["Header and logo", "Domestic record title", "Cost centre links"],
+      status: "Editable now",
+    },
     "Gas warning notice": {
       summary: "Warning / advice notice for unsafe or at-risk appliances. Link to the cost centre types that should use it.",
       focus: ["Header and logo", "Notice title", "Cost centre links"],
@@ -3694,14 +3727,14 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Editable now",
     },
     Visibility: {
-      summary: "Mockup area for document permissions, including private office files, engineer-visible files and client-visible files.",
+      summary: "Document visibility rules — which folders default to Private, Engineer-visible, or Client-visible on new uploads.",
       focus: ["Private by default", "Engineer app visibility", "Client portal visibility"],
-      status: "Mockup page",
+      status: "Editable now",
     },
     "Engineer pack": {
-      summary: "Mockup area for choosing which drawings, photos, forms and specs are pushed into engineer job packs.",
-      focus: ["Allowed folders", "Required site evidence", "Field app document pack"],
-      status: "Mockup page",
+      summary: "The Engineer Pack folder pushes job documents into Field. Anything marked Engineer visibility in the pack folders below is included in the engineer’s mobile job pack.",
+      focus: ["Engineer Pack folder", "Engineer-visible uploads", "Field app document pack"],
+      status: "Editable now",
     },
   },
   "cost-centres": {
@@ -3711,19 +3744,19 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Editable now",
     },
     Boiler: {
-      summary: "Mockup page for boiler cost centre defaults, linked checklist rules and reporting category setup.",
-      focus: ["Default boiler categories", "Engineer checklist assignment", "Report grouping"],
-      status: "Mockup page",
+      summary: "Boiler work uses dedicated stop/go flows: Boiler service (annual / LGSR) vs Boiler replacement (install & commission). Assign these under Types.",
+      focus: ["Boiler service → Gas Safe checklist", "Boiler replacement → install flow", "Landlord vs domestic gas records"],
+      status: "Guidance — edit under Types",
     },
     Bathroom: {
-      summary: "Mockup page for bathroom refurbishment cost centre defaults, sections and engineer workflow assignment.",
-      focus: ["Bathroom work packages", "Default sections", "Field evidence requirements"],
-      status: "Mockup page",
+      summary: "Bathroom and room packages use Rooms (with drop) or Bathroom refurbishment types with the general works or rooms-with-drop checklist.",
+      focus: ["Rooms (with drop)", "Bathroom refurbishment", "Field evidence requirements"],
+      status: "Guidance — edit under Types",
     },
     Reactive: {
-      summary: "Mockup page for reactive maintenance defaults, emergency job workflows and reporting categories.",
-      focus: ["Reactive job defaults", "Time and materials rules", "Follow-up checks"],
-      status: "Mockup page",
+      summary: "Reactive maintenance and heating remedials use the general works evidence flow unless you assign a bespoke checklist.",
+      focus: ["Reactive maintenance", "Heating remedials", "Daywork account"],
+      status: "Guidance — edit under Types",
     },
   },
   "engineer-checklists": {
@@ -4014,8 +4047,8 @@ const defaultBoilerFlowTemplate: EngineerFlowTemplate = {
 
 const boilerServiceFlowTemplate: EngineerFlowTemplate = {
   id: "boiler-service-flow",
-  name: "Boiler servicing stop/go · Landlord Gas Safety Record",
-  appliesTo: ["Boiler servicing"],
+  name: "Boiler servicing stop/go · Gas Safety Record",
+  appliesTo: ["Boiler servicing", "Boiler service", "Gas Boiler Service", "Landlord Gas Safety Record", "Domestic Gas Safety Record"],
   steps: [
     { id: "service-boiler-photo", stage: "Existing Boiler", label: "Appliance / data plate photo", evidence: "Photo", required: true },
     { id: "service-location", stage: "Existing Boiler", label: "Appliance location", evidence: "Text", required: true },
@@ -4038,7 +4071,7 @@ const boilerServiceFlowTemplate: EngineerFlowTemplate = {
 const generalWorksFlowTemplate: EngineerFlowTemplate = {
   id: "general-works-flow",
   name: "General works evidence flow",
-  appliesTo: ["Bathroom refurbishment", "General plumbing", "Heating remedials", "Reactive maintenance"],
+  appliesTo: ["Rooms (with drop)", "Bathroom refurbishment", "General plumbing", "Heating remedials", "Reactive maintenance"],
   steps: [
     { id: "general-arrival-photo", stage: "Existing Boiler", label: "Upload before photos", evidence: "Photo", required: true },
     { id: "general-site-notes", stage: "Existing Boiler", label: "Confirm site notes and access issues", evidence: "Text", required: true },
@@ -4068,10 +4101,25 @@ const dayworkAccountFlowTemplate: EngineerFlowTemplate = {
   ],
 };
 
+const roomsWithDropFlowTemplate: EngineerFlowTemplate = {
+  id: "rooms-with-drop-flow",
+  name: "Rooms with drop stop/go",
+  appliesTo: ["Rooms (with drop)"],
+  steps: [
+    { id: "drop-sheets", stage: "Existing Boiler", label: "Confirm drop cloths / dust sheets in place", evidence: "Photo", required: true },
+    { id: "room-access", stage: "Existing Boiler", label: "Confirm room access and protection route", evidence: "Text", required: true },
+    { id: "first-fix-photo", stage: "Commissioning", label: "First fix / hidden works photo", evidence: "Photo", required: true },
+    { id: "mid-work-photo", stage: "Commissioning", label: "Mid-work evidence photo", evidence: "Photo", required: false },
+    { id: "completion-photo", stage: "Handover", label: "Completion photo with drop removed", evidence: "Photo", required: true },
+    { id: "customer-signoff", stage: "Handover", label: "Customer or office sign-off", evidence: "Signature", required: true },
+  ],
+};
+
 const defaultEngineerFlowTemplates = [
   defaultBoilerFlowTemplate,
   boilerServiceFlowTemplate,
   dayworkAccountFlowTemplate,
+  roomsWithDropFlowTemplate,
   generalWorksFlowTemplate,
 ];
 
@@ -8717,6 +8765,8 @@ export default function CoreApp() {
   const [nexaAssistantOpen, setNexaAssistantOpen] = useState(false);
   const [nexaAssistantDraft, setNexaAssistantDraft] = useState("");
   const [nexaAssistantBusy, setNexaAssistantBusy] = useState(false);
+  const [nexaAssistantAttachments, setNexaAssistantAttachments] = useState<File[]>([]);
+  const [reportFaultModalOpen, setReportFaultModalOpen] = useState(false);
   const [blakeOpenTender, setBlakeOpenTender] = useState<{ id: string; name: string } | null>(null);
   const [blakeTenderBoqRevision, setBlakeTenderBoqRevision] = useState(0);
   const [buddyMemory, setBuddyMemory] = useState<BuddyMemory>(() => defaultBuddyMemory());
@@ -16569,6 +16619,33 @@ export default function CoreApp() {
     setNexaAssistantDraft("");
     setNexaAssistantBusy(true);
     const lookingAtJob = homeView === "job-record" || homeView === "cost-centre-record";
+    const lookingAtQuote = homeView === "quote-record" || homeView === "quote-cost-centre-record";
+    let outboundMessage = message;
+    const attachments = [...nexaAssistantAttachments];
+    if (attachments.length) {
+      setNexaAssistantAttachments([]);
+      const recordRef = lookingAtQuote && selectedQuote ? selectedQuote.ref : lookingAtJob && selectedJob ? selectedJob.ref : "ayla-chat";
+      const uploadedNames: string[] = [];
+      for (const file of attachments) {
+        const form = new FormData();
+        form.set("scope", lookingAtQuote ? "quote" : lookingAtJob ? "job" : "lead");
+        form.set("recordRef", recordRef);
+        form.set("folderId", "survey-photos");
+        form.set("visibility", "Engineer");
+        form.append("files", file);
+        const uploadResponse = await fetch("/api/record-documents", {
+          method: "POST",
+          headers: requestHeaders,
+          body: form,
+        });
+        const uploadData = await uploadResponse.json().catch(() => null);
+        if (uploadResponse.ok) uploadedNames.push(file.name);
+        else showNotice(uploadData?.error || `Could not upload ${file.name}.`);
+      }
+      if (uploadedNames.length) {
+        outboundMessage = `${message}\n\n[Attached: ${uploadedNames.join(", ")}]`;
+      }
+    }
     try {
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 25_000);
@@ -16579,7 +16656,7 @@ export default function CoreApp() {
           headers: { ...requestHeaders, "Content-Type": "application/json" },
           signal: controller.signal,
           body: JSON.stringify({
-            message,
+            message: outboundMessage,
             history,
             sourceRoute: typeof window !== "undefined" ? window.location.pathname : undefined,
             sourcePage: homeView,
@@ -16587,6 +16664,7 @@ export default function CoreApp() {
               view: homeView,
               tenderId: blakeOpenTender?.id || (lookingAtJob ? selectedJob?.sourceTenderId : undefined) || undefined,
               jobId: lookingAtJob ? selectedJob?.id : undefined,
+              quoteId: lookingAtQuote ? selectedQuote?.id : undefined,
             },
             buddyContext: {
               ...buddyMemoryPrompt(buddyMemory),
@@ -21827,6 +21905,7 @@ export default function CoreApp() {
         "Purchase order": "purchase-order",
         Daywork: "daywork-account",
         "Gas Safe": "gas-safe-lgsr",
+        "Gas Safe domestic": "gas-safe-domestic",
         "Gas Safe LGSR": "gas-safe-lgsr",
         "Gas warning notice": "gas-safe-warning-notice",
         "Gas installation cert": "gas-safe-installation",
@@ -28423,12 +28502,18 @@ export default function CoreApp() {
           return { ...centre, materials, labour };
         }),
       );
+      const newMaterialIds = exploded.materials.map((line) => line.id);
+      setSelectedJobMaterialLineIds((current) => ({
+        ...current,
+        [centreId]: newMaterialIds,
+      }));
+      setActiveJobBuildTab("summary");
       const labourHours = exploded.labour.reduce((sum, line) => sum + line.hours, 0);
       showNotice(
         `Applied kit “${kit.name}” as ${exploded.materials.length} material line(s)` +
           (labourHours ? ` + ${labourHours} labour hour(s)` : "") +
           (exploded.skipped ? ` · skipped ${exploded.skipped} optional row(s)` : "") +
-          ".",
+          ". Uncheck lines you do not need, click Remove unchecked, then amend labour hours on the Labour tab.",
       );
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to apply kit to this cost centre.");
@@ -28466,10 +28551,16 @@ export default function CoreApp() {
           return { ...centre, lines };
         }),
       }));
+      const newMaterialIds = exploded.lines.map((line) => line.id);
+      setSelectedQuoteMaterialLineIds((current) => ({
+        ...current,
+        [centreId]: newMaterialIds,
+      }));
+      setActiveQuoteBuildTab("summary");
       showNotice(
         `Applied kit “${kit.name}” to ${selectedQuote.ref} as ${exploded.lines.length} line(s)` +
           (exploded.skipped ? ` · skipped ${exploded.skipped} optional row(s)` : "") +
-          ".",
+          ". Uncheck lines you do not need, click Remove unchecked, then amend labour hours on the Labour tab.",
       );
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to apply kit to this cost centre.");
@@ -30097,6 +30188,37 @@ export default function CoreApp() {
         [centreId]: Array.from(currentIds),
       };
     });
+  }
+
+  function removeUncheckedQuoteMaterialLines(centre: QuoteCostCentre) {
+    const materialLines = quoteCostCentreTotals(centre).materialLines;
+    const selectedIds = new Set(selectedQuoteMaterialLineIds[centre.id] ?? []);
+    const toRemove = materialLines.filter((line) => !selectedIds.has(line.id));
+    if (!toRemove.length) {
+      showNotice(materialLines.length ? "All material lines are checked — nothing to remove." : "No material lines on this cost centre.");
+      return;
+    }
+    markCostCentreEdited();
+    toRemove.forEach((line) => removeQuoteLine(centre.id, line.id));
+    showNotice(`Removed ${toRemove.length} unchecked material line(s). Adjust labour hours on the Labour tab if needed.`);
+  }
+
+  function removeUncheckedJobMaterialLines(centre: EstimateCostCentre) {
+    const materialLines = centre.materials ?? [];
+    const selectedIds = new Set(selectedJobMaterialLineIds[centre.id] ?? []);
+    const toRemove = materialLines.filter((line) => !selectedIds.has(line.id));
+    if (!toRemove.length) {
+      showNotice(materialLines.length ? "All material lines are checked — nothing to remove." : "No material lines on this cost centre.");
+      return;
+    }
+    setJobCentresForSelected((centres) =>
+      centres.map((row) =>
+        row.id === centre.id
+          ? { ...row, materials: (row.materials ?? []).filter((line) => selectedIds.has(line.id)) }
+          : row,
+      ),
+    );
+    showNotice(`Removed ${toRemove.length} unchecked material line(s). Adjust labour hours on the Labour tab if needed.`);
   }
 
   function toggleAllQuoteMaterialLineSelection(centre: QuoteCostCentre) {
@@ -35253,15 +35375,8 @@ export default function CoreApp() {
                 className="buddy-report-chip is-feedback"
                 disabled={nexaAssistantBusy}
                 onClick={() => {
-                  setNexaAssistantDraft("Report a problem: ");
-                  setNexaAssistantMessages((current) => [
-                    ...current,
-                    {
-                      id: `buddy-guide-${crypto.randomUUID()}`,
-                      role: "assistant",
-                      text: "Tell me what’s wrong (and where you are if it helps). I’ll draft a Faults entry for you to confirm.",
-                    },
-                  ]);
+                  setReportFaultModalOpen(true);
+                  setNexaAssistantOpen(false);
                 }}
               >
                 <Bug size={14} />
@@ -35312,6 +35427,62 @@ export default function CoreApp() {
                   </button>
                 </>
               ) : null}
+              {(homeView === "quote-record" || homeView === "quote-cost-centre-record") && selectedQuote ? (
+                <>
+                  <button
+                    type="button"
+                    className="buddy-report-chip"
+                    disabled={nexaAssistantBusy}
+                    onClick={() =>
+                      void sendNexaAssistantMessage(
+                        `Start an Ayla site survey for quote ${selectedQuote.ref}. Link it to this quote so I can add photos and scope room by room.`,
+                      )
+                    }
+                  >
+                    Start site survey
+                  </button>
+                  <button
+                    type="button"
+                    className="buddy-report-chip"
+                    disabled={nexaAssistantBusy}
+                    onClick={() =>
+                      void sendNexaAssistantMessage(
+                        `Finalize the survey into cost centres with materials and labour for ${selectedQuote.ref}.`,
+                      )
+                    }
+                  >
+                    Finalize into cost centres
+                  </button>
+                </>
+              ) : null}
+              {(homeView === "job-record" || homeView === "cost-centre-record") && selectedJob ? (
+                <>
+                  <button
+                    type="button"
+                    className="buddy-report-chip"
+                    disabled={nexaAssistantBusy}
+                    onClick={() =>
+                      void sendNexaAssistantMessage(
+                        `Start an Ayla site survey for job ${selectedJob.ref}. Link it to this job.`,
+                      )
+                    }
+                  >
+                    Start site survey
+                  </button>
+                  <button
+                    type="button"
+                    className="buddy-report-chip"
+                    disabled={nexaAssistantBusy}
+                    onClick={() =>
+                      void sendNexaAssistantMessage(
+                        `Finalize the survey into cost centres with materials and labour for job ${selectedJob.ref}.`,
+                      )
+                    }
+                  >
+                    Finalize into cost centres
+                  </button>
+                </>
+              ) : null}
               <button
                 type="button"
                 className="buddy-report-chip"
@@ -35336,14 +35507,29 @@ export default function CoreApp() {
                 void sendNexaAssistantMessage();
               }}
             >
+              {((homeView === "quote-record" || homeView === "quote-cost-centre-record") && selectedQuote)
+              || ((homeView === "job-record" || homeView === "cost-centre-record") && selectedJob) ? (
+                <FileDropZone
+                  label="Attach photo or document to this message"
+                  hint="Optional — uploads to this quote/job before Ayla replies"
+                  multiple
+                  disabled={nexaAssistantBusy}
+                  onFiles={(files) => setNexaAssistantAttachments((current) => [...current, ...files])}
+                />
+              ) : null}
+              {nexaAssistantAttachments.length ? (
+                <small>{nexaAssistantAttachments.length} file(s) ready to send with your message</small>
+              ) : null}
               <textarea
                 aria-label="Chat with Ayla"
                 placeholder={
                   blakeOpenTender
                     ? `Talk about ${blakeOpenTender.name} — e.g. ignore electrical, price the plumbing bill only`
                     : (homeView === "job-record" || homeView === "cost-centre-record") && selectedJob
-                      ? `Talk about ${selectedJob.ref} — files, BoQ, then a guide price`
-                      : "Ask Ayla… or report a problem / suggest an improvement"
+                      ? `Talk about ${selectedJob.ref} — survey photos, scope, finalize into cost centres`
+                      : (homeView === "quote-record" || homeView === "quote-cost-centre-record") && selectedQuote
+                        ? `Talk about ${selectedQuote.ref} — survey photos, scope, finalize into cost centres`
+                        : "Ask Ayla… or report a problem / suggest an improvement"
                 }
                 value={nexaAssistantDraft}
                 onChange={(event) => setNexaAssistantDraft(event.target.value)}
@@ -39968,7 +40154,7 @@ export default function CoreApp() {
                             </div>
                           </div>
                           <div className="document-layout-grid">
-                            {documentLayouts.filter((layout) => !["purchase-order", "gas-safe-lgsr", "gas-safe-warning-notice", "gas-safe-installation", "daywork-account"].includes(layout.key)).map((layout) => (
+                            {documentLayouts.filter((layout) => !["purchase-order", "gas-safe-lgsr", "gas-safe-domestic", "gas-safe-warning-notice", "gas-safe-installation", "daywork-account"].includes(layout.key)).map((layout) => (
                               <button
                                 className={selectedQuoteEmailDraft.layout === layout.key ? "document-layout-card active" : "document-layout-card"}
                                 key={layout.key}
@@ -40684,9 +40870,17 @@ export default function CoreApp() {
                                   </div>
                                 ) : (
                                   <div className="quote-bulk-action-bar">
-                                    <span>{selectedCount} selected</span>
+                                    <span>{selectedCount} selected · kit lines start checked — uncheck unwanted, then remove</span>
                                     <button className="simpro-options-button" type="button" onClick={() => toggleAllQuoteMaterialLineSelection(selectedQuoteCostCentre)}>
                                       {allSelected ? "Clear selection" : "Select all"}
+                                    </button>
+                                    <button
+                                      className="simpro-options-button"
+                                      type="button"
+                                      disabled={!materialLines.length}
+                                      onClick={() => removeUncheckedQuoteMaterialLines(selectedQuoteCostCentre)}
+                                    >
+                                      Remove unchecked lines
                                     </button>
                                     <button
                                       className="simpro-options-button"
@@ -40970,6 +41164,36 @@ export default function CoreApp() {
 
                     {activeQuoteBuildTab === "survey-tools" ? (
                       <div className="survey-tools-panel">
+                        <div className="simpro-parts-header">
+                          <div>
+                            <h2>Ask Ayla · Survey</h2>
+                            <h3>ChatGPT-style surveyor inside this quote — photos, scope and finalize into cost centres</h3>
+                            <span>Use Ask Ayla for back-and-forth survey chat, attach photos, then finalize into room/work-area cost centres with materials and labour.</span>
+                          </div>
+                          <div className="simpro-parts-actions">
+                            <button
+                              className="simpro-blue-button"
+                              type="button"
+                              onClick={() => {
+                                setNexaAssistantOpen(true);
+                                setNexaAssistantDraft(`Survey ${selectedQuote.ref} — `);
+                              }}
+                            >
+                              Open Ask Ayla
+                            </button>
+                            <button
+                              className="simpro-grey-button"
+                              type="button"
+                              onClick={() =>
+                                void sendNexaAssistantMessage(
+                                  `Finalize the survey into cost centres with materials and labour for ${selectedQuote.ref}.`,
+                                )
+                              }
+                            >
+                              Finalize into cost centres
+                            </button>
+                          </div>
+                        </div>
                         <div className="simpro-parts-header">
                           <div>
                             <h2>Survey tools</h2>
@@ -48370,6 +48594,7 @@ export default function CoreApp() {
                               ],
                               "daywork-account": [],
                               "gas-safe-lgsr": [],
+                              "gas-safe-domestic": [],
                               "gas-safe-warning-notice": [],
                               "gas-safe-installation": [],
                             };
@@ -48560,6 +48785,48 @@ export default function CoreApp() {
                           </article>
                         ))}
                       </div>
+                    </section>
+                  ) : null}
+
+                  {activeSetupCategory === "documents" && activeSetupSubItem === "Visibility" ? (
+                    <section className="setup-panel">
+                      <div>
+                        <span className="permission-heading">Documents</span>
+                        <h2>Visibility rules</h2>
+                        <p>
+                          New uploads inherit the folder default below. <strong>Private</strong> stays office-only;{" "}
+                          <strong>Engineer</strong> appears in Field job packs; <strong>Client</strong> can be shared on the portal.
+                        </p>
+                      </div>
+                      <ul className="ops-simple-list">
+                        <li><strong>Private</strong> — office margin notes, tenders, internal only.</li>
+                        <li><strong>Engineer</strong> — site photos, drawings, forms the engineer needs on site.</li>
+                        <li><strong>Client</strong> — quote packs, issued invoices, client-visible survey visuals.</li>
+                      </ul>
+                      <p className="setup-panel-lead">Change default visibility per folder under Documents → Folders. Individual files can be overridden on each record.</p>
+                    </section>
+                  ) : null}
+
+                  {activeSetupCategory === "documents" && activeSetupSubItem === "Engineer pack" ? (
+                    <section className="setup-panel">
+                      <div>
+                        <span className="permission-heading">Documents</span>
+                        <h2>Engineer pack</h2>
+                        <p>
+                          Field loads documents from folders marked <strong>Engineer</strong> visibility — especially the{" "}
+                          <strong>Engineer Pack</strong> folder template. Assign engineer checklists under Cost centre types.
+                        </p>
+                      </div>
+                      <div className="setup-folder-list">
+                        {documentFolderTemplates.filter((folder) => folder.defaultVisibility === "Engineer" || folder.id === "engineer-pack").map((folder) => (
+                          <article className="setup-folder-row" key={folder.id}>
+                            <strong>{folder.name}</strong>
+                            <span>{folder.defaultVisibility} · {folder.recordTypes.join(", ")}</span>
+                            <small>{folder.description}</small>
+                          </article>
+                        ))}
+                      </div>
+                      <p className="setup-panel-lead">Edit folder names and defaults under Documents → Folders. Gas forms and job sheets use Customise forms.</p>
                     </section>
                   ) : null}
 
@@ -53407,6 +53674,15 @@ export default function CoreApp() {
           </section>
         </div>
       ) : null}
+      <ReportFaultModal
+        open={reportFaultModalOpen}
+        onClose={() => setReportFaultModalOpen(false)}
+        requestHeaders={requestHeaders}
+        actorName={activeEmployee?.name || "NeXa user"}
+        sourceRoute={typeof window !== "undefined" ? window.location.pathname : undefined}
+        sourcePage={homeView}
+        onCreated={(reference) => showNotice(`Fault logged as ${reference}.`)}
+      />
     </div>
   );
 }
