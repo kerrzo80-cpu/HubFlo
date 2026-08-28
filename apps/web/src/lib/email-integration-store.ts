@@ -27,10 +27,7 @@ export type OutboundEmailInput = {
   cc?: string;
   subject: string;
   text: string;
-  /**
-   * Logged-in employee. With company SMTP (simPRO-style), used for Reply-To / display name
-   * from their People card email — not for per-person mailbox passwords.
-   */
+  /** Logged-in employee. Uses their People → Mailbox when configured; otherwise company SMTP. */
   employeeId?: string;
   /** Optional override; otherwise uses the employee's People card email. */
   replyTo?: string;
@@ -189,12 +186,30 @@ function companySmtpSecret() {
   return decryptSecret(emailIntegrationStore.encryptedSecret);
 }
 
-function isCompanySmtpConfigured() {
+export function isCompanySmtpConfigured() {
   return Boolean(
     emailIntegrationStore.senderEmail.trim()
     && emailIntegrationStore.username.trim()
     && companySmtpSecret().trim(),
   );
+}
+
+function isEmployeeMailboxConfigured(employeeId?: string) {
+  const id = employeeId?.trim();
+  if (!id) return false;
+  const store = loadServerStore<{ byEmployeeId: Record<string, { senderEmail?: string; username?: string; encryptedSecret?: string }> }>(
+    "employee-mailboxes",
+    { byEmployeeId: {} },
+  );
+  const record = store.byEmployeeId[id];
+  return Boolean(record?.senderEmail?.trim() && record?.username?.trim() && record?.encryptedSecret);
+}
+
+/** Which outbound path NeXa will use for the logged-in employee. */
+export function resolveOutboundEmailRoute(employeeId?: string): "employee" | "company" | null {
+  if (isEmployeeMailboxConfigured(employeeId)) return "employee";
+  if (isCompanySmtpConfigured()) return "company";
+  return null;
 }
 
 function resolveEmployeeReplyIdentity(employeeId?: string): { email: string; name: string } | null {
@@ -252,7 +267,24 @@ export async function sendEmailMessage(input: OutboundEmailInput) {
   const employeeId = input.employeeId?.trim();
   const identity = resolveEmployeeReplyIdentity(employeeId);
 
-  // simPRO-style: one company SMTP path for everyone. Personal mailboxes are fallback only.
+  if (employeeId) {
+    const { resolveEmployeeMailboxTransport, sendViaResolvedMailbox } = await import("@/lib/employee-mailbox-store");
+    try {
+      const employeeMailbox = resolveEmployeeMailboxTransport(employeeId);
+      if (employeeMailbox) {
+        return sendViaResolvedMailbox(employeeMailbox, {
+          to: input.to,
+          cc: input.cc,
+          subject: input.subject,
+          text: input.text,
+          attachments: input.attachments,
+        });
+      }
+    } catch (error) {
+      throw error instanceof Error ? error : new Error("Unable to use the employee mailbox.");
+    }
+  }
+
   if (isCompanySmtpConfigured()) {
     const transport = configuredTransport();
     const companyMailbox = emailIntegrationStore.senderEmail.trim();
@@ -294,26 +326,8 @@ export async function sendEmailMessage(input: OutboundEmailInput) {
     }
   }
 
-  if (employeeId) {
-    const { resolveEmployeeMailboxTransport, sendViaResolvedMailbox } = await import("@/lib/employee-mailbox-store");
-    try {
-      const employeeMailbox = resolveEmployeeMailboxTransport(employeeId);
-      if (employeeMailbox) {
-        return sendViaResolvedMailbox(employeeMailbox, {
-          to: input.to,
-          cc: input.cc,
-          subject: input.subject,
-          text: input.text,
-          attachments: input.attachments,
-        });
-      }
-    } catch (error) {
-      throw error instanceof Error ? error : new Error("Unable to use the employee mailbox.");
-    }
-  }
-
   throw new Error(
-    "Connect the company Outlook mailbox in Setup → Communications (shared send address + app password), Save, then Test. Staff do not each need email passwords.",
+    "Connect your personal mailbox on People → your card → Mailbox (app password), or ask an admin to connect the company Outlook mailbox in Setup → Communications.",
   );
 }
 

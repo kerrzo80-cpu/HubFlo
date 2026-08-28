@@ -3919,9 +3919,9 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
   },
   communications: {
     Outlook: {
-      summary: "Like simPRO: one company Microsoft 365 send mailbox for NeXa. Staff do not enter email passwords — Reply-To uses each person’s People card email so replies land in their Outlook.",
-      focus: ["One shared M365 send mailbox + app password", "Save → Test company connection", "People card email = who replies go to"],
-      status: "Connect company Outlook",
+      summary: "Choose one path: personal mailboxes on each People card (quotes send from whoever is logged in), or one shared company Outlook mailbox with Reply-To on each person’s card email.",
+      focus: ["Personal: People → Mailbox tab + app password per sender", "Shared: one M365 send address in Setup", "Save → Test before sending quotes"],
+      status: "Personal or company send",
     },
     WhatsApp: {
       summary: "Connect the company WhatsApp Business number for job messages. Replies land on the job Timeline and are attributed to whoever is signed in.",
@@ -10080,13 +10080,13 @@ export default function CoreApp() {
     [communicationRecords, selectedInvoice],
   );
 
-  /** Company Outlook (simPRO-style) preferred; personal mailbox remains a fallback. */
+  /** Personal mailbox (logged-in employee) preferred; company Outlook is fallback. */
   const liveEmailReady = Boolean(
     emailIntegrationStatus?.lastTestMessageId || employeeMailboxStatus?.lastTestMessageId,
   );
   const liveEmailBlockedReason = liveEmailReady
     ? ""
-    : "An admin must connect the company Outlook mailbox in Setup → Communications, Save, then Test.";
+    : "Connect your mailbox on People → your card → Mailbox (app password), or ask an admin to connect company Outlook in Setup → Communications.";
 
   const selectedQuoteCommunicationDraft = useMemo(
     () => (selectedQuote ? communicationDrafts[`quote:${selectedQuote.id}`] ?? blankCommunicationDraft : blankCommunicationDraft),
@@ -40220,9 +40220,9 @@ export default function CoreApp() {
                               <span>Outlook connection</span>
                               <strong>
                                 {liveEmailReady
-                                  ? (emailIntegrationStatus?.lastTestMessageId
-                                    ? "Company Outlook ready"
-                                    : "Personal mailbox ready")
+                                  ? (employeeMailboxStatus?.lastTestMessageId
+                                    ? "Personal mailbox ready"
+                                    : "Company Outlook ready")
                                   : (emailIntegrationStatus?.lastError || employeeMailboxStatus?.lastError)
                                     ? "Mailbox connection failed"
                                     : (emailIntegrationStatus?.configured || employeeMailboxStatus?.configured)
@@ -40230,13 +40230,15 @@ export default function CoreApp() {
                                       : "Not connected"}
                               </strong>
                               <p>
-                                {emailIntegrationStatus?.lastError
-                                  || employeeMailboxStatus?.lastError
-                                  || (emailIntegrationStatus?.lastTestMessageId
-                                    ? `Company send via ${emailIntegrationStatus.senderEmail}. Replies go to ${activeEmployee?.profile?.email?.trim() || "your People card email"}.`
-                                    : (employeeMailboxStatus?.lastTestRecipient
-                                      ? `Test sent to ${employeeMailboxStatus.lastTestRecipient}.`
-                                      : liveEmailBlockedReason))}
+                                {employeeMailboxStatus?.lastError
+                                  || emailIntegrationStatus?.lastError
+                                  || (employeeMailboxStatus?.lastTestMessageId
+                                    ? `You send as ${employeeMailboxStatus.senderEmail}.`
+                                    : (emailIntegrationStatus?.lastTestMessageId
+                                      ? `Company send via ${emailIntegrationStatus.senderEmail}. Replies go to ${activeEmployee?.profile?.email?.trim() || "your People card email"}.`
+                                      : (employeeMailboxStatus?.lastTestRecipient
+                                        ? `Test sent to ${employeeMailboxStatus.lastTestRecipient}.`
+                                        : liveEmailBlockedReason)))}
                               </p>
                             </div>
                             <div className="setup-template-actions">
@@ -50039,10 +50041,11 @@ export default function CoreApp() {
                             </div>
                           </header>
                           <small>
-                            NeXa sends through <strong>one</strong> shared Microsoft 365 mailbox (for example nexa@ or admin@).
-                            Staff do <strong>not</strong> enter their own email passwords.
-                            When anyone sends a quote, job or invoice, Reply-To is their People card email so the customer reply lands in that person’s Outlook.
-                            In M365 Admin: enable SMTP AUTH for this shared mailbox, create an app password for it, paste below, Save and Test.
+                            <strong>Personal send (recommended):</strong> open People → each sender’s card → <strong>Mailbox</strong> tab,
+                            paste their Microsoft 365 app password, Save and Test. Quotes and invoices send from whoever is signed in.
+                            <br />
+                            <strong>Shared company send (optional):</strong> one M365 mailbox here (for example nexa@). Staff do not need passwords;
+                            Reply-To uses each person’s People card email. Leave this blank if you use personal mailboxes only.
                           </small>
                           <div className="setup-form-grid">
                             <label>
@@ -52199,7 +52202,8 @@ export default function CoreApp() {
                       <div className="employee-section-heading">
                         <span className="permission-heading">Personal mailbox</span>
                         <span className="employee-access-note">
-                          Choose Outlook, Gmail, or iCloud. Edit Sends as for the From address (iCloud is fine for testing — does not change the Details email).
+                          When this person is signed in, quotes and invoices send from their address below.
+                          Use a Microsoft 365 app password (not their normal login password). Admins can set this up for any employee.
                         </span>
                       </div>
                       <div className="setup-form-grid">
