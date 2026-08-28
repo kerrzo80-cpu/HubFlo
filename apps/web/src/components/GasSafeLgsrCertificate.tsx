@@ -1,3 +1,4 @@
+import { formatCompanyRegistrationLine } from "@/lib/commercial-safeguards";
 import { gasSafeCertificateSections, type GasSafeCertificateContext } from "@/lib/gas-safe-lgsr-form";
 import type { FormDocumentChrome } from "@/lib/form-document-chrome";
 
@@ -36,7 +37,9 @@ export function GasSafeLgsrCertificate({
               <small>
                 {chrome.tradingName}
                 {chrome.address ? ` · ${chrome.address}` : ""}
-                {chrome.showVatCompanyNumbers && chrome.vatNumber ? ` · VAT ${chrome.vatNumber}` : ""}
+                {chrome.showVatCompanyNumbers && formatCompanyRegistrationLine(chrome)
+                  ? ` · ${formatCompanyRegistrationLine(chrome)}`
+                  : ""}
               </small>
             ) : null}
           </div>

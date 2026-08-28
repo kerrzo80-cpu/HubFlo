@@ -131,26 +131,51 @@ export function isPlaceholderCompanyNumber(companyNumber?: string): boolean {
   );
 }
 
-/** True when both VAT and company registration should be omitted from PDF chrome. */
+/** True when a UTR is blank or demo junk and must not print. */
+export function isPlaceholderUtrNumber(utrNumber?: string): boolean {
+  const utr = String(utrNumber || "").trim();
+  if (!utr) return true;
+  return /^0+$/.test(utr.replace(/\D/g, ""));
+}
+
+/** True when all registration identifiers should be omitted from PDF chrome. */
 export function isPlaceholderCompanyRegistration(input: {
   vatNumber?: string;
   companyNumber?: string;
+  utrNumber?: string;
 }): boolean {
-  return isPlaceholderVatNumber(input.vatNumber) && isPlaceholderCompanyNumber(input.companyNumber);
+  return !scrubCompanyRegistrationDisplay(input).showLine;
 }
 
 /** Scrub each field independently for chrome / PDF lines. */
 export function scrubCompanyRegistrationDisplay(input: {
   vatNumber?: string;
   companyNumber?: string;
-}): { vatNumber: string; companyNumber: string; showLine: boolean } {
+  utrNumber?: string;
+}): { vatNumber: string; companyNumber: string; utrNumber: string; showLine: boolean } {
   const vatNumber = isPlaceholderVatNumber(input.vatNumber) ? "" : String(input.vatNumber || "").trim();
   const companyNumber = isPlaceholderCompanyNumber(input.companyNumber)
     ? ""
     : String(input.companyNumber || "").trim();
+  const utrNumber = isPlaceholderUtrNumber(input.utrNumber) ? "" : String(input.utrNumber || "").trim();
   return {
     vatNumber,
     companyNumber,
-    showLine: Boolean(vatNumber || companyNumber),
+    utrNumber,
+    showLine: Boolean(vatNumber || companyNumber || utrNumber),
   };
+}
+
+/** Build the masthead registration line shown on forms and PDFs. */
+export function formatCompanyRegistrationLine(input: {
+  vatNumber?: string;
+  companyNumber?: string;
+  utrNumber?: string;
+}): string {
+  const scrubbed = scrubCompanyRegistrationDisplay(input);
+  const parts: string[] = [];
+  if (scrubbed.vatNumber) parts.push(`VAT ${scrubbed.vatNumber}`);
+  if (scrubbed.companyNumber) parts.push(`Company ${scrubbed.companyNumber}`);
+  if (scrubbed.utrNumber) parts.push(`UTR ${scrubbed.utrNumber}`);
+  return parts.join(" · ");
 }

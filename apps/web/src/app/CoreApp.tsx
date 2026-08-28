@@ -89,7 +89,7 @@ import {
 } from "lucide-react";
 import { checkInvoiceReadiness, type InvoiceReadinessInput } from "@hubflo/domain";
 import type { Job, PurchaseRequest, PurchaseStatus, Quote, QuoteStatus } from "@/lib/workflow-data";
-import { isPlaceholderBankDetails, isPlaceholderCompanyRegistration } from "@/lib/commercial-safeguards";
+import { isPlaceholderBankDetails, formatCompanyRegistrationLine } from "@/lib/commercial-safeguards";
 import { DEFAULT_OVERHEAD_PERCENT } from "@/lib/reports-board-pack";
 import { assertNoHubScheduleClashes, leadSurveysToAssignments } from "@/lib/schedule-clash";
 import { effectiveJobHealthTone, jobAttentionReasons, primaryJobAttentionReason, type JobHealthTone } from "@/lib/job-health-tone";
@@ -3253,12 +3253,8 @@ function PdfDocumentPreview({
               <strong>{chrome.tradingName}</strong>
               <span>{chrome.address}</span>
               <span>{chrome.phone} · {chrome.contactEmail}</span>
-              {chrome.showVatCompanyNumbers &&
-              !isPlaceholderCompanyRegistration({
-                vatNumber: chrome.vatNumber,
-                companyNumber: chrome.companyNumber,
-              }) ? (
-                <span>VAT {chrome.vatNumber} · Company {chrome.companyNumber}</span>
+              {chrome.showVatCompanyNumbers && formatCompanyRegistrationLine(chrome) ? (
+                <span>{formatCompanyRegistrationLine(chrome)}</span>
               ) : null}
             </div>
           ) : (
@@ -3435,12 +3431,8 @@ function ApplicationPaymentPreview({
               <strong>{chrome.tradingName}</strong>
               <span>{chrome.address}</span>
               <span>{chrome.phone} · {chrome.contactEmail}</span>
-              {chrome.showVatCompanyNumbers &&
-              !isPlaceholderCompanyRegistration({
-                vatNumber: chrome.vatNumber,
-                companyNumber: chrome.companyNumber,
-              }) ? (
-                <span>VAT {chrome.vatNumber} · Company {chrome.companyNumber}</span>
+              {chrome.showVatCompanyNumbers && formatCompanyRegistrationLine(chrome) ? (
+                <span>{formatCompanyRegistrationLine(chrome)}</span>
               ) : null}
             </div>
           ) : (
