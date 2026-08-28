@@ -11257,6 +11257,14 @@ export default function CoreApp() {
     return items;
   }, [activeRecordChain, jobSchedulePlans, quoteSchedulePlans]);
 
+  function displayedJobValue(job: Job) {
+    const centreSell = (jobEstimateCostCentres[job.id] ?? []).reduce(
+      (total, centre) => total + estimateCostCentreTotals(centre).totalSell,
+      0,
+    );
+    return centreSell > 0 ? centreSell : job.value;
+  }
+
   const selectedJobCostSummary = useMemo(() => {
     if (!selectedJob) {
       return {
@@ -11994,6 +12002,10 @@ export default function CoreApp() {
         }
 
         if (stopped) return;
+
+        // Release the truthful boot shell after the first complete wave even if hub detail
+        // was unavailable; sectionError below explains any partial fallback.
+        setHasLoadedHubDetailState(true);
 
         if (hasOfflineFallback) {
           setSectionError(
@@ -34815,9 +34827,9 @@ export default function CoreApp() {
     { label: "New job", icon: Wrench, onClick: createJobFromMenu },
   ];
 
-  // Only block chrome while auth mode is unknown. Do not wait for hub hydrate —
-  // that was leaving tabs dead for ~1 minute after sign-in on live.
-  if (serverAuthMode === "checking") {
+  // Keep live chrome truthful while the first shared workspace wave loads. The loader
+  // is released even when hub detail fails, so a partial API outage cannot strand the tab.
+  if (serverAuthMode === "checking" || (serverWorkspaceMode === "live" && !hasLoadedHubDetailState)) {
     return (
       <div className="platform core-boot-shell" aria-busy="true">
         <header className="global-header core-boot-header">
@@ -34844,7 +34856,7 @@ export default function CoreApp() {
             <span />
           </aside>
           <main className="core-boot-main">
-            <p className="core-boot-status">Signing you in…</p>
+            <p className="core-boot-status">{serverAuthMode === "checking" ? "Signing you in…" : "Loading your workspace…"}</p>
             <div className="core-boot-kpi-grid" aria-hidden="true">
               <div />
               <div />
@@ -36957,7 +36969,7 @@ export default function CoreApp() {
                               <small>{getJobAddress(job)}</small>
                             </span>
                             <span className={`status-pill ${job.health}`}>{job.status}</span>
-                            <strong className="value">{currency(job.value)}</strong>
+                            <strong className="value">{currency(displayedJobValue(job))}</strong>
                             <span className="next-action quote-workflow-action">
                               <strong>
                                 {activeJobFolderKey === "timesheets"
@@ -45962,7 +45974,7 @@ export default function CoreApp() {
                             <FileText size={16} />
                             <span>
                               <strong>{selectedInvoiceSourceJob.ref}</strong>
-                              <small>{selectedInvoiceSourceJob.status} · {currency(selectedInvoiceSourceJob.value)}</small>
+                              <small>{selectedInvoiceSourceJob.status} · {currency(displayedJobValue(selectedInvoiceSourceJob))}</small>
                             </span>
                             <ChevronRight size={16} />
                           </button>
