@@ -25,6 +25,7 @@ export type BlakeScreenContext = {
   view?: string;
   tenderId?: string | null;
   jobId?: string | null;
+  quoteId?: string | null;
   takeoffId?: string | null;
 };
 

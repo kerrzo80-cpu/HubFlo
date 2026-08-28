@@ -27,9 +27,10 @@ function readScreenContext(input: unknown): BlakeScreenContext | undefined {
   const view = typeof raw.view === "string" ? raw.view.slice(0, 80) : undefined;
   const tenderId = typeof raw.tenderId === "string" ? raw.tenderId.slice(0, 120) : undefined;
   const jobId = typeof raw.jobId === "string" ? raw.jobId.slice(0, 120) : undefined;
+  const quoteId = typeof raw.quoteId === "string" ? raw.quoteId.slice(0, 120) : undefined;
   const takeoffId = typeof raw.takeoffId === "string" ? raw.takeoffId.slice(0, 120) : undefined;
-  if (!view && !tenderId && !jobId && !takeoffId) return undefined;
-  return { view, tenderId, jobId, takeoffId };
+  if (!view && !tenderId && !jobId && !quoteId && !takeoffId) return undefined;
+  return { view, tenderId, jobId, quoteId, takeoffId };
 }
 
 type AssistantRequest = {
