@@ -2435,7 +2435,7 @@ button:disabled {
 }
 
 .global-search-action {
-  background: #006eb8;
+  background: var(--nexa-cyan, #157fa8);
   border: 0;
   border-radius: 6px;
   color: #fff;
@@ -2448,7 +2448,7 @@ button:disabled {
 }
 
 .global-search-action:hover {
-  background: #005a96;
+  background: var(--nexa-cyan-deep, #0f5f7d);
 }
 
 kbd {
@@ -3789,6 +3789,11 @@ a,
   z-index: 10;
 }
 
+/* Allow People (and any) dropdown to escape the scroll clip while open. */
+.module-bar.is-menu-open {
+  overflow: visible;
+}
+
 .module-bar-scroll {
   align-items: center;
   display: flex;
@@ -3801,6 +3806,10 @@ a,
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
+}
+
+.module-bar.is-menu-open .module-bar-scroll {
+  overflow: visible;
 }
 
 .module-bar-scroll::-webkit-scrollbar {
@@ -3960,7 +3969,7 @@ a,
   padding: 6px;
   position: absolute;
   top: 100%;
-  z-index: 9;
+  z-index: 80;
 }
 
 .module-submenu.open {
@@ -11721,6 +11730,40 @@ h1 {
   z-index: 80;
 }
 
+/* Stable accordion list — no hover flyout / overflow clipping. */
+.setup-category-submenu-inline {
+  display: grid;
+  gap: 4px;
+  margin: 2px 0 8px;
+  padding: 0 0 0 8px;
+}
+
+.setup-category-submenu-inline .setup-submenu-option {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--nexa-slate);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  padding: 8px 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.setup-category-submenu-inline .setup-submenu-option:hover,
+.setup-category-submenu-inline .setup-submenu-option:focus-visible {
+  background: var(--nexa-verdigris-soft);
+  border-color: rgba(46, 140, 125, 0.2);
+}
+
+.setup-category-submenu-inline .setup-submenu-option.active {
+  background: rgba(46, 140, 125, 0.14);
+  border-color: rgba(46, 140, 125, 0.28);
+  color: var(--nexa-navy);
+  font-weight: 700;
+}
+
 .setup-category-item:hover .setup-category-submenu,
 .setup-category-item:focus-within .setup-category-submenu {
   display: grid;
@@ -12021,7 +12064,7 @@ h1 {
 
   .setup-category-nav {
     max-height: calc(100dvh - 160px);
-    overflow-x: hidden;
+    overflow-x: visible;
     overflow-y: auto;
     position: sticky;
     top: 0;
@@ -12038,12 +12081,11 @@ h1 {
 
   .setup-category-nav {
     display: flex;
-    flex-direction: row;
+    flex-direction: column;
     flex-wrap: nowrap;
     gap: 6px;
     max-height: none;
-    overflow-x: auto;
-    overflow-y: hidden;
+    overflow: visible;
     padding: 8px;
     position: static;
     -webkit-overflow-scrolling: touch;
@@ -12141,13 +12183,22 @@ h1 {
 }
 
 .setup-category-heading {
+  align-items: center;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: var(--shadow);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  justify-content: space-between;
+  padding: 16px 18px;
+}
+
+.setup-category-heading > div:first-child {
   display: grid;
   gap: 4px;
-  padding: 16px 18px;
+  min-width: 0;
 }
 
 .setup-category-heading h2 {
@@ -12161,6 +12212,36 @@ h1 {
   font-size: 13px;
   line-height: 1.45;
   margin: 0;
+}
+
+.setup-save-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.setup-save-status {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.setup-save-status.unsaved {
+  color: #9a5b00;
+}
+
+.setup-save-status.saving {
+  color: var(--nexa-cyan-deep, #0f5f7d);
+}
+
+.setup-save-status.saved {
+  color: #1f6b4a;
+}
+
+.setup-save-status.error {
+  color: var(--red, #b42318);
 }
 
 .setup-readiness-grid {
@@ -12580,17 +12661,20 @@ h1 {
   height: 88px;
   justify-items: center;
   overflow: hidden;
+  padding: 4px;
   width: 88px;
 }
 
 .personalising-upload-preview img {
-  max-height: 76px;
-  max-width: 76px;
+  display: block;
+  height: 100%;
   object-fit: contain;
+  width: 100%;
 }
 
 .personalising-upload-preview-icon {
   border-radius: 22px;
+  padding: 2px;
 }
 
 .personalising-upload-actions {
@@ -12623,7 +12707,7 @@ h1 {
   border-radius: 18px;
   height: 56px;
   object-fit: contain;
-  padding: 6px;
+  padding: 2px;
   width: 56px;
 }
 
@@ -17709,8 +17793,16 @@ h1 {
     padding: 0 6px;
   }
 
+  .module-bar.is-menu-open {
+    overflow: visible;
+  }
+
   .module-bar-scroll {
     overflow-x: auto;
+  }
+
+  .module-bar.is-menu-open .module-bar-scroll {
+    overflow: visible;
   }
 
   .open-record-tabs {
@@ -22884,10 +22976,14 @@ kbd,
 
 .brand-lockup .company-logo {
   display: block !important;
+  background: #fff !important;
+  border: 0 !important;
+  border-radius: 0 !important;
   height: 54px;
   max-width: none;
   object-fit: contain;
   object-position: left center;
+  padding: 0 !important;
   width: 184px;
 }
 
@@ -23936,9 +24032,16 @@ body:has([data-takeoff-mode="page"]) {
 .body-shell.sidebar-collapsed .sidebar-label,
 .body-shell.sidebar-collapsed .context-link span,
 .body-shell.sidebar-collapsed .context-link b,
-.body-shell.sidebar-collapsed .support-panel img,
 .body-shell.sidebar-collapsed .support-panel small {
   display: none;
+}
+
+.body-shell.sidebar-collapsed .support-panel img {
+  display: block;
+  height: 34px;
+  max-width: 34px;
+  object-fit: contain;
+  width: 34px;
 }
 
 .body-shell.sidebar-collapsed .context-sidebar nav {
@@ -24020,20 +24123,7 @@ body:has([data-takeoff-mode="page"]) {
   width: 100%;
 }
 
-.body-shell.sidebar-collapsed .support-panel::before {
-  align-items: center;
-  background-image: url("/brand/nexa-command-mark-rail.svg");
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: 82%;
-  border: 1px solid rgba(212, 175, 55, 0.35);
-  border-radius: 9px;
-  content: "";
-  display: inline-flex;
-  height: 34px;
-  justify-content: center;
-  width: 34px;
-}
+/* NeXa rail mark removed — collapsed sidebar shows the company logo only. */
 
 .record-directory {
   color: var(--ink);
@@ -30230,7 +30320,11 @@ body {
 }
 
 .brand-lockup img {
-  border-radius: 14px;
+  border-radius: 0;
+}
+
+.brand-lockup .company-logo {
+  border-radius: 0 !important;
 }
 
 .global-search,
@@ -30399,10 +30493,11 @@ body {
   border-radius: 12px !important;
 }
 
-.body-shell.sidebar-collapsed .support-panel::before {
-  background-color: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.35) !important;
-  border-radius: 14px !important;
+.body-shell.sidebar-collapsed .support-panel img {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 14px;
+  padding: 4px;
 }
 
 .workspace {

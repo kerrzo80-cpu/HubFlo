@@ -11,7 +11,8 @@ export type BrandingAssetKind =
   | "logo-field"
   | "logo-survey"
   | "logo-takeoffs"
-  | "logo-heat-design";
+  | "logo-heat-design"
+  | "logo-trainer";
 
 export const BRANDING_ASSET_KINDS: BrandingAssetKind[] = [
   "logo",
@@ -21,6 +22,7 @@ export const BRANDING_ASSET_KINDS: BrandingAssetKind[] = [
   "logo-survey",
   "logo-takeoffs",
   "logo-heat-design",
+  "logo-trainer",
 ];
 
 const MIME_BY_EXT: Record<string, string> = {
@@ -73,6 +75,8 @@ export function brandingAssetSettingsField(kind: BrandingAssetKind): "logoUrl" |
       return "takeoffsLogoUrl";
     case "logo-heat-design":
       return "heatDesignLogoUrl";
+    case "logo-trainer":
+      return "trainerLogoUrl";
     default:
       return "logoUrl";
   }

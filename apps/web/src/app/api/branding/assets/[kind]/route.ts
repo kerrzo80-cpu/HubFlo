@@ -27,6 +27,8 @@ function appKeyForKind(kind: string): BrandAppKey | undefined {
       return "takeoffs";
     case "logo-heat-design":
       return "heat-design";
+    case "logo-trainer":
+      return "trainer";
     default:
       return undefined;
   }
@@ -91,10 +93,10 @@ export async function POST(request: Request, { params }: Params) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Choose an image file to upload." }, { status: 400 });
   }
-  if (file.size > 4 * 1024 * 1024) {
-    return NextResponse.json({ error: "Image must be under 4MB." }, { status: 413 });
+  if (file.size > 8 * 1024 * 1024) {
+    return NextResponse.json({ error: "Image must be under 8MB before prepare." }, { status: 413 });
   }
-  if (file.type && !file.type.startsWith("image/")) {
+  if (file.type && !file.type.startsWith("image/") && file.type !== "application/octet-stream") {
     return NextResponse.json({ error: "Upload a PNG, JPG, WEBP or SVG image." }, { status: 400 });
   }
 

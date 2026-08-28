@@ -64,7 +64,7 @@ export function TrainAdminClient() {
     title: "",
     description: "",
     roles: "Engineer,Manager,Owner/Admin",
-    moduleIds: "mod-nexa-welcome",
+    moduleIds: "mod-nexa-foundations",
   });
 
   async function load() {
@@ -83,7 +83,7 @@ export function TrainAdminClient() {
     void load();
   }, []);
 
-  async function postAdmin(body: unknown) {
+    async function postAdmin(body: unknown) {
     setBusy(true);
     setError("");
     setNotice("");
@@ -96,9 +96,9 @@ export function TrainAdminClient() {
         },
         body: JSON.stringify(body),
       });
-      const payload = (await response.json()) as { error?: string; ok?: boolean };
+      const payload = (await response.json()) as { error?: string; ok?: boolean; message?: string };
       if (!response.ok) throw new Error(payload.error || "Admin action failed.");
-      setNotice("Saved.");
+      setNotice(payload.message || "Saved.");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed.");
@@ -120,9 +120,19 @@ export function TrainAdminClient() {
         <div>
           <h1>Train the trainers</h1>
           <p>
-            Brian and other admins approve materials, build role-aware flows, publish modules, and
-            track who has completed training. Blake will not answer outside this pack.
+            Blake knows the approved NeXa system pack and can rebuild every role-aware module from it.
+            You still approve extra materials; Blake will not answer outside the pack.
           </p>
+          <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="blake-train-btn verdigris"
+              disabled={busy}
+              onClick={() => void postAdmin({ action: "generate_system_modules" })}
+            >
+              Blake: generate all modules
+            </button>
+          </div>
         </div>
       </section>
 
@@ -186,7 +196,7 @@ export function TrainAdminClient() {
                     onChange={(event) =>
                       setFlowForm((current) => ({ ...current, moduleIds: event.target.value }))
                     }
-                    placeholder="mod-nexa-welcome,mod-field-basics"
+                    placeholder="mod-nexa-foundations,mod-field-complete"
                   />
                 </label>
                 <button
