@@ -23,7 +23,7 @@ import {
   type FormDocumentTemplate,
 } from "@/lib/form-document-chrome";
 import { getHubDetailState } from "@/lib/hub-detail-store";
-import { isPlaceholderCompanyRegistration } from "@/lib/commercial-safeguards";
+import { formatCompanyRegistrationLine } from "@/lib/commercial-safeguards";
 
 const ink = rgb(0.08, 0.12, 0.16);
 const muted = rgb(0.35, 0.4, 0.45);
@@ -289,13 +289,7 @@ export async function createDayworkAccountPdf(context: DayworkAccountContext) {
       chrome.tradingName,
       chrome.address,
       [chrome.phone, chrome.contactEmail].filter(Boolean).join(" · "),
-      chrome.showVatCompanyNumbers &&
-      !isPlaceholderCompanyRegistration({
-        vatNumber: chrome.vatNumber,
-        companyNumber: chrome.companyNumber,
-      })
-        ? `VAT ${chrome.vatNumber} · Company ${chrome.companyNumber}`
-        : "",
+      chrome.showVatCompanyNumbers ? formatCompanyRegistrationLine(chrome) : "",
     ].filter(Boolean);
     for (const line of detail) {
       page.drawText(safeText(line), { x: margin, y, size: 8, font: regular, color: muted });

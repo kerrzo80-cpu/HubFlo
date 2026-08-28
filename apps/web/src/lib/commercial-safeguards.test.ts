@@ -9,7 +9,9 @@ import {
   isPlaceholderBankDetails,
   isPlaceholderCompanyNumber,
   isPlaceholderCompanyRegistration,
+  isPlaceholderUtrNumber,
   isPlaceholderVatNumber,
+  formatCompanyRegistrationLine,
   scrubCompanyRegistrationDisplay,
 } from "./commercial-safeguards.ts";
 
@@ -72,5 +74,11 @@ test("placeholder bank and company registration scrubbing", () => {
   const scrubbed = scrubCompanyRegistrationDisplay({ vatNumber: "GB000000000", companyNumber: "SC123456" });
   assert.equal(scrubbed.vatNumber, "");
   assert.equal(scrubbed.companyNumber, "SC123456");
+  assert.equal(scrubbed.utrNumber, "");
   assert.equal(scrubbed.showLine, true);
+  assert.equal(isPlaceholderUtrNumber(""), true);
+  assert.equal(isPlaceholderUtrNumber("0000000000"), true);
+  assert.equal(isPlaceholderUtrNumber("1234567890"), false);
+  assert.equal(formatCompanyRegistrationLine({ vatNumber: "GB123456789", utrNumber: "1234567890" }), "VAT GB123456789 · UTR 1234567890");
+  assert.equal(isPlaceholderCompanyRegistration({ utrNumber: "1234567890" }), false);
 });

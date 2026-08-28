@@ -65,6 +65,7 @@ export type FormDocumentChrome = {
   contactEmail: string;
   vatNumber: string;
   companyNumber: string;
+  utrNumber: string;
   brandLine: string;
   title: string;
   headerNote: string;
@@ -187,6 +188,7 @@ export function resolveFormDocumentChrome(
   const registration = scrubCompanyRegistrationDisplay({
     vatNumber: business.vatNumber,
     companyNumber: business.companyNumber,
+    utrNumber: business.utrNumber,
   });
   return {
     logoUrl,
@@ -197,6 +199,7 @@ export function resolveFormDocumentChrome(
     contactEmail: business.contactEmail,
     vatNumber: registration.vatNumber,
     companyNumber: registration.companyNumber,
+    utrNumber: registration.utrNumber,
     brandLine: business.clientPortalBrandLine,
     title: template.title,
     headerNote: template.headerNote || "",

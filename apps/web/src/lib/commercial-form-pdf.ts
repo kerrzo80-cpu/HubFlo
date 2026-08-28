@@ -1,7 +1,7 @@
 import { PageSizes, StandardFonts, rgb, type PDFPage } from "pdf-lib";
 
 import { normalizeBusinessBranding } from "@/lib/branding";
-import { isPlaceholderCompanyRegistration } from "@/lib/commercial-safeguards";
+import { formatCompanyRegistrationLine } from "@/lib/commercial-safeguards";
 import {
   hexToPdfRgb,
   normalizeFormDocumentTemplate,
@@ -147,16 +147,13 @@ export async function createBrandedCommercialPdf(document: BrandedCommercialPdfI
     if (chrome.address) companyY = drawTextBlock(chrome.address, companyX, companyY - 2, { size: 8, color: muted, maxWidth: contentWidth - 110 });
     const contactLine = [chrome.phone, chrome.contactEmail].filter(Boolean).join(" · ");
     if (contactLine) companyY = drawTextBlock(contactLine, companyX, companyY - 1, { size: 8, color: muted, maxWidth: contentWidth - 110 });
-    if (
-      chrome.showVatCompanyNumbers &&
-      !isPlaceholderCompanyRegistration({ vatNumber: chrome.vatNumber, companyNumber: chrome.companyNumber })
-    ) {
-      companyY = drawTextBlock(
-        `VAT ${chrome.vatNumber} · Company ${chrome.companyNumber}`,
-        companyX,
-        companyY - 1,
-        { size: 8, color: muted, maxWidth: contentWidth - 110 },
-      );
+    const registrationLine = formatCompanyRegistrationLine(chrome);
+    if (chrome.showVatCompanyNumbers && registrationLine) {
+      companyY = drawTextBlock(registrationLine, companyX, companyY - 1, {
+        size: 8,
+        color: muted,
+        maxWidth: contentWidth - 110,
+      });
     }
   }
   y = Math.min(y - (logo ? 40 : 0), companyY) - 14;
