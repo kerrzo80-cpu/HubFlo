@@ -644,21 +644,17 @@ export function SetupPrebuildsPanel({
       );
       if (importedCount > 0) {
         setError("");
-        if (blockingErrors.length) {
-          onNotice(
-            `Imported ${importedCount} kit(s) with ${blockingErrors.length} row warning(s): ${blockingErrors
-              .slice(0, 3)
-              .map((row) => row.message || `Row ${row.row}`)
-              .join(" · ")}`,
-          );
-        }
       } else if (rowErrors.length) {
         setError(rowErrors.slice(0, 8).map((row) => row.message || `Row ${row.row} skipped`).join(" "));
       }
+      const warningNote =
+        importedCount > 0 && blockingErrors.length
+          ? ` · ${blockingErrors.length} row warning(s)`
+          : "";
       onNotice(
         `Imported ${importedCount} kit(s)${
           body.created ? ` · ${body.created} new` : ""
-        }${body.updated ? ` · ${body.updated} updated` : ""}${optionalNote}. Apply from quote/job cost centres — the kit explodes into catalogue lines, not one sell item.`,
+        }${body.updated ? ` · ${body.updated} updated` : ""}${optionalNote}${warningNote}. Apply from quote/job cost centres — the kit explodes into catalogue lines, not one sell item.`,
       );
     } catch (importError) {
       setError(importError instanceof Error ? importError.message : "Unable to import kits");
