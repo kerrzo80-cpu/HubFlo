@@ -82,6 +82,10 @@ function finiteOr(value: unknown, fallback: number) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+export function kitLineSelectionKey(kitId: string, line: { id?: string }, index: number) {
+  return line.id || `${kitId}-line-${index + 1}`;
+}
+
 export function kitLinesOf(kit: KitApplyKit | null | undefined): KitApplyLine[] {
   return Array.isArray(kit?.lines) ? kit.lines : [];
 }

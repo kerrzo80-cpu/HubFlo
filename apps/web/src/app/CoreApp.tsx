@@ -117,7 +117,7 @@ import {
   commercialTermsSummary,
   resolveCommercialTerms,
 } from "@/lib/commercial-terms";
-import { explodeKitOntoJob, explodeKitOntoQuote, kitLinesOf } from "@/lib/kit-apply";
+import { explodeKitOntoJob, explodeKitOntoQuote, kitLineSelectionKey, kitLinesOf } from "@/lib/kit-apply";
 import {
   applyRetentionWithCap,
   buildRetentionPortfolio,
@@ -8852,6 +8852,12 @@ export default function CoreApp() {
   }, [activeQuoteBuildTab]);
 
   useEffect(() => {
+    if (activeQuoteBuildTab !== "catalogue" && activeJobBuildTab !== "catalogue") return;
+    void ensurePrebuildKitsLoaded();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeQuoteBuildTab, activeJobBuildTab]);
+
+  useEffect(() => {
     if (!focusedActionRecordId) return;
     const timer = window.setTimeout(() => {
       const node =
@@ -8985,7 +8991,8 @@ export default function CoreApp() {
       unit?: string;
     }>;
   }>>([]);
-  const [selectedPrebuildId, setSelectedPrebuildId] = useState("");
+  const [activeCatalogueKitId, setActiveCatalogueKitId] = useState("");
+  const [selectedKitLineIdsByKit, setSelectedKitLineIdsByKit] = useState<Record<string, string[]>>({});
   const [supplierQuoteDrafts, setSupplierQuoteDrafts] = useState<Record<string, SupplierQuoteDraft>>({});
   const [jobSupplierRequestDrafts, setJobSupplierRequestDrafts] = useState<Record<string, JobSupplierRequestDraft>>({});
   const [selectedQuoteMaterialLineIds, setSelectedQuoteMaterialLineIds] = useState<Record<string, string[]>>({});
@@ -28553,7 +28560,7 @@ export default function CoreApp() {
         lines: Array.isArray(kit.lines) ? kit.lines : [],
       }));
       setPrebuildKits(kits);
-      if (!selectedPrebuildId && kits[0]?.id) setSelectedPrebuildId(kits[0].id);
+      if (!activeCatalogueKitId && kits[0]?.id) setActiveCatalogueKitId(kits[0].id);
       return kits as typeof prebuildKits;
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to load kits.");
@@ -28561,19 +28568,51 @@ export default function CoreApp() {
     }
   }
 
+  function kitWithSelectedLines(kit: (typeof prebuildKits)[number]) {
+    const selectedKeys = new Set(selectedKitLineIdsByKit[kit.id] ?? []);
+    return {
+      ...kit,
+      lines: kit.lines.filter((line, index) => selectedKeys.has(kitLineSelectionKey(kit.id, line, index))),
+    };
+  }
+
+  function selectCatalogueKit(kitId: string) {
+    setActiveCatalogueKitId(kitId);
+    setActiveCatalogueFolder(CATALOGUE_FOLDER_ALL);
+    setSelectedKitLineIdsByKit((current) => {
+      if (current[kitId]?.length) return current;
+      const kit = prebuildKits.find((row) => row.id === kitId);
+      if (!kit?.lines.length) return current;
+      return {
+        ...current,
+        [kitId]: kit.lines.map((line, index) => kitLineSelectionKey(kitId, line, index)),
+      };
+    });
+  }
+
+  function toggleKitLineSelection(kitId: string, lineKey: string, checked: boolean) {
+    setSelectedKitLineIdsByKit((current) => {
+      const existing = new Set(current[kitId] ?? []);
+      if (checked) existing.add(lineKey);
+      else existing.delete(lineKey);
+      return { ...current, [kitId]: [...existing] };
+    });
+  }
+
   async function applySelectedPrebuildToJobCentre(centreId: string) {
     try {
       const kits = await ensurePrebuildKitsLoaded();
-      const kit = kits.find((row) => row.id === selectedPrebuildId) || kits[0];
+      const kit = kits.find((row) => row.id === activeCatalogueKitId) || kits[0];
       if (!kit) {
         showNotice("Create a kit in Setup → Kits first.");
         return;
       }
-      if (!kitLinesOf(kit).length) {
-        showNotice(`Kit “${kit.name}” has no component lines to apply.`);
+      const filtered = kitWithSelectedLines(kit);
+      if (!kitLinesOf(filtered).length) {
+        showNotice(`Select at least one line from kit “${kit.name}”.`);
         return;
       }
-      const exploded = explodeKitOntoJob(kit, availableQuoteCatalog, {
+      const exploded = explodeKitOntoJob(filtered, availableQuoteCatalog, {
         materialMarkupPercent: defaultMaterialMarkupPercent,
         labourMarkupPercent: defaultMarkupForCatalogType("Labour", normalizedFinanceSettings),
       });
@@ -28613,16 +28652,17 @@ export default function CoreApp() {
     if (!selectedQuote) return;
     try {
       const kits = await ensurePrebuildKitsLoaded();
-      const kit = kits.find((row) => row.id === selectedPrebuildId) || kits[0];
+      const kit = kits.find((row) => row.id === activeCatalogueKitId) || kits[0];
       if (!kit) {
         showNotice("Create a kit in Setup → Kits first.");
         return;
       }
-      if (!kitLinesOf(kit).length) {
-        showNotice(`Kit “${kit.name}” has no component lines to apply.`);
+      const filtered = kitWithSelectedLines(kit);
+      if (!kitLinesOf(filtered).length) {
+        showNotice(`Select at least one line from kit “${kit.name}”.`);
         return;
       }
-      const exploded = explodeKitOntoQuote(kit, availableQuoteCatalog, {
+      const exploded = explodeKitOntoQuote(filtered, availableQuoteCatalog, {
         materialMarkupPercent: defaultMaterialMarkupPercent,
         labourMarkupPercent: defaultMarkupForCatalogType("Labour", normalizedFinanceSettings),
       });
@@ -41627,41 +41667,6 @@ export default function CoreApp() {
                                 CREATE ITEM
                               </button>
                             </div>
-                            <div className="quote-catalogue-toolbar" style={{ gap: "0.6rem", flexWrap: "wrap" }}>
-                              <label>
-                                Kit
-                                <select
-                                  value={selectedPrebuildId}
-                                  onFocus={() => void ensurePrebuildKitsLoaded()}
-                                  onChange={(event) => setSelectedPrebuildId(event.target.value)}
-                                >
-                                  {(prebuildKits.length ? prebuildKits : [{ id: "", name: "Load kits…", category: "" }]).map((kit) => (
-                                    <option key={kit.id || "empty"} value={kit.id}>{kit.name}{kit.category ? ` · ${kit.category}` : ""}</option>
-                                  ))}
-                                </select>
-                              </label>
-                              <button
-                                className="primary-button"
-                                type="button"
-                                disabled={!selectedQuoteCostCentre}
-                                onClick={() => {
-                                  if (!selectedQuoteCostCentre) return;
-                                  void applySelectedPrebuildToQuoteCentre(selectedQuoteCostCentre.id);
-                                }}
-                              >
-                                Apply kit to cost centre
-                              </button>
-                              <button
-                                className="secondary-button"
-                                type="button"
-                                onClick={() => {
-                                  setHomeView("settings");
-                                  setActiveSetupCategory("prebuilds");
-                                }}
-                              >
-                                Manage kits
-                              </button>
-                            </div>
 
                             <div className="quote-catalogue-layout">
                               <div className="quote-catalogue-groups">
@@ -41671,10 +41676,11 @@ export default function CoreApp() {
                                 </div>
                                 {folderButtons.map((folder) => (
                                   <button
-                                    className={activeCatalogueFolder === folder.id ? "active" : ""}
+                                    className={!activeCatalogueKitId && activeCatalogueFolder === folder.id ? "active" : ""}
                                     key={folder.id}
                                     type="button"
                                     onClick={() => {
+                                      setActiveCatalogueKitId("");
                                       setActiveCatalogueFolder(folder.id);
                                       scrollWorkspaceToTop();
                                     }}
@@ -41684,9 +41690,117 @@ export default function CoreApp() {
                                     <MoreHorizontal size={15} />
                                   </button>
                                 ))}
+                                <div className="quote-catalogue-head quote-catalogue-head-kits">
+                                  <strong>Kits</strong>
+                                  <span>Pre-build assemblies</span>
+                                </div>
+                                {(prebuildKits.length ? prebuildKits : []).map((kit) => (
+                                  <button
+                                    className={activeCatalogueKitId === kit.id ? "active" : ""}
+                                    key={kit.id}
+                                    type="button"
+                                    onClick={() => {
+                                      void ensurePrebuildKitsLoaded().then((kits) => {
+                                        if (!kits.find((row) => row.id === kit.id)) return;
+                                        selectCatalogueKit(kit.id);
+                                        scrollWorkspaceToTop();
+                                      });
+                                    }}
+                                  >
+                                    <span>{kit.name}</span>
+                                    <small>{kit.lines.length} item(s){kit.category ? ` · ${kit.category}` : ""}</small>
+                                    <MoreHorizontal size={15} />
+                                  </button>
+                                ))}
+                                {!prebuildKits.length ? (
+                                  <button
+                                    className={activeCatalogueKitId === "__manage__" ? "active" : ""}
+                                    type="button"
+                                    onClick={() => void ensurePrebuildKitsLoaded()}
+                                  >
+                                    <span>Load kits…</span>
+                                    <small>Setup → Kits</small>
+                                  </button>
+                                ) : null}
+                                <button
+                                  className="quote-catalogue-manage-kits"
+                                  type="button"
+                                  onClick={() => {
+                                    setHomeView("settings");
+                                    setActiveSetupCategory("prebuilds");
+                                  }}
+                                >
+                                  Manage kits
+                                </button>
                               </div>
 
                               <div className="quote-catalogue-items">
+                                {activeCatalogueKitId ? (() => {
+                                  const kit = prebuildKits.find((row) => row.id === activeCatalogueKitId);
+                                  if (!kit) {
+                                    return (
+                                      <div className="quote-catalogue-empty">
+                                        <strong>Select a kit</strong>
+                                        <span>Choose a kit on the left to tick items before adding them to this cost centre.</span>
+                                      </div>
+                                    );
+                                  }
+                                  const selectedKeys = new Set(selectedKitLineIdsByKit[kit.id] ?? []);
+                                  const allSelected = kit.lines.length > 0 && selectedKeys.size === kit.lines.length;
+                                  return (
+                                    <>
+                                      <div className="quote-catalogue-head">
+                                        <strong>{kit.name} kit items</strong>
+                                        <span>{selectedKeys.size} of {kit.lines.length} selected</span>
+                                      </div>
+                                      <div className="quote-catalogue-kit-actions">
+                                        <button
+                                          className="secondary-button"
+                                          type="button"
+                                          onClick={() =>
+                                            setSelectedKitLineIdsByKit((current) => ({
+                                              ...current,
+                                              [kit.id]: allSelected
+                                                ? []
+                                                : kit.lines.map((line, index) => kitLineSelectionKey(kit.id, line, index)),
+                                            }))
+                                          }
+                                        >
+                                          {allSelected ? "Clear all" : "Select all"}
+                                        </button>
+                                        <button
+                                          className="primary-button"
+                                          type="button"
+                                          disabled={!selectedQuoteCostCentre || selectedKeys.size === 0}
+                                          onClick={() => {
+                                            if (!selectedQuoteCostCentre) return;
+                                            void applySelectedPrebuildToQuoteCentre(selectedQuoteCostCentre.id);
+                                          }}
+                                        >
+                                          Add selected to cost centre
+                                        </button>
+                                      </div>
+                                      {kit.lines.map((line, index) => {
+                                        const lineKey = kitLineSelectionKey(kit.id, line, index);
+                                        const checked = selectedKeys.has(lineKey);
+                                        return (
+                                          <label className="quote-catalogue-item-row quote-catalogue-kit-line" key={lineKey}>
+                                            <input
+                                              type="checkbox"
+                                              checked={checked}
+                                              onChange={(event) => toggleKitLineSelection(kit.id, lineKey, event.target.checked)}
+                                            />
+                                            <div>
+                                              <strong>{line.description}</strong>
+                                              <span>{line.kind}{line.unit ? ` · ${line.unit}` : ""} · qty {line.quantity}</span>
+                                            </div>
+                                          </label>
+                                        );
+                                      })}
+                                    </>
+                                  );
+                                })() : (
+                                  <>
                                 <div className="quote-catalogue-head">
                                   <strong>Items menu - {activeCatalogueFolder}</strong>
                                   <span>{visibleCatalogItems.length} matching item(s)</span>
@@ -41730,6 +41844,8 @@ export default function CoreApp() {
                                     </span>
                                   </div>
                                 ) : null}
+                                  </>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -44611,41 +44727,6 @@ export default function CoreApp() {
                                 CREATE ITEM
                               </button>
                             </div>
-                            <div className="quote-catalogue-toolbar" style={{ gap: "0.6rem", flexWrap: "wrap" }}>
-                              <label>
-                                Kit
-                                <select
-                                  value={selectedPrebuildId}
-                                  onFocus={() => void ensurePrebuildKitsLoaded()}
-                                  onChange={(event) => setSelectedPrebuildId(event.target.value)}
-                                >
-                                  {(prebuildKits.length ? prebuildKits : [{ id: "", name: "Load kits…", category: "" }]).map((kit) => (
-                                    <option key={kit.id || "empty"} value={kit.id}>{kit.name}{kit.category ? ` · ${kit.category}` : ""}</option>
-                                  ))}
-                                </select>
-                              </label>
-                              <button
-                                className="primary-button"
-                                type="button"
-                                disabled={!selectedCostCentre}
-                                onClick={() => {
-                                  if (!selectedCostCentre) return;
-                                  void applySelectedPrebuildToJobCentre(selectedCostCentre.id);
-                                }}
-                              >
-                                Apply kit to cost centre
-                              </button>
-                              <button
-                                className="secondary-button"
-                                type="button"
-                                onClick={() => {
-                                  setHomeView("settings");
-                                  setActiveSetupCategory("prebuilds");
-                                }}
-                              >
-                                Manage kits
-                              </button>
-                            </div>
 
                             <div className="quote-catalogue-layout">
                               <div className="quote-catalogue-groups">
@@ -44655,10 +44736,11 @@ export default function CoreApp() {
                                 </div>
                                 {folderButtons.map((folder) => (
                                   <button
-                                    className={activeCatalogueFolder === folder.id ? "active" : ""}
+                                    className={!activeCatalogueKitId && activeCatalogueFolder === folder.id ? "active" : ""}
                                     key={folder.id}
                                     type="button"
                                     onClick={() => {
+                                      setActiveCatalogueKitId("");
                                       setActiveCatalogueFolder(folder.id);
                                       scrollWorkspaceToTop();
                                     }}
@@ -44668,9 +44750,117 @@ export default function CoreApp() {
                                     <MoreHorizontal size={15} />
                                   </button>
                                 ))}
+                                <div className="quote-catalogue-head quote-catalogue-head-kits">
+                                  <strong>Kits</strong>
+                                  <span>Pre-build assemblies</span>
+                                </div>
+                                {(prebuildKits.length ? prebuildKits : []).map((kit) => (
+                                  <button
+                                    className={activeCatalogueKitId === kit.id ? "active" : ""}
+                                    key={kit.id}
+                                    type="button"
+                                    onClick={() => {
+                                      void ensurePrebuildKitsLoaded().then((kits) => {
+                                        if (!kits.find((row) => row.id === kit.id)) return;
+                                        selectCatalogueKit(kit.id);
+                                        scrollWorkspaceToTop();
+                                      });
+                                    }}
+                                  >
+                                    <span>{kit.name}</span>
+                                    <small>{kit.lines.length} item(s){kit.category ? ` · ${kit.category}` : ""}</small>
+                                    <MoreHorizontal size={15} />
+                                  </button>
+                                ))}
+                                {!prebuildKits.length ? (
+                                  <button
+                                    className={activeCatalogueKitId === "__manage__" ? "active" : ""}
+                                    type="button"
+                                    onClick={() => void ensurePrebuildKitsLoaded()}
+                                  >
+                                    <span>Load kits…</span>
+                                    <small>Setup → Kits</small>
+                                  </button>
+                                ) : null}
+                                <button
+                                  className="quote-catalogue-manage-kits"
+                                  type="button"
+                                  onClick={() => {
+                                    setHomeView("settings");
+                                    setActiveSetupCategory("prebuilds");
+                                  }}
+                                >
+                                  Manage kits
+                                </button>
                               </div>
 
                               <div className="quote-catalogue-items">
+                                {activeCatalogueKitId ? (() => {
+                                  const kit = prebuildKits.find((row) => row.id === activeCatalogueKitId);
+                                  if (!kit) {
+                                    return (
+                                      <div className="quote-catalogue-empty">
+                                        <strong>Select a kit</strong>
+                                        <span>Choose a kit on the left to tick items before adding them to this cost centre.</span>
+                                      </div>
+                                    );
+                                  }
+                                  const selectedKeys = new Set(selectedKitLineIdsByKit[kit.id] ?? []);
+                                  const allSelected = kit.lines.length > 0 && selectedKeys.size === kit.lines.length;
+                                  return (
+                                    <>
+                                      <div className="quote-catalogue-head">
+                                        <strong>{kit.name} kit items</strong>
+                                        <span>{selectedKeys.size} of {kit.lines.length} selected</span>
+                                      </div>
+                                      <div className="quote-catalogue-kit-actions">
+                                        <button
+                                          className="secondary-button"
+                                          type="button"
+                                          onClick={() =>
+                                            setSelectedKitLineIdsByKit((current) => ({
+                                              ...current,
+                                              [kit.id]: allSelected
+                                                ? []
+                                                : kit.lines.map((line, index) => kitLineSelectionKey(kit.id, line, index)),
+                                            }))
+                                          }
+                                        >
+                                          {allSelected ? "Clear all" : "Select all"}
+                                        </button>
+                                        <button
+                                          className="primary-button"
+                                          type="button"
+                                          disabled={!selectedCostCentre || selectedKeys.size === 0}
+                                          onClick={() => {
+                                            if (!selectedCostCentre) return;
+                                            void applySelectedPrebuildToJobCentre(selectedCostCentre.id);
+                                          }}
+                                        >
+                                          Add selected to cost centre
+                                        </button>
+                                      </div>
+                                      {kit.lines.map((line, index) => {
+                                        const lineKey = kitLineSelectionKey(kit.id, line, index);
+                                        const checked = selectedKeys.has(lineKey);
+                                        return (
+                                          <label className="quote-catalogue-item-row quote-catalogue-kit-line" key={lineKey}>
+                                            <input
+                                              type="checkbox"
+                                              checked={checked}
+                                              onChange={(event) => toggleKitLineSelection(kit.id, lineKey, event.target.checked)}
+                                            />
+                                            <div>
+                                              <strong>{line.description}</strong>
+                                              <span>{line.kind}{line.unit ? ` · ${line.unit}` : ""} · qty {line.quantity}</span>
+                                            </div>
+                                          </label>
+                                        );
+                                      })}
+                                    </>
+                                  );
+                                })() : (
+                                  <>
                                 <div className="quote-catalogue-head">
                                   <strong>Items menu - {activeCatalogueFolder}</strong>
                                   <span>{visibleCatalogItems.length} matching item(s)</span>
@@ -44696,6 +44886,8 @@ export default function CoreApp() {
                                     <span>Create an item or save selected one-off rows into this catalogue folder.</span>
                                   </div>
                                 ) : null}
+                                  </>
+                                )}
                               </div>
                             </div>
                           </div>

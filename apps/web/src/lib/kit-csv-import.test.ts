@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { KITS_CSV_TEMPLATE, parseKitsFromCsvText, parseKitsFromTabularRows } from "./kit-csv-import.ts";
+import { KITS_CSV_TEMPLATE, detectKitColumns, parseKitsFromCsvText, parseKitsFromTabularRows } from "./kit-csv-import.ts";
 
 test("parseKitsFromCsvText groups rows by kit_name", () => {
   const parsed = parseKitsFromCsvText(KITS_CSV_TEMPLATE, "kits-template.csv");
@@ -33,4 +33,12 @@ test("CSV template rows saved as .xlsx import as grouped kits", () => {
   assert.ok(bath);
   assert.equal(bath?.lines.length, 9);
   assert.equal(bath?.category, "Bathroom");
+  assert.equal(bath?.lines[0]?.description, "1700x700mm bath");
+});
+
+test("detectKitColumns does not treat kit_name as description", () => {
+  const columns = detectKitColumns(["kit_name", "category", "description", "quantity", "kind"]);
+  assert.equal(columns.kitName, 0);
+  assert.equal(columns.description, 2);
+  assert.equal(columns.quantity, 3);
 });

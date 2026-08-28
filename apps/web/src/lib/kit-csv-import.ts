@@ -49,15 +49,29 @@ function normalizeHeader(value: string) {
 
 export function detectKitColumns(header: string[]) {
   const normalized = header.map(normalizeHeader);
-  const find = (...aliases: string[]) =>
-    normalized.findIndex((cell) => aliases.some((alias) => cell === alias || cell.includes(alias)));
+  const findExact = (...aliases: string[]) => normalized.findIndex((cell) => aliases.includes(cell));
+  const findIncludes = (...aliases: string[]) => {
+    for (const alias of aliases) {
+      if (alias.length <= 3) continue;
+      const index = normalized.findIndex((cell) => cell.includes(alias));
+      if (index >= 0) return index;
+    }
+    return -1;
+  };
+  const pick = (exact: number, partial: number) => (exact >= 0 ? exact : partial);
 
   return {
-    kitName: find("kit name", "kit_name", "kit", "package", "prebuild", "assembly"),
-    category: find("category", "group", "trade"),
-    description: find("description", "item", "material", "part", "name"),
-    quantity: find("quantity", "qty", "q"),
-    kind: find("kind", "type", "line type"),
+    kitName: pick(
+      findExact("kit name", "kit_name", "kit", "package", "prebuild", "assembly"),
+      findIncludes("kit name", "kit_name", "prebuild"),
+    ),
+    category: pick(findExact("category", "group", "trade"), findIncludes("category", "trade")),
+    description: pick(
+      findExact("description", "item description", "item", "material", "part"),
+      findIncludes("description", "material"),
+    ),
+    quantity: pick(findExact("quantity", "qty"), findIncludes("quantity")),
+    kind: pick(findExact("kind", "type", "line type"), findIncludes("line type")),
   };
 }
 

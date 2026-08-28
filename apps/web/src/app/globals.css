@@ -9014,6 +9014,48 @@ button.record-folder-card-button.is-active {
   grid-template-columns: minmax(0, 1fr) 78px;
 }
 
+.quote-catalogue-head-kits {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 0.35rem;
+  padding-top: 0.65rem;
+}
+
+.quote-catalogue-manage-kits {
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  margin: 0.35rem 0 0.15rem;
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+  width: 100%;
+}
+
+.quote-catalogue-manage-kits:hover {
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+
+.quote-catalogue-kit-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  padding: 0.35rem 0.85rem 0.75rem;
+}
+
+.quote-catalogue-kit-line {
+  align-items: flex-start;
+  cursor: pointer;
+  grid-template-columns: 18px minmax(0, 1fr);
+}
+
+.quote-catalogue-kit-line input {
+  margin-top: 0.2rem;
+}
+
 .quote-catalogue-item-row > div {
   display: flex;
   flex-direction: column;
